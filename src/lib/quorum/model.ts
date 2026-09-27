@@ -538,7 +538,6 @@ export function formatClock(mins: number): string {
   const suffix = h24 >= 12 ? "pm" : "am";
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   if (m === 0) return `${h12}${suffix}`;
-  if (m === 0) return `${h12}${suffix}`;
   return `${h12}:${String(m).padStart(2, "0")}${suffix}`;
 }
 
