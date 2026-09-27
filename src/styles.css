@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0e0e0c;
+  --color-surface: #171714;
+  --color-raised: #221f1a;
+  --color-fg: #f3efe6;
+  --color-muted: #a39b8c;
+  --color-line: #322e28;
+  --color-signal: #e6a23c;
+  --color-signal-ink: #1a1206;
+  --font-sans: "Public Sans", "Segoe UI", sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    line-height: 1.5;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-signal);
+    color: var(--color-signal-ink);
+  }
+}
+
+input[type="range"] {
+  appearance: none;
+  height: 2.75rem;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  height: 1.75rem;
+  width: 1.75rem;
+  margin-top: -0.6875rem;
+  border-radius: 999px;
+  background: var(--color-signal);
+  border: 2px solid var(--color-signal-ink);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 0.375rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 999px;
+  background: var(--color-signal);
+  border: 2px solid var(--color-signal-ink);
+}
+
+.live-dot {
+  animation: quorum-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quorum-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
