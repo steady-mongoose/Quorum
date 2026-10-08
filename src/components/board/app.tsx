@@ -40,7 +40,7 @@ export function BoardApp() {
               <p className="font-display text-3xl leading-none text-fg">The Board</p>
               <p className="mt-2 text-sm text-muted">{theme.motto || "Read your room. Then leave."}</p>
             </div>
-            <Emblem theme={theme.id} className="size-12 shrink-0 text-signal" />
+            <Emblem theme={theme.id} size="header" />
           </div>
           <IconNav items={NAV} current={section} onSelect={setSection} label="Sections" />
         </div>

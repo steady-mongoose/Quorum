@@ -45,7 +45,7 @@ export function AboutView() {
               onClick={() => setTheme(item.id)}
               className={pill(theme === item.id, "px-4")}
             >
-              <Emblem theme={item.id} className="size-5" />
+              <Emblem theme={item.id} size="pill" />
               {item.name}
             </button>
           ))}
