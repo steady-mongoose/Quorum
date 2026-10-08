@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, CornerDownRight, Flag, Pin, Trash2, X } from "lucide-react";
+import { Check, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
@@ -8,13 +8,14 @@ import {
   ROOMS,
   banFor,
   blankDraft,
-  cardListed,
+  canDm,
   composerCheck,
   formatDate,
   formatWhen,
   repliesTo,
   roomById,
   sawLockedFor,
+  shelfFor,
   sortRoom,
   typeMeta,
   type HardRule,
@@ -36,7 +37,7 @@ export function RoomView() {
   const now = useNow();
   const meta = roomById(room);
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
-  const pinned = cards.filter((card) => card.room === room && card.pinned && cardListed(card));
+  const shelf = useMemo(() => (now ? shelfFor(room, cards, posts, now) : []), [room, cards, posts, now]);
   const ban = now ? banFor(me.trim() || "You", bans, now.getTime()) : null;
 
   return (
@@ -69,20 +70,26 @@ export function RoomView() {
 
       {room === "civic" ? <CivicDesk /> : null}
 
-      {pinned.map((card) => (
-        <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
-          <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-signal uppercase">
-            <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate card" : "Meeting"} · pinned until the hour
-          </p>
-          <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
-          <p className="text-sm text-muted">
-            {card.place} · {card.time}
-            {card.host ? ` · ${card.host}` : ""}
-            {card.next ? ` · next ${formatDate(card.next)}` : ""}
-          </p>
-        </article>
-      ))}
+      {shelf.length > 0 ? (
+        <section className="flex flex-col gap-3" aria-label="Coming up">
+          {shelf.map((card) => (
+            <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
+              <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-signal uppercase">
+                <Pin className="size-3" aria-hidden="true" />
+                {card.kind === "candidate" ? "Candidate card" : "Coming up"}
+                {card.pinned ? " · pinned until the hour" : ""}
+              </p>
+              <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
+              <p className="text-sm text-muted">
+                {card.place} · {card.time}
+                {card.host ? ` · ${card.host}` : ""}
+                {card.next ? ` · ${formatDate(card.next)}` : ""}
+                {card.firstTimer ? " · takes a first-timer" : ""}
+              </p>
+            </article>
+          ))}
+        </section>
+      ) : null}
 
       {ban ? (
         <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
@@ -104,6 +111,8 @@ export function RoomView() {
           {feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}
         </p>
       </section>
+
+      <MarkLog />
     </div>
   );
 }
@@ -154,14 +163,19 @@ function Composer() {
   const room = useBoard((state) => state.room);
   const me = useBoard((state) => state.me);
   const posts = useBoard((state) => state.posts);
+  const cards = useBoard((state) => state.cards);
   const file = useBoard((state) => state.file);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [touched, setTouched] = useState(false);
   const meta = roomById(room);
   const current = draft.room === room ? draft : blankDraft(room);
-  const sawLocked = sawLockedFor(me.trim() || "You", posts);
-  const check = composerCheck(current, sawLocked);
+  const name = me.trim() || "You";
+  const sawLocked = sawLockedFor(name, posts);
+  const check = composerCheck(current, sawLocked, me, cards);
   const typeMetaNow = current.type ? typeMeta(current.type) : null;
+  const roomCards = cards.filter((card) => card.room === room && card.kind !== "trade");
+  const hostedCards = roomCards.filter((card) => card.host === name);
+  const trades = cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== name);
 
   function patch(next: Partial<typeof current>) {
     setDraft({ ...current, ...next });
@@ -175,22 +189,26 @@ function Composer() {
     setTouched(false);
   }
 
+  const selectClass = cn(fieldClass, "min-h-11");
+
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <p className="text-sm text-muted">Every post picks a type or it does not send.</p>
       <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Post type">
         {POST_TYPES.filter((type) => meta.takes.includes(type.id)).map((type) => {
           const active = current.type === type.id;
+          const hostedButNoCard = type.id === "hosted" && hostedCards.length === 0;
           return (
             <button
               key={type.id}
               type="button"
               role="radio"
               aria-checked={active}
-              title={type.what}
-              onClick={() => patch({ type: type.id as PostType })}
+              title={hostedButNoCard ? "You host no card in this room." : type.what}
+              disabled={hostedButNoCard}
+              onClick={() => patch({ type: type.id as PostType, cardId: type.id === "hosted" ? (hostedCards[0]?.id ?? "") : current.cardId })}
               className={cn(
-                "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-semibold",
+                "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-semibold disabled:opacity-40",
                 active ? "bg-signal text-signal-ink" : "border border-line bg-raised text-muted",
               )}
             >
@@ -202,6 +220,48 @@ function Composer() {
       {typeMetaNow ? (
         <div className="mt-4 flex flex-col gap-3">
           <p className="text-sm text-muted">{typeMetaNow.what}</p>
+
+          {current.type === "hosted" ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              The card this closes
+              <select className={selectClass} value={current.cardId} onChange={(event) => patch({ cardId: event.target.value })}>
+                {hostedCards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name} · {card.time}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {current.type === "did" && roomCards.length > 0 ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              About a card? (a Did that names one sorts first)
+              <select className={selectClass} value={current.cardId} onChange={(event) => patch({ cardId: event.target.value })}>
+                <option value="">No card</option>
+                {roomCards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {current.type === "did" && trades.length > 0 ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Who did the work? (two of these list a tradesman)
+              <select className={selectClass} value={current.tradeId} onChange={(event) => patch({ tradeId: event.target.value })}>
+                <option value="">Nobody I am naming</option>
+                {trades.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name} · {card.time}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className="flex flex-col gap-2 text-sm text-muted">
             {typeMetaNow.claimLabel}
             <textarea
@@ -220,7 +280,7 @@ function Composer() {
           </label>
           {typeMetaNow.needsDate ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
-              Date
+              {current.type === "hosted" ? "The date it happened" : "Date"}
               <input
                 type="date"
                 className={cn(fieldClass, "max-w-xs")}
@@ -271,12 +331,14 @@ function Composer() {
 
 function PostCard({ post, now, steward }: { post: Post; now: number; steward: boolean }) {
   const posts = useBoard((state) => state.posts);
+  const cards = useBoard((state) => state.cards);
   const me = useBoard((state) => state.me);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
   const mark = useBoard((state) => state.mark);
   const remove = useBoard((state) => state.remove);
+  const openDm = useBoard((state) => state.openDm);
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -284,8 +346,12 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
   const replies = repliesTo(posts, post.id);
-  const mine = post.author === (me.trim() || "You");
+  const name = me.trim() || "You";
+  const mine = post.author === name;
   const meta = typeMeta(post.type);
+  const card = post.cardId ? cards.find((item) => item.id === post.cardId) : undefined;
+  const trade = post.tradeId ? cards.find((item) => item.id === post.tradeId) : undefined;
+  const canMessage = !mine && canDm(me.trim(), post.author, cards, posts);
 
   return (
     <article
@@ -300,6 +366,8 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
         <span className="text-muted">
           {post.author} · {formatWhen(post.at, now)}
         </span>
+        {card ? <span className="text-signal">· {card.name}</span> : null}
+        {trade ? <span className="text-muted">· work by {trade.name}</span> : null}
         {post.type === "asked" && post.closed ? <span className="text-muted">· answered</span> : null}
         {post.mark ? (
           <span className="rounded-sm border border-line px-2 py-1 text-muted">
@@ -331,7 +399,15 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
       ) : (
         <>
           <p className="mt-3 text-base text-fg">{post.claim}</p>
-          {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
+          {post.reason ? (
+            <p className="mt-1 text-sm text-muted">
+              {post.type === "hosted"
+                ? /^\d{4}-\d{2}-\d{2}$/.test(post.reason)
+                  ? `Next ${formatDate(post.reason)}`
+                  : "No next date"
+                : post.reason}
+            </p>
+          ) : null}
         </>
       )}
 
@@ -376,6 +452,12 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
             Reply
           </button>
         )}
+        {canMessage ? (
+          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => openDm(post.author)}>
+            <MessageSquare className="size-4" aria-hidden="true" />
+            Message {post.author}
+          </button>
+        ) : null}
         {mine && post.type === "asked" && !post.closed ? (
           <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => closeAsked(post.id)}>
             <Check className="size-4" aria-hidden="true" />
@@ -432,5 +514,31 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
         </div>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * Every steward mark in this room, for every member to read. The brief:
+ * if stewards use the mark to bury a view, the room is over. This is how
+ * the room would know.
+ */
+function MarkLog() {
+  const room = useBoard((state) => state.room);
+  const markLog = useBoard((state) => state.markLog);
+  const now = useNow();
+  const rows = markLog.filter((row) => row.room === room).slice(0, 20);
+  if (rows.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">Mark log · this room</h2>
+      <ul className="flex flex-col gap-1 text-sm text-muted">
+        {rows.map((row) => (
+          <li key={row.id}>
+            {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} ·{" "}
+            {now ? formatWhen(row.at, now.getTime()) : ""}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { BookOpen, CalendarDays, LayoutList, Phone } from "lucide-react";
+import { BookOpen, CalendarDays, LayoutList, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import type { Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
+import { DmView } from "@/components/board/dm-view";
 import { FindView } from "@/components/board/find-view";
 import { RoomView } from "@/components/board/room-view";
 import { SessionLine } from "@/components/board/line";
@@ -14,6 +15,7 @@ const NAV: { id: Section; label: string; icon: typeof LayoutList }[] = [
   { id: "rooms", label: "Rooms", icon: LayoutList },
   { id: "find", label: "Find", icon: CalendarDays },
   { id: "civic", label: "Civic desk", icon: Phone },
+  { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "about", label: "About", icon: BookOpen },
 ];
 
@@ -61,6 +63,7 @@ export function BoardApp() {
         {section === "rooms" && <RoomView />}
         {section === "find" && <FindView />}
         {section === "civic" && <QuorumPanel />}
+        {section === "messages" && <DmView />}
         {section === "about" && <AboutView />}
       </main>
       <SessionLine />

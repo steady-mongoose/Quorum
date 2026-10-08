@@ -583,6 +583,8 @@ export function DeskView() {
                     reason: `Logged on the Quorum desk by ${who.trim() || "me"}. Window ${formatWindow(campaign.surgeStart, campaign.surgeEnd)}.`,
                     on: todayIso(),
                     attested: false,
+                    cardId: "",
+                    tradeId: "",
                   },
                   { campaignId: campaign.id },
                 );

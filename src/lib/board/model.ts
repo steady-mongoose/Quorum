@@ -13,9 +13,9 @@ export type RoomId =
   | "orthodox"
   | "dispatch";
 
-export type PostType = "did" | "asked" | "noted" | "saw";
+export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = "sloppy" | "unsupported";
-export type Section = "rooms" | "find" | "civic" | "about";
+export type Section = "rooms" | "find" | "civic" | "messages" | "about";
 
 export type Room = {
   id: RoomId;
@@ -48,9 +48,14 @@ export type Post = {
   removed: boolean;
   /** Links a Civic Did to the Quorum campaign that produced it. */
   campaignId?: string;
+  /** Hosted: the card it closes. Did: the card it was about, if any. */
+  cardId?: string;
+  /** Did: the trade card for whoever did the work. Two witnesses list a trade. */
+  tradeId?: string;
 };
 
-export type CardKind = "meeting" | "candidate";
+/** A trade card is a business. It cannot list itself; two members' Dids do. */
+export type CardKind = "meeting" | "candidate" | "trade";
 
 export type MeetingCard = {
   id: string;
@@ -72,7 +77,41 @@ export type MeetingCard = {
   /** From the brief: checked once, still to be visited before it stays. */
   unverified: boolean;
   addedBy: string;
+  /** Names who marked "I went". Two people on one list may message each other. */
+  wentBy: string[];
+  /** The host will take a first-timer. Opens a message to the host. */
+  firstTimer: boolean;
 };
+
+export type MarkRow = {
+  id: string;
+  room: RoomId;
+  postId: string;
+  author: string;
+  by: string;
+  mark: Mark | null;
+  at: number;
+};
+
+export type DmThread = {
+  id: string;
+  /** Two names, sorted. No groups. */
+  between: [string, string];
+};
+
+export type DmMessage = {
+  id: string;
+  threadId: string;
+  from: string;
+  text: string;
+  at: number;
+};
+
+/** Messages are plain and kept 30 days. Say so on the about page. */
+export const DM_RETENTION_DAYS = 30;
+/** A room opens on its shelf only when a card has a date this close. */
+export const SHELF_DAYS = 14;
+export const SHELF_MAX = 2;
 
 export type Ban = {
   author: string;
@@ -109,56 +148,56 @@ export const ROOMS: Room[] = [
     id: "civic",
     name: "Civic",
     what: "Hearings, bills, labeled candidate cards. The Quorum desk files its calls here.",
-    takes: ["did", "asked", "noted"],
+    takes: ["did", "asked", "noted", "hosted"],
     service: false,
   },
   {
     id: "hall",
     name: "Public hall",
     what: "One question, a Christian host, chairs open to anyone. A brewery or a hall.",
-    takes: ["did", "asked", "noted"],
+    takes: ["did", "asked", "noted", "hosted"],
     service: false,
   },
   {
     id: "skills",
     name: "Skills",
-    what: "Carpentry, gardening, fishing, baking, radio, lawful gunsmithing as a bench log. No build instructions.",
-    takes: ["did", "asked", "noted"],
+    what: "Carpentry, gardening, fishing, baking, radio, lawful gunsmithing as a bench log. No build instructions. A tradesman is listed by the people he worked for.",
+    takes: ["did", "asked", "noted", "hosted"],
     service: false,
   },
   {
     id: "guilds",
     name: "Guilds",
     what: "Apprentice night, men's gym hour, women's gym hour. A next date or it is not listed.",
-    takes: ["did", "asked", "noted"],
+    takes: ["did", "asked", "noted", "hosted"],
     service: false,
   },
   {
     id: "school",
     name: "School",
     what: "Classical Christian and homeschool chapter logs. Not curriculum ads.",
-    takes: ["did", "asked", "noted"],
+    takes: ["did", "asked", "noted", "hosted"],
     service: false,
   },
   {
     id: "reformed",
     name: "Reformed",
     what: "Service time only.",
-    takes: ["noted"],
+    takes: ["noted", "hosted"],
     service: true,
   },
   {
     id: "latin",
     name: "Latin Mass",
     what: "Service time only.",
-    takes: ["noted"],
+    takes: ["noted", "hosted"],
     service: true,
   },
   {
     id: "orthodox",
     name: "Greek Orthodox",
     what: "Service time only.",
-    takes: ["noted"],
+    takes: ["noted", "hosted"],
     service: true,
   },
   {
@@ -210,6 +249,14 @@ export const POST_TYPES: {
     reasonLabel: "The clock and the street or block",
     needsDate: true,
   },
+  {
+    id: "hosted",
+    label: "Hosted",
+    what: "The host says it happened and names the next date. No headcount. The record is the ad.",
+    claimLabel: "How it went (a line, not a number)",
+    reasonLabel: "Next date (yyyy-mm-dd), or 'none'",
+    needsDate: true,
+  },
 ];
 
 export function roomById(id: RoomId): Room {
@@ -235,6 +282,8 @@ const STREET_ADDRESS =
 const THREAT =
   /\b(i('| wi)ll|we('| wi)ll|gonna|going to|should|let's|lets)\s+(kill|shoot|stab|hang|burn|beat|hurt|bomb|lynch)\b|\b(kill|shoot|hang|burn)\s+(him|her|them|you|that)\b/i;
 const PORN = /\b(porn|pornograph|xxx|onlyfans|nsfw)\b/i;
+// A headcount in a Hosted: "14 came", "about 20 people", "turnout of 30".
+const HEADCOUNT = /\b\d+\s*(people|folks|came|showed|attended|turned out|of us|guys|men|women)\b|\b(turnout|headcount|attendance)\b/i;
 
 export type Check = {
   ok: boolean;
@@ -252,13 +301,22 @@ export type Draft = {
   on: string;
   /** Saw only: the author attests no child's face and no private person named. */
   attested: boolean;
+  /** Hosted: the card it closes. Did: the card it was about. */
+  cardId: string;
+  /** Did: who did the work, as a trade card. */
+  tradeId: string;
 };
 
 /**
  * The composer check before send: one claim and the reason, no threat,
  * not pornography. Plus the room and type locks from the brief.
  */
-export function composerCheck(draft: Draft, sawLocked: boolean): Check {
+export function composerCheck(
+  draft: Draft,
+  sawLocked: boolean,
+  me = "",
+  cards: MeetingCard[] = [],
+): Check {
   const stops: string[] = [];
   const notes: string[] = [];
   const room = roomById(draft.room);
@@ -296,6 +354,22 @@ export function composerCheck(draft: Draft, sawLocked: boolean): Check {
     if (!draft.attested) stops.push("Attest: no child's face, no private person named who was not acting in public.");
   }
 
+  if (draft.type === "hosted") {
+    const card = cards.find((item) => item.id === draft.cardId);
+    if (!card) stops.push("Name the card this closes. A Hosted without a card is a Did.");
+    else if (card.host !== (me.trim() || "You")) stops.push("Only the host files a Hosted. You can file a Did that names the card.");
+    else if (card.room !== draft.room) stops.push(`That card lives in ${roomById(card.room).name}. File it there.`);
+    if (HEADCOUNT.test(claim)) stops.push("No headcount. Say how it went, not how many.");
+    if (reason && reason.toLowerCase() !== "none" && !/^\d{4}-\d{2}-\d{2}$/.test(reason)) {
+      stops.push("Next date as yyyy-mm-dd, or the word none.");
+    }
+  }
+
+  if (draft.type === "did" && draft.tradeId) {
+    const trade = cards.find((item) => item.id === draft.tradeId);
+    if (trade && trade.host === (me.trim() || "You")) stops.push("You cannot witness your own work. Someone you worked for files this.");
+  }
+
   const text = `${claim}\n${reason}`;
   if (THREAT.test(text)) stops.push("That reads as a threat. It does not send.");
   if (PORN.test(text)) stops.push("Not here.");
@@ -325,12 +399,14 @@ export function banFor(author: string, bans: Ban[], now: number): Ban | null {
 
 function tier(post: Post): number {
   // Lower sorts first. Sloppy files at the bottom. Unsupported sorts under
-  // posts that named a reason. Did and open Asked lead. Noted sits under those.
-  if (post.mark === "sloppy") return 4;
-  if (post.mark === "unsupported") return 3;
-  if (post.type === "noted") return 2;
-  if (post.type === "asked" && post.closed) return 2;
-  return 1;
+  // posts that named a reason. Hosted and a Did that names a card lead;
+  // other Dids and open Asked next. Noted sits under those.
+  if (post.mark === "sloppy") return 5;
+  if (post.mark === "unsupported") return 4;
+  if (post.type === "noted") return 3;
+  if (post.type === "asked" && post.closed) return 3;
+  if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;
+  return 2;
 }
 
 /** Chronological inside the room, grouped by the brief's sort tiers. */
@@ -344,13 +420,67 @@ export function repliesTo(posts: Post[], parentId: string): Post[] {
   return posts.filter((post) => post.parentId === parentId && !post.removed).sort((a, b) => a.at - b.at);
 }
 
-/** Unvisited cards stay off. A card hides after two missed meetings. */
-export function cardListed(card: MeetingCard): boolean {
+/** Named members, other than the tradesman, whose Dids name this trade. */
+export function tradeWitnesses(card: MeetingCard, posts: Post[]): string[] {
+  const names = new Set<string>();
+  for (const post of posts) {
+    if (post.type === "did" && post.tradeId === card.id && !post.removed && post.author !== card.host) {
+      names.add(post.author);
+    }
+  }
+  return [...names];
+}
+
+/**
+ * Unvisited cards stay off. A card hides after two missed meetings.
+ * A trade card lists only when two other members have named it in a Did.
+ */
+export function cardListed(card: MeetingCard, posts: Post[] = []): boolean {
+  if (card.kind === "trade") return tradeWitnesses(card, posts).length >= 2;
   if (card.visits < 2) return false;
   const recent = card.lastFour.slice(-2);
   if (recent.length === 2 && recent.every((went) => !went)) return false;
   if (card.room === "guilds" && !card.next) return false;
   return true;
+}
+
+function daysUntil(iso: string, now: Date): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return Number.POSITIVE_INFINITY;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((new Date(y, m - 1, d).getTime() - start) / 86400000);
+}
+
+/**
+ * The shelf a room opens on: pinned cards, then cards with a date inside
+ * SHELF_DAYS, at most SHELF_MAX. Empty when nothing is near, so the room
+ * opens on its feed instead of an empty shelf.
+ */
+export function shelfFor(room: RoomId, cards: MeetingCard[], posts: Post[], now: Date): MeetingCard[] {
+  const listed = cards.filter((card) => card.room === room && card.kind !== "trade" && cardListed(card, posts));
+  const pinned = listed.filter((card) => card.pinned);
+  const soon = listed
+    .filter((card) => !card.pinned && card.next)
+    .map((card) => ({ card, days: daysUntil(card.next, now) }))
+    .filter((item) => item.days >= 0 && item.days <= SHELF_DAYS)
+    .sort((a, b) => a.days - b.days)
+    .map((item) => item.card);
+  return [...pinned, ...soon].slice(0, SHELF_MAX);
+}
+
+/**
+ * Who may message whom. Both on one card's "I went" list, or the other
+ * person replied to one of your posts. Strangers do not get a line in.
+ */
+export function canDm(me: string, other: string, cards: MeetingCard[], posts: Post[]): boolean {
+  if (!me || !other || me === other) return false;
+  if (cards.some((card) => card.wentBy.includes(me) && card.wentBy.includes(other))) return true;
+  const mine = new Set(posts.filter((post) => post.author === me && !post.parentId).map((post) => post.id));
+  return posts.some((post) => post.author === other && post.parentId !== null && mine.has(post.parentId));
+}
+
+export function threadIdFor(a: string, b: string): string {
+  return [a, b].sort().join("\u0000");
 }
 
 export function cardCanPin(card: MeetingCard, posts: Post[]): boolean {
@@ -397,6 +527,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "orthodox-stjohn",
@@ -412,6 +544,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "reformed-redeemer",
@@ -427,6 +561,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "reformed-first",
@@ -442,6 +578,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "skills-ham",
@@ -457,6 +595,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "skills-garden",
@@ -472,6 +612,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "skills-stoics",
@@ -487,6 +629,8 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
   {
     id: "guilds-shapes",
@@ -502,9 +646,11 @@ export const SEED_CARDS: MeetingCard[] = [
     pinned: false,
     unverified: true,
     addedBy: "brief",
+    wentBy: [],
+    firstTimer: false,
   },
 ];
 
 export function blankDraft(room: RoomId): Draft {
-  return { room, type: null, claim: "", reason: "", on: todayIso(), attested: false };
+  return { room, type: null, claim: "", reason: "", on: todayIso(), attested: false, cardId: "", tradeId: "" };
 }

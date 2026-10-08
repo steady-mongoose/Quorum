@@ -10,6 +10,10 @@ Rooms do not mix: Civic, Public hall, Skills, Guilds, School, Reformed, Latin Ma
 
 Built in, not settings: chronological inside the room ending in "You're caught up"; no For You, reshare, quote, badges, streaks, autoplay, or public like counts; a dismissable line at 20 minutes; notifications off unless asked for.
 
+A room opens on its **shelf** — at most two cards with a date inside 14 days — then its feed; with nothing near, it opens on the feed. The host closes a date with a **Hosted** post: it happened, next date, no headcount (the composer refuses one). A Did that names a card sorts first. A **trade card** (a business) cannot list itself: two other members name its work in a Did and it lists. Every steward mark lands in a **mark log** the whole room can read.
+
+**Messages** are two names, no groups, plain text, deleted after 30 days. You can message someone you share an "I went" list with or who replied to your post; a card marked "takes a first-timer" opens a message to its host once you have been.
+
 **Find** is a date list, not a recommendation. A card lists only after the lister has been twice, and hides after two missed meetings. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log.
 
 Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field.

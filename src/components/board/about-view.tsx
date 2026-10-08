@@ -92,6 +92,26 @@ export function AboutView() {
       </section>
 
       <section className="flex flex-col gap-3">
+        <h2 className="text-2xl text-fg">Cards, trades, and the Hosted post</h2>
+        <p className="max-w-2xl text-sm text-muted">
+          A room opens on what is coming up inside two weeks, at most two cards, then its feed. The
+          host closes a date with a Hosted: it happened, here is the next one, no headcount. A Did that
+          names a card sorts above one that does not. A business cannot list itself; two members who it
+          worked for name it in a Did and it is listed. Every steward mark is logged in the room for
+          every member to read.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-2xl text-fg">Messages</h2>
+        <p className="max-w-2xl text-sm text-muted">
+          Two names, no groups. You can message someone you have been on an "I went" list with, or
+          who replied to your post. Messages are plain text on our box, not end-to-end encrypted,
+          and are deleted after 30 days. We say that here so nobody is told otherwise.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-3">
         <h2 className="text-2xl text-fg">Civic and the Quorum desk</h2>
         <p className="max-w-2xl text-sm text-muted">
           The Civic room is where Quorum lives. A campaign is one demand on one office in one hour.

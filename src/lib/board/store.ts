@@ -2,11 +2,17 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   BAN_DAYS,
+  DM_RETENTION_DAYS,
   SEED_CARDS,
+  canDm,
+  threadIdFor,
   type Ban,
+  type DmMessage,
+  type DmThread,
   type Draft,
   type HardRule,
   type Mark,
+  type MarkRow,
   type MeetingCard,
   type Post,
   type RemovalRow,
@@ -25,6 +31,12 @@ type BoardState = {
   cards: MeetingCard[];
   bans: Ban[];
   removals: RemovalRow[];
+  /** Every steward mark, readable by every member of the room. */
+  markLog: MarkRow[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  /** The thread open in Messages. */
+  openThread: string | null;
   /** When the 20-minute line was last dismissed, so it does not nag twice. */
   lineDismissedAt: number;
   /** Whether this user asked for reply notifications. Off by default. */
@@ -42,13 +54,17 @@ type BoardState = {
   closeAsked: (id: string) => void;
   mark: (id: string, mark: Mark | null) => void;
   remove: (id: string, reason: HardRule) => void;
-  addCard: (card: Omit<MeetingCard, "id" | "lastFour" | "pinned" | "unverified">) => void;
+  addCard: (card: Omit<MeetingCard, "id" | "lastFour" | "pinned" | "unverified" | "wentBy">) => void;
   updateCard: (id: string, patch: Partial<MeetingCard>) => void;
   /** The host marks that it happened. That note is the ad for the next date. */
   markHappened: (id: string, happened: boolean, next: string) => void;
   /** Someone who went. Two visits before their listing counts. */
   visited: (id: string) => void;
   removeCard: (id: string) => void;
+  /** Opens or returns the thread with `other`, if the rules allow it. */
+  openDm: (other: string) => string | null;
+  sendDm: (threadId: string, text: string) => void;
+  setOpenThread: (id: string | null) => void;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -71,9 +87,25 @@ function isCard(value: unknown): value is MeetingCard {
   return typeof item.id === "string" && typeof item.room === "string" && Array.isArray(item.lastFour);
 }
 
+/** Older saves lack the fields added for messages and trade cards. */
+function upgradeCard(card: MeetingCard): MeetingCard {
+  return {
+    ...card,
+    kind: card.kind ?? "meeting",
+    wentBy: Array.isArray(card.wentBy) ? card.wentBy : [],
+    firstTimer: card.firstTimer === true,
+  };
+}
+
 function mergeSeedCards(saved: MeetingCard[]): MeetingCard[] {
   const ids = new Set(saved.map((item) => item.id));
-  return [...saved, ...SEED_CARDS.filter((item) => !ids.has(item.id))];
+  return [...saved.map(upgradeCard), ...SEED_CARDS.filter((item) => !ids.has(item.id))];
+}
+
+/** Messages older than the retention window are gone. Less to leak. */
+function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
+  const cutoff = now - DM_RETENTION_DAYS * DAY;
+  return messages.filter((message) => message.at >= cutoff);
 }
 
 export const useBoard = create<BoardState>()(
@@ -87,6 +119,10 @@ export const useBoard = create<BoardState>()(
       cards: SEED_CARDS,
       bans: [],
       removals: [],
+      markLog: [],
+      threads: [],
+      messages: [],
+      openThread: null,
       lineDismissedAt: 0,
       replyNotify: false,
       setSection: (section) => set({ section }),
@@ -110,9 +146,16 @@ export const useBoard = create<BoardState>()(
           closed: false,
           mark: null,
           removed: false,
+          ...(draft.cardId ? { cardId: draft.cardId } : {}),
+          ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
           ...extra,
         };
         set({ posts: [post, ...get().posts] });
+        // A Hosted closes the card: it happened, and here is the next date.
+        if (draft.type === "hosted" && draft.cardId) {
+          const next = /^\d{4}-\d{2}-\d{2}$/.test(post.reason) ? post.reason : "";
+          get().markHappened(draft.cardId, true, next);
+        }
       },
       reply: (parentId, text) => {
         const body = text.trim();
@@ -148,8 +191,25 @@ export const useBoard = create<BoardState>()(
         }),
       closeAsked: (id) =>
         set({ posts: get().posts.map((post) => (post.id === id ? { ...post, closed: true } : post)) }),
-      mark: (id, mark) =>
-        set({ posts: get().posts.map((post) => (post.id === id ? { ...post, mark } : post)) }),
+      mark: (id, mark) => {
+        const post = get().posts.find((item) => item.id === id);
+        if (!post) return;
+        set({
+          posts: get().posts.map((item) => (item.id === id ? { ...item, mark } : item)),
+          markLog: [
+            {
+              id: crypto.randomUUID(),
+              room: post.room,
+              postId: id,
+              author: post.author,
+              by: get().me.trim() || "You",
+              mark,
+              at: Date.now(),
+            },
+            ...get().markLog,
+          ],
+        });
+      },
       remove: (id, reason) => {
         const post = get().posts.find((item) => item.id === id);
         if (!post) return;
@@ -186,6 +246,7 @@ export const useBoard = create<BoardState>()(
               lastFour: [],
               pinned: false,
               unverified: false,
+              wentBy: [],
             },
             ...get().cards,
           ],
@@ -207,13 +268,47 @@ export const useBoard = create<BoardState>()(
               : card,
           ),
         }),
-      visited: (id) =>
+      visited: (id) => {
+        const me = get().me.trim() || "You";
         set({
           cards: get().cards.map((card) =>
-            card.id === id ? { ...card, visits: card.visits + 1, unverified: false } : card,
+            card.id === id
+              ? {
+                  ...card,
+                  visits: card.visits + 1,
+                  unverified: false,
+                  wentBy: card.wentBy.includes(me) ? card.wentBy : [...card.wentBy, me],
+                }
+              : card,
           ),
-        }),
+        });
+      },
       removeCard: (id) => set({ cards: get().cards.filter((card) => card.id !== id) }),
+      openDm: (other) => {
+        const me = get().me.trim();
+        const name = other.trim();
+        if (!canDm(me, name, get().cards, get().posts)) return null;
+        const id = threadIdFor(me, name);
+        if (!get().threads.some((thread) => thread.id === id)) {
+          const between = [me, name].sort() as [string, string];
+          set({ threads: [{ id, between }, ...get().threads] });
+        }
+        set({ openThread: id, section: "messages" });
+        return id;
+      },
+      sendDm: (threadId, text) => {
+        const body = text.trim();
+        const thread = get().threads.find((item) => item.id === threadId);
+        const me = get().me.trim();
+        if (!body || !thread || !thread.between.includes(me)) return;
+        set({
+          messages: [
+            ...pruneMessages(get().messages, Date.now()),
+            { id: crypto.randomUUID(), threadId, from: me, text: body, at: Date.now() },
+          ],
+        });
+      },
+      setOpenThread: (openThread) => set({ openThread }),
     }),
     {
       name: "the-board-v1",
@@ -221,6 +316,7 @@ export const useBoard = create<BoardState>()(
       merge: (persisted, current) => {
         if (!persisted || typeof persisted !== "object") return current;
         const saved = persisted as Partial<BoardState>;
+        const now = Date.now();
         return {
           ...current,
           section: saved.section ?? current.section,
@@ -235,6 +331,12 @@ export const useBoard = create<BoardState>()(
           ),
           bans: Array.isArray(saved.bans) ? (saved.bans as Ban[]) : current.bans,
           removals: Array.isArray(saved.removals) ? (saved.removals as RemovalRow[]) : current.removals,
+          markLog: Array.isArray(saved.markLog) ? (saved.markLog as MarkRow[]) : current.markLog,
+          threads: Array.isArray(saved.threads) ? (saved.threads as DmThread[]) : current.threads,
+          messages: Array.isArray(saved.messages)
+            ? pruneMessages(saved.messages as DmMessage[], now)
+            : current.messages,
+          openThread: typeof saved.openThread === "string" ? saved.openThread : null,
         };
       },
       partialize: (state) => ({
@@ -248,6 +350,10 @@ export const useBoard = create<BoardState>()(
         cards: state.cards,
         bans: state.bans,
         removals: state.removals,
+        markLog: state.markLog,
+        threads: state.threads,
+        messages: state.messages,
+        openThread: state.openThread,
       }),
     },
   ),
