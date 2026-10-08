@@ -38,6 +38,8 @@ import {
   type Posture,
 } from "@/lib/quorum/model";
 import { useQuorum } from "@/lib/quorum/store";
+import { useBoard } from "@/lib/board/store";
+import { todayIso } from "@/lib/board/model";
 
 function formatWhen(at: number, now: number): string {
   const delta = Math.max(0, now - at);
@@ -570,7 +572,21 @@ export function DeskView() {
               key={wave.id}
               type="button"
               className={cn(btnSignal, "h-auto flex-col items-start py-3 text-left")}
-              onClick={() => logContact(campaign.id, wave.id, who)}
+              onClick={() => {
+                logContact(campaign.id, wave.id, who);
+                // A logged contact is a Did in the Civic room: an act, a date, one proof.
+                useBoard.getState().file(
+                  {
+                    room: "civic",
+                    type: "did",
+                    claim: `${wave.label}: ${office.name}, ${office.role}. ${campaign.title}.`,
+                    reason: `Logged on the Quorum desk by ${who.trim() || "me"}. Window ${formatWindow(campaign.surgeStart, campaign.surgeEnd)}.`,
+                    on: todayIso(),
+                    attested: false,
+                  },
+                  { campaignId: campaign.id },
+                );
+              }}
             >
               <span>Log {wave.label.toLowerCase()}</span>
               <span className="font-normal text-signal-ink">{wave.hint}</span>

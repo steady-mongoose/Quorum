@@ -1,3 +1,21 @@
+# The Board
+
+A town board with a lock on the feed. It holds what a small set of people did, where they meet, and what they saw in public. It is not a Twitter replacement. Success is a person who opens it, reads their room, and leaves.
+
+Quorum (below) is the engine of the Civic room. A campaign is one demand on one office in one hour; while its window is open it shows in Civic as a labeled card, and every call, letter, or visit logged on the desk files in Civic as a **Did**: an act, a date, one proof.
+
+## Rooms and post types
+
+Rooms do not mix: Civic, Public hall, Skills, Guilds, School, Reformed, Latin Mass, Greek Orthodox, Dispatch. Every post picks a type or it does not send: **Did**, **Asked**, **Noted**, **Saw**. Dispatch takes Saw only and nothing else takes Saw; a Saw wants a clock in the proof and refuses a home address. The rules live in `src/lib/board/model.ts`, not in the views.
+
+Built in, not settings: chronological inside the room ending in "You're caught up"; no For You, reshare, quote, badges, streaks, autoplay, or public like counts; a dismissable line at 20 minutes; notifications off unless asked for.
+
+**Find** is a date list, not a recommendation. A card lists only after the lister has been twice, and hides after two missed meetings. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log.
+
+Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field.
+
+---
+
 # Quorum
 
 Quorum helps real people ask one public office for one thing, in the same words, during the same hour.
