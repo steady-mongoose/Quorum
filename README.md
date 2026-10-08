@@ -16,6 +16,21 @@ A room opens on its **shelf** â€” at most two cards with a date inside 14 days â
 
 **Find** is a date list, not a recommendation. A card lists only after the lister has been twice, and hides after two missed meetings. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log.
 
+## How to use it
+
+Open **About**, put your name on your posts, and press **Load the sample week** to see a board in use (six invented members around Brandon and Riverview; you become Josh). Then:
+
+1. **Read your room.** Pick a room. It opens on what is coming up inside two weeks, then the feed, newest first inside each tier. The list ends. Leave.
+2. **Go somewhere.** Open **Find**, pick a card, go. Afterwards press **I went**. Two visits is what lets you list a card of your own, and being on a card's "I went" list with someone is what lets you message them.
+3. **File what you did.** Back in the room, pick **Did**, name the card if there was one, say what you did and give one proof (who was there, a receipt, a photo you took). No verdict.
+4. **Ask one question.** **Asked** takes one question and what you already tried. When a reply answers it, press **Answered**.
+5. **Note a fact.** **Noted** is a passage, a measurement, a time. Say where it comes from, or a steward may mark it *unsupported* and it sorts under posts that did.
+6. **If you host, close the date.** After the hour, file **Hosted**: how it went in a line (no headcount, the composer refuses one) and the next date. That is the advertisement for next time. Tick **Take a first-timer** on your card if a new person can message you.
+7. **If you run a business, do not list it.** Ask nobody. When two members you worked for file a Did naming your trade card, it lists under Skills.
+8. **Saw something in public?** Dispatch, **Saw** only: the scene, a clock, the block. No house numbers, no children's faces, no naming a private person.
+9. **Message to arrange, not to talk.** Two names, no groups, plain text, gone in 30 days. Open one from a post or a card.
+10. **Stewards:** mark *sloppy* or *unsupported*, never for the side. Every mark is logged in the room for everyone to read. Hard-remove only threats, pornography, and CSAM.
+
 Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field.
 
 ---

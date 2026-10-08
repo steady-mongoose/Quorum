@@ -1,4 +1,4 @@
-import { fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { HARD_RULES, POST_TYPES, ROOMS } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
@@ -10,6 +10,8 @@ export function AboutView() {
   const replyNotify = useBoard((state) => state.replyNotify);
   const setReplyNotify = useBoard((state) => state.setReplyNotify);
   const removals = useBoard((state) => state.removals);
+  const loadSample = useBoard((state) => state.loadSample);
+  const clearBoard = useBoard((state) => state.clearBoard);
 
   return (
     <div className="flex flex-col gap-8">
@@ -137,6 +139,23 @@ export function AboutView() {
             <input type="checkbox" className="size-5" checked={steward} onChange={(event) => setSteward(event.target.checked)} />
             Steward tools (the Rules owner holds this on the server)
           </label>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+        <h2 className="text-2xl text-fg">Try it with a sample week</h2>
+        <p className="mt-1 text-sm text-muted">
+          Loads six invented members around Brandon and Riverview, a week of posts, cards with
+          dates, a trade with two witnesses, a marked post, and two message threads. You become
+          Josh. It replaces whatever is on this board.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className={btnSignal} onClick={loadSample}>
+            Load the sample week
+          </button>
+          <button type="button" className={btnGhost} onClick={clearBoard}>
+            Clear the board
+          </button>
         </div>
       </section>
 

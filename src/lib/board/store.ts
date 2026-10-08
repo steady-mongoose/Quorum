@@ -19,6 +19,7 @@ import {
   type RoomId,
   type Section,
 } from "@/lib/board/model";
+import { sampleBoard } from "@/lib/board/sample";
 
 type BoardState = {
   section: Section;
@@ -65,6 +66,10 @@ type BoardState = {
   openDm: (other: string) => string | null;
   sendDm: (threadId: string, text: string) => void;
   setOpenThread: (id: string | null) => void;
+  /** Replaces the board with the sample week. For trying the product. */
+  loadSample: () => void;
+  /** Wipes everything but your name. */
+  clearBoard: () => void;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -309,6 +314,33 @@ export const useBoard = create<BoardState>()(
         });
       },
       setOpenThread: (openThread) => set({ openThread }),
+      loadSample: () => {
+        const sample = sampleBoard();
+        set({
+          me: sample.me,
+          posts: sample.posts,
+          cards: sample.cards,
+          markLog: sample.markLog,
+          threads: sample.threads,
+          messages: sample.messages,
+          bans: [],
+          removals: [],
+          openThread: null,
+          section: "rooms",
+          room: "guilds",
+        });
+      },
+      clearBoard: () =>
+        set({
+          posts: [],
+          cards: SEED_CARDS,
+          markLog: [],
+          threads: [],
+          messages: [],
+          bans: [],
+          removals: [],
+          openThread: null,
+        }),
     }),
     {
       name: "the-board-v1",
