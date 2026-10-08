@@ -1,24 +1,62 @@
-// A sample week on The Board: one invite-only group around Brandon and
-// Riverview, Hillsborough County. Every name is invented. Every post obeys
-// the composer rules, so the sample is also a test of the sort tiers,
-// the shelf, trade witnesses, the mark log, and the message gate.
+// Seed cards from the brief, and a sample week on The Board: one invite-only
+// group around Brandon and Riverview. Every name in the week is invented, and
+// every post obeys the composer rules, so loading it also exercises the sort
+// tiers, the shelf, trade witnesses, the mark log, and the message gate.
 
 import {
+  DAY,
+  HOUR,
+  newPost,
   threadIdFor,
   todayIso,
+  type CardKind,
   type DmMessage,
   type DmThread,
   type MarkRow,
   type MeetingCard,
   type Post,
+  type RoomId,
 } from "@/lib/board/model";
 
-const HOUR = 60 * 60 * 1000;
-const DAY = 24 * HOUR;
-
-function iso(daysFromNow: number): string {
-  return todayIso(new Date(Date.now() + daysFromNow * DAY));
+function card(
+  id: string,
+  room: RoomId,
+  name: string,
+  place: string,
+  time: string,
+  extra: Partial<MeetingCard> & { kind?: CardKind } = {},
+): MeetingCard {
+  return {
+    id,
+    room,
+    kind: "meeting",
+    name,
+    place,
+    time,
+    host: "",
+    next: "",
+    lastFour: [],
+    wentBy: [],
+    pinned: false,
+    unverified: false,
+    firstTimer: false,
+    ...extra,
+  };
 }
+
+/** Checked once by the brief, still to be visited before they stay. */
+const brief = { unverified: true, wentBy: ["brief"] };
+
+export const SEED_CARDS: MeetingCard[] = [
+  card("latin-epiphany", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", ...brief }),
+  card("orthodox-stjohn", "orthodox", "St. John the Baptist", "2418 W Swann Ave, Tampa", "Confirm in person", brief),
+  card("reformed-redeemer", "reformed", "Redeemer Presbyterian", "Boyette Road, Riverview", "Confirm in person", brief),
+  card("reformed-first", "reformed", "First Reformed", "W Hillsborough Ave, Tampa", "Confirm in person", brief),
+  card("skills-ham", "skills", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", brief),
+  card("skills-garden", "skills", "Hillsborough Master Gardener desk", "(813) 744-5519 ext. 54102", "Office hours", brief),
+  card("skills-stoics", "skills", "Tampa Stoics", "Tampa", "Confirm in person", brief),
+  card("guilds-shapes", "guilds", "Shapes, women's gym hour", "731 W Lumsden, Brandon", "Confirm in person", brief),
+];
 
 export type SampleBoard = {
   me: string;
@@ -31,402 +69,63 @@ export type SampleBoard = {
 
 export function sampleBoard(): SampleBoard {
   const now = Date.now();
-  const me = "Josh";
+  const iso = (days: number) => todayIso(new Date(now + days * DAY));
+  const ago = (days: number, hours = 0) => now - days * DAY + hours * HOUR;
 
   const cards: MeetingCard[] = [
-    {
-      id: "s-framing",
-      room: "guilds",
-      kind: "meeting",
-      name: "Framing apprentice night",
-      place: "Tom's shop, Riverview",
-      time: "Thursdays 6:30 p.m.",
-      host: "Tom",
-      next: iso(2),
-      lastFour: [true, true, false, true],
-      visits: 6,
-      pinned: false,
-      unverified: false,
-      addedBy: "Tom",
-      wentBy: ["Tom", "Josh", "Dale", "Luis"],
-      firstTimer: true,
-    },
-    {
-      id: "s-ham",
-      room: "skills",
-      kind: "meeting",
-      name: "Tampa Amateur Radio Club",
-      place: "7801 N 22nd St, Tampa",
-      time: "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.",
-      host: "Dale",
-      next: iso(5),
-      lastFour: [true, true, true, true],
-      visits: 9,
-      pinned: false,
-      unverified: false,
-      addedBy: "Dale",
-      wentBy: ["Dale", "Josh"],
-      firstTimer: true,
-    },
-    {
-      id: "s-hall",
-      room: "hall",
-      kind: "meeting",
-      name: "One question: what do we owe the county?",
-      place: "Brandon hall, back room",
-      time: "Second Tuesday 7 p.m.",
-      host: "Maria",
-      next: iso(9),
-      lastFour: [true, true],
-      visits: 3,
-      pinned: false,
-      unverified: false,
-      addedBy: "Maria",
-      wentBy: ["Maria", "Josh", "Tom"],
-      firstTimer: false,
-    },
-    {
-      id: "s-school",
-      room: "school",
-      kind: "meeting",
-      name: "Riverview classical co-op, Tuesday chapter",
-      place: "[CHURCH HALL], Riverview",
-      time: "Tuesdays 9 a.m., term time",
-      host: "Ruth",
-      next: iso(4),
-      lastFour: [true, true, true],
-      visits: 4,
-      pinned: false,
-      unverified: false,
-      addedBy: "Ruth",
-      wentBy: ["Ruth", "Maria"],
-      firstTimer: true,
-    },
-    {
-      id: "s-hearing",
-      room: "civic",
-      kind: "meeting",
-      name: "County hearing: Lithia Pinecrest widening",
-      place: "County Center, 601 E Kennedy, 2nd floor",
-      time: "9 a.m.",
-      host: "Maria",
-      next: iso(13),
-      lastFour: [true],
-      visits: 2,
-      pinned: false,
-      unverified: false,
-      addedBy: "Maria",
-      wentBy: ["Maria", "Josh"],
-      firstTimer: false,
-    },
-    {
-      id: "s-lamb",
-      room: "skills",
-      kind: "trade",
-      name: "Lamb Electric",
-      place: "Valrico",
-      time: "Electrical, residential",
-      host: "Luis",
-      next: "",
-      lastFour: [],
-      visits: 0,
-      pinned: false,
-      unverified: false,
-      addedBy: "Dale",
-      wentBy: [],
-      firstTimer: false,
-    },
-    {
-      id: "s-bakery",
-      room: "skills",
-      kind: "trade",
-      name: "Ruth's sourdough",
-      place: "Brandon",
-      time: "Bread, by the loaf, Saturdays",
-      host: "Ruth",
-      next: "",
-      lastFour: [],
-      visits: 0,
-      pinned: false,
-      unverified: false,
-      addedBy: "Ruth",
-      wentBy: [],
-      firstTimer: false,
-    },
-    {
-      id: "s-latin",
-      room: "latin",
-      kind: "meeting",
-      name: "Epiphany of Our Lord Shrine",
-      place: "2510 E Hanna Ave, Tampa",
-      time: "Sunday Low Mass 7 and 9, High Mass 11",
-      host: "Institute of Christ the King",
-      next: iso(3),
-      lastFour: [true, true, true, true],
-      visits: 3,
-      pinned: false,
-      unverified: false,
-      addedBy: "Luis",
-      wentBy: ["Luis", "Maria"],
-      firstTimer: false,
-    },
+    card("s-framing", "guilds", "Framing apprentice night", "Tom's shop, Riverview", "Thursdays 6:30 p.m.", { host: "Tom", next: iso(2), lastFour: [true, true, false, true], wentBy: ["Tom", "Josh", "Dale", "Luis"], firstTimer: true }),
+    card("s-ham", "skills", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", { host: "Dale", next: iso(5), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh"], firstTimer: true }),
+    card("s-hall", "hall", "One question: what do we owe the county?", "Brandon hall, back room", "Second Tuesday 7 p.m.", { host: "Maria", next: iso(9), lastFour: [true, true], wentBy: ["Maria", "Josh", "Tom"] }),
+    card("s-school", "school", "Riverview classical co-op, Tuesday chapter", "[CHURCH HALL], Riverview", "Tuesdays 9 a.m., term time", { host: "Ruth", next: iso(4), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], firstTimer: true }),
+    card("s-hearing", "civic", "County hearing: Lithia Pinecrest widening", "County Center, 601 E Kennedy, 2nd floor", "9 a.m.", { host: "Maria", next: iso(13), lastFour: [true], wentBy: ["Maria", "Josh"] }),
+    card("s-lamb", "skills", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),
+    card("s-bakery", "skills", "Ruth's sourdough", "Brandon", "Bread, by the loaf, Saturdays", { kind: "trade", host: "Ruth" }),
+    card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
   ];
 
-  const base = (overrides: Partial<Post> & Pick<Post, "id" | "room" | "type" | "claim" | "author" | "at">): Post => ({
-    reason: "",
-    on: "",
-    parentId: null,
-    closed: false,
-    mark: null,
-    removed: false,
-    ...overrides,
-  });
+  const p = (fields: Parameters<typeof newPost>[0] & { id: string }) => newPost(fields);
 
   const posts: Post[] = [
-    // Guilds: the host closed last Thursday, two people filed Dids.
-    base({
-      id: "p1",
-      room: "guilds",
-      type: "hosted",
-      claim: "Full bench. Walked the two new ones through a header and a jack stud. Next week we cut rafters.",
-      reason: iso(2),
-      on: iso(-5),
-      author: "Tom",
-      at: now - 5 * DAY + 3 * HOUR,
-      cardId: "s-framing",
-    }),
-    base({
-      id: "p2",
-      room: "guilds",
-      type: "did",
-      claim: "Framed my first header. Tom checked it twice before it went in.",
-      reason: "Photo on my phone, Tom and Luis were there.",
-      on: iso(-5),
-      author: "Josh",
-      at: now - 5 * DAY + 4 * HOUR,
-      cardId: "s-framing",
-    }),
-    base({
-      id: "p3",
-      room: "guilds",
-      type: "asked",
-      claim: "Is there a Saturday slot for someone who works Thursday nights?",
-      reason: "Asked Tom in person, he said to put it on the board and see who else wants one.",
-      author: "Dale",
-      at: now - 3 * DAY,
-      closed: true,
-    }),
-    base({
-      id: "p3r",
-      room: "guilds",
-      type: "asked",
-      claim: "Two of us would come. If a third says so here, I will open the shop at 8.",
-      author: "Tom",
-      at: now - 3 * DAY + 2 * HOUR,
-      parentId: "p3",
-    }),
+    // Guilds: the host closed last Thursday, two people filed around it.
+    p({ id: "p1", room: "guilds", type: "hosted", author: "Tom", at: ago(5, 3), cardId: "s-framing", on: iso(-5), next: iso(2), claim: "Full bench. Walked the two new ones through a header and a jack stud. Next week we cut rafters." }),
+    p({ id: "p2", room: "guilds", type: "did", author: "Josh", at: ago(5, 4), cardId: "s-framing", on: iso(-5), claim: "Framed my first header. Tom checked it twice before it went in.", reason: "Photo on my phone, Tom and Luis were there." }),
+    p({ id: "p3", room: "guilds", type: "asked", author: "Dale", at: ago(3), closed: true, claim: "Is there a Saturday slot for someone who works Thursday nights?", reason: "Asked Tom in person, he said to put it on the board and see who else wants one." }),
+    p({ id: "p3r", room: "guilds", type: "asked", author: "Tom", at: ago(3, 2), parentId: "p3", claim: "Two of us would come. If a third says so here, I will open the shop at 8." }),
 
-    // Skills: a trade card gets its two witnesses; a Noted gets marked.
-    base({
-      id: "p4",
-      room: "skills",
-      type: "did",
-      claim: "Luis replaced the panel in the shop. Inspector passed it first visit.",
-      reason: "Permit number on the shop wall, Dale saw the inspector sign.",
-      on: iso(-6),
-      author: "Tom",
-      at: now - 6 * DAY,
-      tradeId: "s-lamb",
-    }),
-    base({
-      id: "p5",
-      room: "skills",
-      type: "did",
-      claim: "Luis ran a 240 line to the garage for the welder. Clean work, one afternoon.",
-      reason: "Receipt dated last Tuesday, my wife was home for it.",
-      on: iso(-4),
-      author: "Dale",
-      at: now - 4 * DAY + HOUR,
-      tradeId: "s-lamb",
-    }),
-    base({
-      id: "p6",
-      room: "skills",
-      type: "did",
-      claim: "Two loaves from Ruth, Saturday. Second one went to the Nelsons.",
-      reason: "Paid cash at her door, Maria was with me.",
-      on: iso(-2),
-      author: "Josh",
-      at: now - 2 * DAY,
-      tradeId: "s-bakery",
-    }),
-    base({
-      id: "p7",
-      room: "skills",
-      type: "hosted",
-      claim: "Net ran clean. Three check-ins from Riverview this time, which is new.",
-      reason: iso(5),
-      on: iso(-1),
-      author: "Dale",
-      at: now - DAY + HOUR,
-      cardId: "s-ham",
-    }),
-    base({
-      id: "p8",
-      room: "skills",
-      type: "noted",
-      claim: "The club's repeater is moving frequencies next month.",
-      reason: "heard it at the net",
-      author: "Luis",
-      at: now - 20 * HOUR,
-      mark: "unsupported",
-    }),
-    base({
-      id: "p9",
-      room: "skills",
-      type: "noted",
-      claim: "Hillsborough Master Gardener desk takes soil samples Wednesdays, (813) 744-5519 ext. 54102.",
-      reason: "Called them Monday, the woman on the desk confirmed it.",
-      author: "Maria",
-      at: now - 2 * DAY + 5 * HOUR,
-    }),
+    // Skills: a trade gets its two witnesses; a Noted gets marked.
+    p({ id: "p4", room: "skills", type: "did", author: "Tom", at: ago(6), tradeId: "s-lamb", on: iso(-6), claim: "Luis replaced the panel in the shop. Inspector passed it first visit.", reason: "Permit number on the shop wall, Dale saw the inspector sign." }),
+    p({ id: "p5", room: "skills", type: "did", author: "Dale", at: ago(4, 1), tradeId: "s-lamb", on: iso(-4), claim: "Luis ran a 240 line to the garage for the welder. Clean work, one afternoon.", reason: "Receipt dated last Tuesday, my wife was home for it." }),
+    p({ id: "p6", room: "skills", type: "did", author: "Josh", at: ago(2), tradeId: "s-bakery", on: iso(-2), claim: "Two loaves from Ruth, Saturday. Second one went to the Nelsons.", reason: "Paid cash at her door, Maria was with me." }),
+    p({ id: "p7", room: "skills", type: "hosted", author: "Dale", at: ago(1, 1), cardId: "s-ham", on: iso(-1), next: iso(5), claim: "Net ran clean. Three check-ins from Riverview this time, which is new." }),
+    p({ id: "p8", room: "skills", type: "noted", author: "Luis", at: ago(0, -20), mark: "unsupported", claim: "The club's repeater is moving frequencies next month.", reason: "heard it at the net" }),
+    p({ id: "p9", room: "skills", type: "noted", author: "Maria", at: ago(2, 5), claim: "Hillsborough Master Gardener desk takes soil samples Wednesdays, (813) 744-5519 ext. 54102.", reason: "Called them Monday, the woman on the desk confirmed it." }),
 
-    // Public hall: the question, the Hosted, and one Did.
-    base({
-      id: "p10",
-      room: "hall",
-      type: "hosted",
-      claim: "Nine chairs, all full, two we had never met. The question held for an hour and we did not agree. Same question next month.",
-      reason: iso(9),
-      on: iso(-20),
-      author: "Maria",
-      at: now - 20 * DAY,
-      cardId: "s-hall",
-    }),
-    base({
-      id: "p11",
-      room: "hall",
-      type: "did",
-      claim: "Brought the Wimauma couple from church. They stayed after.",
-      reason: "Maria can say so.",
-      on: iso(-20),
-      author: "Josh",
-      at: now - 20 * DAY + HOUR,
-      cardId: "s-hall",
-    }),
+    // Public hall
+    p({ id: "p10", room: "hall", type: "hosted", author: "Maria", at: ago(20), cardId: "s-hall", on: iso(-20), next: iso(9), claim: "Nine chairs, all full, two we had never met. The question held for an hour and we did not agree. Same question next month." }),
+    p({ id: "p11", room: "hall", type: "did", author: "Josh", at: ago(20, 1), cardId: "s-hall", on: iso(-20), claim: "Brought the Wimauma couple from church. They stayed after.", reason: "Maria can say so." }),
 
     // School
-    base({
-      id: "p12",
-      room: "school",
-      type: "hosted",
-      claim: "Finished the Aeneid book two. Three families read aloud. The little ones built a horse out of chairs.",
-      reason: iso(4),
-      on: iso(-3),
-      author: "Ruth",
-      at: now - 3 * DAY + 4 * HOUR,
-      cardId: "s-school",
-    }),
-    base({
-      id: "p13",
-      room: "school",
-      type: "noted",
-      claim: "The co-op's spring term starts the second Tuesday of January. Chapter list goes up after Thanksgiving.",
-      reason: "Ruth said so at Tuesday chapter.",
-      author: "Maria",
-      at: now - 3 * DAY + 6 * HOUR,
-    }),
+    p({ id: "p12", room: "school", type: "hosted", author: "Ruth", at: ago(3, 4), cardId: "s-school", on: iso(-3), next: iso(4), claim: "Finished the Aeneid book two. Three families read aloud. The little ones built a horse out of chairs." }),
+    p({ id: "p13", room: "school", type: "noted", author: "Maria", at: ago(3, 6), claim: "The co-op's spring term starts the second Tuesday of January. Chapter list goes up after Thanksgiving.", reason: "Ruth said so at Tuesday chapter." }),
 
-    // Civic: a desk call, a hearing question, an answered reply.
-    base({
-      id: "p14",
-      room: "civic",
-      type: "did",
-      claim: "Board office: Ken Hagan, Chair, Hillsborough County Commission. Put the ordinance on the commission agenda.",
-      reason: "Logged on the Quorum desk by Josh. Window 9am–11am local.",
-      on: iso(-1),
-      author: "Josh",
-      at: now - DAY + 2 * HOUR,
-      campaignId: "county-agenda",
-    }),
-    base({
-      id: "p15",
-      room: "civic",
-      type: "asked",
-      claim: "Does the Lithia Pinecrest hearing still happen on the date on the card?",
-      reason: "Called District 4 twice, voicemail both times. The agenda page still shows the old date.",
-      author: "Dale",
-      at: now - 2 * DAY + 3 * HOUR,
-      closed: true,
-      cardId: "s-hearing",
-    }),
-    base({
-      id: "p15r",
-      room: "civic",
-      type: "asked",
-      claim: "Yes. Clerk's office confirmed by phone this morning, 9:10 a.m. Same date, 9 a.m., second floor.",
-      author: "Maria",
-      at: now - 2 * DAY + 5 * HOUR,
-      parentId: "p15",
-    }),
-    base({
-      id: "p16",
-      room: "civic",
-      type: "noted",
-      claim: "The county posts the full agenda packet the Friday before. Public comment cards are at the door, three minutes each.",
-      reason: "hcfl.gov agenda page, and I did it in March.",
-      author: "Maria",
-      at: now - 4 * DAY,
-    }),
+    // Civic
+    p({ id: "p14", room: "civic", type: "did", author: "Josh", at: ago(1, 2), campaignId: "county-agenda", on: iso(-1), claim: "Board office: Ken Hagan, Chair, Hillsborough County Commission. Put the ordinance on the commission agenda.", reason: "Logged on the Quorum desk by Josh. Window 9am–11am local." }),
+    p({ id: "p15", room: "civic", type: "asked", author: "Dale", at: ago(2, 3), closed: true, cardId: "s-hearing", claim: "Does the Lithia Pinecrest hearing still happen on the date on the card?", reason: "Called District 4 twice, voicemail both times. The agenda page still shows the old date." }),
+    p({ id: "p15r", room: "civic", type: "asked", author: "Maria", at: ago(2, 5), parentId: "p15", claim: "Yes. Clerk's office confirmed by phone this morning, 9:10 a.m. Same date, 9 a.m., second floor." }),
+    p({ id: "p16", room: "civic", type: "noted", author: "Maria", at: ago(4), claim: "The county posts the full agenda packet the Friday before. Public comment cards are at the door, three minutes each.", reason: "hcfl.gov agenda page, and I did it in March." }),
 
-    // Latin Mass: service time only.
-    base({
-      id: "p17",
-      room: "latin",
-      type: "noted",
-      claim: "High Mass moves to 10:30 on the first Sunday of the month for the next three months.",
-      reason: "Printed in the bulletin, Luis has a copy.",
-      author: "Luis",
-      at: now - 6 * DAY + 10 * HOUR,
-    }),
+    // Latin Mass
+    p({ id: "p17", room: "latin", type: "noted", author: "Luis", at: ago(6, 10), claim: "High Mass moves to 10:30 on the first Sunday of the month for the next three months.", reason: "Printed in the bulletin, Luis has a copy." }),
 
     // Dispatch: two clean Saws and one sloppy one.
-    base({
-      id: "p18",
-      room: "dispatch",
-      type: "saw",
-      claim: "Sheriff's cruiser and a tow on the shoulder, I-75 southbound past Gibsonton. Traffic down to one lane.",
-      reason: "3:55 p.m., I-75 SB near mile 250",
-      on: iso(0),
-      author: "Dale",
-      at: now - 2 * HOUR,
-    }),
-    base({
-      id: "p19",
-      room: "dispatch",
-      type: "saw",
-      claim: "Two lanes closed on Bloomingdale at Lithia Pinecrest, crews on the median.",
-      reason: "4:40 p.m., Bloomingdale and Lithia Pinecrest, eastbound side",
-      on: iso(0),
-      author: "Josh",
-      at: now - HOUR,
-    }),
-    base({
-      id: "p20",
-      room: "dispatch",
-      type: "saw",
-      claim: "https://example.com/some-video",
-      reason: "around noon somewhere on 301",
-      on: iso(-1),
-      author: "Rick",
-      at: now - DAY,
-      mark: "sloppy",
-    }),
+    p({ id: "p18", room: "dispatch", type: "saw", author: "Dale", at: ago(0, -2), on: iso(0), claim: "Sheriff's cruiser and a tow on the shoulder, I-75 southbound past Gibsonton. Traffic down to one lane.", reason: "3:55 p.m., I-75 SB near mile 250" }),
+    p({ id: "p19", room: "dispatch", type: "saw", author: "Josh", at: ago(0, -1), on: iso(0), claim: "Two lanes closed on Bloomingdale at Lithia Pinecrest, crews on the median.", reason: "4:40 p.m., Bloomingdale and Lithia Pinecrest, eastbound side" }),
+    p({ id: "p20", room: "dispatch", type: "saw", author: "Rick", at: ago(1), on: iso(-1), mark: "sloppy", claim: "https://example.com/some-video", reason: "around noon somewhere on 301" }),
   ];
 
   const markLog: MarkRow[] = [
-    { id: "m1", room: "skills", postId: "p8", author: "Luis", by: "Maria", mark: "unsupported", at: now - 18 * HOUR },
-    { id: "m2", room: "dispatch", postId: "p20", author: "Rick", by: "Maria", mark: "sloppy", at: now - 22 * HOUR },
+    { id: "m1", room: "skills", postId: "p8", author: "Luis", by: "Maria", mark: "unsupported", at: ago(0, -18) },
+    { id: "m2", room: "dispatch", postId: "p20", author: "Rick", by: "Maria", mark: "sloppy", at: ago(0, -22) },
   ];
 
   const t1 = threadIdFor("Josh", "Dale");
@@ -436,12 +135,12 @@ export function sampleBoard(): SampleBoard {
     { id: t2, between: ["Josh", "Tom"] },
   ];
   const messages: DmMessage[] = [
-    { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew Thursday? He has never held a saw.", at: now - 26 * HOUR },
-    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, he said yes to first-timers on the card. I can drive you both.", at: now - 25 * HOUR },
-    { id: "d3", threadId: t1, from: "Dale", text: "Done. 6:15 at mine.", at: now - 24 * HOUR },
-    { id: "d4", threadId: t2, from: "Josh", text: "Dale's nephew is coming Thursday. Sixteen, never held a saw.", at: now - 23 * HOUR },
-    { id: "d5", threadId: t2, from: "Tom", text: "Good. Put him on the chop saw with Luis first.", at: now - 22 * HOUR },
+    { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew Thursday? He has never held a saw.", at: ago(1, -2) },
+    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, he said yes to first-timers on the card. I can drive you both.", at: ago(1, -1) },
+    { id: "d3", threadId: t1, from: "Dale", text: "Done. 6:15 at mine.", at: ago(1) },
+    { id: "d4", threadId: t2, from: "Josh", text: "Dale's nephew is coming Thursday. Sixteen, never held a saw.", at: ago(0, -23) },
+    { id: "d5", threadId: t2, from: "Tom", text: "Good. Put him on the chop saw with Luis first.", at: ago(0, -22) },
   ];
 
-  return { me, posts, cards, markLog, threads, messages };
+  return { me: "Josh", posts, cards, markLog, threads, messages };
 }

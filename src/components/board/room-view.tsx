@@ -1,111 +1,125 @@
-import { useMemo, useState } from "react";
-import { Check, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useNow } from "@/components/quorum/bits";
+import { memo, useMemo, useState } from "react";
+import { Check as CheckIcon, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
-  HARD_RULES,
+  MARK_LABEL,
   POST_TYPES,
   ROOMS,
+  RULE_LABEL,
+  authorName,
   banFor,
   blankDraft,
-  canDm,
+  cardSummary,
   composerCheck,
   formatDate,
   formatWhen,
-  repliesTo,
+  messageable,
+  repliesByParent,
   roomById,
-  sawLockedFor,
   shelfFor,
   sortRoom,
+  todayIso,
   typeMeta,
+  witnessesByTrade,
+  type Check,
+  type Draft,
   type HardRule,
+  type Mark,
+  type MeetingCard,
   type Post,
-  type PostType,
 } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
-import { formatWindow, officeById, windowStatus } from "@/lib/quorum/model";
+import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
+
+const MARKS: Mark[] = ["unsupported", "sloppy"];
+const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
   const room = useBoard((state) => state.room);
   const setRoom = useBoard((state) => state.setRoom);
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
-  const me = useBoard((state) => state.me);
-  const bans = useBoard((state) => state.bans);
+  const removals = useBoard((state) => state.removals);
+  const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
-  const now = useNow();
   const meta = roomById(room);
+  const today = todayIso();
+
+  // One pass each; every PostCard reads from these instead of scanning posts.
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
-  const shelf = useMemo(() => (now ? shelfFor(room, cards, posts, now) : []), [room, cards, posts, now]);
-  const ban = now ? banFor(me.trim() || "You", bans, now.getTime()) : null;
+  const replies = useMemo(() => repliesByParent(posts), [posts]);
+  const canMessage = useMemo(() => messageable(me, cards, posts), [me, cards, posts]);
+  const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
+  const shelf = useMemo(
+    () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
+    [room, cards, posts, today],
+  );
+  const ban = banFor(me, removals, Date.now());
 
   return (
     <div className="flex flex-col gap-6">
       <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Rooms">
-        {ROOMS.map((item) => {
-          const active = item.id === room;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={active ? "page" : undefined}
-              onClick={() => setRoom(item.id)}
-              className={cn(
-                "inline-flex min-h-11 shrink-0 items-center rounded-md px-3 text-sm font-semibold",
-                active ? "bg-signal text-signal-ink" : "border border-line bg-surface text-muted",
-              )}
-            >
-              {item.name}
-            </button>
-          );
-        })}
+        {ROOMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={item.id === room ? "page" : undefined}
+            onClick={() => setRoom(item.id)}
+            className={pill(item.id === room)}
+          >
+            {item.name}
+          </button>
+        ))}
       </nav>
 
       <section className="flex flex-col gap-2">
-        <Kicker>{meta.service ? "Service time" : "Room"}</Kicker>
+        <Kicker>{meta.cardNoun === "Service" ? "Service time" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-fg">{meta.name}</h1>
         <p className="max-w-2xl text-base text-muted">{meta.what}</p>
       </section>
 
       {room === "civic" ? <CivicDesk /> : null}
 
-      {shelf.length > 0 ? (
-        <section className="flex flex-col gap-3" aria-label="Coming up">
-          {shelf.map((card) => (
-            <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
-              <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-signal uppercase">
-                <Pin className="size-3" aria-hidden="true" />
-                {card.kind === "candidate" ? "Candidate card" : "Coming up"}
-                {card.pinned ? " · pinned until the hour" : ""}
-              </p>
-              <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
-              <p className="text-sm text-muted">
-                {card.place} · {card.time}
-                {card.host ? ` · ${card.host}` : ""}
-                {card.next ? ` · ${formatDate(card.next)}` : ""}
-                {card.firstTimer ? " · takes a first-timer" : ""}
-              </p>
-            </article>
-          ))}
-        </section>
-      ) : null}
+      {shelf.map((card) => (
+        <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
+          <Kicker className="flex items-center gap-2">
+            <Pin className="size-3" aria-hidden="true" />
+            {card.kind === "candidate" ? "Candidate card" : "Coming up"}
+            {card.pinned ? " · pinned until the hour" : ""}
+          </Kicker>
+          <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
+          <p className="text-sm text-muted">
+            {cardSummary(card)}
+            {card.next ? ` · ${formatDate(card.next)}` : ""}
+            {card.firstTimer ? " · takes a first-timer" : ""}
+          </p>
+        </article>
+      ))}
 
       {ban ? (
         <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
           {ban.strikes >= 2
             ? "This account is closed. Second hard removal."
-            : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${
-                HARD_RULES.find((rule) => rule.id === ban.reason)?.label ?? ban.reason
-              }.`}
+            : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
         </p>
       ) : (
-        <Composer />
+        <Composer me={me} />
       )}
 
       <section className="flex flex-col gap-3">
         {feed.map((post) => (
-          <PostCard key={post.id} post={post} now={now?.getTime() ?? 0} steward={steward} />
+          <PostCard
+            key={post.id}
+            post={post}
+            replies={replies.get(post.id) ?? []}
+            card={post.cardId ? cardById.get(post.cardId) : undefined}
+            trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
+            mine={post.author === me}
+            canMessage={canMessage.has(post.author)}
+            steward={steward}
+          />
         ))}
         <p className="py-6 text-center text-sm text-muted">
           {feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}
@@ -117,193 +131,179 @@ export function RoomView() {
   );
 }
 
-/** Quorum campaigns show in Civic as labeled cards, pinned until the window closes. */
+/** Quorum campaigns show in Civic as labeled cards while their window is open. */
 function CivicDesk() {
   const campaigns = useQuorum((state) => state.campaigns);
   const customOffices = useQuorum((state) => state.customOffices);
   const openDesk = useQuorum((state) => state.openDesk);
   const setSection = useBoard((state) => state.setSection);
   const now = useNow();
+  if (!now) return null;
   const live = campaigns.filter(
-    (campaign) => campaign.demand.trim() && now && windowStatus(campaign.surgeStart, campaign.surgeEnd, now).live,
+    (campaign) => campaign.demand.trim() && windowStatus(campaign.surgeStart, campaign.surgeEnd, now).live,
   );
-  if (live.length === 0) return null;
   return (
-    <div className="flex flex-col gap-3">
+    <>
       {live.map((campaign) => {
         const office = officeById(campaign.officeId, customOffices);
         return (
           <article key={campaign.id} className="rounded-lg border border-signal bg-surface p-4">
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-signal uppercase">
+            <Kicker className="flex items-center gap-2">
               <span className="live-dot size-2 rounded-full bg-signal" aria-hidden="true" />
               Call window open · {formatWindow(campaign.surgeStart, campaign.surgeEnd)}
-            </p>
+            </Kicker>
             <h2 className="mt-2 text-2xl text-fg">{campaign.title}</h2>
             <p className="text-sm text-muted">
-              {office.name}, {office.role} · {office.dcPhone}
+              {office.name}, {office.role}
             </p>
-            <button
-              type="button"
-              className={cn(btnGhost, "mt-3")}
-              onClick={() => {
-                openDesk(campaign.id);
-                setSection("civic");
-              }}
-            >
-              Open the desk
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a className={btnSignal} href={telHref(office.dcPhone)}>
+                Call {office.dcPhone}
+              </a>
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={() => {
+                  openDesk(campaign.id);
+                  setSection("civic");
+                }}
+              >
+                Open the desk
+              </button>
+            </div>
           </article>
         );
       })}
-    </div>
+    </>
   );
 }
 
-function Composer() {
+function CardSelect({
+  label,
+  cards,
+  empty,
+  value,
+  onChange,
+}: {
+  label: string;
+  cards: MeetingCard[];
+  empty?: string;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-2 text-sm text-muted">
+      {label}
+      <select className={cn(fieldClass, "min-h-11")} value={value} onChange={(event) => onChange(event.target.value)}>
+        {empty !== undefined ? <option value="">{empty}</option> : null}
+        {cards.map((card) => (
+          <option key={card.id} value={card.id}>
+            {card.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Composer({ me }: { me: string }) {
   const room = useBoard((state) => state.room);
-  const me = useBoard((state) => state.me);
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
+  const removals = useBoard((state) => state.removals);
   const file = useBoard((state) => state.file);
   const [draft, setDraft] = useState(() => blankDraft(room));
-  const [touched, setTouched] = useState(false);
+  const [result, setResult] = useState<Check | null>(null);
   const meta = roomById(room);
   const current = draft.room === room ? draft : blankDraft(room);
-  const name = me.trim() || "You";
-  const sawLocked = sawLockedFor(name, posts);
-  const check = composerCheck(current, sawLocked, me, cards);
-  const typeMetaNow = current.type ? typeMeta(current.type) : null;
-  const roomCards = cards.filter((card) => card.room === room && card.kind !== "trade");
-  const hostedCards = roomCards.filter((card) => card.host === name);
-  const trades = cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== name);
+  const type = current.type ? typeMeta(current.type) : null;
 
-  function patch(next: Partial<typeof current>) {
-    setDraft({ ...current, ...next });
-  }
+  const roomCards = useMemo(() => cards.filter((card) => card.room === room && card.kind !== "trade"), [cards, room]);
+  const ownCards = useMemo(() => roomCards.filter((card) => card.host === me), [roomCards, me]);
+  const trades = useMemo(() => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me), [cards, room, me]);
+  const check = useMemo(
+    () => composerCheck(current, { author: me, posts, cards, removals, now: Date.now() }),
+    [current, me, posts, cards, removals],
+  );
 
-  function send() {
-    setTouched(true);
-    if (!check.ok) return;
-    file(current);
+  const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
+  const reset = () => {
     setDraft(blankDraft(room));
-    setTouched(false);
-  }
-
-  const selectClass = cn(fieldClass, "min-h-11");
+    setResult(null);
+  };
+  const send = () => {
+    const outcome = file(current);
+    if (outcome.ok) reset();
+    else setResult(outcome);
+  };
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <p className="text-sm text-muted">Every post picks a type or it does not send.</p>
       <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Post type">
-        {POST_TYPES.filter((type) => meta.takes.includes(type.id)).map((type) => {
-          const active = current.type === type.id;
-          const hostedButNoCard = type.id === "hosted" && hostedCards.length === 0;
+        {POST_TYPES.filter((item) => meta.takes.includes(item.id)).map((item) => {
+          const noCard = item.cardPick === "own" && ownCards.length === 0;
           return (
             <button
-              key={type.id}
+              key={item.id}
               type="button"
               role="radio"
-              aria-checked={active}
-              title={hostedButNoCard ? "You host no card in this room." : type.what}
-              disabled={hostedButNoCard}
-              onClick={() => patch({ type: type.id as PostType, cardId: type.id === "hosted" ? (hostedCards[0]?.id ?? "") : current.cardId })}
-              className={cn(
-                "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-semibold disabled:opacity-40",
-                active ? "bg-signal text-signal-ink" : "border border-line bg-raised text-muted",
-              )}
+              aria-checked={current.type === item.id}
+              title={noCard ? "You host no card in this room." : item.what}
+              disabled={noCard}
+              onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "" })}
+              className={pill(current.type === item.id, "px-4")}
             >
-              {type.label}
+              {item.label}
             </button>
           );
         })}
       </div>
-      {typeMetaNow ? (
+
+      {type ? (
         <div className="mt-4 flex flex-col gap-3">
-          <p className="text-sm text-muted">{typeMetaNow.what}</p>
-
-          {current.type === "hosted" ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              The card this closes
-              <select className={selectClass} value={current.cardId} onChange={(event) => patch({ cardId: event.target.value })}>
-                {hostedCards.map((card) => (
-                  <option key={card.id} value={card.id}>
-                    {card.name} · {card.time}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <p className="text-sm text-muted">{type.what}</p>
+          {type.cardPick === "own" ? (
+            <CardSelect label="The card this closes" cards={ownCards} value={current.cardId} onChange={(cardId) => patch({ cardId })} />
           ) : null}
-
-          {current.type === "did" && roomCards.length > 0 ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              About a card? (a Did that names one sorts first)
-              <select className={selectClass} value={current.cardId} onChange={(event) => patch({ cardId: event.target.value })}>
-                <option value="">No card</option>
-                {roomCards.map((card) => (
-                  <option key={card.id} value={card.id}>
-                    {card.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {type.cardPick === "optional" && roomCards.length > 0 ? (
+            <CardSelect label="Card, if any" cards={roomCards} empty="No card" value={current.cardId} onChange={(cardId) => patch({ cardId })} />
           ) : null}
-
-          {current.type === "did" && trades.length > 0 ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Who did the work? (two of these list a tradesman)
-              <select className={selectClass} value={current.tradeId} onChange={(event) => patch({ tradeId: event.target.value })}>
-                <option value="">Nobody I am naming</option>
-                {trades.map((card) => (
-                  <option key={card.id} value={card.id}>
-                    {card.name} · {card.time}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {type.tradePick && trades.length > 0 ? (
+            <CardSelect label="Who did the work" cards={trades} empty="No one" value={current.tradeId} onChange={(tradeId) => patch({ tradeId })} />
           ) : null}
-
           <label className="flex flex-col gap-2 text-sm text-muted">
-            {typeMetaNow.claimLabel}
-            <textarea
-              className={cn(fieldClass, "min-h-24")}
-              value={current.claim}
-              onChange={(event) => patch({ claim: event.target.value })}
-            />
+            {type.claimLabel}
+            <textarea className={cn(fieldClass, "min-h-24")} value={current.claim} onChange={(event) => patch({ claim: event.target.value })} />
           </label>
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            {typeMetaNow.reasonLabel}
-            <input
-              className={fieldClass}
-              value={current.reason}
-              onChange={(event) => patch({ reason: event.target.value })}
-            />
-          </label>
-          {typeMetaNow.needsDate ? (
+          {type.reasonLabel ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
-              {current.type === "hosted" ? "The date it happened" : "Date"}
-              <input
-                type="date"
-                className={cn(fieldClass, "max-w-xs")}
-                value={current.on}
-                onChange={(event) => patch({ on: event.target.value })}
-              />
+              {type.reasonLabel}
+              <input className={fieldClass} value={current.reason} onChange={(event) => patch({ reason: event.target.value })} />
             </label>
           ) : null}
-          {current.type === "saw" ? (
+          {type.dateLabel ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              {type.dateLabel}
+              <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.on} onChange={(event) => patch({ on: event.target.value })} />
+            </label>
+          ) : null}
+          {type.next ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Next date, if there is one
+              <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
+            </label>
+          ) : null}
+          {type.attest ? (
             <label className="flex items-start gap-3 text-sm text-muted">
-              <input
-                type="checkbox"
-                className="mt-1 size-5"
-                checked={current.attested}
-                onChange={(event) => patch({ attested: event.target.checked })}
-              />
+              <input type="checkbox" className="mt-1 size-5" checked={current.attested} onChange={(event) => patch({ attested: event.target.checked })} />
               No child's face. No home address. No private person named who was not acting in public. A
               correction gets its own clip.
             </label>
           ) : null}
-          {touched && check.stops.length > 0 ? (
+          {result && !result.ok ? (
             <ul className="flex flex-col gap-1 text-sm text-signal">
-              {check.stops.map((stop) => (
+              {result.stops.map((stop) => (
                 <li key={stop}>{stop}</li>
               ))}
             </ul>
@@ -317,9 +317,9 @@ function Composer() {
           ) : null}
           <div className="flex gap-2">
             <button type="button" className={btnSignal} onClick={send}>
-              File {typeMetaNow.label}
+              File {type.label}
             </button>
-            <button type="button" className={btnQuiet} onClick={() => setDraft(blankDraft(room))}>
+            <button type="button" className={btnQuiet} onClick={reset}>
               Clear
             </button>
           </div>
@@ -329,10 +329,23 @@ function Composer() {
   );
 }
 
-function PostCard({ post, now, steward }: { post: Post; now: number; steward: boolean }) {
-  const posts = useBoard((state) => state.posts);
-  const cards = useBoard((state) => state.cards);
-  const me = useBoard((state) => state.me);
+const PostCard = memo(function PostCard({
+  post,
+  replies,
+  card,
+  trade,
+  mine,
+  canMessage,
+  steward,
+}: {
+  post: Post;
+  replies: Post[];
+  card?: MeetingCard;
+  trade?: MeetingCard;
+  mine: boolean;
+  canMessage: boolean;
+  steward: boolean;
+}) {
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
@@ -345,46 +358,31 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
   const [claim, setClaim] = useState(post.claim);
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
-  const replies = repliesTo(posts, post.id);
-  const name = me.trim() || "You";
-  const mine = post.author === name;
-  const meta = typeMeta(post.type);
-  const card = post.cardId ? cards.find((item) => item.id === post.cardId) : undefined;
-  const trade = post.tradeId ? cards.find((item) => item.id === post.tradeId) : undefined;
-  const canMessage = !mine && canDm(me.trim(), post.author, cards, posts);
+  const type = typeMeta(post.type);
 
   return (
-    <article
-      className={cn(
-        "rounded-lg border border-line bg-surface p-4",
-        post.mark === "sloppy" && "opacity-70",
-      )}
-    >
+    <article className={cn("rounded-lg border border-line bg-surface p-4", post.mark === "sloppy" && "opacity-70")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{meta.label}</span>
-        {post.on ? <span className="text-muted">{formatDate(post.on)}</span> : null}
+        <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
-          {post.author} · {formatWhen(post.at, now)}
+          {post.author} · {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
         </span>
         {card ? <span className="text-signal">· {card.name}</span> : null}
         {trade ? <span className="text-muted">· work by {trade.name}</span> : null}
-        {post.type === "asked" && post.closed ? <span className="text-muted">· answered</span> : null}
-        {post.mark ? (
-          <span className="rounded-sm border border-line px-2 py-1 text-muted">
-            {post.mark === "sloppy" ? "Sloppy" : "Unsupported"}
-          </span>
-        ) : null}
+        {type.closable && post.closed ? <span className="text-muted">· answered</span> : null}
+        {post.mark ? <span className="rounded-sm border border-line px-2 py-1 text-muted">{MARK_LABEL[post.mark]}</span> : null}
       </div>
+
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">
           <textarea className={cn(fieldClass, "min-h-20")} value={claim} onChange={(e) => setClaim(e.target.value)} />
-          <input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} />
+          {type.reasonLabel ? <input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} /> : null}
           <div className="flex gap-2">
             <button
               type="button"
               className={btnSignal}
               onClick={() => {
-                if (!claim.trim() || !reason.trim()) return;
+                if (!claim.trim() || (type.reasonLabel && !reason.trim())) return;
                 revise(post.id, { claim, reason });
                 setEditing(false);
               }}
@@ -399,15 +397,8 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
       ) : (
         <>
           <p className="mt-3 text-base text-fg">{post.claim}</p>
-          {post.reason ? (
-            <p className="mt-1 text-sm text-muted">
-              {post.type === "hosted"
-                ? /^\d{4}-\d{2}-\d{2}$/.test(post.reason)
-                  ? `Next ${formatDate(post.reason)}`
-                  : "No next date"
-                : post.reason}
-            </p>
-          ) : null}
+          {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
+          {type.next ? <p className="mt-1 text-sm text-muted">{post.next ? `Next ${formatDate(post.next)}` : "No next date"}</p> : null}
         </>
       )}
 
@@ -425,12 +416,7 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
       <div className="mt-3 flex flex-wrap gap-2">
         {replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <input
-              className={fieldClass}
-              placeholder="A reply with a reason"
-              value={replyText}
-              onChange={(event) => setReplyText(event.target.value)}
-            />
+            <input className={fieldClass} placeholder="A reply with a reason" value={replyText} onChange={(event) => setReplyText(event.target.value)} />
             <button
               type="button"
               className={btnSignal}
@@ -442,7 +428,7 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
             >
               Reply
             </button>
-            <button type="button" className={btnQuiet} onClick={() => setReplying(false)}>
+            <button type="button" className={btnQuiet} onClick={() => setReplying(false)} aria-label="Cancel reply">
               <X className="size-4" aria-hidden="true" />
             </button>
           </div>
@@ -458,9 +444,9 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
             Message {post.author}
           </button>
         ) : null}
-        {mine && post.type === "asked" && !post.closed ? (
+        {mine && type.closable && !post.closed ? (
           <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => closeAsked(post.id)}>
-            <Check className="size-4" aria-hidden="true" />
+            <CheckIcon className="size-4" aria-hidden="true" />
             Answered
           </button>
         ) : null}
@@ -474,31 +460,17 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
       {steward ? (
         <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
           <span className="self-center text-xs tracking-widest text-muted uppercase">Steward</span>
-          <button
-            type="button"
-            className={btnQuiet}
-            onClick={() => mark(post.id, post.mark === "unsupported" ? null : "unsupported")}
-          >
-            <Flag className="size-4" aria-hidden="true" />
-            {post.mark === "unsupported" ? "Clear mark" : "Unsupported"}
-          </button>
-          <button
-            type="button"
-            className={btnQuiet}
-            onClick={() => mark(post.id, post.mark === "sloppy" ? null : "sloppy")}
-          >
-            {post.mark === "sloppy" ? "Clear sloppy" : "Sloppy"}
-          </button>
+          {MARKS.map((item) => (
+            <button key={item} type="button" className={btnQuiet} onClick={() => mark(post.id, post.mark === item ? null : item)}>
+              <Flag className="size-4" aria-hidden="true" />
+              {post.mark === item ? `Clear ${MARK_LABEL[item].toLowerCase()}` : MARK_LABEL[item]}
+            </button>
+          ))}
           {removing ? (
             <>
-              {HARD_RULES.map((rule) => (
-                <button
-                  key={rule.id}
-                  type="button"
-                  className={btnGhost}
-                  onClick={() => remove(post.id, rule.id as HardRule)}
-                >
-                  Remove: {rule.label}
+              {RULES.map((rule) => (
+                <button key={rule} type="button" className={btnGhost} onClick={() => remove(post.id, rule)}>
+                  Remove: {RULE_LABEL[rule]}
                 </button>
               ))}
               <button type="button" className={btnQuiet} onClick={() => setRemoving(false)}>
@@ -515,17 +487,12 @@ function PostCard({ post, now, steward }: { post: Post; now: number; steward: bo
       ) : null}
     </article>
   );
-}
+});
 
-/**
- * Every steward mark in this room, for every member to read. The brief:
- * if stewards use the mark to bury a view, the room is over. This is how
- * the room would know.
- */
+/** Every steward mark in this room, for every member to read. */
 function MarkLog() {
   const room = useBoard((state) => state.room);
   const markLog = useBoard((state) => state.markLog);
-  const now = useNow();
   const rows = markLog.filter((row) => row.room === room).slice(0, 20);
   if (rows.length === 0) return null;
   return (
@@ -535,7 +502,7 @@ function MarkLog() {
         {rows.map((row) => (
           <li key={row.id}>
             {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} ·{" "}
-            {now ? formatWhen(row.at, now.getTime()) : ""}
+            <When at={row.at} format={formatWhen} />
           </li>
         ))}
       </ul>

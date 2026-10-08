@@ -39,17 +39,7 @@ import {
 } from "@/lib/quorum/model";
 import { useQuorum } from "@/lib/quorum/store";
 import { useBoard } from "@/lib/board/store";
-import { todayIso } from "@/lib/board/model";
-
-function formatWhen(at: number, now: number): string {
-  const delta = Math.max(0, now - at);
-  const mins = Math.round(delta / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return new Date(at).toLocaleDateString();
-}
+import { formatWhen } from "@/lib/board/model";
 
 export function DeskView() {
   const selectedId = useQuorum((state) => state.selectedId);
@@ -574,20 +564,16 @@ export function DeskView() {
               className={cn(btnSignal, "h-auto flex-col items-start py-3 text-left")}
               onClick={() => {
                 logContact(campaign.id, wave.id, who);
-                // A logged contact is a Did in the Civic room: an act, a date, one proof.
-                useBoard.getState().file(
-                  {
-                    room: "civic",
-                    type: "did",
-                    claim: `${wave.label}: ${office.name}, ${office.role}. ${campaign.title}.`,
-                    reason: `Logged on the Quorum desk by ${who.trim() || "me"}. Window ${formatWindow(campaign.surgeStart, campaign.surgeEnd)}.`,
-                    on: todayIso(),
-                    attested: false,
-                    cardId: "",
-                    tradeId: "",
-                  },
-                  { campaignId: campaign.id },
-                );
+                // A logged contact is a Did in the Civic room.
+                useBoard.getState().fileDeskContact({
+                  title: campaign.title,
+                  waveLabel: wave.label,
+                  office: office.name,
+                  role: office.role,
+                  window: formatWindow(campaign.surgeStart, campaign.surgeEnd),
+                  who,
+                  campaignId: campaign.id,
+                });
               }}
             >
               <span>Log {wave.label.toLowerCase()}</span>
