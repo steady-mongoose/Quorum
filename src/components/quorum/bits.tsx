@@ -1,6 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { LEVELS, type Level } from "@/lib/quorum/model";
 import { cn } from "@/lib/cn";
+
+/** The tab, pill and radio look used by every switcher in the app. */
+export function pill(active: boolean, extra?: string) {
+  return cn(
+    "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold disabled:opacity-40",
+    active ? "bg-signal text-signal-ink" : "border border-line bg-surface text-muted",
+    extra,
+  );
+}
+
+export function IconNav<T extends string>({
+  items,
+  current,
+  onSelect,
+  label,
+}: {
+  items: { id: T; label: string; icon?: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }> }[];
+  current: T;
+  onSelect: (id: T) => void;
+  label: string;
+}) {
+  return (
+    <nav className="flex gap-2 overflow-x-auto" aria-label={label}>
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={current === item.id ? "page" : undefined}
+            onClick={() => onSelect(item.id)}
+            className={pill(current === item.id)}
+          >
+            {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
+            {item.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 export const btn =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-transform duration-150 ease-out active:scale-95 disabled:opacity-50";
@@ -73,32 +114,32 @@ export function LevelSwitch({
 }) {
   return (
     <div className="flex gap-2 overflow-x-auto" role="tablist" aria-label="Level of government">
-      {LEVELS.map((level) => {
-        const active = value === level.id;
-        return (
-          <button
-            key={level.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(level.id)}
-            className={cn(
-              "inline-flex min-h-11 shrink-0 items-center rounded-md px-4 text-sm font-semibold",
-              active ? "bg-signal text-signal-ink" : "border border-line bg-surface text-muted",
-            )}
-          >
-            {level.label}
-          </button>
-        );
-      })}
+      {LEVELS.map((level) => (
+        <button
+          key={level.id}
+          type="button"
+          role="tab"
+          aria-selected={value === level.id}
+          onClick={() => onChange(level.id)}
+          className={pill(value === level.id, "px-4")}
+        >
+          {level.label}
+        </button>
+      ))}
     </div>
   );
 }
 
-export function Kicker({ children }: { children: string }) {
+export function Kicker({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className="text-xs font-semibold tracking-widest text-signal uppercase">{children}</p>
+    <p className={cn("text-xs font-semibold tracking-widest text-signal uppercase", className)}>{children}</p>
   );
+}
+
+/** A relative timestamp that re-renders itself, so its parent need not tick. */
+export function When({ at, format }: { at: number; format: (at: number, now: number) => string }) {
+  const now = useNow();
+  return <>{now ? format(at, now.getTime()) : ""}</>;
 }
 
 export function Pips({ lit, tone }: { lit: number; tone: "signal" | "muted" }) {
