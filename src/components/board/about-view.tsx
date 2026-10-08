@@ -1,6 +1,8 @@
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass, Kicker, pill } from "@/components/quorum/bits";
+import { Emblem } from "@/components/board/emblem";
 import { POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { THEMES } from "@/lib/board/themes";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
@@ -12,6 +14,8 @@ export function AboutView() {
   const removals = useBoard((state) => state.removals);
   const loadSample = useBoard((state) => state.loadSample);
   const clearBoard = useBoard((state) => state.clearBoard);
+  const theme = useBoard((state) => state.theme);
+  const setTheme = useBoard((state) => state.setTheme);
 
   return (
     <div className="flex flex-col gap-8">
@@ -27,6 +31,25 @@ export function AboutView() {
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">Our stance</h2>
         <p className="mt-2 text-sm text-muted">[OWNER TO WRITE]</p>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-2xl text-fg">Look</h2>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
+          {THEMES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={theme === item.id}
+              onClick={() => setTheme(item.id)}
+              className={pill(theme === item.id, "px-4")}
+            >
+              <Emblem theme={item.id} className="size-5" />
+              {item.name}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="flex flex-col gap-3">

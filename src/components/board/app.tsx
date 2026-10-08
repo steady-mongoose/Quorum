@@ -10,6 +10,8 @@ import { FindView } from "@/components/board/find-view";
 import { RoomView } from "@/components/board/room-view";
 import { SessionLine } from "@/components/board/line";
 import { QuorumPanel } from "@/components/quorum/app";
+import { Emblem } from "@/components/board/emblem";
+import { themeById, themeVars } from "@/lib/board/themes";
 
 const NAV = [
   { id: "rooms", label: "Rooms", icon: LayoutList },
@@ -22,6 +24,7 @@ const NAV = [
 export function BoardApp() {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const theme = useBoard((state) => themeById(state.theme));
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -29,12 +32,15 @@ export function BoardApp() {
   }, []);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-bg text-fg">
+    <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 pt-4 pb-3">
-          <div>
-            <p className="font-display text-3xl leading-none text-fg">The Board</p>
-            <p className="mt-2 text-sm text-muted">Read your room. Then leave.</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-display text-3xl leading-none text-fg">The Board</p>
+              <p className="mt-2 text-sm text-muted">{theme.motto || "Read your room. Then leave."}</p>
+            </div>
+            <Emblem theme={theme.id} className="size-12 shrink-0 text-signal" />
           </div>
           <IconNav items={NAV} current={section} onSelect={setSection} label="Sections" />
         </div>

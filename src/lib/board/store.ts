@@ -24,6 +24,7 @@ import {
   type Section,
 } from "@/lib/board/model";
 import { SEED_CARDS, sampleBoard } from "@/lib/board/sample";
+import type { ThemeId } from "@/lib/board/themes";
 
 type BoardState = {
   section: Section;
@@ -40,6 +41,8 @@ type BoardState = {
   messages: DmMessage[];
   openThread: string | null;
   lineDismissedAt: number;
+  theme: ThemeId;
+  setTheme: (theme: ThemeId) => void;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
@@ -116,6 +119,8 @@ export const useBoard = create<BoardState>()(
         messages: [],
         openThread: null,
         lineDismissedAt: 0,
+        theme: "plain",
+        setTheme: (theme) => set({ theme }),
         setSection: (section) => set({ section }),
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
@@ -244,6 +249,7 @@ export const useBoard = create<BoardState>()(
         me: state.me,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
+        theme: state.theme,
         posts: state.posts,
         cards: state.cards,
         removals: state.removals,
