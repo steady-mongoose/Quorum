@@ -4,6 +4,30 @@ A town board with a lock on the feed. It holds what a small set of people did, w
 
 Quorum (below) is the engine of the Civic room. A campaign is one demand on one office in one hour; while its window is open it shows in Civic as a labeled card, and every call, letter, or visit logged on the desk files in Civic as a **Did**: an act, a date, one proof.
 
+## Get it running
+
+You need [Node.js](https://nodejs.org/) 22 or newer and Git. Then, in a terminal:
+
+```bash
+git clone https://github.com/steady-mongoose/Quorum.git
+cd Quorum
+git checkout the-board
+npm install
+npm run dev
+```
+
+Open http://localhost:8080. Everything you do stays in that browser on that machine; there is no server and no account yet.
+
+To see the template filled in:
+
+1. Open **About**, type a name, and press **Load the sample week**. Six invented members, a week of posts, cards with dates, two message threads. You become Josh.
+2. Pick a look under **About → Look**: Plain, An Appeal to Heaven, Jerusalem cross, or Don't Tread on Me.
+3. Walk the rooms. Guilds opens on the framing night; Skills shows a tradesman listed by two witnesses; Dispatch has a sloppy post marked and sorted last; Messages has the Dale and Tom threads.
+
+**Clear the board** on the same page wipes it back to the brief's seed cards. **Steward tools** on that page turn on marking and hard removal so you can try the moderation path.
+
+Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is the only command you need day to day.
+
 ## Rooms and post types
 
 Rooms do not mix: Civic, Public hall, Skills, Guilds, School, Reformed, Latin Mass, Greek Orthodox, Dispatch. Every post picks a type or it does not send: **Did**, **Asked**, **Noted**, **Saw**. Dispatch takes Saw only and nothing else takes Saw; a Saw wants a clock in the proof and refuses a home address. The rules live in `src/lib/board/model.ts`, not in the views.
