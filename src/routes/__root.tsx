@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "The Board";
+const APP_NAME = "The Hall";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -14,7 +14,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "A town board with a lock on the feed: what a small set of people did, where they meet, and what they saw in public. The Civic room runs on Quorum.",
+          "Your church, your shop, your county. Where a small set of people meet, what they did, and what the parish needs this week. The County room runs on Quorum.",
       },
       { name: "theme-color", content: "#0e0e0c" },
     ],

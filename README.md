@@ -1,8 +1,10 @@
-# The Board
+# The Hall
 
-A town board with a lock on the feed. It holds what a small set of people did, where they meet, and what they saw in public. It is not a Twitter replacement. Success is a person who opens it, reads their room, and leaves.
+Your church, your shop, your county. Show up.
 
-Quorum (below) is the engine of the Civic room. A campaign is one demand on one office in one hour; while its window is open it shows in Civic as a labeled card, and every call, letter, or visit logged on the desk files in Civic as a **Did**: an act, a date, one proof.
+The Hall holds where a small set of people meet, what they did, and what the parish needs this week. It is not a feed. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
+
+Quorum (below) is the engine of The County room. A campaign is one demand on one office in one hour; while its window is open it is **this week's call** on the front page, and every call, letter, or visit logged on the desk files in The County as a **Did**: an act, a date, one proof.
 
 ## Get it running
 
@@ -18,44 +20,38 @@ npm run dev
 
 Open http://localhost:8080. Everything you do stays in that browser on that machine; there is no server and no account yet.
 
-To see the template filled in:
+To see it filled in:
 
-1. Open **About**, type a name, and press **Load the sample week**. Six invented members, a week of posts, cards with dates, two message threads. You become Josh.
-2. Pick a look under **About → Look**: Plain, An Appeal to Heaven, Jerusalem cross, or Don't Tread on Me.
-3. Walk the rooms. Guilds opens on the framing night; Skills shows a tradesman listed by two witnesses; Dispatch has a sloppy post marked and sorted last; Messages has the Dale and Tom threads.
+1. Open **About** and press **Load the sample week**. Six invented members around Brandon and Riverview, a week of cards and posts, a parish need, two message threads. You become Josh.
+2. **This week** opens: the next seven days with something on them, this week's call with the number to dial, and what a parish needs. Press **I'll be there** on something.
+3. **Rooms**: The Shop opens on the framing night; a tradesman is listed by two witnesses; a Hosted shows who came and who was named. **You** shows the four-line profile and who you have stood in a room with.
+4. To try hosting: on About, set your name to **Tom**, go to The Shop, file a **Hosted** on the framing night with a roll call and name someone. On **Find**, press **Invite someone** on that card to get a code; on About, redeem it under a new name.
 
-**Clear the board** on the same page wipes it back to the brief's seed cards. **Steward tools** on that page turn on marking and hard removal so you can try the moderation path.
+**Clear the board** on the About page wipes it back to the brief's seed cards. **Steward tools** turn on marking, hard removal, and the steward-only Notice and Bulletin types.
 
 Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is the only command you need day to day.
 
-## Rooms and post types
+## How it works
 
-Rooms do not mix: Civic, Public hall, Skills, Guilds, School, Reformed, Latin Mass, Greek Orthodox, Dispatch. Every post picks a type or it does not send: **Did**, **Asked**, **Noted**, **Saw**. Dispatch takes Saw only and nothing else takes Saw; a Saw wants a clock in the proof and refuses a home address. The rules live in `src/lib/board/model.ts`, not in the views.
+**The week comes first.** The front page is the next seven days that have something on them. Empty days are left out; an empty week says so and points at the rooms. The County's open call window sits at the top with the number to dial.
 
-Built in, not settings: chronological inside the room ending in "You're caught up"; no For You, reshare, quote, badges, streaks, autoplay, or public like counts; a dismissable line at 20 minutes; notifications off unless asked for.
+**You get in by a code to a card.** A host makes a one-use code for one card and hands it over however they like. The code reveals nothing until a name is entered; then that name is on the going list. Codes expire after seven days. The first thing a new member sees is a date, not a feed.
 
-A room opens on its **shelf** — at most two cards with a date inside 14 days — then its feed; with nothing near, it opens on the feed. The host closes a date with a **Hosted** post: it happened, next date, no headcount (the composer refuses one). A Did that names a card sorts first. A **trade card** (a business) cannot list itself: two other members name its work in a Did and it lists. Every steward mark lands in a **mark log** the whole room can read.
+**Say you'll be there. The host takes roll.** A card's going list is names, never a count. After the hour the host files a **Hosted**: how it went in a line (no headcount; the composer refuses one), who came, one person **Named** if someone earned it (they must have been there; never the host), and the next date. Who came joins the card's "been" list. A card that does not happen is a Hosted that says so.
 
-**Messages** are two names, no groups, plain text, deleted after 30 days. You can message someone you share an "I went" list with or who replied to your post; a card marked "takes a first-timer" opens a message to its host once you have been.
+**Rooms do not mix.** The County (hearings, the week's call, labeled candidate cards). The Question (one question a month, chairs open to anyone). The Shop (apprentice nights, bench logs, the net; a tradesman is listed by the men he worked for). The Co-op (households, chapter logs). Reformed, Latin Mass, Greek Orthodox (service time, the meal after, and what the parish needs). Dispatch (steward bulletins only).
 
-**Find** is a date list, not a recommendation. A card lists only after the lister has been twice, and hides after two missed meetings. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log.
+**Post types.** Members file **Did** (an act, a date, one proof), **Asked** (one question, what was tried; closes when answered), and **Hosted**. Stewards file **Notice** (an announcement with its source) and **Bulletin** (a public scene with a clock and a block). Every post picks a type or it does not send. The rules live in `src/lib/board/model.ts`, not in the views.
 
-## How to use it
+**A parish need** is posted by whoever is organizing it, with the family's say-so: what is needed, where to bring it, and a list of days. You put your name on a day. Nothing enforces it.
 
-Open **About**, put your name on your posts, and press **Load the sample week** to see a board in use (six invented members around Brandon and Riverview; you become Josh). Then:
+**Profiles are four lines** (name, household, parish, trade) plus what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name.
 
-1. **Read your room.** Pick a room. It opens on what is coming up inside two weeks, then the feed, newest first inside each tier. The list ends. Leave.
-2. **Go somewhere.** Open **Find**, pick a card, go. Afterwards press **I went**. Two visits is what lets you list a card of your own, and being on a card's "I went" list with someone is what lets you message them.
-3. **File what you did.** Back in the room, pick **Did**, name the card if there was one, say what you did and give one proof (who was there, a receipt, a photo you took). No verdict.
-4. **Ask one question.** **Asked** takes one question and what you already tried. When a reply answers it, press **Answered**.
-5. **Note a fact.** **Noted** is a passage, a measurement, a time. Say where it comes from, or a steward may mark it *unsupported* and it sorts under posts that did.
-6. **If you host, close the date.** After the hour, file **Hosted**: how it went in a line (no headcount, the composer refuses one) and the next date. That is the advertisement for next time. Tick **Take a first-timer** on your card if a new person can message you.
-7. **If you run a business, do not list it.** Ask nobody. When two members you worked for file a Did naming your trade card, it lists under Skills.
-8. **Saw something in public?** Dispatch, **Saw** only: the scene, a clock, the block. No house numbers, no children's faces, no naming a private person.
-9. **Message to arrange, not to talk.** Two names, no groups, plain text, gone in 30 days. Open one from a post or a card.
-10. **Stewards:** mark *sloppy* or *unsupported*, never for the side. Every mark is logged in the room for everyone to read. Hard-remove only threats, pornography, and CSAM.
+**Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
 
-Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field.
+**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
+
+Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field, and invite codes creating accounts.
 
 ---
 

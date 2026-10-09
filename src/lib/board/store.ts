@@ -6,8 +6,11 @@ import {
   authorName,
   composerCheck,
   deskDid,
-  messageable,
+  inviteCode,
+  inviteLive,
+  newCard,
   newPost,
+  stoodWith,
   threadIdFor,
   type Check,
   type DeskContact,
@@ -15,57 +18,63 @@ import {
   type DmThread,
   type Draft,
   type HardRule,
+  type Invite,
   type Mark,
   type MarkRow,
   type MeetingCard,
   type Post,
+  type Profile,
   type RemovalRow,
   type RoomId,
   type Section,
 } from "@/lib/board/model";
 import { SEED_CARDS, sampleBoard } from "@/lib/board/sample";
-import type { ThemeId } from "@/lib/board/themes";
 
 type BoardState = {
   section: Section;
   room: RoomId;
   me: string;
-  /** Steward tools show only when this is on. One name holds it. */
+  profile: Profile;
+  /** Whose profile is open. */
+  viewing: string | null;
   steward: boolean;
   posts: Post[];
   cards: MeetingCard[];
+  invites: Invite[];
   removals: RemovalRow[];
-  /** Every steward mark, readable by every member of the room. */
   markLog: MarkRow[];
   threads: DmThread[];
   messages: DmMessage[];
   openThread: string | null;
   lineDismissedAt: number;
-  theme: ThemeId;
-  setTheme: (theme: ThemeId) => void;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
+  setProfile: (patch: Partial<Profile>) => void;
   setSteward: (steward: boolean) => void;
+  view: (name: string) => void;
   dismissLine: () => void;
-  /** Runs the composer check and files the draft if it passes. */
   file: (draft: Draft) => Check;
-  /** Files the Did a logged Quorum contact becomes. */
   fileDeskContact: (input: DeskContact) => void;
   reply: (parentId: string, text: string) => void;
   revise: (id: string, patch: Pick<Post, "claim" | "reason">) => void;
   closeAsked: (id: string) => void;
   mark: (id: string, mark: Mark | null) => void;
   remove: (id: string, reason: HardRule) => void;
-  addCard: (card: Omit<MeetingCard, "id" | "lastFour" | "pinned" | "unverified" | "wentBy">) => void;
+  addCard: (card: Parameters<typeof newCard>[0]) => void;
   updateCard: (id: string, patch: Partial<MeetingCard>) => void;
-  /**
-   * The one way a date closes: the host files a Hosted. "It did not happen"
-   * is a Hosted that says so. The record is the ad for the next date.
-   */
-  closeCard: (id: string, happened: boolean, next: string, line: string) => void;
+  /** The host closes a date without the composer. "It did not happen" is a Hosted that says so. */
+  closeCard: (id: string, happened: boolean, next: string, line: string, came: string[]) => void;
+  /** "I'll be there." Names, never a count. */
+  rsvp: (id: string) => void;
   visited: (id: string) => void;
   removeCard: (id: string) => void;
+  /** A host makes a one-use code for one card. The card shows only after a name redeems it. */
+  createInvite: (cardId: string) => string | null;
+  /** Returns the card, or null if the code is spent or stale. Sets the name and marks going. */
+  redeemInvite: (code: string, name: string) => MeetingCard | null;
+  /** Put your name on a day of a need. Nothing enforces it. */
+  takeSlot: (cardId: string, day: string) => void;
   openDm: (other: string) => void;
   sendDm: (threadId: string, text: string) => void;
   setOpenThread: (id: string | null) => void;
@@ -73,9 +82,15 @@ type BoardState = {
   clearBoard: () => void;
 };
 
+const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
+
 function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
   const cutoff = now - DM_RETENTION_DAYS * DAY;
   return messages.filter((message) => message.at >= cutoff);
+}
+
+function addName(list: string[], name: string): string[] {
+  return list.includes(name) ? list : [...list, name];
 }
 
 export const useBoard = create<BoardState>()(
@@ -91,48 +106,53 @@ export const useBoard = create<BoardState>()(
         mark,
         at: Date.now(),
       });
-      const hosted = (card: MeetingCard, happened: boolean, next: string, line: string, on: string) => {
-        const post = newPost({ room: card.room, type: "hosted", claim: line, on, next, author: me(), cardId: card.id });
+      /** The one way a date closes. Who came joins wentBy; the going list resets. */
+      const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string }) => {
+        const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id });
         const closed: MeetingCard = {
           ...card,
-          lastFour: [...card.lastFour, happened].slice(-4),
-          next,
+          lastFour: [...card.lastFour, input.happened].slice(-4),
+          next: input.next,
+          wentBy: input.came.reduce(addName, card.wentBy),
+          going: [],
           pinned: false,
-          unverified: card.unverified && !happened,
+          unverified: card.unverified && !input.happened,
         };
-        set({
-          posts: [post, ...get().posts],
-          cards: get().cards.map((item) => (item.id === card.id ? closed : item)),
-        });
+        set({ posts: [post, ...get().posts], cards: get().cards.map((item) => (item.id === card.id ? closed : item)) });
       };
+      const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
+        set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
 
       return {
         section: "rooms",
-        room: "civic",
+        room: "county",
         me: "",
+        profile: EMPTY_PROFILE,
+        viewing: null,
         steward: false,
         posts: [],
         cards: SEED_CARDS,
+        invites: [],
         removals: [],
         markLog: [],
         threads: [],
         messages: [],
         openThread: null,
         lineDismissedAt: 0,
-        theme: "plain",
-        setTheme: (theme) => set({ theme }),
         setSection: (section) => set({ section }),
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
+        setProfile: (patch) => set({ profile: { ...get().profile, ...patch } }),
         setSteward: (steward) => set({ steward }),
+        view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: (draft) => {
-          const { posts, cards, removals } = get();
-          const check = composerCheck(draft, { author: me(), posts, cards, removals, now: Date.now() });
+          const { posts, cards, removals, steward } = get();
+          const check = composerCheck(draft, { author: me(), steward, posts, cards, removals, now: Date.now() });
           if (!check.ok || !draft.type) return check;
           if (draft.type === "hosted") {
             const card = cards.find((item) => item.id === draft.cardId);
-            if (card) hosted(card, true, draft.next, draft.claim.trim(), draft.on);
+            if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named });
             return check;
           }
           const post = newPost({
@@ -153,27 +173,21 @@ export const useBoard = create<BoardState>()(
           const body = text.trim();
           const parent = get().posts.find((post) => post.id === parentId);
           if (!body || !parent) return;
-          const post = newPost({ room: parent.room, type: parent.type, claim: body, author: me(), parentId });
-          set({ posts: [post, ...get().posts] });
+          set({ posts: [newPost({ room: parent.room, type: parent.type, claim: body, author: me(), parentId }), ...get().posts] });
         },
         revise: (id, patch) => {
           const post = get().posts.find((item) => item.id === id);
           if (!post) return;
-          const revised = { ...post, claim: patch.claim.trim(), reason: patch.reason.trim(), mark: null };
           set({
-            posts: get().posts.map((item) => (item.id === id ? revised : item)),
+            posts: get().posts.map((item) => (item.id === id ? { ...item, claim: patch.claim.trim(), reason: patch.reason.trim(), mark: null } : item)),
             markLog: post.mark ? [markRow(post, null), ...get().markLog] : get().markLog,
           });
         },
-        closeAsked: (id) =>
-          set({ posts: get().posts.map((post) => (post.id === id ? { ...post, closed: true } : post)) }),
+        closeAsked: (id) => set({ posts: get().posts.map((post) => (post.id === id ? { ...post, closed: true } : post)) }),
         mark: (id, mark) => {
           const post = get().posts.find((item) => item.id === id);
           if (!post) return;
-          set({
-            posts: get().posts.map((item) => (item.id === id ? { ...item, mark } : item)),
-            markLog: [markRow(post, mark), ...get().markLog],
-          });
+          set({ posts: get().posts.map((item) => (item.id === id ? { ...item, mark } : item)), markLog: [markRow(post, mark), ...get().markLog] });
         },
         remove: (id, reason) => {
           const post = get().posts.find((item) => item.id === id);
@@ -183,90 +197,89 @@ export const useBoard = create<BoardState>()(
             removals: [{ id: crypto.randomUUID(), postId: id, author: post.author, reason, at: Date.now() }, ...get().removals],
           });
         },
-        addCard: (card) => {
-          if (!card.name.trim() || !card.place.trim() || !card.time.trim()) return;
-          const listed: MeetingCard = {
-            ...card,
-            id: crypto.randomUUID(),
-            name: card.name.trim(),
-            place: card.place.trim(),
-            time: card.time.trim(),
-            host: card.host.trim(),
-            lastFour: [],
-            pinned: false,
-            unverified: false,
-            wentBy: card.kind === "trade" ? [] : [me()],
-          };
-          set({ cards: [listed, ...get().cards] });
+        addCard: (fields) => {
+          if (!fields.name.trim() || !fields.place.trim() || !fields.time.trim()) return;
+          const card = newCard({
+            ...fields,
+            name: fields.name.trim(),
+            place: fields.place.trim(),
+            time: fields.time.trim(),
+            host: fields.host.trim() || me(),
+            wentBy: fields.kind === "meeting" || fields.kind === "candidate" ? [me()] : [],
+          });
+          set({ cards: [card, ...get().cards] });
         },
-        updateCard: (id, patch) =>
-          set({ cards: get().cards.map((card) => (card.id === id ? { ...card, ...patch, id } : card)) }),
-        closeCard: (id, happened, next, line) => {
+        updateCard: (id, patch) => patchCard(id, (card) => ({ ...card, ...patch, id })),
+        closeCard: (id, happened, next, line, came) => {
           const card = get().cards.find((item) => item.id === id);
-          if (card) hosted(card, happened, next, line.trim() || (happened ? "It happened." : "It did not happen."), card.next);
+          if (card) hosted(card, { happened, next, line: line.trim() || (happened ? "It happened." : "It did not happen."), on: card.next, came, named: "" });
         },
-        visited: (id) =>
-          set({
-            cards: get().cards.map((card) =>
-              card.id === id && !card.wentBy.includes(me())
-                ? { ...card, unverified: false, wentBy: [...card.wentBy, me()] }
-                : card,
-            ),
-          }),
+        rsvp: (id) => patchCard(id, (card) => ({ ...card, going: card.going.includes(me()) ? card.going.filter((n) => n !== me()) : [...card.going, me()] })),
+        visited: (id) => patchCard(id, (card) => ({ ...card, unverified: false, wentBy: addName(card.wentBy, me()) })),
         removeCard: (id) => set({ cards: get().cards.filter((card) => card.id !== id) }),
+        createInvite: (cardId) => {
+          const card = get().cards.find((item) => item.id === cardId);
+          if (!card || card.host !== me()) return null;
+          const invite: Invite = { code: inviteCode(), cardId, by: me(), at: Date.now(), redeemedBy: "" };
+          set({ invites: [invite, ...get().invites] });
+          return invite.code;
+        },
+        redeemInvite: (code, name) => {
+          const who = authorName(name);
+          const invite = get().invites.find((item) => item.code === code.trim().toUpperCase());
+          if (!invite || !inviteLive(invite, Date.now())) return null;
+          const card = get().cards.find((item) => item.id === invite.cardId);
+          if (!card) return null;
+          set({
+            me: who,
+            invites: get().invites.map((item) => (item.code === invite.code ? { ...item, redeemedBy: who } : item)),
+            cards: get().cards.map((item) => (item.id === card.id ? { ...item, going: addName(item.going, who) } : item)),
+          });
+          return card;
+        },
+        takeSlot: (cardId, day) =>
+          patchCard(cardId, (card) => ({ ...card, slots: card.slots.map((slot) => (slot.day === day && !slot.by ? { ...slot, by: me() } : slot)) })),
         openDm: (other) => {
           const name = other.trim();
-          if (!messageable(me(), get().cards, get().posts).has(name)) return;
+          if (!stoodWith(me(), get().cards, get().posts).has(name)) return;
           const id = threadIdFor(me(), name);
-          const threads = get().threads.some((thread) => thread.id === id)
-            ? get().threads
-            : [{ id, between: [me(), name].sort() as [string, string] }, ...get().threads];
+          const threads = get().threads.some((thread) => thread.id === id) ? get().threads : [{ id, between: [me(), name].sort() as [string, string] }, ...get().threads];
           set({ threads, openThread: id, section: "messages" });
         },
         sendDm: (threadId, text) => {
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
           if (!body || !thread?.between.includes(me())) return;
-          set({
-            messages: [
-              ...pruneMessages(get().messages, Date.now()),
-              { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() },
-            ],
-          });
+          set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), removals: [], openThread: null, section: "rooms", room: "guilds" }),
-        clearBoard: () =>
-          set({ posts: [], cards: SEED_CARDS, markLog: [], threads: [], messages: [], removals: [], openThread: null }),
+        loadSample: () => set({ ...sampleBoard(), invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
+        clearBoard: () => set({ posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
       };
     },
     {
       name: "the-board-v1",
-      version: 2,
+      version: 3,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
         me: state.me,
+        profile: state.profile,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
-        theme: state.theme,
         posts: state.posts,
         cards: state.cards,
+        invites: state.invites,
         removals: state.removals,
         markLog: state.markLog,
         threads: state.threads,
         messages: state.messages,
       }),
-      // Version 1 saves predate the typed Hosted date and the wentBy list.
-      // A pre-release board is not worth migrating; start clean.
-      migrate: (persisted, version) => (version < 2 ? {} : (persisted as object)),
+      // Earlier versions have different room ids and card fields. Pre-release; start clean.
+      migrate: (persisted, version) => (version < 3 ? {} : (persisted as object)),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
-        return {
-          ...current,
-          ...saved,
-          messages: pruneMessages(saved.messages ?? [], Date.now()),
-        };
+        return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };
       },
     },
   ),

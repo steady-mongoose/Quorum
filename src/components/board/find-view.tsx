@@ -1,17 +1,18 @@
 import { useMemo, useState } from "react";
-import { MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useCopy } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
   CARD_LABELS,
   ROOMS,
+  WEEKDAYS,
   authorName,
   cardCanPin,
   cardListed,
   cardSummary,
   formatDate,
-  messageable,
   roomById,
+  stoodWith,
   todayIso,
   witnessesByTrade,
   type CardKind,
@@ -19,6 +20,7 @@ import {
   type RoomId,
 } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
   const cards = useBoard((state) => state.cards);
@@ -27,11 +29,12 @@ export function FindView() {
   const steward = useBoard((state) => state.steward);
 
   const witnesses = useMemo(() => witnessesByTrade(posts, cards), [posts, cards]);
-  const canMessage = useMemo(() => messageable(me, cards, posts), [me, cards, posts]);
+  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const groups = useMemo(() => {
-    const out = { listed: [] as MeetingCard[], waiting: [] as MeetingCard[], trades: [] as MeetingCard[] };
+    const out = { listed: [] as MeetingCard[], waiting: [] as MeetingCard[], trades: [] as MeetingCard[], needs: [] as MeetingCard[] };
     for (const card of cards) {
       if (card.kind === "trade") out.trades.push(card);
+      else if (card.kind === "need") out.needs.push(card);
       else if (cardListed(card, witnesses)) out.listed.push(card);
       else out.waiting.push(card);
     }
@@ -40,16 +43,14 @@ export function FindView() {
     return out;
   }, [cards, witnesses]);
 
-  const rowProps = { me, steward, canMessage };
+  const rowProps = { me, steward, peers };
 
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <Kicker>Find</Kicker>
         <h1 className="max-w-xl font-display text-4xl text-fg">A date list. Not a recommendation.</h1>
-        <p className="max-w-2xl text-base text-muted">
-          A card lists after two people have been. It hides after two missed meetings.
-        </p>
+        <p className="max-w-2xl text-base text-muted">A card lists after two people have been. It hides after two missed meetings.</p>
       </section>
 
       <section className="flex flex-col gap-3">
@@ -58,6 +59,15 @@ export function FindView() {
           <MeetingRow key={card.id} card={card} shown {...rowProps} />
         ))}
       </section>
+
+      {groups.needs.length > 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-2xl text-fg">A parish needs</h2>
+          {groups.needs.map((card) => (
+            <NeedCard key={card.id} card={card} />
+          ))}
+        </section>
+      ) : null}
 
       {groups.waiting.length > 0 ? (
         <section className="flex flex-col gap-3">
@@ -83,7 +93,7 @@ export function FindView() {
   );
 }
 
-type RowProps = { card: MeetingCard; me: string; steward: boolean; canMessage: Set<string> };
+type RowProps = { card: MeetingCard; me: string; steward: boolean; peers: Set<string> };
 
 function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNode }) {
   return (
@@ -96,10 +106,10 @@ function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNod
   );
 }
 
-function MessageHost({ card, me, canMessage }: Pick<RowProps, "card" | "me" | "canMessage">) {
+function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers">) {
   const openDm = useBoard((state) => state.openDm);
   if (!card.host || card.host === me) return null;
-  if (canMessage.has(card.host)) {
+  if (peers.has(card.host)) {
     return (
       <button type="button" className={btnQuiet} onClick={() => openDm(card.host)}>
         <MessageSquare className="size-4" aria-hidden="true" />
@@ -118,9 +128,7 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
-      <p className="mt-1 text-sm text-muted">
-        {witnesses.length === 0 ? "No member has named this work yet." : `Named by ${witnesses.join(", ")}${shown ? "" : " · one more lists it"}`}
-      </p>
+      <p className="mt-1 text-sm text-muted">{witnesses.length === 0 ? "No member has named this work yet." : `Named by ${witnesses.join(", ")}${shown ? "" : " · one more lists it"}`}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <MessageHost card={card} {...rest} />
         {rest.steward ? (
@@ -133,18 +141,44 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
   );
 }
 
+/** A host's one-use code for one card. Shown once; the host hands it over however they like. */
+function InviteMaker({ cardId }: { cardId: string }) {
+  const createInvite = useBoard((state) => state.createInvite);
+  const [code, setCode] = useState<string | null>(null);
+  const { copied, copy } = useCopy();
+  if (code) {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm">
+        <span className="font-mono tracking-widest text-fg">{code}</span>
+        <button type="button" className={cn(btnQuiet, "px-1")} onClick={() => copy(code, code)} aria-label="Copy code">
+          {copied === code ? <CheckIcon className="size-4" /> : <Copy className="size-4" />}
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button type="button" className={btnQuiet} onClick={() => setCode(createInvite(cardId))}>
+      Invite someone
+    </button>
+  );
+}
+
 function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const posts = useBoard((state) => state.posts);
   const visited = useBoard((state) => state.visited);
+  const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
   const removeCard = useBoard((state) => state.removeCard);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
+  const [came, setCame] = useState<string[]>([]);
   const room = roomById(card.room);
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, posts);
+  const went = card.wentBy.includes(rest.me);
+  const going = card.going.includes(rest.me);
 
   return (
     <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
@@ -155,31 +189,30 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
       </Tags>
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
-      <p className="mt-1 text-sm text-muted">
-        {card.next ? `Next ${formatDate(card.next)}` : room.requiresNextDate ? "No next date. Not listed." : "No next date yet."}
-      </p>
+      <p className="mt-1 text-sm text-muted">{card.next ? `Next ${formatDate(card.next)}` : room.requiresNextDate ? "No next date. Not listed." : "No next date yet."}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted" aria-label="Last four meetings">
         <span>Last four:</span>
         {card.lastFour.length === 0 ? <span>none logged</span> : null}
         {card.lastFour.map((went, index) => (
           <span key={index} className={cn("size-3 rounded-sm", went ? "bg-signal" : "border border-line")} title={went ? "happened" : "missed"} />
         ))}
-        <span>· went: {card.wentBy.join(", ") || "nobody yet"}</span>
+        <span>· been: {card.wentBy.join(", ") || "nobody yet"}</span>
+        {card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={card.wentBy.includes(rest.me)}>
-          {card.wentBy.includes(rest.me) ? "You went" : "I went"}
+        {!isHost && card.next ? (
+          <button type="button" className={going ? btnGhost : btnSignal} onClick={() => rsvp(card.id)}>
+            {going ? "I'll be there · undo" : "I'll be there"}
+          </button>
+        ) : null}
+        <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
+          {went ? "You've been" : "I went"}
         </button>
         <MessageHost card={card} {...rest} />
+        {isHost ? <InviteMaker cardId={card.id} /> : null}
         {(isHost || rest.steward) && shown ? (
-          <button
-            type="button"
-            className={btnQuiet}
-            disabled={!card.pinned && !canPin}
-            title={!canPin ? "The host's last note was marked. Revise it first." : undefined}
-            onClick={() => updateCard(card.id, { pinned: !card.pinned })}
-          >
+          <button type="button" className={btnQuiet} disabled={!card.pinned && !canPin} title={!canPin ? "The host's last note was marked. Revise it first." : undefined} onClick={() => updateCard(card.id, { pinned: !card.pinned })}>
             {card.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
             {card.pinned ? "Drop pin" : "Pin in room"}
           </button>
@@ -196,12 +229,24 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               onSubmit={(event) => {
                 event.preventDefault();
                 const happened = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "yes";
-                closeCard(card.id, happened, nextDate, line);
+                closeCard(card.id, happened, nextDate, line, happened ? came : []);
                 setClosing(false);
                 setLine("");
+                setCame([]);
               }}
             >
               <input className={fieldClass} placeholder="How it went, in a line" value={line} onChange={(event) => setLine(event.target.value)} />
+              {card.going.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                  <span>Who came:</span>
+                  {card.going.map((name) => (
+                    <label key={name} className={cn("inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-line px-3", came.includes(name) && "bg-signal text-signal-ink")}>
+                      <input type="checkbox" className="sr-only" checked={came.includes(name)} onChange={() => setCame(came.includes(name) ? came.filter((n) => n !== name) : [...came, name])} />
+                      {name}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input type="date" className={cn(fieldClass, "sm:max-w-xs")} value={nextDate} onChange={(event) => setNextDate(event.target.value)} aria-label="Next date" />
                 <button type="submit" value="yes" className={btnSignal}>
@@ -233,12 +278,12 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
 
 function AddCard({ me }: { me: string }) {
   const addCard = useBoard((state) => state.addCard);
-  const [room, setRoom] = useState<RoomId>("skills");
+  const [room, setRoom] = useState<RoomId>("shop");
   const [kind, setKind] = useState<CardKind>("meeting");
   const [fields, setFields] = useState({ name: "", place: "", time: "", host: "", next: "", firstTimer: false });
+  const [days, setDays] = useState<string[]>([]);
   const kinds = roomById(room).cardKinds;
-  const trade = kind === "trade";
-  const labels = CARD_LABELS[trade ? "trade" : "meeting"];
+  const labels = CARD_LABELS[kind === "trade" ? "trade" : kind === "need" ? "need" : "meeting"];
   const set = (patch: Partial<typeof fields>) => setFields({ ...fields, ...patch });
 
   const pickRoom = (id: RoomId) => {
@@ -246,8 +291,17 @@ function AddCard({ me }: { me: string }) {
     if (!roomById(id).cardKinds.includes(kind)) setKind("meeting");
   };
   const submit = () => {
-    addCard({ room, kind, ...fields, host: fields.host || me, next: trade ? "" : fields.next, firstTimer: !trade && fields.firstTimer });
+    addCard({
+      room,
+      kind,
+      ...fields,
+      host: fields.host || me,
+      next: kind === "meeting" || kind === "candidate" ? fields.next : "",
+      firstTimer: kind === "meeting" && fields.firstTimer,
+      slots: kind === "need" ? days.map((day) => ({ day, by: "" })) : [],
+    });
     setFields({ name: "", place: "", time: "", host: "", next: "", firstTimer: false });
+    setDays([]);
   };
 
   const text = (key: "name" | "place" | "time" | "host", placeholder?: string) => (
@@ -257,11 +311,14 @@ function AddCard({ me }: { me: string }) {
     </label>
   );
 
+  const kindLabel = (item: CardKind) =>
+    item === "meeting" ? roomById(room).cardNoun : item === "candidate" ? "Candidate card (labeled)" : item === "trade" ? "Trade (a business)" : "A parish need";
+
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">List a card</h2>
       <p className="mt-1 text-sm text-muted">
-        You count as the first visit. It lists after a second person marks "I went." A trade lists after two members name its work.
+        You count as the first visit. It lists after a second person marks "I went." A trade lists after two members name its work. A parish need is posted by whoever is organizing it, with the family's say-so.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
@@ -279,30 +336,45 @@ function AddCard({ me }: { me: string }) {
           <select className={fieldClass} value={kind} onChange={(event) => setKind(event.target.value as CardKind)}>
             {kinds.map((item) => (
               <option key={item} value={item}>
-                {item === "meeting" ? roomById(room).cardNoun : item === "candidate" ? "Candidate card (labeled)" : "Trade (a business)"}
+                {kindLabel(item)}
               </option>
             ))}
           </select>
         </label>
         {text("name")}
         {text("place")}
-        {text("time", trade ? "Electrical, residential" : "First Monday 7:30 p.m.")}
+        {text("time", kind === "trade" ? "Electrical, residential" : kind === "need" ? "Dinners this week" : "First Monday 7:30 p.m.")}
         {text("host", me)}
-        {trade ? null : (
+        {kind === "need" ? (
+          <fieldset className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
+            <legend>Days</legend>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAYS.map((day) => (
+                <label key={day} className={cn("inline-flex min-h-11 cursor-pointer items-center rounded-md border border-line px-3", days.includes(day) && "bg-signal text-signal-ink")}>
+                  <input type="checkbox" className="sr-only" checked={days.includes(day)} onChange={() => setDays(days.includes(day) ? days.filter((d) => d !== day) : [...days, day])} />
+                  {day}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+        {kind === "meeting" || kind === "candidate" ? (
           <>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Next date{roomById(room).requiresNextDate ? " (required here)" : ""}
               <input type="date" className={fieldClass} value={fields.next} onChange={(event) => set({ next: event.target.value })} />
             </label>
-            <label className="flex items-center gap-3 self-end text-sm text-muted">
-              <input type="checkbox" className="size-5" checked={fields.firstTimer} onChange={(event) => set({ firstTimer: event.target.checked })} />
-              Takes a first-timer
-            </label>
+            {kind === "meeting" ? (
+              <label className="flex items-center gap-3 self-end text-sm text-muted">
+                <input type="checkbox" className="size-5" checked={fields.firstTimer} onChange={(event) => set({ firstTimer: event.target.checked })} />
+                Takes a first-timer
+              </label>
+            ) : null}
           </>
-        )}
+        ) : null}
       </div>
       <button type="button" className={cn(btnSignal, "mt-4")} onClick={submit}>
-        {trade ? "Save, waiting on witnesses" : "Save, not yet listed"}
+        {kind === "trade" ? "Save, waiting on witnesses" : kind === "need" ? "Post the need" : "Save, not yet listed"}
       </button>
     </section>
   );

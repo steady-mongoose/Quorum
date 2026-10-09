@@ -1,7 +1,10 @@
-// Looks for The Board. Each theme is a palette and an emblem. The emblems
-// are historical flags and a cross drawn as inline SVG in emblem.tsx.
+// Looks for The Hall. One mark, set by the owner, on every screen. The
+// others stay here for when the owner changes it.
 
 export type ThemeId = "plain" | "appeal" | "jerusalem" | "gadsden";
+
+/** The owner's choice. The council's pick: American, Christian, 1775, and no church room objects. */
+export const OWNER_THEME: ThemeId = "appeal";
 
 export type Theme = {
   id: ThemeId;

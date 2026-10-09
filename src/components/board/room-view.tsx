@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { Check as CheckIcon, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When, useNow } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
   MARK_LABEL,
@@ -14,13 +14,15 @@ import {
   composerCheck,
   formatDate,
   formatWhen,
-  messageable,
+  needsFor,
   repliesByParent,
   roomById,
   shelfFor,
   sortRoom,
+  stoodWith,
   todayIso,
   typeMeta,
+  typesFor,
   witnessesByTrade,
   type Check,
   type Draft,
@@ -30,8 +32,7 @@ import {
   type Post,
 } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
-import { useQuorum } from "@/lib/quorum/store";
-import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
+import { NeedCard } from "@/components/board/week-view";
 
 const MARKS: Mark[] = ["unsupported", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -47,40 +48,30 @@ export function RoomView() {
   const meta = roomById(room);
   const today = todayIso();
 
-  // One pass each; every PostCard reads from these instead of scanning posts.
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
-  const canMessage = useMemo(() => messageable(me, cards, posts), [me, cards, posts]);
+  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
-  const shelf = useMemo(
-    () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
-    [room, cards, posts, today],
-  );
+  const shelf = useMemo(() => shelfFor(room, cards, witnessesByTrade(posts, cards), today), [room, cards, posts, today]);
+  const needs = useMemo(() => (meta.parish ? needsFor(cards, room) : []), [cards, room, meta.parish]);
   const ban = banFor(me, removals, Date.now());
+  const canFile = typesFor(meta, steward).length > 0;
 
   return (
     <div className="flex flex-col gap-6">
       <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Rooms">
         {ROOMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={item.id === room ? "page" : undefined}
-            onClick={() => setRoom(item.id)}
-            className={pill(item.id === room)}
-          >
+          <button key={item.id} type="button" aria-current={item.id === room ? "page" : undefined} onClick={() => setRoom(item.id)} className={pill(item.id === room)}>
             {item.name}
           </button>
         ))}
       </nav>
 
       <section className="flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Service time" : "Room"}</Kicker>
+        <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-fg">{meta.name}</h1>
         <p className="max-w-2xl text-base text-muted">{meta.what}</p>
       </section>
-
-      {room === "civic" ? <CivicDesk /> : null}
 
       {shelf.map((card) => (
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
@@ -95,17 +86,22 @@ export function RoomView() {
             {card.next ? ` · ${formatDate(card.next)}` : ""}
             {card.firstTimer ? " · takes a first-timer" : ""}
           </p>
+          {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
         </article>
+      ))}
+
+      {needs.map((card) => (
+        <NeedCard key={card.id} card={card} />
       ))}
 
       {ban ? (
         <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
-          {ban.strikes >= 2
-            ? "This account is closed. Second hard removal."
-            : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
+          {ban.strikes >= 2 ? "This account is closed. Second hard removal." : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
         </p>
+      ) : canFile ? (
+        <Composer me={me} steward={steward} />
       ) : (
-        <Composer me={me} />
+        <p className="text-sm text-muted">Stewards post here. Members read.</p>
       )}
 
       <section className="flex flex-col gap-3">
@@ -117,13 +113,11 @@ export function RoomView() {
             card={post.cardId ? cardById.get(post.cardId) : undefined}
             trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
             mine={post.author === me}
-            canMessage={canMessage.has(post.author)}
+            canMessage={peers.has(post.author)}
             steward={steward}
           />
         ))}
-        <p className="py-6 text-center text-sm text-muted">
-          {feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}
-        </p>
+        <p className="py-6 text-center text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
       </section>
 
       <MarkLog />
@@ -131,66 +125,7 @@ export function RoomView() {
   );
 }
 
-/** Quorum campaigns show in Civic as labeled cards while their window is open. */
-function CivicDesk() {
-  const campaigns = useQuorum((state) => state.campaigns);
-  const customOffices = useQuorum((state) => state.customOffices);
-  const openDesk = useQuorum((state) => state.openDesk);
-  const setSection = useBoard((state) => state.setSection);
-  const now = useNow();
-  if (!now) return null;
-  const live = campaigns.filter(
-    (campaign) => campaign.demand.trim() && windowStatus(campaign.surgeStart, campaign.surgeEnd, now).live,
-  );
-  return (
-    <>
-      {live.map((campaign) => {
-        const office = officeById(campaign.officeId, customOffices);
-        return (
-          <article key={campaign.id} className="rounded-lg border border-signal bg-surface p-4">
-            <Kicker className="flex items-center gap-2">
-              <span className="live-dot size-2 rounded-full bg-signal" aria-hidden="true" />
-              Call window open · {formatWindow(campaign.surgeStart, campaign.surgeEnd)}
-            </Kicker>
-            <h2 className="mt-2 text-2xl text-fg">{campaign.title}</h2>
-            <p className="text-sm text-muted">
-              {office.name}, {office.role}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <a className={btnSignal} href={telHref(office.dcPhone)}>
-                Call {office.dcPhone}
-              </a>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={() => {
-                  openDesk(campaign.id);
-                  setSection("civic");
-                }}
-              >
-                Open the desk
-              </button>
-            </div>
-          </article>
-        );
-      })}
-    </>
-  );
-}
-
-function CardSelect({
-  label,
-  cards,
-  empty,
-  value,
-  onChange,
-}: {
-  label: string;
-  cards: MeetingCard[];
-  empty?: string;
-  value: string;
-  onChange: (id: string) => void;
-}) {
+function CardSelect({ label, cards, empty, value, onChange }: { label: string; cards: MeetingCard[]; empty?: string; value: string; onChange: (id: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       {label}
@@ -206,7 +141,7 @@ function CardSelect({
   );
 }
 
-function Composer({ me }: { me: string }) {
+function Composer({ me, steward }: { me: string; steward: boolean }) {
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
@@ -217,14 +152,13 @@ function Composer({ me }: { me: string }) {
   const meta = roomById(room);
   const current = draft.room === room ? draft : blankDraft(room);
   const type = current.type ? typeMeta(current.type) : null;
+  const allowed = typesFor(meta, steward);
 
-  const roomCards = useMemo(() => cards.filter((card) => card.room === room && card.kind !== "trade"), [cards, room]);
+  const roomCards = useMemo(() => cards.filter((card) => card.room === room && (card.kind === "meeting" || card.kind === "candidate")), [cards, room]);
   const ownCards = useMemo(() => roomCards.filter((card) => card.host === me), [roomCards, me]);
   const trades = useMemo(() => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me), [cards, room, me]);
-  const check = useMemo(
-    () => composerCheck(current, { author: me, posts, cards, removals, now: Date.now() }),
-    [current, me, posts, cards, removals],
-  );
+  const closing = current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
+  const check = useMemo(() => composerCheck(current, { author: me, steward, posts, cards, removals, now: Date.now() }), [current, me, steward, posts, cards, removals]);
 
   const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
   const reset = () => {
@@ -236,12 +170,16 @@ function Composer({ me }: { me: string }) {
     if (outcome.ok) reset();
     else setResult(outcome);
   };
+  const toggleCame = (name: string) => {
+    const came = current.came.includes(name) ? current.came.filter((n) => n !== name) : [...current.came, name];
+    patch({ came, named: came.includes(current.named) ? current.named : "" });
+  };
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <p className="text-sm text-muted">Every post picks a type or it does not send.</p>
       <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Post type">
-        {POST_TYPES.filter((item) => meta.takes.includes(item.id)).map((item) => {
+        {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
           const noCard = item.cardPick === "own" && ownCards.length === 0;
           return (
             <button
@@ -251,7 +189,7 @@ function Composer({ me }: { me: string }) {
               aria-checked={current.type === item.id}
               title={noCard ? "You host no card in this room." : item.what}
               disabled={noCard}
-              onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "" })}
+              onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "", came: [], named: "" })}
               className={pill(current.type === item.id, "px-4")}
             >
               {item.label}
@@ -263,15 +201,9 @@ function Composer({ me }: { me: string }) {
       {type ? (
         <div className="mt-4 flex flex-col gap-3">
           <p className="text-sm text-muted">{type.what}</p>
-          {type.cardPick === "own" ? (
-            <CardSelect label="The card this closes" cards={ownCards} value={current.cardId} onChange={(cardId) => patch({ cardId })} />
-          ) : null}
-          {type.cardPick === "optional" && roomCards.length > 0 ? (
-            <CardSelect label="Card, if any" cards={roomCards} empty="No card" value={current.cardId} onChange={(cardId) => patch({ cardId })} />
-          ) : null}
-          {type.tradePick && trades.length > 0 ? (
-            <CardSelect label="Who did the work" cards={trades} empty="No one" value={current.tradeId} onChange={(tradeId) => patch({ tradeId })} />
-          ) : null}
+          {type.cardPick === "own" ? <CardSelect label="The card this closes" cards={ownCards} value={current.cardId} onChange={(cardId) => patch({ cardId, came: [], named: "" })} /> : null}
+          {type.cardPick === "optional" && roomCards.length > 0 ? <CardSelect label="Card, if any" cards={roomCards} empty="No card" value={current.cardId} onChange={(cardId) => patch({ cardId })} /> : null}
+          {type.tradePick && trades.length > 0 ? <CardSelect label="Who did the work" cards={trades} empty="No one" value={current.tradeId} onChange={(tradeId) => patch({ tradeId })} /> : null}
           <label className="flex flex-col gap-2 text-sm text-muted">
             {type.claimLabel}
             <textarea className={cn(fieldClass, "min-h-24")} value={current.claim} onChange={(event) => patch({ claim: event.target.value })} />
@@ -288,17 +220,46 @@ function Composer({ me }: { me: string }) {
               <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.on} onChange={(event) => patch({ on: event.target.value })} />
             </label>
           ) : null}
-          {type.next ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Next date, if there is one
-              <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
-            </label>
+          {type.closes ? (
+            <>
+              <fieldset className="flex flex-col gap-2 text-sm text-muted">
+                <legend>Roll call. Who came, from those who said they would.</legend>
+                {closing && closing.going.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {closing.going.map((name) => (
+                      <label key={name} className={pill(current.came.includes(name), "cursor-pointer")}>
+                        <input type="checkbox" className="sr-only" checked={current.came.includes(name)} onChange={() => toggleCame(name)} />
+                        {name}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <span>Nobody said they would come. Say how it went and set the next date.</span>
+                )}
+              </fieldset>
+              {current.came.length > 0 ? (
+                <label className="flex flex-col gap-2 text-sm text-muted">
+                  Name one person, if someone earned it
+                  <select className={cn(fieldClass, "min-h-11 max-w-xs")} value={current.named} onChange={(event) => patch({ named: event.target.value })}>
+                    <option value="">No one this time</option>
+                    {current.came.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                Next date, if there is one
+                <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
+              </label>
+            </>
           ) : null}
           {type.attest ? (
             <label className="flex items-start gap-3 text-sm text-muted">
               <input type="checkbox" className="mt-1 size-5" checked={current.attested} onChange={(event) => patch({ attested: event.target.checked })} />
-              No child's face. No home address. No private person named who was not acting in public. A
-              correction gets its own clip.
+              No child's face. No home address. No private person named who was not acting in public.
             </label>
           ) : null}
           {result && !result.ok ? (
@@ -329,23 +290,16 @@ function Composer({ me }: { me: string }) {
   );
 }
 
-const PostCard = memo(function PostCard({
-  post,
-  replies,
-  card,
-  trade,
-  mine,
-  canMessage,
-  steward,
-}: {
-  post: Post;
-  replies: Post[];
-  card?: MeetingCard;
-  trade?: MeetingCard;
-  mine: boolean;
-  canMessage: boolean;
-  steward: boolean;
-}) {
+function Name({ name }: { name: string }) {
+  const view = useBoard((state) => state.view);
+  return (
+    <button type="button" className="font-semibold text-fg hover:underline" onClick={() => view(name)}>
+      {name}
+    </button>
+  );
+}
+
+const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canMessage, steward }: { post: Post; replies: Post[]; card?: MeetingCard; trade?: MeetingCard; mine: boolean; canMessage: boolean; steward: boolean }) {
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
@@ -365,7 +319,7 @@ const PostCard = memo(function PostCard({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
-          {post.author} · {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
+          <Name name={post.author} /> · {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
         </span>
         {card ? <span className="text-signal">· {card.name}</span> : null}
         {trade ? <span className="text-muted">· work by {trade.name}</span> : null}
@@ -398,7 +352,15 @@ const PostCard = memo(function PostCard({
         <>
           <p className="mt-3 text-base text-fg">{post.claim}</p>
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
-          {type.next ? <p className="mt-1 text-sm text-muted">{post.next ? `Next ${formatDate(post.next)}` : "No next date"}</p> : null}
+          {type.closes ? (
+            <p className="mt-1 text-sm text-muted">
+              {post.came.length > 0 ? `Came: ${post.came.join(", ")}. ` : ""}
+              {post.named ? (
+                <span className="text-signal">Named: {post.named}. </span>
+              ) : null}
+              {post.next ? `Next ${formatDate(post.next)}.` : "No next date."}
+            </p>
+          ) : null}
         </>
       )}
 
@@ -406,7 +368,9 @@ const PostCard = memo(function PostCard({
         <ul className="mt-3 flex flex-col gap-2 border-l border-line pl-3">
           {replies.map((item) => (
             <li key={item.id} className="text-sm">
-              <span className="text-muted">{item.author} · </span>
+              <span className="text-muted">
+                <Name name={item.author} /> ·{" "}
+              </span>
               <span className="text-fg">{item.claim}</span>
             </li>
           ))}
@@ -489,7 +453,6 @@ const PostCard = memo(function PostCard({
   );
 });
 
-/** Every steward mark in this room, for every member to read. */
 function MarkLog() {
   const room = useBoard((state) => state.room);
   const markLog = useBoard((state) => state.markLog);
@@ -501,8 +464,7 @@ function MarkLog() {
       <ul className="flex flex-col gap-1 text-sm text-muted">
         {rows.map((row) => (
           <li key={row.id}>
-            {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} ·{" "}
-            <When at={row.at} format={formatWhen} />
+            {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} · <When at={row.at} format={formatWhen} />
           </li>
         ))}
       </ul>
