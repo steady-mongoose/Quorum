@@ -29,9 +29,10 @@ winget install OpenJS.NodeJS.LTS
 winget install Git.Git
 ```
 
-Then clone and install:
+Then clone and install. The first line creates the `projects` folder if it is not there yet:
 
 ```powershell
+New-Item -ItemType Directory -Force $HOME\projects | Out-Null
 cd $HOME\projects
 git clone https://github.com/steady-mongoose/Quorum.git
 cd Quorum
