@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import {
   DAY,
   DM_RETENTION_DAYS,
+  FOUNDER_CODE,
   authorName,
   composerCheck,
   deskDid,
@@ -33,6 +34,8 @@ import { SEED_CARDS, sampleBoard } from "@/lib/board/sample";
 type BoardState = {
   section: Section;
   room: RoomId;
+  /** In by a code. Without it, only the door shows. */
+  member: boolean;
   me: string;
   profile: Profile;
   /** Whose profile is open. */
@@ -71,8 +74,12 @@ type BoardState = {
   removeCard: (id: string) => void;
   /** A host makes a one-use code for one card. The card shows only after a name redeems it. */
   createInvite: (cardId: string) => string | null;
-  /** Returns the card, or null if the code is spent or stale. Sets the name and marks going. */
-  redeemInvite: (code: string, name: string) => MeetingCard | null;
+  /**
+   * The door. A host's code opens its card, sets the name, marks going, and
+   * makes a member. The founder code makes the first member a steward.
+   * Returns the card, "founder", or null if the code is spent or stale.
+   */
+  redeemInvite: (code: string, name: string) => MeetingCard | "founder" | null;
   /** Put your name on a day of a need. Nothing enforces it. */
   takeSlot: (cardId: string, day: string) => void;
   openDm: (other: string) => void;
@@ -125,8 +132,9 @@ export const useBoard = create<BoardState>()(
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
 
       return {
-        section: "rooms",
+        section: "week",
         room: "county",
+        member: false,
         me: "",
         profile: EMPTY_PROFILE,
         viewing: null,
@@ -226,13 +234,20 @@ export const useBoard = create<BoardState>()(
           return invite.code;
         },
         redeemInvite: (code, name) => {
-          const who = authorName(name);
-          const invite = get().invites.find((item) => item.code === code.trim().toUpperCase());
+          const who = name.trim();
+          if (!who) return null;
+          const typed = code.trim().toUpperCase();
+          if (typed === FOUNDER_CODE) {
+            set({ me: who, member: true, steward: true });
+            return "founder";
+          }
+          const invite = get().invites.find((item) => item.code === typed);
           if (!invite || !inviteLive(invite, Date.now())) return null;
           const card = get().cards.find((item) => item.id === invite.cardId);
           if (!card) return null;
           set({
             me: who,
+            member: true,
             invites: get().invites.map((item) => (item.code === invite.code ? { ...item, redeemedBy: who } : item)),
             cards: get().cards.map((item) => (item.id === card.id ? { ...item, going: addName(item.going, who) } : item)),
           });
@@ -254,7 +269,7 @@ export const useBoard = create<BoardState>()(
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
+        loadSample: () => set({ ...sampleBoard(), member: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
         clearBoard: () => set({ posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
       };
     },
@@ -264,6 +279,7 @@ export const useBoard = create<BoardState>()(
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
+        member: state.member,
         me: state.me,
         profile: state.profile,
         steward: state.steward,

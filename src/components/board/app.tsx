@@ -6,6 +6,7 @@ import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
 import { DmView } from "@/components/board/dm-view";
+import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
@@ -30,6 +31,7 @@ export function BoardApp() {
   const setSection = useBoard((state) => state.setSection);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
+  const member = useBoard((state) => state.member);
   const theme = themeById(OWNER_THEME);
 
   useEffect(() => {
@@ -48,24 +50,27 @@ export function BoardApp() {
             </div>
             <Emblem theme={theme.id} size="header" />
           </div>
-          <IconNav
-            items={NAV}
-            current={section}
-            onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
-            label="Sections"
-          />
+          {member ? (
+            <IconNav
+              items={NAV}
+              current={section}
+              onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+              label="Sections"
+            />
+          ) : null}
         </div>
       </header>
       <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
-        {section === "week" && <WeekView />}
-        {section === "rooms" && <RoomView />}
-        {section === "find" && <FindView />}
-        {section === "civic" && <QuorumPanel />}
-        {section === "messages" && <DmView />}
-        {section === "profile" && <ProfileView />}
-        {section === "about" && <AboutView />}
+        {!member && <Door />}
+        {member && section === "week" && <WeekView />}
+        {member && section === "rooms" && <RoomView />}
+        {member && section === "find" && <FindView />}
+        {member && section === "civic" && <QuorumPanel />}
+        {member && section === "messages" && <DmView />}
+        {member && section === "profile" && <ProfileView />}
+        {member && section === "about" && <AboutView />}
       </main>
-      <SessionLine />
+      {member ? <SessionLine /> : null}
     </div>
   );
 }

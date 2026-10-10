@@ -24,6 +24,13 @@ export const WEEK_DAYS = 7;
 export const INVITE_DAYS = 7;
 export const NAMED_SHOWN = 3;
 
+/**
+ * The platform is invite-only. The first member on a box gets in with the
+ * founder code and becomes a steward; everyone after that gets in by a
+ * host's code to a card. Set VITE_FOUNDER_CODE in .env for a real box.
+ */
+export const FOUNDER_CODE = (import.meta.env.VITE_FOUNDER_CODE as string | undefined)?.trim().toUpperCase() || "FOUNDER";
+
 export type Room = {
   id: RoomId;
   name: string;

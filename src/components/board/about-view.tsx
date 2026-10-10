@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
-import { cn } from "@/lib/cn";
-import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, formatDate, type HardRule } from "@/lib/board/model";
+import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -24,8 +22,6 @@ export function AboutView() {
           {APP_NAME} holds where a small set of people meet, what they did, and what the parish needs this week. It is not a feed. You open it, see where to be, and go.
         </p>
       </section>
-
-      <Redeem />
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">Our stance</h2>
@@ -108,50 +104,5 @@ export function AboutView() {
         </section>
       ) : null}
     </div>
-  );
-}
-
-/** Have a code? It opens one card, after a name. */
-function Redeem() {
-  const redeemInvite = useBoard((state) => state.redeemInvite);
-  const setSection = useBoard((state) => state.setSection);
-  const me = useBoard((state) => state.me);
-  const [code, setCode] = useState("");
-  const [name, setName] = useState(me);
-  const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
-
-  return (
-    <section className="rounded-lg border border-signal bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Have a code?</h2>
-      <p className="mt-1 text-sm text-muted">A host gave it to you for one thing. Put your name to it and the card opens.</p>
-      <form
-        className="mt-3 flex flex-col gap-2 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const card = redeemInvite(code, name);
-          setOutcome(
-            card
-              ? { ok: true, text: `You're on the list for ${card.name}, ${formatDate(card.next)}.` }
-              : { ok: false, text: "That code is spent or stale. Ask the host for another." },
-          );
-        }}
-      >
-        <input className={fieldClass} placeholder="Your name" value={name} onChange={(event) => setName(event.target.value)} aria-label="Your name" />
-        <input className={cn(fieldClass, "font-mono tracking-widest uppercase")} placeholder="CODE" value={code} onChange={(event) => setCode(event.target.value)} aria-label="Invite code" />
-        <button type="submit" className={btnSignal}>
-          Open it
-        </button>
-      </form>
-      {outcome ? (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-muted">{outcome.text}</p>
-          {outcome.ok ? (
-            <button type="button" className={btnGhost} onClick={() => setSection("week")}>
-              See this week
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
   );
 }
