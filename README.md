@@ -22,11 +22,17 @@ Open http://localhost:8080. Everything you do stays in that browser on that mach
 
 ### On Windows
 
-If Node.js and Git are not installed yet, install them from PowerShell, then close and reopen PowerShell so the new commands are found:
+Install Node.js and Git from PowerShell. The same two lines update them when they are already installed, so run them every time. Then close and reopen PowerShell so the new versions are found:
 
 ```powershell
-winget install OpenJS.NodeJS.LTS
-winget install Git.Git
+winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+```
+
+Check that Node.js is new enough before going on. This stops with a message if it is older than 22:
+
+```powershell
+if ([int](node -v).TrimStart('v').Split('.')[0] -lt 22) { throw "Node.js 22 or newer is required; found $(node -v)" }
 ```
 
 Then clone and install. This creates the `projects` folder if it is not there yet, and updates an existing `Quorum` checkout instead of cloning over it:
