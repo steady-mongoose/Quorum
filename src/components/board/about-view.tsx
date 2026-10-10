@@ -17,8 +17,8 @@ export function AboutView() {
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <Kicker>What this is</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">Your church, your shop, your county.</h1>
-        <p className="max-w-2xl text-base text-muted">
+        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Your church, your shop, your county.</h1>
+        <p className="max-w-prose text-base text-muted">
           {APP_NAME} holds where a small set of people meet, what they did, and what the parish needs this week. It is not a feed. You open it, see where to be, and go.
         </p>
       </section>
@@ -30,7 +30,7 @@ export function AboutView() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-2xl text-fg">How it works</h2>
-        <ul className="grid gap-2 text-sm text-muted sm:grid-cols-2">
+        <ul className="grid gap-2 text-sm text-muted sm:grid-cols-2 lg:grid-cols-3">
           <li>The week comes first: the next seven days with something on them, and this week's call.</li>
           <li>You get in by a host's code to one card. Say you'll be there. Go.</li>
           <li>The host closes the date: how it went, who came, one person named if someone earned it, the next date. No headcount.</li>
@@ -43,22 +43,24 @@ export function AboutView() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-2xl text-fg">Post types and rooms</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <h2 className="text-2xl text-fg">Post types</h2>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
           {POST_TYPES.map((type) => (
-            <article key={type.id} className="rounded-lg border border-line bg-surface p-4">
-              <h3 className="text-xl text-fg">{type.label}</h3>
-              <p className="mt-1 text-sm text-muted">{type.what}</p>
-            </article>
+            <div key={type.id} className="contents">
+              <dt className="font-semibold text-fg">{type.label}</dt>
+              <dd className="max-w-prose text-muted">{type.what}</dd>
+            </div>
           ))}
-        </div>
-        <ul className="grid gap-2 text-sm text-muted sm:grid-cols-2">
+        </dl>
+        <h2 className="mt-4 text-2xl text-fg">Rooms</h2>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
           {ROOMS.map((room) => (
-            <li key={room.id}>
-              <span className="font-semibold text-fg">{room.name}.</span> {room.what}
-            </li>
+            <div key={room.id} className="contents">
+              <dt className="font-semibold text-fg">{room.name}</dt>
+              <dd className="max-w-prose text-muted">{room.what}</dd>
+            </div>
           ))}
-        </ul>
+        </dl>
       </section>
 
       <section className="flex flex-col gap-3">

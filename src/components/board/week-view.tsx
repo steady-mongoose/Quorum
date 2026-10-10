@@ -37,7 +37,7 @@ export function WeekView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-2">
           <Kicker>This week</Kicker>
-          <h1 className="font-display text-4xl text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "Where to be."}</h1>
+          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "Where to be."}</h1>
           {week.length === 0 ? (
             <p className="max-w-2xl text-base text-muted">
               A card lands here when it has a date inside seven days.{" "}
@@ -51,8 +51,9 @@ export function WeekView() {
 
         {week.map((day) => (
           <section key={day.iso} className="flex flex-col gap-3">
-            <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-              {day.iso === today ? "Today" : day.iso === todayIsoPlus(today, 1) ? "Tomorrow" : WEEKDAYS[new Date(day.iso + "T00:00").getDay()]} · {formatDate(day.iso)}
+            <h2 className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
+              <span className="font-display text-2xl text-fg">{day.iso === today ? "Today" : day.iso === todayIsoPlus(today, 1) ? "Tomorrow" : WEEKDAYS[new Date(day.iso + "T00:00").getDay()]}</span>
+              <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">{formatDate(day.iso)}</span>
             </h2>
             <div className="grid gap-3 xl:grid-cols-2">
               {day.cards.map((card) => (

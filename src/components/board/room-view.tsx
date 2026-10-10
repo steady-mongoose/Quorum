@@ -96,8 +96,8 @@ export function RoomView() {
 
       <section className="flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
-        <h1 className="font-display text-4xl text-fg lg:text-5xl">{meta.name}</h1>
-        <p className="max-w-3xl text-base text-muted">{meta.what}</p>
+        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
+        <p className="max-w-prose text-base text-muted">{meta.what}</p>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
@@ -114,7 +114,7 @@ export function RoomView() {
             <p className="text-sm text-muted">Stewards post here. Members read.</p>
           )}
 
-          <section className="flex flex-col gap-3">
+          <section className="flex flex-col divide-y divide-line">
             {feed.map((post) => (
           <PostCard
             key={post.id}
@@ -127,7 +127,7 @@ export function RoomView() {
             steward={steward}
           />
         ))}
-            <p className="py-6 text-center text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
+            <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
           </section>
         </div>
 
@@ -339,7 +339,7 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", post.mark === "sloppy" && "opacity-70")}>
+    <article className={cn("py-5 first:pt-0", post.mark === "sloppy" && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
@@ -374,7 +374,7 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
         </div>
       ) : (
         <>
-          <p className="mt-3 text-base text-fg">{post.claim}</p>
+          <p className="mt-2 max-w-prose text-base text-fg">{post.claim}</p>
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">

@@ -39,7 +39,7 @@ export function DmView() {
     const other = otherIn(thread, me);
     const rows = byThread.get(thread.id) ?? [];
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 lg:max-w-3xl">
         <button type="button" className={cn(btnQuiet, "self-start px-0")} onClick={() => setOpenThread(null)}>
           <ArrowLeft className="size-4" aria-hidden="true" />
           All messages
@@ -81,8 +81,8 @@ export function DmView() {
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <Kicker>Messages</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">Two names. Thirty days. No groups.</h1>
-        <p className="max-w-2xl text-base text-muted">
+        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Two names. Thirty days. No groups.</h1>
+        <p className="max-w-prose text-base text-muted">
           You can message someone you have been on an "I went" list with, or who replied to your post. Open one
           from their post or their card. Messages are plain text, not encrypted, and are deleted after {DM_RETENTION_DAYS} days.
         </p>
@@ -90,7 +90,7 @@ export function DmView() {
       {mine.length === 0 ? (
         <p className="text-sm text-muted">No messages yet.</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-2 lg:max-w-2xl">
           {mine.map((item) => {
             const last = byThread.get(item.id)?.at(-1);
             return (

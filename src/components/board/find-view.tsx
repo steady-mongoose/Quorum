@@ -51,8 +51,8 @@ export function FindView() {
       <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <Kicker>Find</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg lg:text-5xl">A date list. Not a recommendation.</h1>
-        <p className="max-w-2xl text-base text-muted">A card lists after two people have been. It hides after two missed meetings.</p>
+        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">A date list. Not a recommendation.</h1>
+        <p className="max-w-prose text-base text-muted">A card lists after two people have been. It hides after two missed meetings.</p>
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
