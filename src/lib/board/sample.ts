@@ -36,6 +36,9 @@ export const SEED_CARDS: MeetingCard[] = [
   card("shop-shapes", "shop", "Shapes, women's gym hour", "731 W Lumsden, Brandon", "Confirm in person", brief),
 ];
 
+/** Bump when the sample changes; a saved sample older than this is reloaded. */
+export const SAMPLE_VERSION = 2;
+
 export type SampleBoard = {
   me: string;
   profile: Profile;
@@ -60,7 +63,17 @@ export function sampleBoard(): SampleBoard {
     card("s-stoics", "shelf", "Tampa Stoics, the table", "Back room, Brandon hall", "Second and fourth Wednesday, 7 p.m.", { host: "Luis", next: iso(6), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Dale", "Maria"], going: ["Josh", "Maria"], firstTimer: true, book: "Meditations, Marcus Aurelius", pages: "book five" }),
     card("s-lamb", "shop", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),
     card("s-bakery", "shop", "Ruth's sourdough", "Brandon", "Bread, by the loaf, Saturdays", { kind: "trade", host: "Ruth" }),
-    card("s-baptist", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon", "Sunday school 9:00, worship 10:30", { host: "Dale", next: iso(3), lastFour: [true, true], wentBy: ["Dale", "Tom"] }),
+    card("s-baptist", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon", "Sunday school 9:00, worship 10:30", { host: "Dale", next: iso(3), lastFour: [true, true, true], wentBy: ["Dale", "Tom", "Josh"], going: ["Josh"], firstTimer: true }),
+    card("s-baptist-lunch", "baptist", "Lunch after church", "The Hendersons' back yard, Valrico", "Sunday 12:30, after the service", { host: "Tom", next: iso(3), lastFour: [true, true], wentBy: ["Tom", "Dale", "Josh"], going: ["Josh", "Dale"] }),
+    card("s-baptist-need", "baptist", "The Carters, after surgery", "Leave it in the cooler on the porch; Dale has the address", "Dinners this week", {
+      kind: "need",
+      host: "Dale",
+      slots: [
+        { day: "Monday", by: "Tom" },
+        { day: "Wednesday", by: "" },
+        { day: "Friday", by: "" },
+      ],
+    }),
     card("s-presby", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Sunday 9:30 and 11", { host: "Ruth", next: iso(3), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"] }),
     card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
     card("s-meal", "latin", "Meal after High Mass", "Parish hall", "Sunday 12:15, after the 11", { host: "Luis", next: iso(3), lastFour: [true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh", "Maria"] }),
@@ -98,6 +111,9 @@ export function sampleBoard(): SampleBoard {
     p({ id: "p15", room: "county", type: "asked", author: "Dale", at: ago(2, 3), closed: true, cardId: "s-hearing", claim: "Does the Lithia Pinecrest hearing still happen on the date on the card?", reason: "Called District 4 twice, voicemail both times. The agenda page still shows the old date." }),
     p({ id: "p15r", room: "county", type: "asked", author: "Maria", at: ago(2, 5), parentId: "p15", claim: "Yes. Clerk's office confirmed by phone this morning, 9:10 a.m. Same date, 9 a.m., second floor." }),
     p({ id: "p16", room: "county", type: "noted", author: "Maria", at: ago(4), claim: "The county posts the full agenda packet the Friday before. Public comment cards are at the door, three minutes each.", reason: "hcfl.gov agenda page, and I did it in March." }),
+    p({ id: "p20", room: "baptist", type: "hosted", author: "Dale", at: ago(4, 6), cardId: "s-baptist", on: iso(-4), next: iso(3), came: ["Tom", "Josh"], claim: "Pastor Rosano finished the series on Hebrews 11. Lunch moved to the Hendersons' because of the rain. Same time next Sunday." }),
+    p({ id: "p21", room: "baptist", type: "hosted", author: "Tom", at: ago(4, 7), cardId: "s-baptist-lunch", on: iso(-4), next: iso(3), came: ["Dale", "Josh"], named: "Josh", claim: "Fourteen chairs under the carport and it did not rain on us. Josh brought the smoker and stayed to clean it." }),
+    p({ id: "p22", room: "baptist", type: "noted", author: "Maria", at: ago(2, 3), claim: "Men's breakfast moves to the second Saturday this month, 7:30, at the church.", reason: "In the Sunday bulletin; Dale has a copy." }),
     p({ id: "p17", room: "latin", type: "noted", author: "Luis", at: ago(6, 10), claim: "High Mass moves to 10:30 on the first Sunday of the month for the next three months.", reason: "Printed in the bulletin, Luis has a copy." }),
     p({ id: "p18", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -2), on: iso(0), claim: "Sheriff's cruiser and a tow on the shoulder, I-75 southbound past Gibsonton. One lane.", reason: "3:55 p.m., I-75 SB near mile 250" }),
     p({ id: "p19", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -1), on: iso(0), claim: "Two lanes closed on Bloomingdale at Lithia Pinecrest, crews on the median.", reason: "4:40 p.m., Bloomingdale and Lithia Pinecrest, eastbound side" }),

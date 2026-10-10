@@ -31,7 +31,7 @@ import {
   type RoomId,
   type Section,
 } from "@/lib/board/model";
-import { SEED_CARDS, sampleBoard } from "@/lib/board/sample";
+import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
 
 type BoardState = {
   section: Section;
@@ -42,6 +42,8 @@ type BoardState = {
   founded: boolean;
   /** The board is the invented sample week, not real members. */
   sample: boolean;
+  /** Which version of the sample was loaded, so a stale one is reloaded. */
+  sampleVersion: number;
   me: string;
   profile: Profile;
   /** Whose profile is open. */
@@ -142,6 +144,7 @@ export const useBoard = create<BoardState>()(
         member: false,
         founded: false,
         sample: false,
+        sampleVersion: 0,
         me: "",
         profile: EMPTY_PROFILE,
         viewing: null,
@@ -285,7 +288,7 @@ export const useBoard = create<BoardState>()(
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), sample: true, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
+        loadSample: () => set({ ...sampleBoard(), sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
         clearBoard: () => set({ sample: false, posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
       };
     },
@@ -298,6 +301,7 @@ export const useBoard = create<BoardState>()(
         member: state.member,
         founded: state.founded,
         sample: state.sample,
+        sampleVersion: state.sampleVersion,
         me: state.me,
         profile: state.profile,
         steward: state.steward,
@@ -314,6 +318,12 @@ export const useBoard = create<BoardState>()(
       migrate: (persisted, version) => (version < 5 ? {} : (persisted as object)),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
+        // A saved sample older than the current one is replaced, so the demo
+        // never shows yesterday's placeholders.
+        if (saved.sample && (saved.sampleVersion ?? 0) < SAMPLE_VERSION) {
+          const fresh = sampleBoard();
+          return { ...current, ...saved, ...fresh, sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, messages: pruneMessages(fresh.messages, Date.now()) };
+        }
         return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };
       },
     },
