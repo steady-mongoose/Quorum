@@ -20,6 +20,26 @@ npm run dev
 
 Open http://localhost:8080. Everything you do stays in that browser on that machine; there is no server and no account yet.
 
+### On Windows
+
+If Node.js and Git are not installed yet, install them from PowerShell, then close and reopen PowerShell so the new commands are found:
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+```
+
+Then clone and install:
+
+```powershell
+cd $HOME\projects
+git clone https://github.com/steady-mongoose/Quorum.git
+cd Quorum
+npm install
+```
+
+Start it with `npm run dev` and open http://localhost:8080, the same as above.
+
 To see it filled in:
 
 1. Open **About** and press **Load the sample week**. Six invented members around Brandon and Riverview, a week of cards and posts, a parish need, two message threads. You become Josh.
