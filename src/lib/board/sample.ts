@@ -37,7 +37,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 3;
+export const SAMPLE_VERSION = 4;
 
 export type SampleBoard = {
   me: string;
@@ -93,30 +93,30 @@ export function sampleBoard(): SampleBoard {
   const p = (fields: Parameters<typeof newPost>[0] & { id: string }) => newPost(fields);
 
   const posts: Post[] = [
-    p({ id: "p1", room: "shop", type: "hosted", author: "Tom", at: ago(5, 3), cardId: "s-framing", on: iso(-5), next: iso(2), came: ["Josh", "Dale", "Luis"], named: "Luis", claim: "Full bench. Walked the two new ones through a header and a jack stud. Luis stayed to sweep the shop. Next week we cut rafters." }),
-    p({ id: "p2", room: "shop", type: "did", author: "Josh", at: ago(5, 4), cardId: "s-framing", on: iso(-5), claim: "Framed my first header. Tom checked it twice before it went in.", reason: "Photo on my phone, Tom and Luis were there." }),
-    p({ id: "p3", room: "shop", type: "asked", author: "Dale", at: ago(3), closed: true, claim: "Is there a Saturday slot for someone who works Thursday nights?", reason: "Asked Tom in person, he said to put it on the board and see who else wants one." }),
-    p({ id: "p3r", room: "shop", type: "asked", author: "Tom", at: ago(3, 2), parentId: "p3", claim: "Two of us would come. If a third says so here, I will open the shop at 8." }),
-    p({ id: "p4", room: "shop", type: "did", author: "Tom", at: ago(6), tradeId: "s-lamb", on: iso(-6), claim: "Luis replaced the panel in the shop. Inspector passed it first visit.", reason: "Permit number on the shop wall, Dale saw the inspector sign." }),
-    p({ id: "p5", room: "shop", type: "did", author: "Dale", at: ago(4, 1), tradeId: "s-lamb", on: iso(-4), claim: "Luis ran a 240 line to the garage for the welder. Clean work, one afternoon.", reason: "Receipt dated last Tuesday, my wife was home for it." }),
-    p({ id: "p6", room: "shop", type: "did", author: "Josh", at: ago(2), tradeId: "s-bakery", on: iso(-2), claim: "Two loaves from Ruth, Saturday. Second one went to the Nelsons.", reason: "Paid cash at her door, Maria was with me." }),
-    p({ id: "p7", room: "shop", type: "hosted", author: "Dale", at: ago(1, 1), cardId: "s-ham", on: iso(-1), next: iso(5), came: ["Josh"], claim: "Net ran clean. Three check-ins from Riverview this time, which is new." }),
-    p({ id: "p8", room: "shop", type: "noted", author: "Maria", at: ago(0, -20), mark: "unsupported", claim: "The club's repeater is moving frequencies next month.", reason: "heard it at the net" }),
-    p({ id: "p9", room: "shelf", type: "hosted", author: "Luis", at: ago(8, 2), cardId: "s-stoics", on: iso(-8), next: iso(6), came: ["Josh", "Dale", "Maria"], named: "Dale", claim: "Book four. Dale read 4.3 aloud and nobody said anything for a minute, which is the point of it. Book five next, the opening on getting out of bed." }),
-    p({ id: "p9b", room: "shelf", type: "did", author: "Josh", at: ago(8, 3), cardId: "s-stoics", on: iso(-8), claim: "Read book four on the porch Sunday, brought the Hays translation to the table.", reason: "Luis and Dale were there; Maria has my copy now." }),
-    p({ id: "p10", room: "question", type: "hosted", author: "Maria", at: ago(20), cardId: "s-question", on: iso(-20), next: iso(9), came: ["Josh", "Tom"], claim: "Nine chairs, all full, two people we had never met. Tom took yes, Josh took no, and after an hour nobody had moved. Next month: should the county cap new subdivisions?" }),
-    p({ id: "p11", room: "question", type: "did", author: "Josh", at: ago(20, 1), cardId: "s-question", on: iso(-20), claim: "Argued the no side against Tom at the debate. Brought the Wimauma couple from church; they stayed for the second round.", reason: "Maria hosted and can say so." }),
-    p({ id: "p12", room: "coop", type: "hosted", author: "Ruth", at: ago(3, 4), cardId: "s-coop", on: iso(-3), next: iso(4), came: ["Maria"], named: "Maria", claim: "Finished the Aeneid book two. Three families read aloud. Maria brought the chairs." }),
+    p({ id: "p1", room: "shop", type: "hosted", author: "Tom", at: ago(5, 3), cardId: "s-framing", on: iso(-5), next: iso(2), came: ["Josh", "Dale", "Luis"], named: "Luis", claim: "Good night. 6 of us. Got the two new guys through a header and a jack stud, nobody lost a finger. Thanks Luis for sweeping up after. Next Thursday we do rafters, bring ear protection." }),
+    p({ id: "p2", room: "shop", type: "did", author: "Josh", at: ago(5, 4), cardId: "s-framing", on: iso(-5), claim: "Framed my first header last night. Tom checked it twice before it went in.", reason: "Pic on my phone. Tom and Luis were there." }),
+    p({ id: "p3", room: "shop", type: "asked", author: "Dale", at: ago(3), closed: true, claim: "Any chance of a Saturday morning session? I work Thursday nights.", reason: "Asked Tom, he said put it on here and see who else wants one." }),
+    p({ id: "p3r", room: "shop", type: "asked", author: "Tom", at: ago(3, 2), parentId: "p3", claim: "If we get 3 I'll open the shop at 8. That's 2 so far." }),
+    p({ id: "p4", room: "shop", type: "did", author: "Tom", at: ago(6), tradeId: "s-lamb", on: iso(-6), claim: "Luis put a new panel in the shop. Inspector signed off first visit.", reason: "Permit's on the wall. Dale watched him sign it." }),
+    p({ id: "p5", room: "shop", type: "did", author: "Dale", at: ago(4, 1), tradeId: "s-lamb", on: iso(-4), claim: "Luis ran a 240 line to my garage for the welder. In and out in an afternoon, cleaned up after himself.", reason: "Got the receipt. Wife was home for it." }),
+    p({ id: "p6", room: "shop", type: "did", author: "Josh", at: ago(2), tradeId: "s-bakery", on: iso(-2), claim: "Picked up 2 loaves from Ruth Saturday. Took one to the Nelsons.", reason: "Paid cash at her door, Maria was with me." }),
+    p({ id: "p7", room: "shop", type: "hosted", author: "Dale", at: ago(1, 1), cardId: "s-ham", on: iso(-1), next: iso(5), came: ["Josh"], claim: "Tuesday net: 11 check-ins, 3 from Riverview which is new. Thanks everyone. Same time next week, 147.105." }),
+    p({ id: "p8", room: "shop", type: "noted", author: "Maria", at: ago(0, -20), mark: "unsupported", claim: "Heard the repeater's moving frequencies next month.", reason: "somebody said it on the net" }),
+    p({ id: "p9", room: "shelf", type: "hosted", author: "Luis", at: ago(8, 2), cardId: "s-stoics", on: iso(-8), next: iso(6), came: ["Josh", "Dale", "Maria"], named: "Dale", claim: "Book 4 last night. Dale read 4.3 out loud and we sat with it a while. Good turnout for a Wednesday. Book 5 for next time, it's short." }),
+    p({ id: "p9b", room: "shelf", type: "did", author: "Josh", at: ago(8, 3), cardId: "s-stoics", on: iso(-8), claim: "Read book 4 on the porch Sunday. Brought the Hays translation if anyone wants to borrow it.", reason: "Luis and Dale saw it. Maria's got it now." }),
+    p({ id: "p10", room: "question", type: "hosted", author: "Maria", at: ago(20), cardId: "s-question", on: iso(-20), next: iso(9), came: ["Josh", "Tom"], claim: "Full room, 9 chairs and 2 standing. Couple of new faces, hope they come back. Tom argued yes, Josh argued no, nobody changed their mind. Next month same question since we didn't get through it. Thanks Brandon Brewing for the room." }),
+    p({ id: "p11", room: "question", type: "did", author: "Josh", at: ago(20, 1), cardId: "s-question", on: iso(-20), claim: "Took the no side against Tom. Brought the Wimauma couple from church, they stayed for round two.", reason: "Maria was hosting." }),
+    p({ id: "p12", room: "coop", type: "hosted", author: "Ruth", at: ago(3, 4), cardId: "s-coop", on: iso(-3), next: iso(4), came: ["Maria"], named: "Maria", claim: "Finished Aeneid book 2 this morning. 3 families read out loud. Little ones built a horse out of the folding chairs. Book 3 next Tuesday. Thanks Maria for the extra chairs." }),
     p({ id: "p14", room: "county", type: "did", author: "Josh", at: ago(1, 2), campaignId: "county-agenda", on: iso(-1), claim: "Board office: Ken Hagan, Chair, Hillsborough County Commission. Put the ordinance on the commission agenda.", reason: "Logged on the Quorum desk by Josh. Window 9am–11am local." }),
-    p({ id: "p15", room: "county", type: "asked", author: "Dale", at: ago(2, 3), closed: true, cardId: "s-hearing", claim: "Does the Lithia Pinecrest hearing still happen on the date on the card?", reason: "Called District 4 twice, voicemail both times. The agenda page still shows the old date." }),
-    p({ id: "p15r", room: "county", type: "asked", author: "Maria", at: ago(2, 5), parentId: "p15", claim: "Yes. Clerk's office confirmed by phone this morning, 9:10 a.m. Same date, 9 a.m., second floor." }),
-    p({ id: "p16", room: "county", type: "noted", author: "Maria", at: ago(4), claim: "The county posts the full agenda packet the Friday before. Public comment cards are at the door, three minutes each.", reason: "hcfl.gov agenda page, and I did it in March." }),
-    p({ id: "p20", room: "baptist", type: "hosted", author: "Dale", at: ago(4, 6), cardId: "s-baptist", on: iso(-4), next: iso(3), came: ["Tom", "Josh"], claim: "Pastor Rosano finished the series on Hebrews 11. Lunch moved to the Hendersons' because of the rain. Same time next Sunday." }),
-    p({ id: "p21", room: "baptist", type: "hosted", author: "Tom", at: ago(4, 7), cardId: "s-baptist-lunch", on: iso(-4), next: iso(3), came: ["Dale", "Josh"], named: "Josh", claim: "Fourteen chairs under the carport and it did not rain on us. Josh brought the smoker and stayed to clean it." }),
-    p({ id: "p22", room: "baptist", type: "noted", author: "Maria", at: ago(2, 3), claim: "Men's breakfast moves to the second Saturday this month, 7:30, at the church.", reason: "In the Sunday bulletin; Dale has a copy." }),
-    p({ id: "p17", room: "latin", type: "noted", author: "Luis", at: ago(6, 10), claim: "High Mass moves to 10:30 on the first Sunday of the month for the next three months.", reason: "Printed in the bulletin, Luis has a copy." }),
-    p({ id: "p18", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -2), on: iso(0), claim: "Sheriff's cruiser and a tow on the shoulder, I-75 southbound past Gibsonton. One lane.", reason: "3:55 p.m., I-75 SB near mile 250" }),
-    p({ id: "p19", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -1), on: iso(0), claim: "Two lanes closed on Bloomingdale at Lithia Pinecrest, crews on the median.", reason: "4:40 p.m., Bloomingdale and Lithia Pinecrest, eastbound side" }),
+    p({ id: "p15", room: "county", type: "asked", author: "Dale", at: ago(2, 3), closed: true, cardId: "s-hearing", claim: "Is the Lithia Pinecrest hearing still on the date on the card? County site still shows the old one.", reason: "Called District 4 twice, voicemail both times." }),
+    p({ id: "p15r", room: "county", type: "asked", author: "Maria", at: ago(2, 5), parentId: "p15", claim: "Yes. Called the clerk's office this morning, 9:10. Same date, 9am, 2nd floor." }),
+    p({ id: "p16", room: "county", type: "noted", author: "Maria", at: ago(4), claim: "FYI the county posts the full agenda packet the Friday before. Public comment cards are at the door, you get 3 minutes.", reason: "hcfl.gov agenda page, and I did it in March." }),
+    p({ id: "p20", room: "baptist", type: "hosted", author: "Dale", at: ago(4, 6), cardId: "s-baptist", on: iso(-4), next: iso(3), came: ["Tom", "Josh"], claim: "Pastor Rosano wrapped up Hebrews 11 this morning. Lunch moved to the Hendersons' because of the rain. Thanks Tom for hosting on short notice. Same time next Sunday." }),
+    p({ id: "p21", room: "baptist", type: "hosted", author: "Tom", at: ago(4, 7), cardId: "s-baptist-lunch", on: iso(-4), next: iso(3), came: ["Dale", "Josh"], named: "Josh", claim: "14 chairs under the carport and it held off raining until we were done. Thanks Josh for bringing the smoker and staying to clean it. Next Sunday at ours again unless somebody else wants it." }),
+    p({ id: "p22", room: "baptist", type: "noted", author: "Maria", at: ago(2, 3), claim: "Men's breakfast is the 2nd Saturday this month instead of the 1st. 7:30 at the church.", reason: "It's in the bulletin. Dale has a copy." }),
+    p({ id: "p17", room: "latin", type: "noted", author: "Luis", at: ago(6, 10), claim: "High Mass moves to 10:30 on first Sundays for the next 3 months.", reason: "It's in the bulletin, Luis has one." }),
+    p({ id: "p18", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -2), on: iso(0), claim: "Sheriff and a tow truck on the shoulder, I-75 south just past Gibsonton. Down to one lane.", reason: "3:55pm, I-75 SB around mile 250" }),
+    p({ id: "p19", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -1), on: iso(0), claim: "2 lanes closed on Bloomingdale at Lithia Pinecrest, crew on the median.", reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound" }),
   ];
 
   const markLog: MarkRow[] = [{ id: "m1", room: "shop", postId: "p8", author: "Maria", by: "Tom", mark: "unsupported", at: ago(0, -18) }];
@@ -128,11 +128,11 @@ export function sampleBoard(): SampleBoard {
     { id: t2, between: ["Josh", "Tom"] },
   ];
   const messages: DmMessage[] = [
-    { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew to the framing night Thursday? He is sixteen and has never held a saw.", at: ago(1, -2) },
-    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, it is his shop and his card says new people welcome. I can drive you both.", at: ago(1, -1) },
-    { id: "d3", threadId: t1, from: "Dale", text: "Asked him, he said yes. Pick us up at 6:15?", at: ago(1) },
-    { id: "d4", threadId: t2, from: "Josh", text: "Heads up for framing night Thursday: Dale is bringing his nephew. Sixteen, never held a saw.", at: ago(0, -23) },
-    { id: "d5", threadId: t2, from: "Tom", text: "Good. I will put him on the chop saw with Luis first so he learns it safely.", at: ago(0, -22) },
+    { id: "d1", threadId: t1, from: "Dale", text: "hey can I bring my nephew thursday? he's 16, never used a saw", at: ago(1, -2) },
+    { id: "d2", threadId: t1, from: "Josh", text: "ask Tom, it's his shop. card says new people welcome so probably yes. I can drive if you want", at: ago(1, -1) },
+    { id: "d3", threadId: t1, from: "Dale", text: "he said yes. 6:15 at mine?", at: ago(1) },
+    { id: "d4", threadId: t2, from: "Josh", text: "heads up, Dale's bringing his nephew thurs. 16, never used a saw", at: ago(0, -23) },
+    { id: "d5", threadId: t2, from: "Tom", text: "good. I'll put him on the chop saw with Luis first", at: ago(0, -22) },
   ];
 
   return {
