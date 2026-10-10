@@ -20,6 +20,34 @@ npm run dev
 
 Open http://localhost:8080. Everything you do stays in that browser on that machine; there is no server and no account yet.
 
+### If port 8080 is in use
+
+`npm run dev` only ever uses port 8080 and stops with "Port 8080 is already in use" when another program has it. If the page that opens is not The Hall, another program is answering on 8080. Either way, start the app with this instead:
+
+```bash
+npm run dev:local
+```
+
+It tries 8080 first and moves up to the next free port. When 8080 is taken it prints which program holds it, that program's process id, the command that stops it, and the address to open:
+
+```
+[dev-local] port 8080 is in use by Python (process 4242)
+[dev-local]   to stop it: kill 4242
+[dev-local] using port 8081 instead
+[dev-local] open http://localhost:8081
+```
+
+To start the search at a port of your choosing, set `PORT` first: `PORT=5199 npm run dev:local` on Mac and Linux, or `$env:PORT=5199; npm run dev:local` in PowerShell.
+
+The board lives in the browser's storage for one address, so `localhost:8081` starts empty even if `localhost:8080` has a week on it. Stay on one port, or free 8080 and go back to `npm run dev`.
+
+To look up what holds a port yourself:
+
+| System | Find the program | Stop it |
+|---|---|---|
+| Mac, Linux | `lsof -nP -iTCP:8080 -sTCP:LISTEN` | `kill <PID>` |
+| Windows | `netstat -ano \| findstr :8080` then `tasklist /FI "PID eq <PID>"` | `taskkill /PID <PID> /F` |
+
 ### On Windows
 
 Install Node.js and Git from PowerShell. The same two lines update them when they are already installed, so run them every time. Then close and reopen PowerShell so the new versions are found:
@@ -58,7 +86,7 @@ Remove-Item -Recurse -Force Quorum
 git clone https://github.com/steady-mongoose/Quorum.git
 ```
 
-Start it with `npm run dev` and open http://localhost:8080, the same as above.
+Start it with `npm run dev` and open http://localhost:8080, the same as above. If 8080 is taken, use `npm run dev:local`; see [If port 8080 is in use](#if-port-8080-is-in-use).
 
 To see it filled in:
 
