@@ -58,22 +58,8 @@ export function RoomView() {
   const ban = banFor(me, removals, Date.now());
   const canFile = typesFor(meta, steward).length > 0;
 
-  return (
-    <div className="flex flex-col gap-6">
-      <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Rooms">
-        {ROOMS.map((item) => (
-          <button key={item.id} type="button" aria-current={item.id === room ? "page" : undefined} onClick={() => setRoom(item.id)} className={pill(item.id === room)}>
-            {item.name}
-          </button>
-        ))}
-      </nav>
-
-      <section className="flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
-        <h1 className="font-display text-4xl text-fg">{meta.name}</h1>
-        <p className="max-w-2xl text-base text-muted">{meta.what}</p>
-      </section>
-
+  const shelfBlock = (
+    <>
       {shelf.map((card) => (
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
@@ -95,19 +81,41 @@ export function RoomView() {
       {needs.map((card) => (
         <NeedCard key={card.id} card={card} />
       ))}
+    </>
+  );
 
-      {ban ? (
-        <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
-          {ban.strikes >= 2 ? "This account is closed. Second hard removal." : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
-        </p>
-      ) : canFile ? (
-        <Composer me={me} steward={steward} />
-      ) : (
-        <p className="text-sm text-muted">Stewards post here. Members read.</p>
-      )}
+  return (
+    <div className="flex flex-col gap-6">
+      <nav className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible" aria-label="Rooms">
+        {ROOMS.map((item) => (
+          <button key={item.id} type="button" aria-current={item.id === room ? "page" : undefined} onClick={() => setRoom(item.id)} className={pill(item.id === room)}>
+            {item.name}
+          </button>
+        ))}
+      </nav>
 
-      <section className="flex flex-col gap-3">
-        {feed.map((post) => (
+      <section className="flex flex-col gap-2">
+        <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
+        <h1 className="font-display text-4xl text-fg lg:text-5xl">{meta.name}</h1>
+        <p className="max-w-3xl text-base text-muted">{meta.what}</p>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
+
+          {ban ? (
+            <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
+              {ban.strikes >= 2 ? "This account is closed. Second hard removal." : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
+            </p>
+          ) : canFile ? (
+            <Composer me={me} steward={steward} />
+          ) : (
+            <p className="text-sm text-muted">Stewards post here. Members read.</p>
+          )}
+
+          <section className="flex flex-col gap-3">
+            {feed.map((post) => (
           <PostCard
             key={post.id}
             post={post}
@@ -119,10 +127,18 @@ export function RoomView() {
             steward={steward}
           />
         ))}
-        <p className="py-6 text-center text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
-      </section>
+            <p className="py-6 text-center text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
+          </section>
+        </div>
 
-      <MarkLog />
+        <aside className="hidden flex-col gap-4 lg:sticky lg:top-28 lg:flex lg:self-start">
+          {shelf.length === 0 && needs.length === 0 ? <p className="text-sm text-muted">Nothing coming up in this room inside two weeks.</p> : shelfBlock}
+          <MarkLog />
+        </aside>
+      </div>
+      <div className="lg:hidden">
+        <MarkLog />
+      </div>
     </div>
   );
 }

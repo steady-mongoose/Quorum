@@ -17,6 +17,9 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Everything is in rem, so this one line scales the app with the window:
+       15px on a phone, 20px on a wide desktop. */
+    font-size: clamp(15px, 0.45vw + 12.5px, 20px);
   }
 
   body {

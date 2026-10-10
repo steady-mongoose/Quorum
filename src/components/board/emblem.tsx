@@ -10,7 +10,7 @@ const ART: Partial<Record<ThemeId, { src: string; alt: string; square?: boolean 
 };
 
 const SIZE = {
-  header: { flag: "h-14 w-21 sm:h-16 sm:w-24", square: "h-14 w-14 sm:h-16 sm:w-16" },
+  header: { flag: "h-14 w-21 sm:h-16 sm:w-24 lg:h-20 lg:w-30", square: "h-14 w-14 sm:h-16 sm:w-16 lg:h-20 lg:w-20" },
   pill: { flag: "h-6 w-9", square: "h-6 w-6" },
 };
 

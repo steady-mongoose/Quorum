@@ -40,11 +40,11 @@ export function BoardApp() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 pt-4 pb-3">
-          <div className="flex items-start justify-between gap-4">
+        <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+          <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
             <div>
-              <p className="font-display text-3xl leading-none text-fg">{APP_NAME}</p>
-              <p className="mt-2 text-sm text-muted">{TAGLINE}</p>
+              <p className="font-display text-3xl leading-none text-fg lg:text-4xl">{APP_NAME}</p>
+              <p className="mt-2 text-sm text-muted lg:whitespace-nowrap">{TAGLINE}</p>
             </div>
             <Emblem theme={theme.id} size="header" />
           </div>
@@ -56,7 +56,7 @@ export function BoardApp() {
           />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl px-4 pt-6 pb-24">
+      <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
         {section === "week" && <WeekView />}
         {section === "rooms" && <RoomView />}
         {section === "find" && <FindView />}

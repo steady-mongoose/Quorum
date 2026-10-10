@@ -33,42 +33,47 @@ export function WeekView() {
   const needs = useMemo(() => needsFor(cards), [cards]);
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-2">
-        <Kicker>This week</Kicker>
-        <h1 className="font-display text-4xl text-fg">{week.length === 0 ? "Nothing on the calendar yet." : "Where to be."}</h1>
-        {week.length === 0 ? (
-          <p className="max-w-2xl text-base text-muted">
-            A card lands here when it has a date inside seven days.{" "}
-            <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
-              Read your rooms
-            </button>{" "}
-            or list something under Find.
-          </p>
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
+      <div className="flex flex-col gap-8">
+        <section className="flex flex-col gap-2">
+          <Kicker>This week</Kicker>
+          <h1 className="font-display text-4xl text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "Where to be."}</h1>
+          {week.length === 0 ? (
+            <p className="max-w-2xl text-base text-muted">
+              A card lands here when it has a date inside seven days.{" "}
+              <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
+                Read your rooms
+              </button>{" "}
+              or list something under Find.
+            </p>
+          ) : null}
+        </section>
+
+        {week.map((day) => (
+          <section key={day.iso} className="flex flex-col gap-3">
+            <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+              {day.iso === today ? "Today" : day.iso === todayIsoPlus(today, 1) ? "Tomorrow" : WEEKDAYS[new Date(day.iso + "T00:00").getDay()]} · {formatDate(day.iso)}
+            </h2>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {day.cards.map((card) => (
+                <DayCard key={card.id} card={card} me={me} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
+        <TheCall />
+        {needs.length > 0 ? (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">A parish needs</h2>
+            {needs.map((card) => (
+              <NeedCard key={card.id} card={card} />
+            ))}
+          </section>
         ) : null}
-      </section>
-
-      <TheCall />
-
-      {week.map((day) => (
-        <section key={day.iso} className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-            {day.iso === today ? "Today" : day.iso === todayIsoPlus(today, 1) ? "Tomorrow" : WEEKDAYS[new Date(day.iso + "T00:00").getDay()]} · {formatDate(day.iso)}
-          </h2>
-          {day.cards.map((card) => (
-            <DayCard key={card.id} card={card} me={me} />
-          ))}
-        </section>
-      ))}
-
-      {needs.length > 0 ? (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">A parish needs</h2>
-          {needs.map((card) => (
-            <NeedCard key={card.id} card={card} />
-          ))}
-        </section>
-      ) : null}
+      </aside>
     </div>
   );
 }

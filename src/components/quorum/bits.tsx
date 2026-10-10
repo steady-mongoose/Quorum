@@ -23,7 +23,7 @@ export function IconNav<T extends string>({
   label: string;
 }) {
   return (
-    <nav className="flex gap-2 overflow-x-auto" aria-label={label}>
+    <nav className="flex gap-2 overflow-x-auto lg:flex-wrap lg:justify-end lg:overflow-visible" aria-label={label}>
       {items.map((item) => {
         const Icon = item.icon;
         return (

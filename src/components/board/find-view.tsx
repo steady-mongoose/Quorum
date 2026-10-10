@@ -47,14 +47,15 @@ export function FindView() {
   const rowProps = { me, steward, peers };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
+      <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <Kicker>Find</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">A date list. Not a recommendation.</h1>
+        <h1 className="max-w-xl font-display text-4xl text-fg lg:text-5xl">A date list. Not a recommendation.</h1>
         <p className="max-w-2xl text-base text-muted">A card lists after two people have been. It hides after two missed meetings.</p>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section className="grid gap-3 xl:grid-cols-2">
         {groups.listed.length === 0 ? <p className="text-sm text-muted">No card has been visited twice yet.</p> : null}
         {groups.listed.map((card) => (
           <MeetingRow key={card.id} card={card} shown {...rowProps} />
@@ -88,8 +89,11 @@ export function FindView() {
           ))}
         </section>
       ) : null}
+      </div>
 
-      <AddCard me={me} />
+      <aside className="lg:sticky lg:top-28 lg:self-start">
+        <AddCard me={me} />
+      </aside>
     </div>
   );
 }
@@ -325,7 +329,7 @@ function AddCard({ me }: { me: string }) {
       <p className="mt-1 text-sm text-muted">
         You count as the first visit. It lists after a second person marks "I went." A trade lists after two members name its work. A parish need is posted by whoever is organizing it, with the family's say-so.
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           Room
           <select className={fieldClass} value={room} onChange={(event) => pickRoom(event.target.value as RoomId)}>
