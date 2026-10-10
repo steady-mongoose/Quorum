@@ -32,6 +32,7 @@ export function BoardApp() {
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
+  const sample = useBoard((state) => state.sample);
   const theme = themeById(OWNER_THEME);
 
   useEffect(() => {
@@ -60,6 +61,15 @@ export function BoardApp() {
           ) : null}
         </div>
       </header>
+      {member && sample ? (
+        <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
+          <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom, Dale, Maria, Luis, Ruth) and everything they wrote is invented, to show what the app looks like in use.{" "}
+          <button type="button" className="text-signal underline" onClick={() => setSection("about")}>
+            Clear it under About
+          </button>{" "}
+          when you are ready to use it for real.
+        </p>
+      ) : null}
       <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
         {!member && <Door />}
         {member && section === "week" && <WeekView />}

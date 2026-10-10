@@ -27,6 +27,7 @@ const brief = { unverified: true, wentBy: ["brief"] };
 export const SEED_CARDS: MeetingCard[] = [
   card("latin-epiphany", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", ...brief }),
   card("orthodox-stjohn", "orthodox", "St. John the Baptist", "2418 W Swann Ave, Tampa", "Confirm in person", brief),
+  card("baptist-gbcb", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon · (813) 662-9622", "Sunday school 9:00, worship 10:30. Reformed Baptist, 1689.", brief),
   card("presbyterian-redeemer", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Confirm in person", brief),
   card("presbyterian-first", "presbyterian", "First Reformed", "W Hillsborough Ave, Tampa", "Confirm in person. Confession to confirm too.", brief),
   card("shop-ham", "shop", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", brief),
@@ -59,7 +60,7 @@ export function sampleBoard(): SampleBoard {
     card("s-stoics", "shelf", "Tampa Stoics, the table", "Back room, Brandon hall", "Second and fourth Wednesday, 7 p.m.", { host: "Luis", next: iso(6), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Dale", "Maria"], going: ["Josh", "Maria"], firstTimer: true, book: "Meditations, Marcus Aurelius", pages: "book five" }),
     card("s-lamb", "shop", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),
     card("s-bakery", "shop", "Ruth's sourdough", "Brandon", "Bread, by the loaf, Saturdays", { kind: "trade", host: "Ruth" }),
-    card("s-baptist", "baptist", "[1689 CHURCH NEAR BRANDON]", "[ADDRESS]", "Sunday 10:30, Lord's Supper first Sunday", { host: "Dale", next: iso(3), lastFour: [true, true], wentBy: ["Dale", "Tom"] }),
+    card("s-baptist", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon", "Sunday school 9:00, worship 10:30", { host: "Dale", next: iso(3), lastFour: [true, true], wentBy: ["Dale", "Tom"] }),
     card("s-presby", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Sunday 9:30 and 11", { host: "Ruth", next: iso(3), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"] }),
     card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
     card("s-meal", "latin", "Meal after High Mass", "Parish hall", "Sunday 12:15, after the 11", { host: "Luis", next: iso(3), lastFour: [true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh", "Maria"] }),
@@ -111,11 +112,11 @@ export function sampleBoard(): SampleBoard {
     { id: t2, between: ["Josh", "Tom"] },
   ];
   const messages: DmMessage[] = [
-    { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew Thursday? He has never held a saw.", at: ago(1, -2) },
-    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, his card says new people welcome. I can drive you both.", at: ago(1, -1) },
-    { id: "d3", threadId: t1, from: "Dale", text: "Done. 6:15 at mine.", at: ago(1) },
-    { id: "d4", threadId: t2, from: "Josh", text: "Dale's nephew is coming Thursday. Sixteen, never held a saw.", at: ago(0, -23) },
-    { id: "d5", threadId: t2, from: "Tom", text: "Good. Put him on the chop saw with Luis first.", at: ago(0, -22) },
+    { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew to the framing night Thursday? He is sixteen and has never held a saw.", at: ago(1, -2) },
+    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, it is his shop and his card says new people welcome. I can drive you both.", at: ago(1, -1) },
+    { id: "d3", threadId: t1, from: "Dale", text: "Asked him, he said yes. Pick us up at 6:15?", at: ago(1) },
+    { id: "d4", threadId: t2, from: "Josh", text: "Heads up for framing night Thursday: Dale is bringing his nephew. Sixteen, never held a saw.", at: ago(0, -23) },
+    { id: "d5", threadId: t2, from: "Tom", text: "Good. I will put him on the chop saw with Luis first so he learns it safely.", at: ago(0, -22) },
   ];
 
   return {

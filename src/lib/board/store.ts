@@ -40,6 +40,8 @@ type BoardState = {
   member: boolean;
   /** The founder code has been used on this box. */
   founded: boolean;
+  /** The board is the invented sample week, not real members. */
+  sample: boolean;
   me: string;
   profile: Profile;
   /** Whose profile is open. */
@@ -139,6 +141,7 @@ export const useBoard = create<BoardState>()(
         room: "county",
         member: false,
         founded: false,
+        sample: false,
         me: "",
         profile: EMPTY_PROFILE,
         viewing: null,
@@ -282,8 +285,8 @@ export const useBoard = create<BoardState>()(
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
-        clearBoard: () => set({ posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
+        loadSample: () => set({ ...sampleBoard(), sample: true, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
+        clearBoard: () => set({ sample: false, posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
       };
     },
     {
@@ -294,6 +297,7 @@ export const useBoard = create<BoardState>()(
         room: state.room,
         member: state.member,
         founded: state.founded,
+        sample: state.sample,
         me: state.me,
         profile: state.profile,
         steward: state.steward,
