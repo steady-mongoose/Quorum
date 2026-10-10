@@ -288,7 +288,7 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: "the-board-v1",
-      version: 4,
+      version: 5,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
@@ -307,7 +307,7 @@ export const useBoard = create<BoardState>()(
         messages: state.messages,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
-      migrate: (persisted, version) => (version < 4 ? {} : (persisted as object)),
+      migrate: (persisted, version) => (version < 5 ? {} : (persisted as object)),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
         return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };

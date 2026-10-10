@@ -4,7 +4,7 @@
 export const APP_NAME = "The Hall";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
 
-export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "reformed" | "latin" | "orthodox" | "dispatch";
+export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "baptist" | "presbyterian" | "latin" | "orthodox" | "dispatch";
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = "sloppy" | "unsupported";
 export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
@@ -129,7 +129,8 @@ export const ROOMS: Room[] = [
   { id: "shop", name: "The Shop", what: "Apprentice nights, bench logs, the gym hour, the radio net. A tradesman is listed by the men he worked for.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "trade"], cardNoun: "Meeting", requiresNextDate: true, parish: false },
   { id: "shelf", name: "The Shelf", what: "Book readings. One book at a time, a few chapters a week, a table. Bring the book; the host sets what to have read by next time.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Reading", requiresNextDate: true, parish: false },
   { id: "coop", name: "The Co-op", what: "Classical and homeschool chapter logs. Households, not individuals. Not curriculum ads.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
-  { id: "reformed", name: "Reformed", what: "Service time, the meal after, the calendar, and what the parish needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
+  { id: "baptist", name: "Reformed Baptist", what: "Confessional Baptist churches holding the 1689 Second London Confession. Service time, the meal after, the calendar, and what the church needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
+  { id: "presbyterian", name: "Reformed Presbyterian", what: "Confessional Presbyterian churches holding the Westminster Standards. Service time, the meal after, the calendar, and what the church needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
   { id: "latin", name: "Latin Mass", what: "Service time, the meal after, the calendar, and what the parish needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
   { id: "orthodox", name: "Greek Orthodox", what: "Service time, the meal after, the calendar, and what the parish needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
   { id: "dispatch", name: "Dispatch", what: "Steward bulletins: a road closed, a hearing moved, a clock and a block. No one else files here.", takes: [], stewardTakes: ["saw"], cardKinds: [], cardNoun: "Meeting", requiresNextDate: false, parish: false },
