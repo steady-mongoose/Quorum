@@ -57,6 +57,7 @@ export function RoomView() {
   const needs = useMemo(() => (meta.parish ? needsFor(cards, room) : []), [cards, room, meta.parish]);
   const ban = banFor(me, removals, Date.now());
   const canFile = typesFor(meta, steward).length > 0;
+  const [tools, setTools] = useState(false);
 
   const shelfBlock = (
     <>
@@ -98,9 +99,6 @@ export function RoomView() {
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <p className="max-w-prose text-sm text-muted">
-          {canFile ? "What is coming up is at the top. Below that, post what you did or ask a question. Nothing refreshes on its own; when you reach the bottom, you are done." : "Only stewards post here."}
-        </p>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
@@ -117,6 +115,12 @@ export function RoomView() {
             <p className="text-sm text-muted">Only stewards post in this room.</p>
           )}
 
+          {steward && feed.length > 0 ? (
+            <label className="flex items-center gap-2 self-end text-xs text-muted">
+              <input type="checkbox" className="size-4" checked={tools} onChange={(event) => setTools(event.target.checked)} />
+              Show steward tools on posts
+            </label>
+          ) : null}
           <section className="flex flex-col divide-y divide-line">
             {feed.map((post) => (
           <PostCard
@@ -127,7 +131,7 @@ export function RoomView() {
             trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
             mine={post.author === me}
             canMessage={peers.has(post.author)}
-            steward={steward}
+            steward={steward && tools}
           />
         ))}
             <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing posted here yet." : "That is everything."}</p>
@@ -198,22 +202,26 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <p className="text-sm text-muted">What kind of post is this?</p>
-      <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Post type">
+      <p className="text-sm font-semibold text-fg">Post something</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Kind of post">
         {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
           const noCard = item.cardPick === "own" && ownCards.length === 0;
+          const active = current.type === item.id;
           return (
             <button
               key={item.id}
               type="button"
               role="radio"
-              aria-checked={current.type === item.id}
-              title={noCard ? "You host no card in this room." : item.what}
+              aria-checked={active}
               disabled={noCard}
               onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "", came: [], named: "" })}
-              className={pill(current.type === item.id, "px-4")}
+              className={cn(
+                "flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
+                active ? "border-signal bg-raised" : "border-line bg-bg",
+              )}
             >
-              {item.label}
+              <span className="text-sm font-semibold text-fg">{item.label}</span>
+              <span className="text-xs text-muted">{noCard ? "For hosts. You do not host a meeting in this room." : item.what}</span>
             </button>
           );
         })}
@@ -339,7 +347,6 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
   const [claim, setClaim] = useState(post.claim);
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
-  const [tools, setTools] = useState(false);
   const type = typeMeta(post.type);
 
   return (
@@ -382,11 +389,9 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              {post.came.length > 0 ? `Came: ${post.came.join(", ")}. ` : ""}
-              {post.named ? (
-                <span className="text-signal">Named: {post.named}. </span>
-              ) : null}
-              {post.next ? `Next ${formatDate(post.next)}.` : "No next date."}
+              {post.came.length > 0 ? `There: ${post.came.join(", ")}. ` : ""}
+              {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
+              {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>
           ) : null}
         </>
@@ -449,16 +454,9 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
         ) : null}
       </div>
 
-      {steward && !tools ? (
-        <button type="button" className={cn(btnQuiet, "mt-1 px-0 text-xs")} onClick={() => setTools(true)}>
-          Steward tools
-        </button>
-      ) : null}
-      {steward && tools ? (
+      {steward ? (
         <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-          <button type="button" className={cn(btnQuiet, "px-0 text-xs tracking-widest uppercase")} onClick={() => setTools(false)}>
-            Steward · hide
-          </button>
+          <span className="self-center text-xs tracking-widest text-muted uppercase">Steward</span>
           {MARKS.map((item) => (
             <button key={item} type="button" className={btnQuiet} onClick={() => mark(post.id, post.mark === item ? null : item)}>
               <Flag className="size-4" aria-hidden="true" />
