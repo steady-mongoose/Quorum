@@ -320,7 +320,8 @@ export const useBoard = create<BoardState>()(
         const saved = (persisted ?? {}) as Partial<BoardState>;
         // A saved sample older than the current one is replaced, so the demo
         // never shows yesterday's placeholders.
-        if (saved.sample && (saved.sampleVersion ?? 0) < SAMPLE_VERSION) {
+        const isSample = saved.sample ?? saved.cards?.some((card) => card.id === "s-framing") ?? false;
+        if (isSample && (saved.sampleVersion ?? 0) < SAMPLE_VERSION) {
           const fresh = sampleBoard();
           return { ...current, ...saved, ...fresh, sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, messages: pruneMessages(fresh.messages, Date.now()) };
         }
