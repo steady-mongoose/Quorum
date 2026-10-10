@@ -492,7 +492,7 @@ export function readingLine(card: MeetingCard): string {
 
 // --- People -------------------------------------------------------------------
 
-/** Everyone `me` has stood in a room with, or who replied to me. The gate for messages and profiles. */
+/** Everyone `me` has been to a meeting with, or who replied to me. The gate for messages and profiles. */
 export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<string> {
   const names = new Set<string>();
   for (const card of cards) {

@@ -38,6 +38,7 @@ export function CellView() {
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">On the call, you are</h2>
+        <p className="mt-1 text-sm text-muted">Your name and town go into the script so staff log a real constituent. Leave the name blank to be "a constituent from your town."</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             Name you will give the staffer
@@ -61,7 +62,8 @@ export function CellView() {
       </section>
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <h2 className="text-2xl text-fg">The cell</h2>
+        <h2 className="text-2xl text-fg">Your people</h2>
+        <p className="mt-1 text-sm text-muted">The names you will send the script to. Nothing here is uploaded anywhere.</p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <input
             className={fieldClass}
@@ -111,7 +113,8 @@ export function CellView() {
 
       {campaign ? (
         <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-          <h2 className="text-2xl text-fg">Send the tree</h2>
+          <h2 className="text-2xl text-fg">Copy the script for your people</h2>
+          <p className="mt-1 text-sm text-muted">Pick the call, copy the text, paste it into the group you already use.</p>
           <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
             Which desk
             <select

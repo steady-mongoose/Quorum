@@ -112,7 +112,7 @@ export function sampleBoard(): SampleBoard {
   ];
   const messages: DmMessage[] = [
     { id: "d1", threadId: t1, from: "Dale", text: "Can I bring my nephew Thursday? He has never held a saw.", at: ago(1, -2) },
-    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, he said yes to first-timers on the card. I can drive you both.", at: ago(1, -1) },
+    { id: "d2", threadId: t1, from: "Josh", text: "Ask Tom, his card says new people welcome. I can drive you both.", at: ago(1, -1) },
     { id: "d3", threadId: t1, from: "Dale", text: "Done. 6:15 at mine.", at: ago(1) },
     { id: "d4", threadId: t2, from: "Josh", text: "Dale's nephew is coming Thursday. Sixteen, never held a saw.", at: ago(0, -23) },
     { id: "d5", threadId: t2, from: "Tom", text: "Good. Put him on the chop saw with Luis first.", at: ago(0, -22) },

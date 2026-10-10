@@ -38,10 +38,11 @@ export function OfficesView() {
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
-        <Kicker>Directory</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">
-          The offices that can kill a bill.
-        </h1>
+        <Kicker>Offices</Kicker>
+        <h2 className="max-w-xl font-display text-3xl text-fg">
+          The officials who decide whether a bill moves.
+        </h2>
+        <p className="max-w-prose text-sm text-muted">A phone book of the handful of people a bill actually depends on, with what each one controls. If the one you need is missing, add it at the bottom.</p>
         <LevelSwitch value={level} onChange={choose} />
         <p className="max-w-2xl text-base text-muted">{INTRO[level]}</p>
       </section>

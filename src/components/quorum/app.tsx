@@ -16,10 +16,10 @@ const NAV = [
 ] satisfies { id: View; label: string; icon: typeof Phone }[];
 
 const STEPS = [
-  "Pick the one office that can move the bill.",
-  "Write the one sentence everyone will say, and set the hour.",
-  "Copy the script to your people. They call as themselves.",
-  "After you call, log it here. It files in The County as a Did.",
+  { do: "Look at this week's calls.", why: "Each one names the official, the phone number, the message, and the hour to call." },
+  { do: "When a window is open, dial and read the message.", why: "You call as yourself, from your own phone. The app never dials or sends anything for you." },
+  { do: "Then come back and press \"I called.\"", why: "Your call counts toward the group's goal and is posted in The County room." },
+  { do: "Organizing one? Press \"Start a call.\"", why: "Choose the official, write the message, set the hour, and copy the script to your group text." },
 ];
 
 /** The Quorum desk, as the engine of The Hall's County room. */
@@ -31,15 +31,18 @@ export function QuorumPanel() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Kicker>The desk</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">One office. One sentence. One hour.</h1>
+        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
         <p className="max-w-prose text-base text-muted">
-          A bill lives or dies at one desk. This page helps your people call that desk, with the same words, in the same hour. It does not dial and it does not pretend a crowd exists. You do the calling.
+          Scattered emails to every office get ignored. What staff notice is a hundred calls to the one official whose desk a bill is sitting on, in one morning, all asking for the same thing. This page tells you who that official is, what to say, when to call, and lets you record that you called.
         </p>
-        <ol className="grid max-w-3xl gap-2 text-sm text-muted sm:grid-cols-2">
+        <ol className="grid max-w-4xl list-none gap-3 p-0 sm:grid-cols-2">
           {STEPS.map((step, index) => (
-            <li key={step} className="flex gap-3">
-              <span className="font-display text-xl leading-none text-signal tabular-nums">{index + 1}</span>
-              <span>{step}</span>
+            <li key={step.do} className="flex gap-3">
+              <span className="font-display text-2xl leading-none text-signal tabular-nums">{index + 1}</span>
+              <span className="flex flex-col gap-1 text-sm">
+                <span className="font-semibold text-fg">{step.do}</span>
+                <span className="text-muted">{step.why}</span>
+              </span>
             </li>
           ))}
         </ol>

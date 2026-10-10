@@ -33,7 +33,7 @@ export function AboutView() {
           <li>The week comes first: the next seven days with something on them, and this week's call.</li>
           <li>You get in by a host's code to one card. Say you'll be there. Go.</li>
           <li>The host closes the date: how it went, who came, one person named if someone earned it, the next date. No headcount.</li>
-          <li>Who came goes on the "been" list. People who have stood in a room together can message each other and see each other's four lines.</li>
+          <li>People who have been to the same meeting can message each other and see each other's profile. Nobody else can.</li>
           <li>No feed algorithm, no reshare, no like counts, no scores. The list ends.</li>
           <li>A trade is listed by two members it worked for, never by itself.</li>
           <li>A parish need is a list of days. Put your name on one.</li>

@@ -95,7 +95,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate card</span> : null}
-        {card.firstTimer ? <span className="text-signal">takes a first-timer</span> : null}
+        {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </div>
       <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>

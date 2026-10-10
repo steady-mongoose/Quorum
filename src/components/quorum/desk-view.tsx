@@ -76,9 +76,9 @@ export function DeskView() {
   if (!campaign) {
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-3xl text-fg">That desk is gone.</h1>
+        <h1 className="text-3xl text-fg">That call is gone.</h1>
         <button type="button" className={btnGhost} onClick={() => setView("load")}>
-          Back to the load
+          Back to calls
         </button>
       </div>
     );
@@ -120,7 +120,7 @@ export function DeskView() {
         onClick={() => setView("load")}
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        All desks
+        All calls
       </button>
 
       <header className="flex flex-col gap-3">
@@ -147,7 +147,10 @@ export function DeskView() {
           )}
         </div>
         <h1 className="text-4xl text-fg">{campaign.title}</h1>
-        <p className="max-w-2xl text-base text-muted">{campaign.principle}</p>
+        <p className="max-w-prose text-base text-muted">{campaign.principle}</p>
+        <p className="max-w-prose text-sm text-muted">
+          This is one call. Below: the message everyone gives, the official and when to call, the script to read word for word, how to send it to your group, and the "I called" button.
+        </p>
       </header>
 
       {campaign.posture === "partial" ? (
@@ -166,9 +169,10 @@ export function DeskView() {
       ) : null}
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <Kicker>The sentence</Kicker>
+        <Kicker>The message</Kicker>
+        <p className="mt-1 text-sm text-muted">What every caller asks for, in the same words, so the office tallies it as one demand instead of filing each call under something softer.</p>
         <p className="mt-3 text-lg text-fg">
-          {campaign.demand.trim() || "Write the one demand this whole cell will say."}
+          {campaign.demand.trim() || "Write the one message everyone will give this official."}
         </p>
         {campaign.refuses.length > 0 ? (
           <ul className="mt-4 flex flex-col gap-2">
@@ -190,13 +194,13 @@ export function DeskView() {
             className={cn(btnGhost, "mt-4")}
             onClick={() => setRevising((open) => !open)}
           >
-            {revising ? "Hide the draft" : "Revise the demand"}
+            {revising ? "Hide the draft" : "Change the message"}
           </button>
         ) : null}
         {showRevise ? (
           <div className="mt-4 flex flex-col gap-3">
             <label className="flex flex-col gap-2 text-sm text-muted">
-              Desk title
+              Name this call
               <input
                 className={fieldClass}
                 value={campaign.title}
@@ -326,7 +330,7 @@ export function DeskView() {
       </section>
 
       <section className="rounded-lg border border-signal bg-surface p-4 sm:p-5">
-        <Kicker>The office</Kicker>
+        <Kicker>Who to call, and when</Kicker>
         <h2 className="mt-2 text-3xl text-fg">{office.name}</h2>
         <p className="text-sm text-muted">{office.role}</p>
         <p className="mt-3 max-w-2xl text-sm text-fg">{office.holds}</p>
@@ -360,10 +364,9 @@ export function DeskView() {
       </section>
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <Kicker>Same sentence</Kicker>
+        <Kicker>What to say</Kicker>
         <p className="mt-2 text-sm text-muted">
-          Staff count a surge when every caller says the same thing. Read this.
-          Do not freelance a softer ask.
+          Read this to whoever answers. Staff count calls that match; a softened version gets filed as something else.
         </p>
         <pre className="mt-4 overflow-x-auto rounded-md border border-line bg-bg p-4 text-sm whitespace-pre-wrap text-fg">
           {script}
@@ -388,10 +391,10 @@ export function DeskView() {
       </section>
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <Kicker>Send it</Kicker>
-        <h2 className="mt-2 text-3xl text-fg">One paste. No rewrite.</h2>
-        <p className="mt-2 max-w-2xl text-sm text-muted">
-          The platform only matters if the sentence stays intact. Pick where you are sending it.
+        <Kicker>Send it to your group</Kicker>
+        <h2 className="mt-2 text-3xl text-fg">Copy, paste, done.</h2>
+        <p className="mt-2 max-w-prose text-sm text-muted">
+          Pick where you are posting it (Signal, WhatsApp, a text, a public post) and copy the version written for that. Do not reword it.
         </p>
         <div className="mt-4 flex gap-2 overflow-x-auto" role="tablist" aria-label="Where to send">
           {CHANNELS.map((item) => (
@@ -449,10 +452,10 @@ export function DeskView() {
       </section>
 
       <section className="rounded-lg border border-signal bg-surface p-4 sm:p-5">
-        <Kicker>The beam</Kicker>
-        <h2 className="mt-2 text-3xl text-fg">Every group, one desk.</h2>
-        <p className="mt-2 max-w-2xl text-sm text-muted">
-          Other captains lock on by using the brief above. A group that rewrites the ask, picks another office, or misses the window is not on this beam. Pledges are promises. They are not calls.
+        <Kicker>Other groups on this same call</Kicker>
+        <h2 className="mt-2 text-3xl text-fg">Every group, one official.</h2>
+        <p className="mt-2 max-w-prose text-sm text-muted">
+          If another group's leader is joining with their people, add them here with how many they expect. A group that changes the message, picks a different official, or misses the hour is not part of this call. A pledge is a promise, not a call made.
         </p>
         <p className="mt-4 font-display text-4xl tabular-nums text-fg">
           {pledged}
@@ -524,7 +527,8 @@ export function DeskView() {
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <Kicker>Log the contact</Kicker>
+            <Kicker>I called</Kicker>
+            <p className="mt-1 text-sm text-muted">After you call, write, or visit, record it here. It counts toward the goal and posts in The County.</p>
             <p className="mt-2 font-display text-4xl tabular-nums text-fg">
               {entries.length}
               <span className="ml-2 font-sans text-base text-muted">

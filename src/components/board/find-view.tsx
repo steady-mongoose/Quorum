@@ -126,7 +126,7 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
       </button>
     );
   }
-  return card.firstTimer ? <span className="self-center text-xs text-muted">Go once and mark it to message the host.</span> : null;
+  return card.firstTimer ? <span className="self-center text-xs text-muted">After you have been once, you can message the host.</span> : null;
 }
 
 function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[] }) {
@@ -195,7 +195,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">to be visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}
-        {card.firstTimer ? <span className="text-signal">takes a first-timer</span> : null}
+        {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </Tags>
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
@@ -230,7 +230,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         ) : null}
         {isHost ? (
           <button type="button" className={btnQuiet} onClick={() => updateCard(card.id, { firstTimer: !card.firstTimer })}>
-            {card.firstTimer ? "Stop taking first-timers" : "Take a first-timer"}
+            {card.firstTimer ? "Stop welcoming new people" : "Welcome new people"}
           </button>
         ) : null}
         {isHost ? (
@@ -407,7 +407,7 @@ function AddCard({ me }: { me: string }) {
             {kind === "meeting" ? (
               <label className="flex items-center gap-3 self-end text-sm text-muted">
                 <input type="checkbox" className="size-5" checked={fields.firstTimer} onChange={(event) => set({ firstTimer: event.target.checked })} />
-                Takes a first-timer
+                New people welcome. Someone who has been once can message you.
               </label>
             ) : null}
           </>

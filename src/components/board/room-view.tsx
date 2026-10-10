@@ -71,7 +71,7 @@ export function RoomView() {
           <p className="text-sm text-muted">
             {cardSummary(card)}
             {card.next ? ` · ${formatDate(card.next)}` : ""}
-            {card.firstTimer ? " · takes a first-timer" : ""}
+            {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
           {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
@@ -99,7 +99,7 @@ export function RoomView() {
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <p className="max-w-prose text-sm text-muted">
-          {canFile ? "What is coming up sits at the top. Below it, file what you did or ask one question. The list ends." : "Read what the stewards have posted. The list ends."}
+          {canFile ? "What is coming up is at the top. Below that, post what you did or ask a question. Nothing refreshes on its own; when you reach the bottom, you are done." : "Stewards post here. Read it and go."}
         </p>
       </section>
 

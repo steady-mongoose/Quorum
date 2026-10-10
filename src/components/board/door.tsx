@@ -8,7 +8,7 @@ import { useBoard } from "@/lib/board/store";
 const WEEK = [
   { day: "Sunday", what: "Service, then the meal after. Someone hosts; you bring a dish." },
   { day: "Tuesday", what: "The co-op chapter, if you have children in it. The parish's dinner list." },
-  { day: "Thursday", what: "Shop night. First-timers welcome where the card says so." },
+  { day: "Thursday", what: "Shop night. Some say new people welcome; those are where to start." },
   { day: "Second Wednesday", what: "The table: one book, a few chapters, the host sets the next ones." },
   { day: "One morning", what: "The week's call: one office, one sentence, one hour. Everyone dials." },
 ];
@@ -31,7 +31,7 @@ export function Door() {
           <Kicker>Invite only</Kicker>
           <h1 className="font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">Someone brought you here for one thing.</h1>
           <p className="max-w-prose text-base text-muted lg:text-lg">
-            {APP_NAME} opens with a code from a host, for one card: a shop night, a table, a meal after service. Put your name to it and that card opens. There is no sign-up and nothing to browse until you are in.
+            {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a book table, a meal after church. Enter your name and the code, and you are in and on the list for that meeting. There is no sign-up form and nothing to browse until then.
           </p>
         </section>
 
@@ -66,7 +66,7 @@ export function Door() {
         >
           <h2 className="text-2xl text-fg">Open the door</h2>
           <label className="flex flex-col gap-2 text-sm text-muted">
-            Your name, the one people at the table will use
+            Your name, as people know you
             <input id="door-name" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
           </label>
           <label className="flex flex-col gap-2 text-sm text-muted">

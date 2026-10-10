@@ -5,8 +5,9 @@ import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/li
 import { useBoard } from "@/lib/board/store";
 
 /**
- * Four lines, earned by going somewhere. Visible in full only to people
- * who have stood in a room with you; everyone else sees a name.
+ * Household, church, trade, plus who you have met, what you host, and
+ * when a host mentioned you. Visible only to people who have been to the
+ * same meeting as you; everyone else sees a name.
  */
 export function ProfileView() {
   const me = useBoard((state) => authorName(state.me));
@@ -30,7 +31,7 @@ export function ProfileView() {
       <div className="flex flex-col gap-3">
         <Kicker>Profile</Kicker>
         <h1 className="font-display text-4xl text-fg">{name}</h1>
-        <p className="max-w-2xl text-base text-muted">You have not stood in a room with {name} yet. Go to something they go to.</p>
+        <p className="max-w-2xl text-base text-muted">You can see a profile once you have been to the same meeting as that person. You and {name} have not been to one yet.</p>
       </div>
     );
   }
@@ -41,7 +42,7 @@ export function ProfileView() {
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
-          <p className="max-w-prose text-sm text-muted">Four lines about you, and what you have earned by going. People who have stood in a room with you see all of it; everyone else sees your name.</p>
+          <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
@@ -50,17 +51,15 @@ export function ProfileView() {
               <input className={fieldClass} placeholder="the McMullins" value={profile.household} onChange={(event) => setProfile({ household: event.target.value })} />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
-              Parish or congregation
-              <input className={fieldClass} value={profile.parish} onChange={(event) => setProfile({ parish: event.target.value })} />
+              Church
+              <input className={fieldClass} placeholder="Epiphany of Our Lord" value={profile.parish} onChange={(event) => setProfile({ parish: event.target.value })} />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Trade
-              <input className={fieldClass} value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
+              <input className={fieldClass} placeholder="Electrician" value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
             </label>
           </div>
-        ) : (
-          <p className="text-sm text-muted">Only what the name says. Household, parish, and trade are theirs to tell you.</p>
-        )}
+        ) : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>
             <MessageSquare className="size-4" aria-hidden="true" />
@@ -71,7 +70,8 @@ export function ProfileView() {
 
       {named.length > 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-2xl text-fg">Named</h2>
+          <h2 className="text-2xl text-fg">Mentioned by a host</h2>
+          <p className="text-sm text-muted">A host can single out one person after each meeting. The last few times that was {mine ? "you" : name}:</p>
           <ul className="flex flex-col gap-2">
             {named.map((post) => (
               <li key={post.id} className="rounded-md border border-line bg-surface px-3 py-2 text-sm">
@@ -88,7 +88,7 @@ export function ProfileView() {
 
       {hosts.length > 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-2xl text-fg">Hosts</h2>
+          <h2 className="text-2xl text-fg">{mine ? "Meetings you host" : `Meetings ${name} hosts`}</h2>
           <ul className="flex flex-col gap-2">
             {hosts.map((card) => (
               <li key={card.id} className="rounded-md border border-line bg-surface px-3 py-2 text-sm">
@@ -100,8 +100,8 @@ export function ProfileView() {
       ) : null}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-2xl text-fg">Stood with</h2>
-        <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet." : [...theirs].join(", ")}</p>
+        <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
+        <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
       </section>
     </div>
   );
