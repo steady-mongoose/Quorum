@@ -40,7 +40,7 @@ export type Room = {
   /** What only a steward may file: announcements, bulletins. */
   stewardTakes: PostType[];
   cardKinds: CardKind[];
-  cardNoun: "Meeting" | "Service" | "Reading";
+  cardNoun: "Meeting" | "Service" | "Reading" | "Debate";
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
@@ -125,7 +125,7 @@ const SERVICE: PostType[] = ["hosted"];
 
 export const ROOMS: Room[] = [
   { id: "county", name: "The County", what: "County hearings, bills, and the week's coordinated phone call to one official. Candidate events are allowed, labeled as such.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "candidate"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
-  { id: "question", name: "The Question", what: "A discussion night, once a month. One question, a Christian host, open to anyone. A brewery or a hall.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
+  { id: "question", name: "Debate Night", what: "A debate once a month at a brewery or a hall. One question, two sides, a Christian host, anyone welcome. Afterwards the host writes up how it went and names next month's question.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Debate", requiresNextDate: true, parish: false },
   { id: "shop", name: "The Shop", what: "Hands-on nights: woodworking, the radio net, the gym hour. Also the directory of tradesmen that members have vouched for.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "trade"], cardNoun: "Meeting", requiresNextDate: true, parish: false },
   { id: "shelf", name: "The Shelf", what: "Book readings. One book at a time, a few chapters a week, around a table. The host says what to read before next time.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Reading", requiresNextDate: true, parish: false },
   { id: "coop", name: "The Co-op", what: "Homeschool and classical co-op chapters, by household.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },

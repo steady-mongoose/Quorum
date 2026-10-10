@@ -64,7 +64,7 @@ export function RoomView() {
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate event" : "Coming up"}
+            {card.kind === "candidate" ? "Candidate event" : meta.cardNoun === "Debate" ? "This month's question" : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
           <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
@@ -95,7 +95,7 @@ export function RoomView() {
       </nav>
 
       <section className="flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
+        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <p className="max-w-prose text-sm text-muted">
@@ -339,6 +339,7 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
   const [claim, setClaim] = useState(post.claim);
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
+  const [tools, setTools] = useState(false);
   const type = typeMeta(post.type);
 
   return (
@@ -448,9 +449,16 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
         ) : null}
       </div>
 
-      {steward ? (
+      {steward && !tools ? (
+        <button type="button" className={cn(btnQuiet, "mt-1 px-0 text-xs")} onClick={() => setTools(true)}>
+          Steward tools
+        </button>
+      ) : null}
+      {steward && tools ? (
         <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-          <span className="self-center text-xs tracking-widest text-muted uppercase">Steward</span>
+          <button type="button" className={cn(btnQuiet, "px-0 text-xs tracking-widest uppercase")} onClick={() => setTools(false)}>
+            Steward · hide
+          </button>
           {MARKS.map((item) => (
             <button key={item} type="button" className={btnQuiet} onClick={() => mark(post.id, post.mark === item ? null : item)}>
               <Flag className="size-4" aria-hidden="true" />

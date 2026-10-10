@@ -9,6 +9,7 @@ const WEEK = [
   { day: "Sunday", what: "Church, then lunch together. Someone hosts; you bring a dish." },
   { day: "Tuesday", what: "The homeschool co-op. The church's list of families who need dinners this week." },
   { day: "Thursday", what: "Shop night. Some say new people welcome; those are where to start." },
+  { day: "Second Tuesday", what: "Debate night at the brewery. One question, two sides, anyone welcome." },
   { day: "Second Wednesday", what: "Book night: one book, a few chapters, the host says what to read next." },
   { day: "One morning", what: "The group phone call: everyone phones one official with the same message in the same hour." },
 ];
