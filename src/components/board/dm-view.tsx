@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { DM_RETENTION_DAYS, formatWhen, otherIn, type DmMessage } from "@/lib/board/model";
+import { DAY, DM_RETENTION_DAYS, formatWhen, otherIn, type DmMessage } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 /** Two names, plain text, gone after 30 days. No groups. */
@@ -17,13 +17,15 @@ export function DmView() {
 
   const mine = threads.filter((thread) => thread.between.includes(me));
   const thread = mine.find((item) => item.id === openThread) ?? null;
+  // The retention promise holds at render time too, not only on send or reload.
+  const cutoff = Date.now() - DM_RETENTION_DAYS * DAY;
   const byThread = useMemo(() => {
     const map = new Map<string, DmMessage[]>();
-    for (const message of [...messages].sort((a, b) => a.at - b.at)) {
+    for (const message of messages.filter((m) => m.at >= cutoff).sort((a, b) => a.at - b.at)) {
       (map.get(message.threadId) ?? map.set(message.threadId, []).get(message.threadId)!).push(message);
     }
     return map;
-  }, [messages]);
+  }, [messages, cutoff]);
 
   if (!me) {
     return (

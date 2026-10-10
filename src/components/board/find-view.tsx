@@ -11,6 +11,7 @@ import {
   cardListed,
   cardSummary,
   formatDate,
+  hostsClear,
   readingLine,
   roomById,
   stoodWith,
@@ -31,6 +32,7 @@ export function FindView() {
 
   const witnesses = useMemo(() => witnessesByTrade(posts, cards), [posts, cards]);
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  const clear = useMemo(() => hostsClear(posts), [posts]);
   const groups = useMemo(() => {
     const out = { listed: [] as MeetingCard[], waiting: [] as MeetingCard[], trades: [] as MeetingCard[], needs: [] as MeetingCard[] };
     for (const card of cards) {
@@ -44,7 +46,7 @@ export function FindView() {
     return out;
   }, [cards, witnesses]);
 
-  const rowProps = { me, steward, peers };
+  const rowProps = { me, steward, peers, clear };
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
@@ -52,7 +54,9 @@ export function FindView() {
       <section className="flex flex-col gap-3">
         <Kicker>Find</Kicker>
         <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">A date list. Not a recommendation.</h1>
-        <p className="max-w-prose text-base text-muted">A card lists after two people have been. It hides after two missed meetings.</p>
+        <p className="max-w-prose text-base text-muted">
+          Every meeting, service, trade, and parish need, in one place. Press <strong className="font-semibold text-fg">I'll be there</strong> for next time, or <strong className="font-semibold text-fg">I went</strong> after a real visit. A card lists after two people have been; it hides after two missed meetings. Hosts close a date and hand out invite codes from here.
+        </p>
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
@@ -98,7 +102,7 @@ export function FindView() {
   );
 }
 
-type RowProps = { card: MeetingCard; me: string; steward: boolean; peers: Set<string> };
+type RowProps = { card: MeetingCard; me: string; steward: boolean; peers: Set<string>; clear: Map<string, boolean> };
 
 function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNode }) {
   return (
@@ -169,7 +173,6 @@ function InviteMaker({ cardId }: { cardId: string }) {
 }
 
 function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
-  const posts = useBoard((state) => state.posts);
   const visited = useBoard((state) => state.visited);
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
@@ -179,9 +182,11 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
   const [came, setCame] = useState<string[]>([]);
+  const [pages, setPages] = useState("");
+  const [refused, setRefused] = useState<string[]>([]);
   const room = roomById(card.room);
   const isHost = card.host === rest.me;
-  const canPin = cardCanPin(card, posts);
+  const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
   const going = card.going.includes(rest.me);
 
@@ -234,14 +239,28 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               className="flex w-full flex-col gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                const happened = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "yes";
-                closeCard(card.id, happened, nextDate, line, happened ? came : []);
+                const happened = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
+                const check = closeCard(card.id, happened, nextDate, line, happened ? came : [], pages);
+                if (!check.ok) {
+                  setRefused(check.stops);
+                  return;
+                }
                 setClosing(false);
                 setLine("");
                 setCame([]);
+                setPages("");
+                setRefused([]);
               }}
             >
               <input className={fieldClass} placeholder="How it went, in a line" value={line} onChange={(event) => setLine(event.target.value)} />
+              {card.book ? <input className={fieldClass} placeholder={`What to have read by then (${card.book})`} value={pages} onChange={(event) => setPages(event.target.value)} /> : null}
+              {refused.length > 0 ? (
+                <ul className="flex flex-col gap-1 text-sm text-signal">
+                  {refused.map((stop) => (
+                    <li key={stop}>{stop}</li>
+                  ))}
+                </ul>
+              ) : null}
               {card.going.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>

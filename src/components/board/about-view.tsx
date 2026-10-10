@@ -8,7 +8,6 @@ export function AboutView() {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
-  const setSteward = useBoard((state) => state.setSteward);
   const removals = useBoard((state) => state.removals);
   const loadSample = useBoard((state) => state.loadSample);
   const clearBoard = useBoard((state) => state.clearBoard);
@@ -77,10 +76,7 @@ export function AboutView() {
             Name on your posts
             <input className={fieldClass} value={me} placeholder="Your name" onChange={(event) => setMe(event.target.value)} />
           </label>
-          <label className="flex items-center gap-3 self-end text-sm text-muted">
-            <input type="checkbox" className="size-5" checked={steward} onChange={(event) => setSteward(event.target.checked)} />
-            Steward tools
-          </label>
+          <p className="self-end text-sm text-muted">{steward ? "You hold steward tools." : "Stewards are named by the founder, not self-appointed."}</p>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={btnSignal} onClick={loadSample}>

@@ -27,14 +27,12 @@ export function CellView() {
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
-        <Kicker>Parallel list</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">
-          People you can actually reach.
-        </h1>
-        <p className="max-w-2xl text-base text-muted">
-          A PAC has a checkbook. You have a cell: names, a window, and one
-          sentence. This list never leaves this device. Paste the phone tree
-          into the channel you already trust.
+        <Kicker>Step 3 · Your people</Kicker>
+        <h2 className="max-w-xl font-display text-3xl text-fg">
+          The people you will text the script to.
+        </h2>
+        <p className="max-w-prose text-base text-muted">
+          Add the people you can reach yourself: a group text, a congregation, a precinct. This list never leaves this device. At the bottom, copy the script and paste it into the group you already use.
         </p>
       </section>
 

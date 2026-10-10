@@ -5,10 +5,10 @@ export function DoctrineView() {
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
-        <Kicker>Operating manual</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-fg">
-          Do not teach the compromise.
-        </h1>
+        <Kicker>Why one office</Kicker>
+        <h2 className="max-w-xl font-display text-3xl text-fg">
+          Why the same sentence, on one desk, in one hour.
+        </h2>
         <p className="max-w-2xl text-base text-muted">
           Big money does not need a crowd. It needs one chair, one rule, and a
           bill full of exceptions. This is how a cell answers that without

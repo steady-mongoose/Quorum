@@ -41,6 +41,9 @@ export function ProfileView() {
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
+          <p className="max-w-prose text-sm text-muted">Four lines about you, and what you have earned by going. People who have stood in a room with you see all of it; everyone else sees your name.</p>
+        ) : null}
+        {mine ? (
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-2 text-sm text-muted">
               Household

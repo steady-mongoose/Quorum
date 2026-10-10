@@ -460,9 +460,21 @@ export function needsFor(cards: MeetingCard[], room?: RoomId): MeetingCard[] {
   return cards.filter((card) => card.kind === "need" && (!room || card.room === room) && card.slots.some((slot) => !slot.by));
 }
 
-export function cardCanPin(card: MeetingCard, posts: Post[]): boolean {
-  const note = posts.filter((post) => post.author === card.host && post.room === card.room && !post.removed).sort((a, b) => b.at - a.at)[0];
-  return !note || note.mark === null;
+/** Whether each host's latest note in each room is unmarked, in one pass. Key: `${host}\u0000${room}`. */
+export function hostsClear(posts: Post[]): Map<string, boolean> {
+  const latest = new Map<string, Post>();
+  for (const post of posts) {
+    if (post.removed) continue;
+    const key = `${post.author}\u0000${post.room}`;
+    const seen = latest.get(key);
+    if (!seen || post.at > seen.at) latest.set(key, post);
+  }
+  return new Map([...latest].map(([key, post]) => [key, post.mark === null]));
+}
+
+/** A card cannot be pinned while the host's last note in its room is marked. */
+export function cardCanPin(card: MeetingCard, clear: Map<string, boolean>): boolean {
+  return clear.get(`${card.host}\u0000${card.room}`) ?? true;
 }
 
 export function cardSummary(card: MeetingCard): string {

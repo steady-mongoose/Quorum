@@ -88,6 +88,23 @@ export function projectRoot() {
 }
 
 /**
+ * The JS file behind a package's bin, from its package.json, or null when
+ * `command` is a path or not an installed package.
+ */
+export function packageBin(command, root = projectRoot()) {
+  if (command.includes("/") || command.includes("\\")) return null;
+  const dir = join(root, "node_modules", command);
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.[command];
+  return typeof bin === "string" ? join(dir, bin) : null;
+}
+
+/**
  * Whether `moduleUrl` is the script node was asked to run.
  *
  * Both sides are resolved through symlinks: node realpaths `import.meta.url`
@@ -111,8 +128,13 @@ function main(argv) {
     process.exit(2);
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  // On Windows the bin is `vite.cmd`, which only a shell can resolve.
-  const child = spawn(command, args, { stdio: "inherit", env, shell: process.platform === "win32" });
+  // On Windows a bare bin name only resolves through `.cmd` shims, which Node
+  // refuses to spawn without a shell, and a shell concatenates the arguments
+  // unescaped (DEP0190). So run the package's own JS entry under node instead.
+  const bin = process.platform === "win32" ? packageBin(command) : null;
+  const child = bin
+    ? spawn(process.execPath, [bin, ...args], { stdio: "inherit", env })
+    : spawn(command, args, { stdio: "inherit", env });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));

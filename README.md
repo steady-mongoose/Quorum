@@ -1,8 +1,8 @@
 # The Hall
 
-Your church, your shop, your county. Show up.
+**An invite-only social app for your church, your shop, and your county.**
 
-The Hall holds where a small set of people meet, what they did, and what the parish needs this week. It is not a feed. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
+The Hall is a social network built around showing up. It holds where a small set of people meet, who said they'd be there, what they did, and what the parish needs this week. Members get in by a host's code to one real event; they RSVP, the host takes roll, and the people you've stood in a room with are the people you can message. There is no feed algorithm, no reshare, no likes, no scores. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
 
 Quorum (below) is the engine of The County room. A campaign is one demand on one office in one hour; while its window is open it is **this week's call** on the front page, and every call, letter, or visit logged on the desk files in The County as a **Did**: an act, a date, one proof.
 

@@ -5,6 +5,7 @@ import {
   DM_RETENTION_DAYS,
   FOUNDER_CODE,
   authorName,
+  blankDraft,
   composerCheck,
   deskDid,
   inviteCode,
@@ -13,6 +14,7 @@ import {
   newPost,
   stoodWith,
   threadIdFor,
+  todayIso,
   type Check,
   type DeskContact,
   type DmMessage,
@@ -36,6 +38,8 @@ type BoardState = {
   room: RoomId;
   /** In by a code. Without it, only the door shows. */
   member: boolean;
+  /** The founder code has been used on this box. */
+  founded: boolean;
   me: string;
   profile: Profile;
   /** Whose profile is open. */
@@ -54,7 +58,6 @@ type BoardState = {
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
   setProfile: (patch: Partial<Profile>) => void;
-  setSteward: (steward: boolean) => void;
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Check;
@@ -66,8 +69,8 @@ type BoardState = {
   remove: (id: string, reason: HardRule) => void;
   addCard: (card: Parameters<typeof newCard>[0]) => void;
   updateCard: (id: string, patch: Partial<MeetingCard>) => void;
-  /** The host closes a date without the composer. "It did not happen" is a Hosted that says so. */
-  closeCard: (id: string, happened: boolean, next: string, line: string, came: string[]) => void;
+  /** The host closes a date without the composer. Runs the same check. "It did not happen" is a Hosted that says so. */
+  closeCard: (id: string, happened: boolean, next: string, line: string, came: string[], pages?: string) => Check;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
   visited: (id: string) => void;
@@ -135,6 +138,7 @@ export const useBoard = create<BoardState>()(
         section: "week",
         room: "county",
         member: false,
+        founded: false,
         me: "",
         profile: EMPTY_PROFILE,
         viewing: null,
@@ -152,7 +156,6 @@ export const useBoard = create<BoardState>()(
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
         setProfile: (patch) => set({ profile: { ...get().profile, ...patch } }),
-        setSteward: (steward) => set({ steward }),
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: (draft) => {
@@ -219,9 +222,15 @@ export const useBoard = create<BoardState>()(
           set({ cards: [card, ...get().cards] });
         },
         updateCard: (id, patch) => patchCard(id, (card) => ({ ...card, ...patch, id })),
-        closeCard: (id, happened, next, line, came) => {
-          const card = get().cards.find((item) => item.id === id);
-          if (card) hosted(card, { happened, next, line: line.trim() || (happened ? "It happened." : "It did not happen."), on: card.next, came, named: "" });
+        closeCard: (id, happened, next, line, came, pages = "") => {
+          const { posts, cards, removals, steward } = get();
+          const card = cards.find((item) => item.id === id);
+          if (!card) return { ok: false, stops: ["That card is gone."], notes: [] };
+          const claim = line.trim() || (happened ? "It happened." : "It did not happen.");
+          const draft: Draft = { ...blankDraft(card.room), type: "hosted", claim, on: card.next || todayIso(), next, came, pages, cardId: card.id };
+          const check = composerCheck(draft, { author: me(), steward, posts, cards, removals, now: Date.now() });
+          if (check.ok) hosted(card, { happened, next, line: claim, on: draft.on, came, named: "", pages });
+          return check;
         },
         rsvp: (id) => patchCard(id, (card) => ({ ...card, going: card.going.includes(me()) ? card.going.filter((n) => n !== me()) : [...card.going, me()] })),
         visited: (id) => patchCard(id, (card) => ({ ...card, unverified: false, wentBy: addName(card.wentBy, me()) })),
@@ -237,8 +246,12 @@ export const useBoard = create<BoardState>()(
           const who = name.trim();
           if (!who) return null;
           const typed = code.trim().toUpperCase();
+          if (get().member) return null;
           if (typed === FOUNDER_CODE) {
-            set({ me: who, member: true, steward: true });
+            // The founder code opens a box once. After that, the box has a steward
+            // and everyone else comes in by a host's code.
+            if (get().founded) return null;
+            set({ me: who, member: true, steward: true, founded: true });
             return "founder";
           }
           const invite = get().invites.find((item) => item.code === typed);
@@ -269,7 +282,7 @@ export const useBoard = create<BoardState>()(
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), member: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
+        loadSample: () => set({ ...sampleBoard(), member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
         clearBoard: () => set({ posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
       };
     },
@@ -280,6 +293,7 @@ export const useBoard = create<BoardState>()(
       partialize: (state) => ({
         room: state.room,
         member: state.member,
+        founded: state.founded,
         me: state.me,
         profile: state.profile,
         steward: state.steward,

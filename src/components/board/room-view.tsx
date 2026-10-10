@@ -98,6 +98,9 @@ export function RoomView() {
         <Kicker>{meta.cardNoun === "Service" ? "Parish" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <p className="max-w-prose text-sm text-muted">
+          {canFile ? "What is coming up sits at the top. Below it, file what you did or ask one question. The list ends." : "Read what the stewards have posted. The list ends."}
+        </p>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">

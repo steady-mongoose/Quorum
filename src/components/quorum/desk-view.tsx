@@ -132,7 +132,7 @@ export function DeskView() {
                 : "rounded-sm border border-line px-2 py-1 text-xs font-semibold text-muted"
             }
           >
-            {campaign.posture === "absolute" ? "Absolute standard" : "Partial bill"}
+            {campaign.posture === "absolute" ? "No compromise bill" : "Accepts a partial bill"}
           </span>
           {status?.live ? (
             <span className="inline-flex items-center gap-2 text-sm font-semibold text-signal">
@@ -232,7 +232,7 @@ export function DeskView() {
                 onClick={() => setPosture("absolute")}
                 aria-pressed={campaign.posture === "absolute"}
               >
-                Absolute
+                No compromise
               </button>
               <button
                 type="button"
@@ -240,7 +240,7 @@ export function DeskView() {
                 onClick={() => setPosture("partial")}
                 aria-pressed={campaign.posture === "partial"}
               >
-                Partial
+                Accept a partial bill
               </button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">

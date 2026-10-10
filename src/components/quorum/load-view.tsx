@@ -66,13 +66,12 @@ export function LoadView() {
   return (
     <div className="flex flex-col gap-10">
       <section className="flex flex-col gap-4">
-        <Kicker>The choke point</Kicker>
-        <h1 className="max-w-xl font-display text-4xl leading-tight text-fg">
-          One office has to answer.
-        </h1>
-        <p className="max-w-2xl text-base text-muted">
-          Federal, state, or county: the bill dies in one pair of hands. Quorum
-          aims the same sentence at that desk. It does not dial. You do.
+        <Kicker>Step 1 · Pick the office</Kicker>
+        <h2 className="max-w-xl font-display text-3xl leading-tight text-fg">
+          Which level is the bill at?
+        </h2>
+        <p className="max-w-prose text-base text-muted">
+          Federal, state, or county. Then pick the one office below that can schedule the hearing or kill the substitute, and see what your numbers do when they all land on that desk instead of spread out.
         </p>
         <LevelSwitch value={level} onChange={choose} />
         <p className="text-sm text-muted">{BLURB[level]}</p>
@@ -82,14 +81,14 @@ export function LoadView() {
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm text-muted">If your network fields</p>
+              <p className="text-sm text-muted">If this many of your people call</p>
               <p className="font-display text-4xl tabular-nums text-fg">
                 {shown}
                 <span className="ml-2 font-sans text-base text-muted">people</span>
               </p>
             </div>
             <label className="flex w-full flex-col gap-2 sm:max-w-xs">
-              <span className="text-sm text-muted">Concentrate on</span>
+              <span className="text-sm text-muted">The office</span>
               <select
                 className="min-h-11 rounded-md border border-line bg-raised px-3 text-base text-fg"
                 value={activeId}
@@ -116,7 +115,7 @@ export function LoadView() {
             <article className="flex flex-col gap-4 rounded-md border border-line bg-bg p-4">
               <div>
                 <p className="text-xs font-semibold tracking-widest text-muted uppercase">
-                  Scatter
+                  Spread out, the usual way
                 </p>
                 <h2 className="mt-2 text-2xl text-fg">{meta.scatterTitle}</h2>
               </div>
@@ -132,7 +131,7 @@ export function LoadView() {
             <article className="flex flex-col gap-4 rounded-md border border-signal bg-bg p-4">
               <div>
                 <p className="text-xs font-semibold tracking-widest text-signal uppercase">
-                  Concentrate
+                  All on this one desk
                 </p>
                 <h2 className="mt-2 text-2xl text-fg">{office.name}</h2>
               </div>
@@ -147,7 +146,7 @@ export function LoadView() {
             className={btnSignal}
             onClick={() => aimOffice(activeId, shown)}
           >
-            Open a desk at this volume
+            Start a call on this office
             <ArrowUpRight className="size-4" aria-hidden="true" />
           </button>
         </div>
@@ -155,13 +154,16 @@ export function LoadView() {
 
       <section className="flex flex-col gap-4">
         <div className="flex items-end justify-between gap-3">
-          <h2 className="text-3xl text-fg">{meta.label} desks</h2>
+          <div>
+            <h2 className="text-3xl text-fg">{meta.label} calls</h2>
+            <p className="text-sm text-muted">Each one is an office, a sentence, and an hour. Open one to get the script and log your call.</p>
+          </div>
           <p className="text-sm text-muted tabular-nums">{visible.length} open</p>
         </div>
         <div className="grid gap-4">
           {visible.length === 0 ? (
             <p className="text-sm text-muted">
-              No desk at this level yet. Open one from the meter, or add the office that holds the gavel.
+              No call at this level yet. Start one above, or add the office that holds the gavel under Offices.
             </p>
           ) : null}
           {visible.map((campaign) => {
@@ -187,7 +189,7 @@ export function LoadView() {
                         : "rounded-sm border border-line px-2 py-1 text-xs font-semibold text-muted"
                     }
                   >
-                    {campaign.posture === "absolute" ? "Absolute" : "Partial"}
+                    {campaign.posture === "absolute" ? "No compromise bill" : "Accepts a partial bill"}
                   </span>
                   {status?.live ? (
                     <span className="inline-flex items-center gap-2 text-xs font-semibold text-signal">
@@ -217,9 +219,9 @@ export function LoadView() {
                   <div className="flex items-baseline justify-between gap-3 text-sm">
                     <span className="tabular-nums text-fg">
                       {count}
-                      <span className="text-muted"> / {campaign.threshold} logged</span>
+                      <span className="text-muted"> of {campaign.threshold} calls logged</span>
                     </span>
-                    <span className="text-muted">Your cell only</span>
+                    <span className="text-muted">counted from your people only</span>
                   </div>
                   <Meter value={count} max={campaign.threshold} />
                 </div>
