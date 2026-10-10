@@ -64,8 +64,8 @@ export function RoomView() {
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate card" : "Coming up"}
-            {card.pinned ? " · pinned until the hour" : ""}
+            {card.kind === "candidate" ? "Candidate event" : "Coming up"}
+            {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
           <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
           <p className="text-sm text-muted">
@@ -99,7 +99,7 @@ export function RoomView() {
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <p className="max-w-prose text-sm text-muted">
-          {canFile ? "What is coming up is at the top. Below that, post what you did or ask a question. Nothing refreshes on its own; when you reach the bottom, you are done." : "Stewards post here. Read it and go."}
+          {canFile ? "What is coming up is at the top. Below that, post what you did or ask a question. Nothing refreshes on its own; when you reach the bottom, you are done." : "Only stewards post here."}
         </p>
       </section>
 
@@ -114,7 +114,7 @@ export function RoomView() {
           ) : canFile ? (
             <Composer me={me} steward={steward} />
           ) : (
-            <p className="text-sm text-muted">Stewards post here. Members read.</p>
+            <p className="text-sm text-muted">Only stewards post in this room.</p>
           )}
 
           <section className="flex flex-col divide-y divide-line">
@@ -130,7 +130,7 @@ export function RoomView() {
             steward={steward}
           />
         ))}
-            <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing filed here yet." : "You're caught up."}</p>
+            <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing posted here yet." : "That is everything."}</p>
           </section>
         </div>
 
@@ -198,7 +198,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <p className="text-sm text-muted">Every post picks a type or it does not send.</p>
+      <p className="text-sm text-muted">What kind of post is this?</p>
       <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Post type">
         {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
           const noCard = item.cardPick === "own" && ownCards.length === 0;
@@ -471,7 +471,7 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
           ) : (
             <button type="button" className={btnQuiet} onClick={() => setRemoving(true)}>
               <Trash2 className="size-4" aria-hidden="true" />
-              Hard remove
+              Remove post
             </button>
           )}
         </div>
@@ -487,7 +487,7 @@ function MarkLog() {
   if (rows.length === 0) return null;
   return (
     <section className="flex flex-col gap-2 border-t border-line pt-4">
-      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">Mark log · this room</h2>
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">Steward marks in this room</h2>
       <ul className="flex flex-col gap-1 text-sm text-muted">
         {rows.map((row) => (
           <li key={row.id}>

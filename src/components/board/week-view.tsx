@@ -39,7 +39,7 @@ export function WeekView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-2">
           <Kicker>This week</Kicker>
-          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "Where to be."}</h1>
+          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
           {week.length > 0 ? (
             <p className="max-w-prose text-base text-muted">The next seven days. Press <strong className="font-semibold text-fg">I'll be there</strong> on anything you will go to; the host will take roll after.</p>
           ) : null}
@@ -47,7 +47,7 @@ export function WeekView() {
             <p className="max-w-2xl text-base text-muted">
               A card lands here when it has a date inside seven days.{" "}
               <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
-                Read your rooms
+                Look in the rooms
               </button>{" "}
               or list something under Find.
             </p>
@@ -94,7 +94,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
         <button type="button" className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg" onClick={() => setRoom(card.room)}>
           {roomById(card.room).name}
         </button>
-        {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate card</span> : null}
+        {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </div>
       <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>

@@ -53,7 +53,7 @@ export function FindView() {
       <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <Kicker>Find</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">A date list. Not a recommendation.</h1>
+        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Every meeting, in one list.</h1>
         <p className="max-w-prose text-base text-muted">
           Every meeting, service, trade, and parish need, in one place. Press <strong className="font-semibold text-fg">I'll be there</strong> for next time, or <strong className="font-semibold text-fg">I went</strong> after a real visit. A card lists after two people have been; it hides after two missed meetings. Hosts close a date and hand out invite codes from here.
         </p>
@@ -86,8 +86,8 @@ export function FindView() {
 
       {groups.trades.length > 0 ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-2xl text-fg">Trades</h2>
-          <p className="text-sm text-muted">A business lists when two members it worked for name it in a Did.</p>
+          <h2 className="text-2xl text-fg">Businesses and tradesmen</h2>
+          <p className="text-sm text-muted">A business is listed once two members post that it did work for them.</p>
           {groups.trades.map((card) => (
             <TradeRow key={card.id} card={card} witnesses={witnesses.get(card.id) ?? []} {...rowProps} />
           ))}
@@ -108,7 +108,7 @@ function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNod
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{roomById(card.room).name}</span>
-      {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate card</span> : null}
+      {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
       {card.kind === "trade" ? <span className="rounded-sm border border-line px-2 py-1 text-muted">Trade</span> : null}
       {children}
     </div>
@@ -137,7 +137,7 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
-      <p className="mt-1 text-sm text-muted">{witnesses.length === 0 ? "No member has named this work yet." : `Named by ${witnesses.join(", ")}${shown ? "" : " · one more lists it"}`}</p>
+      <p className="mt-1 text-sm text-muted">{witnesses.length === 0 ? "Nobody has vouched for this business yet." : `Vouched for by ${witnesses.join(", ")}${shown ? "" : " · one more and it is listed"}`}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <MessageHost card={card} {...rest} />
         {rest.steward ? (
@@ -193,7 +193,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   return (
     <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card}>
-        {card.unverified ? <span className="text-muted">to be visited</span> : null}
+        {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </Tags>
@@ -202,12 +202,12 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       <p className="mt-1 text-sm text-muted">{card.next ? `Next ${formatDate(card.next)}` : room.requiresNextDate ? "No next date. Not listed." : "No next date yet."}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted" aria-label="Last four meetings">
-        <span>Last four:</span>
+        <span>Last four meetings:</span>
         {card.lastFour.length === 0 ? <span>none logged</span> : null}
         {card.lastFour.map((went, index) => (
           <span key={index} className={cn("size-3 rounded-sm", went ? "bg-signal" : "border border-line")} title={went ? "happened" : "missed"} />
         ))}
-        <span>· been: {card.wentBy.join(", ") || "nobody yet"}</span>
+        <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span>
         {card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
@@ -225,7 +225,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         {(isHost || rest.steward) && shown ? (
           <button type="button" className={btnQuiet} disabled={!card.pinned && !canPin} title={!canPin ? "The host's last note was marked. Revise it first." : undefined} onClick={() => updateCard(card.id, { pinned: !card.pinned })}>
             {card.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-            {card.pinned ? "Drop pin" : "Pin in room"}
+            {card.pinned ? "Unpin" : "Pin at the top of the room"}
           </button>
         ) : null}
         {isHost ? (
@@ -287,7 +287,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             </form>
           ) : (
             <button type="button" className={btnQuiet} onClick={() => setClosing(true)}>
-              After the hour
+              Write it up
             </button>
           )
         ) : null}
@@ -340,7 +340,7 @@ function AddCard({ me }: { me: string }) {
   );
 
   const kindLabel = (item: CardKind) =>
-    item === "meeting" ? roomById(room).cardNoun : item === "candidate" ? "Candidate card (labeled)" : item === "trade" ? "Trade (a business)" : "A parish need";
+    item === "meeting" ? roomById(room).cardNoun : item === "candidate" ? "Candidate event" : item === "trade" ? "A business or tradesman" : "A family that needs meals";
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -414,7 +414,7 @@ function AddCard({ me }: { me: string }) {
         ) : null}
       </div>
       <button type="button" className={cn(btnSignal, "mt-4")} onClick={submit}>
-        {kind === "trade" ? "Save, waiting on witnesses" : kind === "need" ? "Post the need" : "Save, not yet listed"}
+        {kind === "trade" ? "Save; listed once two members vouch" : kind === "need" ? "Post it" : "Save; listed once a second person has been"}
       </button>
     </section>
   );

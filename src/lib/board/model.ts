@@ -317,50 +317,50 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   const notes: string[] = [];
   const room = roomById(draft.room);
 
-  if (banFor(ctx.author, ctx.removals, ctx.now)) return { ok: false, stops: ["Filing is off for this account."], notes };
-  if (!draft.type) return { ok: false, stops: ["Pick a type. A post with no type does not send."], notes };
+  if (banFor(ctx.author, ctx.removals, ctx.now)) return { ok: false, stops: ["This account cannot post right now."], notes };
+  if (!draft.type) return { ok: false, stops: ["Choose what kind of post this is."], notes };
   const meta = typeMeta(draft.type);
   if (!typesFor(room, ctx.steward).includes(draft.type)) {
-    stops.push(room.stewardTakes.includes(draft.type) ? `${meta.label} is filed by a steward.` : `${room.name} does not take ${meta.label}.`);
+    stops.push(room.stewardTakes.includes(draft.type) ? `Only a steward can post a ${meta.label}.` : `${room.name} does not take ${meta.label} posts.`);
   }
 
   const claim = draft.claim.trim();
   const reason = draft.reason.trim();
   if (!claim) stops.push(`Missing: ${meta.claimLabel.toLowerCase()}.`);
   if (meta.reasonLabel && !reason) stops.push(`Missing: ${meta.reasonLabel.toLowerCase()}.`);
-  if (claim.length > 600) stops.push("One claim. Cut it under 600 characters.");
-  if (meta.dateLabel && !isIsoDate(draft.on)) stops.push("A date, or it is not a record.");
-  if (meta.closes && draft.next && !isIsoDate(draft.next)) stops.push("The next date is not a date.");
-  if (meta.closable && (claim.match(/\?/g) ?? []).length > 1) stops.push("One question. Split the second one into its own Asked.");
+  if (claim.length > 600) stops.push("Keep it under 600 characters.");
+  if (meta.dateLabel && !isIsoDate(draft.on)) stops.push("Add the date.");
+  if (meta.closes && draft.next && !isIsoDate(draft.next)) stops.push("The next date is not a valid date.");
+  if (meta.closable && (claim.match(/\?/g) ?? []).length > 1) stops.push("One question per post. Ask the second one separately.");
 
   if (meta.cardPick === "own") {
     const card = ctx.cards.find((item) => item.id === draft.cardId);
-    if (!card) stops.push("Name the card this closes.");
-    else if (card.host !== ctx.author) stops.push("Only the host files a Hosted.");
+    if (!card) stops.push("Choose which meeting this is about.");
+    else if (card.host !== ctx.author) stops.push("Only the host can write up a meeting.");
     else if (card.room !== draft.room) stops.push(`That card lives in ${roomById(card.room).name}.`);
-    if (HEADCOUNT.test(claim)) stops.push("No headcount. Say how it went, not how many.");
-    if (card?.book && draft.next && !draft.pages.trim()) stops.push("Say what to have read by then.");
+    if (HEADCOUNT.test(claim)) stops.push("Leave out the headcount. Say how it went, not how many came.");
+    if (card?.book && draft.next && !draft.pages.trim()) stops.push("Say what to read before the next meeting.");
     if (draft.named) {
-      if (draft.named === ctx.author) stops.push("You cannot name yourself.");
-      else if (!draft.came.includes(draft.named)) stops.push("You can only name someone who was there.");
+      if (draft.named === ctx.author) stops.push("You cannot mention yourself.");
+      else if (!draft.came.includes(draft.named)) stops.push("You can only mention someone who was there.");
     }
   }
   if (meta.tradePick && draft.tradeId) {
     const trade = ctx.cards.find((item) => item.id === draft.tradeId);
-    if (trade && trade.host === ctx.author) stops.push("You cannot witness your own work.");
+    if (trade && trade.host === ctx.author) stops.push("You cannot vouch for your own work.");
   }
   if (meta.attest) {
-    if (sawLockedFor(ctx.author, ctx.posts)) stops.push("Bulletins are locked: three sloppy posts in a row.");
-    if (!CLOCK.test(reason) && !CLOCK.test(claim)) stops.push("A bulletin wants a clock.");
-    if (STREET_ADDRESS.test(claim) || STREET_ADDRESS.test(reason)) stops.push("That reads as a home address. Say the block or the corner, not the house.");
-    if (!draft.attested) stops.push("Attest: no child's face, no private person named who was not acting in public.");
+    if (sawLockedFor(ctx.author, ctx.posts)) stops.push("Notices are locked until you revise one of your last three posts; all three were marked sloppy.");
+    if (!CLOCK.test(reason) && !CLOCK.test(claim)) stops.push("Include the time.");
+    if (STREET_ADDRESS.test(claim) || STREET_ADDRESS.test(reason)) stops.push("That looks like a home address. Give the block or the corner, not the house number.");
+    if (!draft.attested) stops.push("Tick the box to confirm: no children's faces, no private person named.");
   }
 
   const text = `${claim}\n${reason}`;
-  if (THREAT.test(text)) stops.push("That reads as a threat. It does not send.");
-  if (PORN.test(text)) stops.push("That reads as pornography. It does not send.");
-  if (meta.reasonLabel && reason && reason.length < 12) notes.push("Thin reason. A steward can mark this unsupported.");
-  if (/^https?:\/\/\S+$/i.test(claim)) notes.push("A bare link is a repost. Say what you opened.");
+  if (THREAT.test(text)) stops.push("That reads as a threat and will not post.");
+  if (PORN.test(text)) stops.push("That will not post.");
+  if (meta.reasonLabel && reason && reason.length < 12) notes.push("That is a short reason. A steward may mark the post unsupported.");
+  if (/^https?:\/\/\S+$/i.test(claim)) notes.push("A link on its own is not a post. Say what is at the link.");
 
   return { ok: stops.length === 0, stops, notes };
 }

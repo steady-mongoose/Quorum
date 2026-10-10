@@ -7,13 +7,13 @@ export function DoctrineView() {
       <section className="flex flex-col gap-3">
         <Kicker>Why one office</Kicker>
         <h2 className="max-w-xl font-display text-3xl text-fg">
-          Why the same sentence, on one desk, in one hour.
+          Why everyone calls one official with one message.
         </h2>
         <p className="max-w-2xl text-base text-muted">
-          Big money does not need a crowd. It needs one chair, one rule, and a
-          bill full of exceptions. This is how a cell answers that without
-          becoming the thing it opposes: no bots, no fake names, no blast. One
-          standard, aimed at the person who can move it.
+          Lobbyists do not need a crowd; they need one committee chair and a bill
+          full of exceptions. Ordinary people answer that by all calling that one
+          chair, in the same hour, asking for the same thing, as themselves. No
+          bots, no fake names, no mass email. The eight points below say why.
         </p>
       </section>
       <div className="grid gap-4">

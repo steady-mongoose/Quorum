@@ -31,7 +31,7 @@ export function DmView() {
     return (
       <div className="flex flex-col gap-3">
         <Kicker>Messages</Kicker>
-        <h1 className="font-display text-4xl text-fg">Set your name first.</h1>
+        <h1 className="font-display text-4xl text-fg">Add your name first.</h1>
         <p className="max-w-2xl text-base text-muted">Messages go between two names. Yours is set under About.</p>
       </div>
     );
@@ -83,7 +83,7 @@ export function DmView() {
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <Kicker>Messages</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Two names. Thirty days. No groups.</h1>
+        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
           You can message someone you have been on an "I went" list with, or who replied to your post. Open one
           from their post or their card. Messages are plain text, not encrypted, and are deleted after {DM_RETENTION_DAYS} days.
@@ -103,7 +103,7 @@ export function DmView() {
                   onClick={() => setOpenThread(item.id)}
                 >
                   <span className="text-base font-semibold text-fg">{otherIn(item, me)}</span>
-                  <span className="text-sm text-muted">{last ? `${last.from === me ? "You: " : ""}${last.text}` : "Nothing yet."}</span>
+                  <span className="text-sm text-muted">{last ? `${last.from === me ? "You: " : ""}${last.text}` : "No messages yet."}</span>
                 </button>
               </li>
             );

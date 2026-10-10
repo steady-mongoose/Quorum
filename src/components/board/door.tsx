@@ -4,13 +4,13 @@ import { cn } from "@/lib/cn";
 import { APP_NAME, ROOMS, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
-/** What a week here looks like. Nothing from any real card; the shape only. */
+/** What a typical week looks like. Nothing from any real card; the shape only. */
 const WEEK = [
-  { day: "Sunday", what: "Service, then the meal after. Someone hosts; you bring a dish." },
-  { day: "Tuesday", what: "The co-op chapter, if you have children in it. The parish's dinner list." },
+  { day: "Sunday", what: "Church, then lunch together. Someone hosts; you bring a dish." },
+  { day: "Tuesday", what: "The homeschool co-op. The church's list of families who need dinners this week." },
   { day: "Thursday", what: "Shop night. Some say new people welcome; those are where to start." },
-  { day: "Second Wednesday", what: "The table: one book, a few chapters, the host sets the next ones." },
-  { day: "One morning", what: "The week's call: one office, one sentence, one hour. Everyone dials." },
+  { day: "Second Wednesday", what: "Book night: one book, a few chapters, the host says what to read next." },
+  { day: "One morning", what: "The group phone call: everyone phones one official with the same message in the same hour." },
 ];
 
 /**
@@ -36,7 +36,7 @@ export function Door() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">What a week here looks like</h2>
+          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">What a typical week looks like</h2>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
             {WEEK.map((row) => (
               <div key={row.day} className="contents">
