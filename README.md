@@ -45,7 +45,7 @@ The measures that matter are the ones a feed cannot fake: how many people who sa
 
 Every feature proposal gets the same question: *does this make someone leave the house?* If it makes them scroll, it does not go in.
 
-**The Shelf** is the clearest case. A book reading is the oldest engagement loop there is (a table of people who agreed to read the same chapters), and the app adds exactly three things to it: the date, what to have read by then, and who said they're coming. The host sets the next chapters when closing the table, so the obligation is always specific. There is no in-app discussion of the book. The discussion is the table.
+**The Literary Society** is the clearest case. A book reading is the oldest engagement loop there is (a table of people who agreed to read the same chapters), and the app adds exactly three things to it: the date, what to have read by then, and who said they're coming. The host sets the next chapters when closing the table, so the obligation is always specific. There is no in-app discussion of the book. The discussion is the table.
 
 ## How it works
 
@@ -55,7 +55,7 @@ Every feature proposal gets the same question: *does this make someone leave the
 
 **Say you'll be there. The host takes roll.** A card's going list is names, never a count. After the hour the host files a **Hosted**: how it went in a line (no headcount; the composer refuses one), who came, one person **Named** if someone earned it (they must have been there; never the host), and the next date. Who came joins the card's "been" list. A card that does not happen is a Hosted that says so.
 
-**Rooms do not mix.** The County (hearings, the week's call, labeled candidate cards). The Question (one question a month, chairs open to anyone). The Shop (apprentice nights, bench logs, the net; a tradesman is listed by the men he worked for). The Shelf (book readings: one book, a few chapters a week, a table; the host sets what to have read by next time). The Co-op (households, chapter logs). The church rooms, kept separate: Reformed Baptist (churches holding the 1689 Second London Confession), Reformed Presbyterian (the Westminster Standards), Latin Mass, Greek Orthodox; each has service time, the meal after, the calendar, and what the church needs this week. Dispatch (steward bulletins only).
+**Rooms do not mix.** The County (hearings, the week's call, labeled candidate cards). The Question (one question a month, chairs open to anyone). The Shop (apprentice nights, bench logs, the net; a tradesman is listed by the men he worked for). Literary Society (a reading group: one book, a few chapters between meetings, a table; the host sets what to read by next time). The Co-op (households, chapter logs). The church rooms, kept separate: Reformed Baptist (churches holding the 1689 Second London Confession), Reformed Presbyterian (the Westminster Standards), Latin Mass, Greek Orthodox; each has service time, the meal after, the calendar, and what the church needs this week. Dispatch (steward bulletins only).
 
 **Post types.** Members file **Did** (an act, a date, one proof), **Asked** (one question, what was tried; closes when answered), and **Hosted**. Stewards file **Notice** (an announcement with its source) and **Bulletin** (a public scene with a clock and a block). Every post picks a type or it does not send. The rules live in `src/lib/board/model.ts`, not in the views.
 

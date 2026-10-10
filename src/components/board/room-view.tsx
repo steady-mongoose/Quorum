@@ -64,7 +64,7 @@ export function RoomView() {
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate event" : meta.cardNoun === "Debate" ? "This month's question" : "Coming up"}
+            {card.kind === "candidate" ? "Candidate event" : meta.cardNoun === "Debate" ? "This month's question" : meta.cardNoun === "Reading" ? "This month's book" : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
           <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
