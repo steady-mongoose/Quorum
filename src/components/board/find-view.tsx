@@ -55,7 +55,7 @@ export function FindView() {
         <Kicker>Find</Kicker>
         <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Every meeting, in one list.</h1>
         <p className="max-w-prose text-base text-muted">
-          Every meeting, service, trade, and parish need, in one place. Press <strong className="font-semibold text-fg">I'll be there</strong> for next time, or <strong className="font-semibold text-fg">I went</strong> after a real visit. A card lists after two people have been; it hides after two missed meetings. Hosts close a date and hand out invite codes from here.
+          Every meeting, church service, vouched-for business, and family that needs meals. Press <strong className="font-semibold text-fg">I'll be there</strong> for next time, or <strong className="font-semibold text-fg">I went</strong> after you have been. A meeting shows in the main list once two people have been to it, and drops off after it is missed twice. If you host something, this is where you write it up afterwards and get invite codes to hand out.
         </p>
       </section>
 
