@@ -63,7 +63,7 @@ export function BoardApp() {
       </header>
       {member && sample ? (
         <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
-          <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom, Dale, Maria, Luis, Ruth) and everything they wrote is invented, to show what the app looks like in use.{" "}
+          <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom, Dale, Maria, Luis, Ruth, Pete) and everything they wrote is invented, to show what the app looks like in use.{" "}
           <button type="button" className="text-signal underline" onClick={() => setSection("about")}>
             Clear it under About
           </button>{" "}

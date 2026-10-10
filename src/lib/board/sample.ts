@@ -37,7 +37,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 4;
+export const SAMPLE_VERSION = 5;
 
 export type SampleBoard = {
   me: string;
@@ -75,6 +75,16 @@ export function sampleBoard(): SampleBoard {
       ],
     }),
     card("s-presby", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Sunday 9:30 and 11", { host: "Ruth", next: iso(3), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"] }),
+    // The Shop: hands and hobbies
+    card("s-brew", "shop", "Homebrew night", "Luis's garage, Valrico", "First Saturday, 2 p.m. Bring a growler.", { host: "Luis", next: iso(8), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Tom", "Pete"], going: ["Josh", "Pete"], firstTimer: true }),
+    card("s-whiskey", "shop", "Whiskey tasting, bourbon vs rye", "Brandon Brewing, back room", "Last Friday of the month, 8 p.m. $10 covers the pours.", { host: "Tom", next: iso(11), lastFour: [true, true], wentBy: ["Tom", "Dale", "Luis"], going: ["Dale"] }),
+    card("s-lifts", "shop", "Saturday lifts, garage gym", "Dale's garage, Riverview", "Saturdays 7 a.m. Squat, press, deadlift. Coffee after.", { host: "Dale", next: iso(1), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh", "Pete"], going: ["Josh", "Pete"], firstTimer: true }),
+    // Literary Society: a second table
+    card("s-federalist", "shelf", "The Federalist Papers, Tuesdays", "Tom's front room, Riverview", "Every other Tuesday, 7:30 p.m. Two papers a meeting.", { host: "Tom", next: iso(4), lastFour: [true, true, true], wentBy: ["Tom", "Josh", "Maria", "Pete"], going: ["Josh", "Maria"], book: "The Federalist Papers, Hamilton, Madison, Jay", pages: "Federalist 10 and 51" }),
+    // Church rooms: the thinking parts
+    card("s-thomist", "latin", "Summa after the 11", "Parish library, Epiphany", "Sundays 12:45, after coffee. One question of the Summa a week.", { host: "Luis", next: iso(3), lastFour: [true, true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh"], book: "Summa Theologiae, Prima Pars, Aquinas", pages: "Question 2, the five ways" }),
+    card("s-catechism", "presbyterian", "Shorter Catechism class", "Redeemer, room 4", "Wednesdays 7 p.m. Q&A 1 through 107, one a week.", { host: "Ruth", next: iso(5), lastFour: [true, true, true, true], wentBy: ["Ruth", "Maria", "Tom"], going: ["Maria"], firstTimer: true }),
+    card("s-vespers", "orthodox", "Vespers and coffee hour", "St. John the Baptist, 2418 W Swann Ave", "Saturdays 5 p.m., coffee after.", { host: "Pete", next: iso(1), lastFour: [true, true], wentBy: ["Pete", "Luis"], going: ["Luis"], book: "For the Life of the World, Schmemann", pages: "chapter 2" }),
     card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
     card("s-meal", "latin", "Meal after High Mass", "Parish hall", "Sunday 12:15, after the 11", { host: "Luis", next: iso(3), lastFour: [true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh", "Maria"] }),
     card("s-need", "latin", "The Nelsons, new baby", "Leave it on the porch, Luis has the address", "Dinners this week", {
@@ -114,6 +124,38 @@ export function sampleBoard(): SampleBoard {
     p({ id: "p20", room: "baptist", type: "hosted", author: "Dale", at: ago(4, 6), cardId: "s-baptist", on: iso(-4), next: iso(3), came: ["Tom", "Josh"], claim: "Pastor Rosano wrapped up Hebrews 11 this morning. Lunch moved to the Hendersons' because of the rain. Thanks Tom for hosting on short notice. Same time next Sunday." }),
     p({ id: "p21", room: "baptist", type: "hosted", author: "Tom", at: ago(4, 7), cardId: "s-baptist-lunch", on: iso(-4), next: iso(3), came: ["Dale", "Josh"], named: "Josh", claim: "14 chairs under the carport and it held off raining until we were done. Thanks Josh for bringing the smoker and staying to clean it. Next Sunday at ours again unless somebody else wants it." }),
     p({ id: "p22", room: "baptist", type: "noted", author: "Maria", at: ago(2, 3), claim: "Men's breakfast is the 2nd Saturday this month instead of the 1st. 7:30 at the church.", reason: "It's in the bulletin. Dale has a copy." }),
+    // The Shop: brewing, whiskey, lifting, hands
+    p({ id: "p30", room: "shop", type: "hosted", author: "Luis", at: ago(22, 5), cardId: "s-brew", on: iso(-22), next: iso(8), came: ["Josh", "Tom", "Pete"], named: "Pete", claim: "Brewed a 5 gallon batch of the brown ale. Pete did the whole mash by himself first time out. Bottling day in 2 weeks, same garage, bring bottles. Thanks Tom for the propane." }),
+    p({ id: "p31", room: "shop", type: "did", author: "Pete", at: ago(21), cardId: "s-brew", on: iso(-22), claim: "First time brewing. Ran the mash while Luis talked me through the temps. Didn't scorch it.", reason: "Luis and Josh were there, there's a photo of the mash tun." }),
+    p({ id: "p32", room: "shop", type: "asked", author: "Josh", at: ago(9), claim: "Anybody have a spare carboy I can borrow for 3 weeks?", reason: "Mine cracked. Asked Luis, he's using both of his." }),
+    p({ id: "p32r", room: "shop", type: "asked", author: "Tom", at: ago(9, 3), parentId: "p32", claim: "I've got one in the shed. Grab it Thursday." }),
+    p({ id: "p33", room: "shop", type: "hosted", author: "Tom", at: ago(13, 2), cardId: "s-whiskey", on: iso(-13), next: iso(11), came: ["Dale", "Luis"], claim: "Bourbon vs rye night. 4 pours each side, blind. Rye won 5 to 2, Dale still says the bourbon was better. Next month we do wheated vs high rye. $10 at the door covers it." }),
+    p({ id: "p34", room: "shop", type: "did", author: "Dale", at: ago(1, 4), cardId: "s-lifts", on: iso(-1), claim: "Saturday lifts. Pete pulled 315 for the first time. Josh hit a 5 lb press PR.", reason: "4 of us there, Josh filmed the pull." }),
+    p({ id: "p35", room: "shop", type: "did", author: "Josh", at: ago(6, 2), claim: "Sharpened all 6 of the shop chisels on the water stones and stropped them. Took 2 hours.", reason: "Tom checked them Thursday. Shaving sharp." }),
+    p({ id: "p36", room: "shop", type: "noted", author: "Tom", at: ago(3, 1), claim: "Welding class at HCC Brandon starts Jan 12, Tuesday nights, 8 weeks, about $300. 3 of us are signing up if anyone wants in.", reason: "hccfl.edu continuing ed page" }),
+
+    // Literary Society: the Federalist table
+    p({ id: "p40", room: "shelf", type: "hosted", author: "Tom", at: ago(10, 3), cardId: "s-federalist", on: iso(-10), next: iso(4), came: ["Josh", "Maria", "Pete"], named: "Maria", claim: "Federalist 1 and 2 done. Maria had read Brutus 1 too and made the anti-federalist case better than the book does. Next time 10 and 51, the two everybody quotes. Read them twice." }),
+    p({ id: "p41", room: "shelf", type: "did", author: "Pete", at: ago(9, 2), cardId: "s-federalist", on: iso(-10), claim: "First Federalist night. Didn't know Publius was 3 guys. Reading 10 this week.", reason: "Tom hosted, Josh gave me a ride." }),
+    p({ id: "p42", room: "shelf", type: "asked", author: "Josh", at: ago(5), claim: "Anyone got a copy of Reno's Return of the Strong Gods I can borrow before his talk?", reason: "Library has a 6 week hold on it." }),
+    p({ id: "p42r", room: "shelf", type: "asked", author: "Luis", at: ago(5, 1), parentId: "p42", claim: "I do. Bring it Sunday." }),
+    p({ id: "p43", room: "shelf", type: "noted", author: "Maria", at: ago(7), claim: "Hillsdale's free online course on the Federalist Papers is 10 lectures, about 30 min each, if you want background before Tuesday.", reason: "online.hillsdale.edu, I did 4 of them" }),
+
+    // Latin Mass: the Summa group
+    p({ id: "p50", room: "latin", type: "hosted", author: "Luis", at: ago(4, 7), cardId: "s-thomist", on: iso(-4), next: iso(3), came: ["Maria", "Josh"], claim: "Question 1 of the Summa, whether theology is a science. 7 of us in the library, Father stopped in for 10 minutes. Next week question 2, the five ways. Read the objections first, that's where the argument is." }),
+    p({ id: "p51", room: "latin", type: "did", author: "Josh", at: ago(4, 9), cardId: "s-thomist", on: iso(-4), claim: "Sat in on the Summa group. Understood maybe half. Going back.", reason: "Luis ran it, Maria was there." }),
+
+    // Reformed Presbyterian: catechism and a lecture
+    p({ id: "p60", room: "presbyterian", type: "hosted", author: "Ruth", at: ago(2, 1), cardId: "s-catechism", on: iso(-2), next: iso(5), came: ["Maria", "Tom"], claim: "Q&A 4, what is God. Spent the whole hour on it and could have spent two. Q5 next Wednesday. Tom brought the Vos commentary which helped." }),
+    p({ id: "p61", room: "presbyterian", type: "noted", author: "Maria", at: ago(3, 4), claim: "RTS Orlando is doing a Saturday lecture on covenant theology at Redeemer, Nov 8, 9 to noon, free. Sign up at the church office.", reason: "Bulletin insert, Ruth has it." }),
+
+    // Greek Orthodox: vespers and Schmemann
+    p({ id: "p70", room: "orthodox", type: "hosted", author: "Pete", at: ago(6, 2), cardId: "s-vespers", on: iso(-6), next: iso(1), came: ["Luis"], claim: "Vespers then coffee. We're reading Schmemann's For the Life of the World a chapter a week over coffee, chapter 2 this Saturday. Luis came from the Latin Mass side, glad to have him." }),
+
+    // The County: the Reno talk
+    p({ id: "p80", room: "county", type: "noted", author: "Tom", at: ago(2, 6), claim: "R.R. Reno is speaking on Return of the Strong Gods, Thursday the 23rd, 7 p.m., at [VENUE, TAMPA]. Free, registration required. A few of us are going, say so if you want a seat in the truck.", reason: "First Things events page, firstthings.com/events" }),
+    p({ id: "p80r", room: "county", type: "noted", author: "Pete", at: ago(2, 5), parentId: "p80", claim: "I'm in." }),
+
     p({ id: "p17", room: "latin", type: "noted", author: "Luis", at: ago(6, 10), claim: "High Mass moves to 10:30 on first Sundays for the next 3 months.", reason: "It's in the bulletin, Luis has one." }),
     p({ id: "p18", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -2), on: iso(0), claim: "Sheriff and a tow truck on the shoulder, I-75 south just past Gibsonton. Down to one lane.", reason: "3:55pm, I-75 SB around mile 250" }),
     p({ id: "p19", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -1), on: iso(0), claim: "2 lanes closed on Bloomingdale at Lithia Pinecrest, crew on the median.", reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound" }),
@@ -123,11 +165,15 @@ export function sampleBoard(): SampleBoard {
 
   const t1 = threadIdFor("Josh", "Dale");
   const t2 = threadIdFor("Josh", "Tom");
+  const t3 = threadIdFor("Josh", "Pete");
   const threads: DmThread[] = [
     { id: t1, between: ["Dale", "Josh"] },
     { id: t2, between: ["Josh", "Tom"] },
+    { id: t3, between: ["Josh", "Pete"] },
   ];
   const messages: DmMessage[] = [
+    { id: "d6", threadId: t3, from: "Pete", text: "you going to lifts saturday? can you grab me, truck's in the shop", at: ago(0, -5) },
+    { id: "d7", threadId: t3, from: "Josh", text: "yeah. 6:40 at yours. bring the federalist book back, Tom wants it", at: ago(0, -4) },
     { id: "d1", threadId: t1, from: "Dale", text: "hey can I bring my nephew thursday? he's 16, never used a saw", at: ago(1, -2) },
     { id: "d2", threadId: t1, from: "Josh", text: "ask Tom, it's his shop. card says new people welcome so probably yes. I can drive if you want", at: ago(1, -1) },
     { id: "d3", threadId: t1, from: "Dale", text: "he said yes. 6:15 at mine?", at: ago(1) },
