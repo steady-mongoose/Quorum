@@ -4,7 +4,7 @@
 export const APP_NAME = "The Hall";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
 
-export type RoomId = "county" | "question" | "shop" | "coop" | "reformed" | "latin" | "orthodox" | "dispatch";
+export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "reformed" | "latin" | "orthodox" | "dispatch";
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = "sloppy" | "unsupported";
 export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
@@ -33,7 +33,7 @@ export type Room = {
   /** What only a steward may file: announcements, bulletins. */
   stewardTakes: PostType[];
   cardKinds: CardKind[];
-  cardNoun: "Meeting" | "Service";
+  cardNoun: "Meeting" | "Service" | "Reading";
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
@@ -85,6 +85,10 @@ export type MeetingCard = {
   firstTimer: boolean;
   /** Need: the days, and who put their name on each. Nothing enforces it. */
   slots: Slot[];
+  /** Reading: the book, title and author. One book at a time. */
+  book: string;
+  /** Reading: what to have read by the next date. The host sets it when closing. */
+  pages: string;
 };
 
 export type Invite = {
@@ -116,6 +120,7 @@ export const ROOMS: Room[] = [
   { id: "county", name: "The County", what: "Hearings, bills, the week's call, labeled candidate cards. The Quorum desk files its calls here.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "candidate"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
   { id: "question", name: "The Question", what: "One question a month. A Christian host, chairs open to anyone. A brewery or a hall.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
   { id: "shop", name: "The Shop", what: "Apprentice nights, bench logs, the gym hour, the radio net. A tradesman is listed by the men he worked for.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "trade"], cardNoun: "Meeting", requiresNextDate: true, parish: false },
+  { id: "shelf", name: "The Shelf", what: "Book readings. One book at a time, a few chapters a week, a table. Bring the book; the host sets what to have read by next time.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Reading", requiresNextDate: true, parish: false },
   { id: "coop", name: "The Co-op", what: "Classical and homeschool chapter logs. Households, not individuals. Not curriculum ads.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
   { id: "reformed", name: "Reformed", what: "Service time, the meal after, the calendar, and what the parish needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
   { id: "latin", name: "Latin Mass", what: "Service time, the meal after, the calendar, and what the parish needs this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
@@ -229,6 +234,8 @@ export function newCard(fields: Pick<MeetingCard, "room" | "kind" | "name" | "pl
     unverified: false,
     firstTimer: false,
     slots: [],
+    book: "",
+    pages: "",
     ...fields,
   };
 }
@@ -263,13 +270,15 @@ export type Draft = {
   next: string;
   came: string[];
   named: string;
+  /** Reading: what to have read by the next date. */
+  pages: string;
   attested: boolean;
   cardId: string;
   tradeId: string;
 };
 
 export function blankDraft(room: RoomId): Draft {
-  return { room, type: null, claim: "", reason: "", on: todayIso(), next: "", came: [], named: "", attested: false, cardId: "", tradeId: "" };
+  return { room, type: null, claim: "", reason: "", on: todayIso(), next: "", came: [], named: "", pages: "", attested: false, cardId: "", tradeId: "" };
 }
 
 export type Check = { ok: boolean; stops: string[]; notes: string[] };
@@ -322,6 +331,7 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
     else if (card.host !== ctx.author) stops.push("Only the host files a Hosted.");
     else if (card.room !== draft.room) stops.push(`That card lives in ${roomById(card.room).name}.`);
     if (HEADCOUNT.test(claim)) stops.push("No headcount. Say how it went, not how many.");
+    if (card?.book && draft.next && !draft.pages.trim()) stops.push("Say what to have read by then.");
     if (draft.named) {
       if (draft.named === ctx.author) stops.push("You cannot name yourself.");
       else if (!draft.came.includes(draft.named)) stops.push("You can only name someone who was there.");
@@ -452,6 +462,12 @@ export function cardSummary(card: MeetingCard): string {
   const parts = [card.place, card.time];
   if (card.host) parts.push(card.kind === "trade" ? card.host : `host ${card.host}`);
   return parts.join(" · ");
+}
+
+/** Reading cards: the book, and what to have read by the next date. */
+export function readingLine(card: MeetingCard): string {
+  if (!card.book) return "";
+  return card.pages ? `${card.book} · read ${card.pages}` : card.book;
 }
 
 // --- People -------------------------------------------------------------------

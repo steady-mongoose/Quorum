@@ -15,6 +15,7 @@ import {
   formatDate,
   formatWhen,
   needsFor,
+  readingLine,
   repliesByParent,
   roomById,
   shelfFor,
@@ -86,6 +87,7 @@ export function RoomView() {
             {card.next ? ` · ${formatDate(card.next)}` : ""}
             {card.firstTimer ? " · takes a first-timer" : ""}
           </p>
+          {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
           {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
         </article>
       ))}
@@ -254,6 +256,12 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                 Next date, if there is one
                 <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
               </label>
+              {closing?.book ? (
+                <label className="flex flex-col gap-2 text-sm text-muted">
+                  What to have read by then ({closing.book})
+                  <input className={fieldClass} placeholder="chapters 5 and 6" value={current.pages} onChange={(event) => patch({ pages: event.target.value })} />
+                </label>
+              ) : null}
             </>
           ) : null}
           {type.attest ? (

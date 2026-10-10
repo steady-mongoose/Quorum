@@ -107,12 +107,13 @@ export const useBoard = create<BoardState>()(
         at: Date.now(),
       });
       /** The one way a date closes. Who came joins wentBy; the going list resets. */
-      const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string }) => {
+      const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string; pages?: string }) => {
         const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id });
         const closed: MeetingCard = {
           ...card,
           lastFour: [...card.lastFour, input.happened].slice(-4),
           next: input.next,
+          pages: input.pages?.trim() || card.pages,
           wentBy: input.came.reduce(addName, card.wentBy),
           going: [],
           pinned: false,
@@ -152,7 +153,7 @@ export const useBoard = create<BoardState>()(
           if (!check.ok || !draft.type) return check;
           if (draft.type === "hosted") {
             const card = cards.find((item) => item.id === draft.cardId);
-            if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named });
+            if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named, pages: draft.pages });
             return check;
           }
           const post = newPost({
@@ -259,7 +260,7 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: "the-board-v1",
-      version: 3,
+      version: 4,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
@@ -276,7 +277,7 @@ export const useBoard = create<BoardState>()(
         messages: state.messages,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
-      migrate: (persisted, version) => (version < 3 ? {} : (persisted as object)),
+      migrate: (persisted, version) => (version < 4 ? {} : (persisted as object)),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
         return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };

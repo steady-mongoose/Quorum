@@ -31,7 +31,7 @@ export const SEED_CARDS: MeetingCard[] = [
   card("reformed-first", "reformed", "First Reformed", "W Hillsborough Ave, Tampa", "Confirm in person", brief),
   card("shop-ham", "shop", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", brief),
   card("shop-garden", "shop", "Hillsborough Master Gardener desk", "(813) 744-5519 ext. 54102", "Office hours", brief),
-  card("shop-stoics", "shop", "Tampa Stoics", "Tampa", "Confirm in person", brief),
+  card("shelf-stoics", "shelf", "Tampa Stoics", "Tampa", "Confirm in person", brief),
   card("shop-shapes", "shop", "Shapes, women's gym hour", "731 W Lumsden, Brandon", "Confirm in person", brief),
 ];
 
@@ -56,6 +56,7 @@ export function sampleBoard(): SampleBoard {
     card("s-question", "question", "What do we owe the county?", "Brandon hall, back room", "Second Tuesday 7 p.m.", { host: "Maria", next: iso(9), lastFour: [true, true], wentBy: ["Maria", "Josh", "Tom"] }),
     card("s-coop", "coop", "Riverview classical co-op, Tuesday chapter", "[CHURCH HALL], Riverview", "Tuesdays 9 a.m., term time", { host: "Ruth", next: iso(4), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], going: ["Maria"], firstTimer: true }),
     card("s-hearing", "county", "County hearing: Lithia Pinecrest widening", "County Center, 601 E Kennedy, 2nd floor", "9 a.m.", { host: "Maria", next: iso(13), lastFour: [true], wentBy: ["Maria", "Josh"] }),
+    card("s-stoics", "shelf", "Tampa Stoics, the table", "Back room, Brandon hall", "Second and fourth Wednesday, 7 p.m.", { host: "Luis", next: iso(6), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Dale", "Maria"], going: ["Josh", "Maria"], firstTimer: true, book: "Meditations, Marcus Aurelius", pages: "book five" }),
     card("s-lamb", "shop", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),
     card("s-bakery", "shop", "Ruth's sourdough", "Brandon", "Bread, by the loaf, Saturdays", { kind: "trade", host: "Ruth" }),
     card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
@@ -85,6 +86,8 @@ export function sampleBoard(): SampleBoard {
     p({ id: "p6", room: "shop", type: "did", author: "Josh", at: ago(2), tradeId: "s-bakery", on: iso(-2), claim: "Two loaves from Ruth, Saturday. Second one went to the Nelsons.", reason: "Paid cash at her door, Maria was with me." }),
     p({ id: "p7", room: "shop", type: "hosted", author: "Dale", at: ago(1, 1), cardId: "s-ham", on: iso(-1), next: iso(5), came: ["Josh"], claim: "Net ran clean. Three check-ins from Riverview this time, which is new." }),
     p({ id: "p8", room: "shop", type: "noted", author: "Maria", at: ago(0, -20), mark: "unsupported", claim: "The club's repeater is moving frequencies next month.", reason: "heard it at the net" }),
+    p({ id: "p9", room: "shelf", type: "hosted", author: "Luis", at: ago(8, 2), cardId: "s-stoics", on: iso(-8), next: iso(6), came: ["Josh", "Dale", "Maria"], named: "Dale", claim: "Book four. Dale read 4.3 aloud and nobody said anything for a minute, which is the point of it. Book five next, the opening on getting out of bed." }),
+    p({ id: "p9b", room: "shelf", type: "did", author: "Josh", at: ago(8, 3), cardId: "s-stoics", on: iso(-8), claim: "Read book four on the porch Sunday, brought the Hays translation to the table.", reason: "Luis and Dale were there; Maria has my copy now." }),
     p({ id: "p10", room: "question", type: "hosted", author: "Maria", at: ago(20), cardId: "s-question", on: iso(-20), next: iso(9), came: ["Josh", "Tom"], claim: "Nine chairs, all full, two we had never met. The question held for an hour and we did not agree. Same question next month." }),
     p({ id: "p11", room: "question", type: "did", author: "Josh", at: ago(20, 1), cardId: "s-question", on: iso(-20), claim: "Brought the Wimauma couple from church. They stayed after.", reason: "Maria can say so." }),
     p({ id: "p12", room: "coop", type: "hosted", author: "Ruth", at: ago(3, 4), cardId: "s-coop", on: iso(-3), next: iso(4), came: ["Maria"], named: "Maria", claim: "Finished the Aeneid book two. Three families read aloud. Maria brought the chairs." }),

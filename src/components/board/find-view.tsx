@@ -11,6 +11,7 @@ import {
   cardListed,
   cardSummary,
   formatDate,
+  readingLine,
   roomById,
   stoodWith,
   todayIso,
@@ -189,6 +190,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
       </Tags>
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
+      {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       <p className="mt-1 text-sm text-muted">{card.next ? `Next ${formatDate(card.next)}` : room.requiresNextDate ? "No next date. Not listed." : "No next date yet."}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted" aria-label="Last four meetings">
         <span>Last four:</span>
@@ -280,8 +282,9 @@ function AddCard({ me }: { me: string }) {
   const addCard = useBoard((state) => state.addCard);
   const [room, setRoom] = useState<RoomId>("shop");
   const [kind, setKind] = useState<CardKind>("meeting");
-  const [fields, setFields] = useState({ name: "", place: "", time: "", host: "", next: "", firstTimer: false });
+  const [fields, setFields] = useState({ name: "", place: "", time: "", host: "", next: "", firstTimer: false, book: "", pages: "" });
   const [days, setDays] = useState<string[]>([]);
+  const reading = room === "shelf" && kind === "meeting";
   const kinds = roomById(room).cardKinds;
   const labels = CARD_LABELS[kind === "trade" ? "trade" : kind === "need" ? "need" : "meeting"];
   const set = (patch: Partial<typeof fields>) => setFields({ ...fields, ...patch });
@@ -299,8 +302,10 @@ function AddCard({ me }: { me: string }) {
       next: kind === "meeting" || kind === "candidate" ? fields.next : "",
       firstTimer: kind === "meeting" && fields.firstTimer,
       slots: kind === "need" ? days.map((day) => ({ day, by: "" })) : [],
+      book: reading ? fields.book : "",
+      pages: reading ? fields.pages : "",
     });
-    setFields({ name: "", place: "", time: "", host: "", next: "", firstTimer: false });
+    setFields({ name: "", place: "", time: "", host: "", next: "", firstTimer: false, book: "", pages: "" });
     setDays([]);
   };
 
@@ -345,6 +350,18 @@ function AddCard({ me }: { me: string }) {
         {text("place")}
         {text("time", kind === "trade" ? "Electrical, residential" : kind === "need" ? "Dinners this week" : "First Monday 7:30 p.m.")}
         {text("host", me)}
+        {reading ? (
+          <>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              The book, title and author
+              <input className={fieldClass} placeholder="Meditations, Marcus Aurelius" value={fields.book} onChange={(event) => set({ book: event.target.value })} />
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              What to have read for the first table
+              <input className={fieldClass} placeholder="Book one" value={fields.pages} onChange={(event) => set({ pages: event.target.value })} />
+            </label>
+          </>
+        ) : null}
         {kind === "need" ? (
           <fieldset className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
             <legend>Days</legend>

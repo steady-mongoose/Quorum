@@ -7,6 +7,7 @@ import {
   cardSummary,
   formatDate,
   needsFor,
+  readingLine,
   roomById,
   todayIso,
   weekFor,
@@ -92,6 +93,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
       </div>
       <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
+      {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {card.host !== me ? (

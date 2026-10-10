@@ -31,6 +31,22 @@ To see it filled in:
 
 Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is the only command you need day to day.
 
+## Engaging, not addictive: the model
+
+Addictive apps run on variable reward: you open them not knowing what you will get, and that uncertainty is the hook. The Hall runs on **obligation to people you have met**. You open it knowing what you will get: Thursday, the book, the Nelsons' Tuesday. Three loops do the work, and each has a built-in limit that keeps it from turning into a feed.
+
+| Loop | What pulls you back | The limit that keeps it honest |
+|---|---|---|
+| **Rhythm** | The week has a shape: Sunday, the meal after, Thursday, the second Wednesday. The front page is those dates. | Only the next seven days, only days with something on them. No infinite scroll; the page ends. Nothing refreshes on its own. |
+| **Obligation** | You said you'd be there, and the host will take roll with your name in front of them. You put your name on Tuesday. Someone is reading chapter five because you are. | Names, never counts. No-shows get nothing: no streak lost, no badge gone, no public mark. The pull is the people, not the app. |
+| **Recognition** | A host who was there names one person who earned it, in front of the others. It lands on your profile where the people you've stood with can read it. | One per meeting. Never a number, never ranked, never from someone who wasn't in the room. Visible only to people who have stood with you. |
+
+The measures that matter are the ones a feed cannot fake: how many people who said they'd be there were there; how many cards got a Hosted; how many parish days got a name on them; how many members come back the next week. Time in the app is a failure metric. A good week is ten minutes on Sunday night and one minute on Thursday afternoon.
+
+Every feature proposal gets the same question: *does this make someone leave the house?* If it makes them scroll, it does not go in.
+
+**The Shelf** is the clearest case. A book reading is the oldest engagement loop there is (a table of people who agreed to read the same chapters), and the app adds exactly three things to it: the date, what to have read by then, and who said they're coming. The host sets the next chapters when closing the table, so the obligation is always specific. There is no in-app discussion of the book. The discussion is the table.
+
 ## How it works
 
 **The week comes first.** The front page is the next seven days that have something on them. Empty days are left out; an empty week says so and points at the rooms. The County's open call window sits at the top with the number to dial.
@@ -39,7 +55,7 @@ Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is 
 
 **Say you'll be there. The host takes roll.** A card's going list is names, never a count. After the hour the host files a **Hosted**: how it went in a line (no headcount; the composer refuses one), who came, one person **Named** if someone earned it (they must have been there; never the host), and the next date. Who came joins the card's "been" list. A card that does not happen is a Hosted that says so.
 
-**Rooms do not mix.** The County (hearings, the week's call, labeled candidate cards). The Question (one question a month, chairs open to anyone). The Shop (apprentice nights, bench logs, the net; a tradesman is listed by the men he worked for). The Co-op (households, chapter logs). Reformed, Latin Mass, Greek Orthodox (service time, the meal after, and what the parish needs). Dispatch (steward bulletins only).
+**Rooms do not mix.** The County (hearings, the week's call, labeled candidate cards). The Question (one question a month, chairs open to anyone). The Shop (apprentice nights, bench logs, the net; a tradesman is listed by the men he worked for). The Shelf (book readings: one book, a few chapters a week, a table; the host sets what to have read by next time). The Co-op (households, chapter logs). Reformed, Latin Mass, Greek Orthodox (service time, the meal after, and what the parish needs). Dispatch (steward bulletins only).
 
 **Post types.** Members file **Did** (an act, a date, one proof), **Asked** (one question, what was tried; closes when answered), and **Hosted**. Stewards file **Notice** (an announcement with its source) and **Bulletin** (a public scene with a clock and a block). Every post picks a type or it does not send. The rules live in `src/lib/board/model.ts`, not in the views.
 
