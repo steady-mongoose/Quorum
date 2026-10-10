@@ -29,14 +29,27 @@ winget install OpenJS.NodeJS.LTS
 winget install Git.Git
 ```
 
-Then clone and install. The first line creates the `projects` folder if it is not there yet:
+Then clone and install. This creates the `projects` folder if it is not there yet, and updates an existing `Quorum` checkout instead of cloning over it:
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\projects | Out-Null
 cd $HOME\projects
-git clone https://github.com/steady-mongoose/Quorum.git
-cd Quorum
+if (Test-Path Quorum\.git) {
+    cd Quorum
+    git pull
+} else {
+    git clone https://github.com/steady-mongoose/Quorum.git
+    cd Quorum
+}
 npm install
+```
+
+If `git pull` refuses because of local changes, or the `Quorum` folder is not a git checkout, start fresh. This deletes that folder and anything changed in it:
+
+```powershell
+cd $HOME\projects
+Remove-Item -Recurse -Force Quorum
+git clone https://github.com/steady-mongoose/Quorum.git
 ```
 
 Start it with `npm run dev` and open http://localhost:8080, the same as above.
