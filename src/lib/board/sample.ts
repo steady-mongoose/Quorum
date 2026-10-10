@@ -37,7 +37,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 2;
+export const SAMPLE_VERSION = 3;
 
 export type SampleBoard = {
   me: string;
