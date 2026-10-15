@@ -17,9 +17,10 @@ A town board with a lock on the feed. This document holds who is working on it, 
 
 | Name | Role | Owns |
 | :---- | :---- | :---- |
-| Zachary Taylor | [ROLE] | [WHAT THEY OWN] |
-| Ryan Horne | [ROLE] | [WHAT THEY OWN] |
-| Sam Archer | [ROLE] | [WHAT THEY OWN] |
+| Josh McMullin | [Project Lead / Chairman] | [WHAT THEY OWN] |
+| Zachary Taylor | [Lead Strategist] | [WHAT THEY OWN] |
+| Ryan Horne | [Contributor] | [WHAT THEY OWN] |
+| Sam Archer | [Treasurer] | [WHAT THEY OWN] |
 
 The brief calls for five roles with one name each: Product lead, App owner, Infra owner, Rules owner, Money owner. Two people hold each login. The App owner is not also the Infra owner.
 
