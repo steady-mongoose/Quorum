@@ -31,6 +31,8 @@ import {
   type RoomId,
   type Section,
 } from "@/lib/board/model";
+import { congregationIdForParish, type CouncilApproval, type HomePlace } from "@/lib/board/home";
+import { CONGREGATIONS } from "@/lib/board/places";
 import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
 
 type BoardState = {
@@ -46,6 +48,10 @@ type BoardState = {
   sampleVersion: number;
   me: string;
   profile: Profile;
+  /** Rooms and, later, theme groups the member has joined. Same list Home reads. */
+  joined: HomePlace[];
+  /** Guard rail 7. The log is the only Home override. */
+  councilApprovals: CouncilApproval[];
   /** Whose profile is open. */
   viewing: string | null;
   steward: boolean;
@@ -62,6 +68,8 @@ type BoardState = {
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
   setProfile: (patch: Partial<Profile>) => void;
+  joinPlace: (place: HomePlace) => void;
+  leavePlace: (place: HomePlace) => void;
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Check;
@@ -96,7 +104,16 @@ type BoardState = {
   clearBoard: () => void;
 };
 
-const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
+const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "", zip: "", congregationId: "" };
+
+function samePlace(a: HomePlace, b: HomePlace): boolean {
+  return a.kind === b.kind && a.id === b.id;
+}
+
+function addPlace(list: HomePlace[], place: HomePlace): HomePlace[] {
+  if (!place.id || list.some((item) => samePlace(item, place))) return list;
+  return [...list, place];
+}
 
 function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
   const cutoff = now - DM_RETENTION_DAYS * DAY;
@@ -122,7 +139,7 @@ export const useBoard = create<BoardState>()(
       });
       /** The one way a date closes. Who came joins wentBy; the going list resets. */
       const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string; pages?: string }) => {
-        const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id });
+        const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id, localRoomId: card.localRoomId });
         const closed: MeetingCard = {
           ...card,
           lastFour: [...card.lastFour, input.happened].slice(-4),
@@ -147,6 +164,8 @@ export const useBoard = create<BoardState>()(
         sampleVersion: 0,
         me: "",
         profile: EMPTY_PROFILE,
+        joined: [],
+        councilApprovals: [],
         viewing: null,
         steward: false,
         posts: [],
@@ -161,7 +180,13 @@ export const useBoard = create<BoardState>()(
         setSection: (section) => set({ section }),
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
-        setProfile: (patch) => set({ profile: { ...get().profile, ...patch } }),
+        setProfile: (patch) => {
+          const profile = { ...get().profile, ...patch };
+          if ("parish" in patch && !("congregationId" in patch)) profile.congregationId = congregationIdForParish(profile.parish, CONGREGATIONS);
+          set({ profile });
+        },
+        joinPlace: (place) => set({ joined: addPlace(get().joined, place) }),
+        leavePlace: (place) => set({ joined: get().joined.filter((item) => !samePlace(item, place)) }),
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: (draft) => {
@@ -173,6 +198,7 @@ export const useBoard = create<BoardState>()(
             if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named, pages: draft.pages });
             return check;
           }
+          const linked = cards.find((item) => item.id === (draft.cardId || draft.tradeId));
           const post = newPost({
             room: draft.room,
             type: draft.type,
@@ -180,6 +206,7 @@ export const useBoard = create<BoardState>()(
             reason: draft.reason.trim(),
             on: draft.on,
             author: me(),
+            localRoomId: linked?.localRoomId ?? "",
             ...(draft.cardId ? { cardId: draft.cardId } : {}),
             ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
           });
@@ -191,7 +218,7 @@ export const useBoard = create<BoardState>()(
           const body = text.trim();
           const parent = get().posts.find((post) => post.id === parentId);
           if (!body || !parent) return;
-          set({ posts: [newPost({ room: parent.room, type: parent.type, claim: body, author: me(), parentId }), ...get().posts] });
+          set({ posts: [newPost({ room: parent.room, type: parent.type, claim: body, author: me(), parentId, localRoomId: parent.localRoomId }), ...get().posts] });
         },
         revise: (id, patch) => {
           const post = get().posts.find((item) => item.id === id);
@@ -269,6 +296,7 @@ export const useBoard = create<BoardState>()(
             member: true,
             invites: get().invites.map((item) => (item.code === invite.code ? { ...item, redeemedBy: who } : item)),
             cards: get().cards.map((item) => (item.id === card.id ? { ...item, going: addName(item.going, who) } : item)),
+            joined: card.localRoomId ? addPlace(get().joined, { kind: "room", id: card.localRoomId }) : get().joined,
           });
           return card;
         },
@@ -289,7 +317,7 @@ export const useBoard = create<BoardState>()(
         },
         setOpenThread: (openThread) => set({ openThread }),
         loadSample: () => set({ ...sampleBoard(), sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
-        clearBoard: () => set({ sample: false, posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null }),
+        clearBoard: () => set({ sample: false, posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null, joined: [], councilApprovals: [] }),
       };
     },
     {
@@ -304,6 +332,8 @@ export const useBoard = create<BoardState>()(
         sampleVersion: state.sampleVersion,
         me: state.me,
         profile: state.profile,
+        joined: state.joined,
+        councilApprovals: state.councilApprovals,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         posts: state.posts,
@@ -325,7 +355,14 @@ export const useBoard = create<BoardState>()(
           const fresh = sampleBoard();
           return { ...current, ...saved, ...fresh, sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, messages: pruneMessages(fresh.messages, Date.now()) };
         }
-        return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };
+        return {
+          ...current,
+          ...saved,
+          profile: { ...EMPTY_PROFILE, ...saved.profile },
+          joined: Array.isArray(saved.joined) ? saved.joined : [],
+          councilApprovals: Array.isArray(saved.councilApprovals) ? saved.councilApprovals : [],
+          messages: pruneMessages(saved.messages ?? [], Date.now()),
+        };
       },
     },
   ),

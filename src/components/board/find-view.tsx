@@ -21,6 +21,7 @@ import {
   type MeetingCard,
   type RoomId,
 } from "@/lib/board/model";
+import { MEMBER_ROOMS, localRoomLabel } from "@/lib/board/places";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -306,6 +307,7 @@ function AddCard({ me }: { me: string }) {
   const [room, setRoom] = useState<RoomId>("shop");
   const [kind, setKind] = useState<CardKind>("meeting");
   const [fields, setFields] = useState({ name: "", place: "", time: "", host: "", next: "", firstTimer: false, book: "", pages: "" });
+  const [localRoomId, setLocalRoomId] = useState("");
   const [days, setDays] = useState<string[]>([]);
   const reading = room === "shelf" && kind === "meeting";
   const kinds = roomById(room).cardKinds;
@@ -322,6 +324,7 @@ function AddCard({ me }: { me: string }) {
       kind,
       ...fields,
       host: fields.host || me,
+      localRoomId,
       next: kind === "meeting" || kind === "candidate" ? fields.next : "",
       firstTimer: kind === "meeting" && fields.firstTimer,
       slots: kind === "need" ? days.map((day) => ({ day, by: "" })) : [],
@@ -355,6 +358,17 @@ function AddCard({ me }: { me: string }) {
             {ROOMS.filter((item) => item.cardKinds.length > 0).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Town, church, or county
+          <select className={fieldClass} value={localRoomId} onChange={(event) => setLocalRoomId(event.target.value)}>
+            <option value="">Not tied to one yet</option>
+            {MEMBER_ROOMS.map((item) => (
+              <option key={item.id} value={item.id}>
+                {localRoomLabel(item)}
               </option>
             ))}
           </select>

@@ -49,7 +49,7 @@ Every feature proposal gets the same question: *does this make someone leave the
 
 ## How it works
 
-**The week comes first.** The front page is the next seven days that have something on them. Empty days are left out; an empty week says so and points at the rooms. The County's open call window sits at the top with the number to dial.
+**The week comes first, nearest first.** The front page is the next seven days that have something on them, in a fixed order: rooms you've joined, then town rooms for your ZIP, then your congregation, then wider regions. Inside each, the list is by date. Nothing is ranked. The one exception is a council-approved notice, which is labeled and sits above that order. Meetings in another town stay in their rooms. Empty weeks say so. The County's open call window sits at the side with the number to dial.
 
 **Invite only.** Without a code, the only page is the door. A host makes a one-use code for one card and hands it over however they like. The code reveals nothing until a name is entered; then that name is a member and on the going list. Codes expire after seven days. The first thing a new member sees is a date, not a feed. On a new box, the first member gets in with the founder code (`VITE_FOUNDER_CODE` in `.env`; the dev default is `FOUNDER`) and becomes a steward. Change it before anyone else can reach the box.
 

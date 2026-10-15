@@ -6,7 +6,7 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 const HOW = [
   { title: "Getting in", text: "Someone who hosts a meeting gives you a code. You enter your name and the code, and you are a member and on the list for that meeting. There is no public sign-up." },
-  { title: "The week", text: "The front page is the next seven days: which meetings are on, where, and who is going. Press \"I'll be there\" on the ones you will attend." },
+  { title: "The week", text: "The front page is the next seven days, nearest first: rooms you've joined, then your ZIP's town, then your church, then farther out. Inside each, the list is by date. A council-approved notice is the only thing that jumps ahead, and it is labeled. Press \"I'll be there\" on the ones you will attend." },
   { title: "After a meeting", text: "The host writes it up: how it went, who came, and the next date. If someone did something worth mentioning, the host can name one person. There is no headcount and no score." },
   { title: "Who can see you", text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted." },
   { title: "Posting", text: "In a room you can post something you did, with proof, or ask one question. Posts are in order of time; nothing is ranked and nothing refreshes on its own." },

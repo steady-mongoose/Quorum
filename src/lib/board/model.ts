@@ -49,6 +49,11 @@ export type Room = {
 export type Post = {
   id: string;
   room: RoomId;
+  /**
+   * Town, congregation, or county room this belongs to. Empty means Home
+   * treats the topical room as a wider region. See `src/lib/board/home.ts`.
+   */
+  localRoomId: string;
   type: PostType;
   claim: string;
   reason: string;
@@ -75,6 +80,8 @@ export type Slot = { day: string; by: string };
 export type MeetingCard = {
   id: string;
   room: RoomId;
+  /** Where this card sits for Home. Empty uses `room` as a wider region. */
+  localRoomId: string;
   kind: CardKind;
   name: string;
   place: string;
@@ -106,7 +113,18 @@ export type Invite = {
   redeemedBy: string;
 };
 
-export type Profile = { household: string; parish: string; trade: string };
+export type Profile = {
+  household: string;
+  parish: string;
+  trade: string;
+  /** Five-digit ZIP. Empty until the member sets it. Town rooms follow from this. */
+  zip: string;
+  /**
+   * Congregation directory id. Empty until set or matched from `parish`.
+   * The parish line is the name; this is what Home matches.
+   */
+  congregationId: string;
+};
 
 export type MarkRow = { id: string; room: RoomId; postId: string; author: string; by: string; mark: Mark | null; at: number };
 export type RemovalRow = { id: string; postId: string; author: string; reason: HardRule; at: number };
@@ -227,6 +245,7 @@ export function newPost(fields: Pick<Post, "room" | "type" | "claim" | "author">
     closed: false,
     mark: null,
     removed: false,
+    localRoomId: "",
     ...fields,
   };
 }
@@ -244,6 +263,7 @@ export function newCard(fields: Pick<MeetingCard, "room" | "kind" | "name" | "pl
     slots: [],
     book: "",
     pages: "",
+    localRoomId: "",
     ...fields,
   };
 }
@@ -446,7 +466,10 @@ export function shelfFor(room: RoomId, cards: MeetingCard[], witnesses: Map<stri
 
 export type WeekDay = { iso: string; cards: MeetingCard[] };
 
-/** The next seven days that have something on them. Empty days are left out. */
+/**
+ * The next seven days that have something on them. Empty days are left out.
+ * Home's locality order is `homeOrder` in `./home.ts`; this only chooses the dates.
+ */
 export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
