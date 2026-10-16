@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { btnGhost, btnSignal, Kicker, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { CouncilBar } from "@/components/board/council-bar";
+import { groupHomeEntries } from "@/lib/board/groups";
 import { COUNCIL_APPROVED_LABEL, homeMeetingEntries, homeOrder, homePostEntries, homeSections, toHomeMember } from "@/lib/board/home";
 import { CONGREGATIONS, homeCatalog } from "@/lib/board/places";
 import { zipRowsForMember } from "@/lib/board/zcta";
@@ -37,6 +38,9 @@ export function WeekView() {
   const joined = useBoard((state) => state.joined);
   const approvals = useBoard((state) => state.councilApprovals);
   const corrections = useBoard((state) => state.zipCorrections);
+  const groupNotes = useBoard((state) => state.groupNotes);
+  const groups = useBoard((state) => state.groups);
+  const setOpenGroup = useBoard((state) => state.setOpenGroup);
   const extraTownRooms = useBoard((state) => state.extraTownRooms);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
@@ -57,8 +61,9 @@ export function WeekView() {
       })),
     );
     const postEntries = homePostEntries(posts, approvals);
-    return homeSections(homeOrder(member, [...postEntries, ...cardEntries], catalog, approvals));
-  }, [approvals, catalog, member, posts, week]);
+    const gatherings = groupHomeEntries(groupNotes, today);
+    return homeSections(homeOrder(member, [...postEntries, ...cardEntries, ...gatherings], catalog, approvals));
+  }, [approvals, catalog, groupNotes, member, posts, today, week]);
   const orderedNeeds = useMemo(() => {
     const rows = homeOrder(
       member,
@@ -101,7 +106,21 @@ export function WeekView() {
                 const card = cardById.get(row.entry.id);
                 if (card) return <DayCard key={card.id} card={card} me={me} today={today} promoted={row.label ? row.reason : null} />;
                 const post = postById.get(row.entry.id);
-                return post ? <PromotedPost key={post.id} post={post} reason={row.reason ?? ""} /> : null;
+                if (post) return <PromotedPost key={post.id} post={post} reason={row.reason ?? ""} />;
+                const note = groupNotes.find((item) => item.id === row.entry.id);
+                const group = groups.find((item) => item.id === note?.groupId);
+                return note && group ? (
+                  <article key={note.id} className="rounded-lg border border-line bg-surface p-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <button type="button" className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg" onClick={() => setOpenGroup(group.id)}>
+                        {group.name}
+                      </button>
+                      {note.on ? <span className="text-muted">{whenLabel(note.on, today)}</span> : null}
+                    </div>
+                    <h3 className="mt-2 text-2xl text-fg">{note.body}</h3>
+                    <p className="text-sm text-muted">{note.author}</p>
+                  </article>
+                ) : null;
               })}
             </div>
           </section>

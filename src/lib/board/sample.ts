@@ -18,6 +18,7 @@ import {
 } from "@/lib/board/model";
 import { FOUNDING_ADMIN, type AccessRow } from "@/lib/board/access";
 import type { CouncilApproval, HomePlace } from "@/lib/board/home";
+import { SEED_GROUPS, type GroupModerationRow, type GroupNote, type GroupRequest, type ThemeGroup } from "@/lib/board/groups";
 import { PLACE } from "@/lib/board/places";
 import type { TownRoomRequest } from "@/lib/board/town-rooms";
 
@@ -41,7 +42,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 8;
+export const SAMPLE_VERSION = 10;
 
 export type SampleBoard = {
   me: string;
@@ -51,9 +52,13 @@ export type SampleBoard = {
   markLog: MarkRow[];
   threads: DmThread[];
   messages: DmMessage[];
-  /** Rooms Josh has joined. A theme group would be `{ kind: "group", id }` in this same list. */
+  /** Rooms and theme groups Josh has joined. */
   joined: HomePlace[];
   councilApprovals: CouncilApproval[];
+  groups: ThemeGroup[];
+  groupRequests: GroupRequest[];
+  groupNotes: GroupNote[];
+  groupLog: GroupModerationRow[];
   /** Rule 9 log, including the one-time founding seat. */
   accessLog: AccessRow[];
   townRoomRequests: TownRoomRequest[];
@@ -217,8 +222,33 @@ export function sampleBoard(): SampleBoard {
     markLog,
     threads,
     messages,
-    joined: [{ kind: "room", id: PLACE.rvShop }],
+    joined: [
+      { kind: "room", id: PLACE.rvShop },
+      { kind: "group", id: "carpentry" },
+    ],
     councilApprovals,
+    groups: SEED_GROUPS.map((group) => ({ ...group })),
+    groupNotes: [
+      { id: "gn-bench", groupId: "carpentry", author: "Tom", body: "Saturday bench at the shop. Bring a hand plane if you have one. We start with the legs.", on: iso(1), at: ago(1), mark: null, removed: false, removedFor: null },
+      { id: "gn-old", groupId: "carpentry", author: "Josh", body: "The sawhorses from last month are in Tom's shed.", on: "", at: ago(20), mark: "sloppy", removed: false, removedFor: null },
+      { id: "gn-brew", groupId: "brewing", author: "Luis", body: "First Saturday, brown ale. Growlers welcome.", on: iso(2), at: ago(2), mark: null, removed: false, removedFor: null },
+    ],
+    groupLog: [{ id: "gm1", noteId: "gn-old", groupId: "carpentry", by: "Tom", action: "mark", mark: "sloppy", reason: "sloppy", at: ago(19) }],
+    groupRequests: [
+      {
+        id: "gr-bees",
+        groupId: "beekeeping",
+        name: "Beekeeping",
+        about: "Hives and the first spring check.",
+        by: "Maria",
+        roomId: PLACE.rvShop,
+        at: ago(1),
+        status: "open",
+        decidedBy: "",
+        decidedAt: null,
+        note: "",
+      },
+    ],
     accessLog: sampleAccessLog(ago),
     townRoomRequests: [
       {

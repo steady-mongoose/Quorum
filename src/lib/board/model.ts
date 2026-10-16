@@ -7,7 +7,7 @@ export const TAGLINE = "Your church, your shop, your county. Show up.";
 export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "baptist" | "presbyterian" | "latin" | "orthodox" | "dispatch";
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = "sloppy" | "unsupported";
-export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
+export type Section = "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
 export type HardRule = "threat" | "porn" | "csam";
 

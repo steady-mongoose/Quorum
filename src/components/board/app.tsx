@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { BookOpen, CalendarDays, LayoutList, MessageSquare, Phone, Search, User } from "lucide-react";
+import { BookOpen, CalendarDays, LayoutList, MessageSquare, Phone, Search, User, Users } from "lucide-react";
 import { IconNav } from "@/components/quorum/bits";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
@@ -8,6 +8,7 @@ import { AboutView } from "@/components/board/about-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
+import { GroupsView } from "@/components/board/groups-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
 import { SessionLine } from "@/components/board/line";
@@ -19,6 +20,7 @@ import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 const NAV = [
   { id: "week", label: "This week", icon: CalendarDays },
   { id: "rooms", label: "Rooms", icon: LayoutList },
+  { id: "groups", label: "Groups", icon: Users },
   { id: "find", label: "Find", icon: Search },
   { id: "civic", label: "The desk", icon: Phone },
   { id: "messages", label: "Messages", icon: MessageSquare },
@@ -76,6 +78,7 @@ export function BoardApp() {
         {!member && <Door />}
         {member && section === "week" && <WeekView />}
         {member && section === "rooms" && <RoomView />}
+        {member && section === "groups" && <GroupsView />}
         {member && section === "find" && <FindView />}
         {member && section === "civic" && <QuorumPanel />}
         {member && section === "messages" && <DmView />}
