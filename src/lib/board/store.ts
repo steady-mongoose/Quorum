@@ -33,6 +33,20 @@ import {
 } from "@/lib/board/model";
 import { congregationIdForParish, type CouncilApproval, type HomePlace } from "@/lib/board/home";
 import { CONGREGATIONS } from "@/lib/board/places";
+import {
+  SEED_GROUPS,
+  appealGroupNote,
+  createGroup,
+  decideGroupAppeal,
+  fileGroupNote,
+  markGroupNote,
+  removeGroupNote,
+  type GroupAppeal,
+  type GroupModerationRow,
+  type GroupNote,
+  type GroupResult,
+  type ThemeGroup,
+} from "@/lib/board/groups";
 import { addCouncilApproval, proposeZipClear, proposeZipCorrection, revokeCouncilApproval, type GateResult } from "@/lib/board/roles";
 import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
 import type { ZipCorrection } from "@/lib/board/zcta";
@@ -60,6 +74,12 @@ type BoardState = {
   admin: boolean;
   /** Admin overlays on the census ZIP seed. Newest row for a ZIP wins. */
   zipCorrections: ZipCorrection[];
+  /** Interest groups. Seeded, and a member may add one and become its admin. */
+  groups: ThemeGroup[];
+  groupNotes: GroupNote[];
+  groupLog: GroupModerationRow[];
+  groupAppeals: GroupAppeal[];
+  openGroup: string | null;
   /** Whose profile is open. */
   viewing: string | null;
   steward: boolean;
@@ -82,6 +102,13 @@ type BoardState = {
   revokeApproval: (entryId: string) => GateResult<CouncilApproval>;
   correctZip: (zip: string, name: string, state: string) => GateResult<ZipCorrection>;
   clearZip: (zip: string) => GateResult<ZipCorrection>;
+  setOpenGroup: (id: string | null) => void;
+  createGroup: (name: string, about: string) => GroupResult<ThemeGroup>;
+  fileGroupNote: (groupId: string, body: string, on: string) => GroupResult<GroupNote>;
+  markGroupNote: (noteId: string, mark: Mark | null) => GroupResult<{ note: GroupNote; row: GroupModerationRow }>;
+  removeGroupNote: (noteId: string, reason: HardRule) => GroupResult<{ note: GroupNote; row: GroupModerationRow }>;
+  appealGroupNote: (noteId: string, text: string) => GroupResult<GroupAppeal>;
+  decideGroupAppeal: (appealId: string, decision: "upheld" | "lifted") => GroupResult<{ appeal: GroupAppeal; note: GroupNote }>;
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Check;
@@ -181,6 +208,11 @@ export const useBoard = create<BoardState>()(
         council: false,
         admin: false,
         zipCorrections: [],
+        groups: SEED_GROUPS.map((group) => ({ ...group })),
+        groupNotes: [],
+        groupLog: [],
+        groupAppeals: [],
+        openGroup: null,
         viewing: null,
         steward: false,
         posts: [],
@@ -221,6 +253,74 @@ export const useBoard = create<BoardState>()(
         clearZip: (zip) => {
           const result = proposeZipClear(get().admin, me(), zip, Date.now(), crypto.randomUUID());
           if (result.ok) set({ zipCorrections: [...get().zipCorrections, result.row] });
+          return result;
+        },
+        setOpenGroup: (openGroup) => set({ openGroup, section: openGroup ? "groups" : get().section }),
+        createGroup: (name, about) => {
+          const result = createGroup(me(), name, about, get().groups, Date.now());
+          if (result.ok) set({ groups: [...get().groups, result.value], openGroup: result.value.id });
+          return result;
+        },
+        fileGroupNote: (groupId, body, on) => {
+          const group = get().groups.find((item) => item.id === groupId);
+          const joined = get().joined.some((place) => place.kind === "group" && place.id === groupId);
+          const result = fileGroupNote(me(), group, joined, { body, on }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ groupNotes: [result.value, ...get().groupNotes] });
+          return result;
+        },
+        markGroupNote: (noteId, mark) => {
+          const note = get().groupNotes.find((item) => item.id === noteId);
+          const group = get().groups.find((item) => item.id === note?.groupId);
+          const result = markGroupNote(me(), group, note, mark, Date.now(), crypto.randomUUID());
+          if (result.ok) {
+            set({
+              groupNotes: get().groupNotes.map((item) => (item.id === noteId ? result.value.note : item)),
+              groupLog: [result.value.row, ...get().groupLog],
+            });
+          }
+          return result;
+        },
+        removeGroupNote: (noteId, reason) => {
+          const note = get().groupNotes.find((item) => item.id === noteId);
+          const group = get().groups.find((item) => item.id === note?.groupId);
+          const result = removeGroupNote(me(), group, note, reason, Date.now(), crypto.randomUUID());
+          if (result.ok) {
+            set({
+              groupNotes: get().groupNotes.map((item) => (item.id === noteId ? result.value.note : item)),
+              groupLog: [result.value.row, ...get().groupLog],
+            });
+          }
+          return result;
+        },
+        appealGroupNote: (noteId, text) => {
+          const note = get().groupNotes.find((item) => item.id === noteId);
+          const result = appealGroupNote(me(), note, get().groupAppeals, text, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ groupAppeals: [result.value, ...get().groupAppeals] });
+          return result;
+        },
+        decideGroupAppeal: (appealId, decision) => {
+          const appeal = get().groupAppeals.find((item) => item.id === appealId);
+          const note = get().groupNotes.find((item) => item.id === appeal?.noteId);
+          const result = decideGroupAppeal(me(), get().steward, appeal, note, decision, Date.now());
+          if (result.ok) {
+            set({
+              groupAppeals: get().groupAppeals.map((item) => (item.id === appealId ? result.value.appeal : item)),
+              groupNotes: get().groupNotes.map((item) => (item.id === result.value.note.id ? result.value.note : item)),
+              groupLog: [
+                {
+                  id: crypto.randomUUID(),
+                  noteId: result.value.note.id,
+                  groupId: result.value.note.groupId,
+                  by: me(),
+                  action: decision === "lifted" ? "clear" : "mark",
+                  mark: result.value.note.mark,
+                  reason: decision,
+                  at: Date.now(),
+                },
+                ...get().groupLog,
+              ],
+            });
+          }
           return result;
         },
         view: (viewing) => set({ viewing, section: "profile" }),
@@ -362,6 +462,8 @@ export const useBoard = create<BoardState>()(
             council: true,
             admin: true,
             zipCorrections: [],
+            groupAppeals: [],
+            openGroup: null,
             invites: [],
             removals: [],
             openThread: null,
@@ -383,6 +485,11 @@ export const useBoard = create<BoardState>()(
             joined: [],
             councilApprovals: [],
             zipCorrections: [],
+            groups: SEED_GROUPS.map((group) => ({ ...group })),
+            groupNotes: [],
+            groupLog: [],
+            groupAppeals: [],
+            openGroup: null,
           }),
       };
     },
@@ -403,6 +510,10 @@ export const useBoard = create<BoardState>()(
         council: state.council,
         admin: state.admin,
         zipCorrections: state.zipCorrections,
+        groups: state.groups,
+        groupNotes: state.groupNotes,
+        groupLog: state.groupLog,
+        groupAppeals: state.groupAppeals,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         posts: state.posts,
@@ -445,6 +556,10 @@ export const useBoard = create<BoardState>()(
           council: saved.council === true,
           admin: saved.admin === true,
           zipCorrections: Array.isArray(saved.zipCorrections) ? saved.zipCorrections : [],
+          groups: Array.isArray(saved.groups) && saved.groups.length > 0 ? saved.groups : SEED_GROUPS.map((group) => ({ ...group })),
+          groupNotes: Array.isArray(saved.groupNotes) ? saved.groupNotes : [],
+          groupLog: Array.isArray(saved.groupLog) ? saved.groupLog : [],
+          groupAppeals: Array.isArray(saved.groupAppeals) ? saved.groupAppeals : [],
           messages: pruneMessages(saved.messages ?? [], Date.now()),
         };
       },
