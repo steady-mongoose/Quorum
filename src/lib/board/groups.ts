@@ -1,9 +1,12 @@
-// Theme groups sit beside town and congregation rooms. Join and leave use
-// the same `{ kind: "group", id }` list Home already sorts. A group admin
-// moderates under the room guard rails: a mark is logged and does not
-// reorder, and a hard removal is only threat, pornography, or CSAM.
-// Stewards hear appeals. No likes, reshares, or scores.
+// Theme groups sit beside town and congregation rooms. A member requests one.
+// A steward of a room they have joined approves it, and the requester becomes
+// the admin. Join and leave use the same `{ kind: "group", id }` list Home
+// already sorts. A group admin moderates under the room guard rails: a mark
+// is logged and does not reorder, and a hard removal is only threat,
+// pornography, or CSAM. Stewards hear appeals. The interface is English.
+// Notes are not checked for language. No likes, reshares, or scores.
 
+import { isRoomSteward, type AccessRow } from "./access.ts";
 import type { HomeEntry } from "./home.ts";
 import type { HardRule, Mark } from "./model.ts";
 
@@ -91,37 +94,81 @@ export function groupIdFor(name: string): string {
     .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 }
 
-/**
- * Groups are in English. This refuses a body that is substantially not
- * Latin script. It does not translate, and it does not try to tell
- * English from another Latin-script language.
- */
-export function englishOnly(text: string): GroupResult<string> {
+function written(text: string, empty: string): GroupResult<string> {
   const body = text.trim();
-  if (!body) return { ok: false, error: "Write something." };
-  const letters = [...body].filter((ch) => /\p{L}/u.test(ch));
-  const nonLatin = letters.filter((ch) => !/\p{Script=Latin}/u.test(ch));
-  if (nonLatin.length >= 8 || (letters.length > 0 && nonLatin.length / letters.length > 0.2)) {
-    return { ok: false, error: "Groups are in English." };
-  }
+  if (!body) return { ok: false, error: empty };
   return { ok: true, value: body };
 }
 
-export function createGroup(actor: string, name: string, about: string, groups: readonly ThemeGroup[], now: number): GroupResult<ThemeGroup> {
-  const who = actor.trim();
-  if (!who) return { ok: false, error: "A group needs a member as its admin." };
-  const titled = englishOnly(name);
+/** A member asks. The group does not exist until a steward of their room approves. */
+export type GroupRequest = {
+  id: string;
+  groupId: string;
+  name: string;
+  about: string;
+  by: string;
+  /** A room the requester has joined. A steward of this room decides. */
+  roomId: string;
+  at: number;
+  status: "open" | "approved" | "refused";
+  decidedBy: string;
+  decidedAt: number | null;
+  note: string;
+};
+
+export function requestGroup(
+  actor: string,
+  joinedRoomIds: readonly string[],
+  groups: readonly ThemeGroup[],
+  requests: readonly GroupRequest[],
+  draft: { name: string; about: string; roomId: string },
+  now: number,
+  id: string,
+): GroupResult<GroupRequest> {
+  const by = actor.trim();
+  if (!by) return { ok: false, error: "A member asks for a group." };
+  const titled = written(draft.name, "Name the group.");
   if (!titled.ok) return titled;
-  const blurb = englishOnly(about);
+  const blurb = written(draft.about, "Say what the group is.");
   if (!blurb.ok) return blurb;
-  const id = groupIdFor(titled.value);
-  if (!id) return { ok: false, error: "Name the group." };
-  if (groups.some((group) => group.id === id)) return { ok: false, error: "That group is already here." };
-  return { ok: true, value: { id, name: titled.value, about: blurb.value, admin: who, at: now } };
+  const roomId = draft.roomId.trim();
+  if (!roomId || !joinedRoomIds.includes(roomId)) return { ok: false, error: "Ask from a room you have joined." };
+  const groupId = groupIdFor(titled.value);
+  if (!groupId) return { ok: false, error: "Name the group." };
+  if (groups.some((group) => group.id === groupId)) return { ok: false, error: "That group is already here." };
+  if (requests.some((row) => row.groupId === groupId && row.status === "open")) return { ok: false, error: "That group already has an open request." };
+  return {
+    ok: true,
+    value: { id, groupId, name: titled.value, about: blurb.value, by, roomId, at: now, status: "open", decidedBy: "", decidedAt: null, note: "" },
+  };
+}
+
+/** Approve creates the group and makes the requester its admin. The request row keeps the decision. */
+export function decideGroupRequest(
+  actor: string,
+  log: readonly AccessRow[],
+  groups: readonly ThemeGroup[],
+  request: GroupRequest | undefined,
+  decision: "approved" | "refused",
+  note: string,
+  now: number,
+): GroupResult<{ request: GroupRequest; group: ThemeGroup | null }> {
+  const by = actor.trim();
+  if (!request || request.status !== "open") return { ok: false, error: "That request is not open." };
+  if (!isRoomSteward(log, by, request.roomId)) return { ok: false, error: "A steward of that room decides a group." };
+  if (by === request.by) return { ok: false, error: "Someone else decides a group." };
+  const reason = note.trim();
+  if (!reason) return { ok: false, error: "Write the decision down." };
+  if (decision === "refused") {
+    return { ok: true, value: { request: { ...request, status: "refused", decidedBy: by, decidedAt: now, note: reason }, group: null } };
+  }
+  if (groups.some((group) => group.id === request.groupId)) return { ok: false, error: "That group is already here." };
+  const group: ThemeGroup = { id: request.groupId, name: request.name, about: request.about, admin: request.by, at: now };
+  return { ok: true, value: { request: { ...request, status: "approved", decidedBy: by, decidedAt: now, note: reason }, group } };
 }
 
 export function fileGroupNote(
@@ -135,7 +182,7 @@ export function fileGroupNote(
   if (!group) return { ok: false, error: "That group is not here." };
   const who = actor.trim();
   if (!who || (!joined && who !== group.admin)) return { ok: false, error: "Join the group before you post." };
-  const body = englishOnly(draft.body);
+  const body = written(draft.body, "Write something.");
   if (!body.ok) return body;
   const on = draft.on.trim();
   if (on && !isIsoDate(on)) return { ok: false, error: "The date has to be a calendar day." };
@@ -204,7 +251,7 @@ export function appealGroupNote(
   if (actor.trim() !== note.author) return { ok: false, error: "Only the author can appeal." };
   if (!note.mark && !note.removed) return { ok: false, error: "There is nothing to appeal." };
   if (appeals.some((appeal) => appeal.noteId === note.id && appeal.status === "open")) return { ok: false, error: "That appeal is already with the stewards." };
-  const body = englishOnly(text);
+  const body = written(text, "Write the appeal.");
   if (!body.ok) return body;
   return {
     ok: true,

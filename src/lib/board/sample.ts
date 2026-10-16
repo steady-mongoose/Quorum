@@ -18,7 +18,7 @@ import {
 } from "@/lib/board/model";
 import { FOUNDING_ADMIN, type AccessRow } from "@/lib/board/access";
 import type { CouncilApproval, HomePlace } from "@/lib/board/home";
-import { SEED_GROUPS, type GroupModerationRow, type GroupNote, type ThemeGroup } from "@/lib/board/groups";
+import { SEED_GROUPS, type GroupModerationRow, type GroupNote, type GroupRequest, type ThemeGroup } from "@/lib/board/groups";
 import { PLACE } from "@/lib/board/places";
 import type { TownRoomRequest } from "@/lib/board/town-rooms";
 
@@ -42,7 +42,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 9;
+export const SAMPLE_VERSION = 10;
 
 export type SampleBoard = {
   me: string;
@@ -56,6 +56,7 @@ export type SampleBoard = {
   joined: HomePlace[];
   councilApprovals: CouncilApproval[];
   groups: ThemeGroup[];
+  groupRequests: GroupRequest[];
   groupNotes: GroupNote[];
   groupLog: GroupModerationRow[];
   /** Rule 9 log, including the one-time founding seat. */
@@ -233,6 +234,21 @@ export function sampleBoard(): SampleBoard {
       { id: "gn-brew", groupId: "brewing", author: "Luis", body: "First Saturday, brown ale. Growlers welcome.", on: iso(2), at: ago(2), mark: null, removed: false, removedFor: null },
     ],
     groupLog: [{ id: "gm1", noteId: "gn-old", groupId: "carpentry", by: "Tom", action: "mark", mark: "sloppy", reason: "sloppy", at: ago(19) }],
+    groupRequests: [
+      {
+        id: "gr-bees",
+        groupId: "beekeeping",
+        name: "Beekeeping",
+        about: "Hives and the first spring check.",
+        by: "Maria",
+        roomId: PLACE.rvShop,
+        at: ago(1),
+        status: "open",
+        decidedBy: "",
+        decidedAt: null,
+        note: "",
+      },
+    ],
     accessLog: sampleAccessLog(ago),
     townRoomRequests: [
       {

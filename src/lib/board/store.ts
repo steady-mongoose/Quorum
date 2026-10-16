@@ -48,14 +48,16 @@ import { CONGREGATIONS, directoryRooms, type LocalRoom } from "@/lib/board/place
 import {
   SEED_GROUPS,
   appealGroupNote,
-  createGroup,
   decideGroupAppeal,
+  decideGroupRequest,
   fileGroupNote,
   markGroupNote,
   removeGroupNote,
+  requestGroup,
   type GroupAppeal,
   type GroupModerationRow,
   type GroupNote,
+  type GroupRequest,
   type GroupResult,
   type ThemeGroup,
 } from "@/lib/board/groups";
@@ -96,8 +98,9 @@ type BoardState = {
   townRoomRequests: TownRoomRequest[];
   /** Admin overlays on the census ZIP seed. Newest row for a ZIP wins. */
   zipCorrections: ZipCorrection[];
-  /** Interest groups. Seeded, and a member may add one and become its admin. */
+  /** Interest groups. Seeded, and created when a steward approves a request. */
   groups: ThemeGroup[];
+  groupRequests: GroupRequest[];
   groupNotes: GroupNote[];
   groupLog: GroupModerationRow[];
   groupAppeals: GroupAppeal[];
@@ -125,7 +128,8 @@ type BoardState = {
   correctZip: (zip: string, name: string, state: string) => GateResult<ZipCorrection>;
   clearZip: (zip: string) => GateResult<ZipCorrection>;
   setOpenGroup: (id: string | null) => void;
-  createGroup: (name: string, about: string) => GroupResult<ThemeGroup>;
+  requestGroup: (name: string, about: string, roomId: string) => { ok: true } | { ok: false; error: string };
+  decideGroupRequest: (id: string, decision: "approved" | "refused", note: string) => { ok: true } | { ok: false; error: string };
   fileGroupNote: (groupId: string, body: string, on: string) => GroupResult<GroupNote>;
   markGroupNote: (noteId: string, mark: Mark | null) => GroupResult<{ note: GroupNote; row: GroupModerationRow }>;
   removeGroupNote: (noteId: string, reason: HardRule) => GroupResult<{ note: GroupNote; row: GroupModerationRow }>;
@@ -247,6 +251,7 @@ export const useBoard = create<BoardState>()(
         townRoomRequests: [],
         zipCorrections: [],
         groups: SEED_GROUPS.map((group) => ({ ...group })),
+        groupRequests: [],
         groupNotes: [],
         groupLog: [],
         groupAppeals: [],
@@ -294,10 +299,21 @@ export const useBoard = create<BoardState>()(
           return result;
         },
         setOpenGroup: (openGroup) => set({ openGroup, section: openGroup ? "groups" : get().section }),
-        createGroup: (name, about) => {
-          const result = createGroup(me(), name, about, get().groups, Date.now());
-          if (result.ok) set({ groups: [...get().groups, result.value], openGroup: result.value.id });
-          return result;
+        requestGroup: (name, about, roomId) => {
+          const joinedRooms = get().joined.flatMap((place) => (place.kind === "room" ? [place.id] : []));
+          const result = requestGroup(me(), joinedRooms, get().groups, get().groupRequests, { name, about, roomId }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ groupRequests: [...get().groupRequests, result.value] });
+          return result.ok ? { ok: true } : result;
+        },
+        decideGroupRequest: (id, decision, note) => {
+          const request = get().groupRequests.find((row) => row.id === id);
+          const result = decideGroupRequest(me(), get().accessLog, get().groups, request, decision, note, Date.now());
+          if (!result.ok) return result;
+          set({
+            groupRequests: get().groupRequests.map((row) => (row.id === id ? result.value.request : row)),
+            groups: result.value.group ? [...get().groups, result.value.group] : get().groups,
+          });
+          return { ok: true };
         },
         fileGroupNote: (groupId, body, on) => {
           const group = get().groups.find((item) => item.id === groupId);
@@ -617,6 +633,7 @@ export const useBoard = create<BoardState>()(
             councilApprovals: [],
             zipCorrections: [],
             groups: SEED_GROUPS.map((group) => ({ ...group })),
+            groupRequests: [],
             groupNotes: [],
             groupLog: [],
             groupAppeals: [],
@@ -649,6 +666,7 @@ export const useBoard = create<BoardState>()(
         townRoomRequests: state.townRoomRequests,
         zipCorrections: state.zipCorrections,
         groups: state.groups,
+        groupRequests: state.groupRequests,
         groupNotes: state.groupNotes,
         groupLog: state.groupLog,
         groupAppeals: state.groupAppeals,
@@ -703,6 +721,7 @@ export const useBoard = create<BoardState>()(
           townRoomRequests: Array.isArray(saved.townRoomRequests) ? saved.townRoomRequests : [],
           zipCorrections: Array.isArray(saved.zipCorrections) ? saved.zipCorrections : [],
           groups: Array.isArray(saved.groups) && saved.groups.length > 0 ? saved.groups : SEED_GROUPS.map((group) => ({ ...group })),
+          groupRequests: Array.isArray(saved.groupRequests) ? saved.groupRequests : [],
           groupNotes: Array.isArray(saved.groupNotes) ? saved.groupNotes : [],
           groupLog: Array.isArray(saved.groupLog) ? saved.groupLog : [],
           groupAppeals: Array.isArray(saved.groupAppeals) ? saved.groupAppeals : [],

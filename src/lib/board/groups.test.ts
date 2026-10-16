@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { homeOrder, type HomeCatalog, type HomeMember } from "./home.ts";
+import type { AccessRow } from "./access.ts";
 import {
   SEED_GROUPS,
   appealGroupNote,
-  createGroup,
   decideGroupAppeal,
-  englishOnly,
+  decideGroupRequest,
   fileGroupNote,
   groupFeed,
   groupHomeEntries,
   markGroupNote,
   removeGroupNote,
+  requestGroup,
   type GroupAppeal,
   type GroupNote,
   type ThemeGroup,
@@ -35,27 +36,69 @@ function note(patch: Partial<GroupNote> & Pick<GroupNote, "id">): GroupNote {
   };
 }
 
-describe("english", () => {
-  it("accepts English and refuses a substantial non-Latin body", () => {
-    assert.equal(englishOnly("  Saturday bench, bring a plane. ").ok, true);
-    assert.equal(englishOnly("José's saw").ok, true);
-    assert.equal(englishOnly("").ok, false);
-    assert.equal(englishOnly("Суббота в мастерской, принеси рубанок пожалуйста").ok, false);
-    assert.equal(englishOnly("木工の夜").ok, false);
-  });
-});
+function access(patch: Partial<AccessRow> & Pick<AccessRow, "id" | "name" | "role" | "roomId">): AccessRow {
+  return {
+    action: "grant",
+    vouchedBy: "Josh",
+    approvedBy: "Josh",
+    by: "Josh",
+    at: 1,
+    note: "",
+    ...patch,
+  };
+}
+
+const shopLog: AccessRow[] = [
+  access({ id: "m-maria", name: "Maria", role: "member", roomId: "rv-shop" }),
+  access({ id: "s-josh", name: "Josh", role: "steward", roomId: "rv-shop", at: 2 }),
+  access({ id: "s-tom", name: "Tom", role: "steward", roomId: "other-room", at: 3 }),
+];
 
 describe("groups", () => {
-  it("seeds the interest groups and refuses a duplicate name", () => {
+  it("seeds the interest groups and does not create one until a steward of that room approves", () => {
     assert.deepEqual(
       SEED_GROUPS.map((group) => group.id),
       ["carpentry", "gardening", "brewing", "literary", "christian-businesses"],
     );
-    const made = createGroup("Josh", "Beekeeping", "Hives and the first spring check.", SEED_GROUPS, 10);
-    assert.equal(made.ok, true);
-    if (made.ok) assert.equal(made.value.admin, "Josh");
-    assert.equal(createGroup("Josh", "Carpentry", "Another shop.", SEED_GROUPS, 10).ok, false);
-    assert.equal(createGroup("Josh", "木工", "Shop.", SEED_GROUPS, 10).ok, false);
+    const asked = requestGroup("Maria", ["rv-shop"], SEED_GROUPS, [], { name: "Beekeeping", about: "Hives and the first spring check.", roomId: "rv-shop" }, 5, "gr1");
+    assert.equal(asked.ok, true);
+    if (!asked.ok) return;
+    assert.equal(SEED_GROUPS.some((group) => group.id === "beekeeping"), false);
+    const kanji = requestGroup("Maria", ["rv-shop"], SEED_GROUPS, [], { name: "木工", about: "木工の夜", roomId: "rv-shop" }, 5, "gr-k");
+    assert.equal(kanji.ok, true);
+    if (kanji.ok) assert.equal(kanji.value.groupId, "木工");
+    assert.equal(decideGroupRequest("Maria", shopLog, SEED_GROUPS, asked.value, "approved", "Fine.", 6).ok, false);
+    assert.equal(decideGroupRequest("Tom", shopLog, SEED_GROUPS, asked.value, "approved", "Fine.", 6).ok, false);
+    assert.equal(decideGroupRequest("Pete", shopLog, SEED_GROUPS, asked.value, "approved", "Fine.", 6).ok, false);
+    assert.equal(decideGroupRequest("Josh", shopLog, SEED_GROUPS, asked.value, "approved", "", 6).ok, false);
+    const approved = decideGroupRequest("Josh", shopLog, SEED_GROUPS, asked.value, "approved", "Members asked.", 6);
+    assert.equal(approved.ok, true);
+    if (!approved.ok) return;
+    assert.equal(approved.value.group?.admin, "Maria");
+    assert.equal(approved.value.group?.id, "beekeeping");
+    assert.equal(approved.value.request.status, "approved");
+    assert.equal(approved.value.request.decidedBy, "Josh");
+    assert.equal(approved.value.request.note, "Members asked.");
+  });
+
+  it("refuses a request from a room you have not joined, a duplicate, and a second open request", () => {
+    assert.equal(requestGroup("Maria", [], SEED_GROUPS, [], { name: "Beekeeping", about: "Hives.", roomId: "rv-shop" }, 1, "gr").ok, false);
+    assert.equal(requestGroup("Maria", ["rv-shop"], SEED_GROUPS, [], { name: "Carpentry", about: "Another.", roomId: "rv-shop" }, 1, "gr").ok, false);
+    const open = requestGroup("Maria", ["rv-shop"], SEED_GROUPS, [], { name: "Beekeeping", about: "Hives.", roomId: "rv-shop" }, 1, "gr");
+    assert.equal(open.ok, true);
+    if (!open.ok) return;
+    assert.equal(requestGroup("Ruth", ["rv-shop"], SEED_GROUPS, [open.value], { name: "Beekeeping", about: "Also.", roomId: "rv-shop" }, 2, "gr2").ok, false);
+    const refused = decideGroupRequest("Josh", shopLog, SEED_GROUPS, open.value, "refused", "Not yet.", 3);
+    assert.equal(refused.ok, true);
+    if (refused.ok) assert.equal(refused.value.group, null);
+  });
+
+  it("accepts a note and an appeal in any script", () => {
+    const filed = fileGroupNote("Josh", carpentry, true, { body: "木工の夜", on: "" }, 5, "n-k");
+    assert.equal(filed.ok, true);
+    const appeal = appealGroupNote("Josh", note({ id: "n1", mark: "sloppy" }), [], "木工の夜", 6, "a-k");
+    assert.equal(appeal.ok, true);
+    assert.equal(fileGroupNote("Josh", carpentry, true, { body: "   ", on: "" }, 5, "n-blank").ok, false);
   });
 
   it("lets a joined member post, and keeps the feed newest-first with marks in place", () => {
