@@ -1,25 +1,37 @@
 import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { runPreSignInSignOut, runSignOut } from "../../../scripts/sign-out-plan.mjs";
+import { apiBaseUrl, softenFetch } from "../api-base";
 import { GROK_PROVIDERS } from "./providers";
 
 /**
  * Better Auth client for this React SPA (browser-side).
  *
- * Talks to this app's OWN Better Auth at same-origin `/api/auth/*`. In the live
- * preview the app is an embedded iframe with PARTITIONED cookies, so after a
- * popup sign-in it can't read the session cookie — it authenticates with a
+ * Talks to this app's OWN Better Auth at `/api/auth/*`. With `VITE_API_BASE_URL`
+ * set, that origin is the dedicated-box API (for example
+ * `https://api.avouchsocial.com`). Otherwise requests stay same-origin. In the
+ * live preview the app is an embedded iframe with PARTITIONED cookies, so after
+ * a popup sign-in it can't read the session cookie — it authenticates with a
  * bearer token instead (captured from the popup, see `signIn`). The `onRequest`
  * hook attaches that token when present; when deployed (cookie auth) no token
  * is stored, so nothing changes.
+ *
+ * `softenFetch` turns a network failure or an HTML body (the static host's SPA
+ * fallback) into a JSON 503 so a missing API does not get parsed as a session.
  *
  * To sign out call `signOut()` below, NOT `authClient.signOut()`: the raw call
  * leaves the bearer token in place, and `onRequest` keeps re-attaching it, so
  * the visitor stays signed in.
  */
+const apiBase = apiBaseUrl();
+
 export const authClient = createAuthClient({
+  ...(apiBase ? { baseURL: apiBase } : {}),
   plugins: [genericOAuthClient()],
   fetchOptions: {
+    // Cross-origin cookies only travel when the API allows this origin.
+    ...(apiBase ? { credentials: "include" as const } : {}),
+    customFetchImpl: softenFetch,
     onRequest(ctx) {
       const token = getBearerToken();
       if (token) ctx.headers.set("Authorization", `Bearer ${token}`);
@@ -73,10 +85,7 @@ function setBearerToken(token: string | null): void {
  * popup there and a normal redirect everywhere else.
  */
 function inLivePreview(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.location.hostname.endsWith(".grok-sandbox.com")
-  );
+  return typeof window !== "undefined" && window.location.hostname.endsWith(".grok-sandbox.com");
 }
 
 /** Message the popup posts back to the opener once sign-in completes. */
@@ -136,7 +145,11 @@ export async function signIn(
     if (typeof window !== "undefined") {
       const dest = new URL(callbackURL, window.location.origin);
       const here = window.location;
-      if (dest.origin !== here.origin || dest.pathname !== here.pathname || dest.search !== here.search) {
+      if (
+        dest.origin !== here.origin ||
+        dest.pathname !== here.pathname ||
+        dest.search !== here.search
+      ) {
         window.location.href = callbackURL;
       }
     }
