@@ -1,7 +1,7 @@
-// The Hall: your church, your shop, your county. Show up.
+// Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
-export const APP_NAME = "The Hall";
+export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
 
 export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "baptist" | "presbyterian" | "latin" | "orthodox" | "dispatch";

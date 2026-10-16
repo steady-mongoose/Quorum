@@ -1,4 +1,4 @@
-# The Hall: Project Charter
+# Avouch Social: Project Charter
 
 Live copy, for editing and comments: [Google Doc](https://docs.google.com/document/d/1FH7gENeuPMeL3j5nGFiH9w5mEmbrhfMvMCTRjWEvehU/edit). This file is the version kept with the code; when the two disagree, the Google Doc is the one the team is editing.
 
@@ -27,7 +27,7 @@ The brief calls for five roles with one name each: Product lead, App owner, Infr
 
 Code: [github.com/steady-mongoose/Quorum](https://github.com/steady-mongoose/Quorum)
 
-Quorum, the original campaign tool, is the engine of The County room. The Hall's rules live in `src/lib/board/model.ts`; the README explains how to run it, how it works, and the sample week that loads from the door or the About page.
+Quorum, the original campaign tool, is the engine of The County room. Avouch Social's rules live in `src/lib/board/model.ts`; the README explains how to run it, how it works, and the sample week that loads from the door or the About page.
 
 ## Mission statement
 
@@ -88,7 +88,7 @@ These are settled so they are not reopened on the weekly call.
 
 ## Open items
 
-- Product name on the door (The Hall for now) and the LLC name.
+- Product name on the door is Avouch Social. The LLC name is still open.
 - The five role holders.
 - The mission statement and the "What we stand for" copy.
 - One-sentence definition of the proposed content rule flagged in the brief, or a decision to drop it. Nothing switches on until a sentence exists that a steward can apply the same way to every user.

@@ -1,4 +1,4 @@
-// Looks for The Hall. One mark, set by the owner, on every screen. The
+// Looks for Avouch Social. One mark, set by the owner, on every screen. The
 // others stay here for when the owner changes it.
 
 export type ThemeId = "plain" | "appeal" | "jerusalem" | "gadsden";

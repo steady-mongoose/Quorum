@@ -22,7 +22,7 @@ const STEPS = [
   { do: "Organizing one? Press \"Start a call.\"", why: "Choose the official, write the message, set the hour, and copy the script to your group text." },
 ];
 
-/** The Quorum desk, as the engine of The Hall's County room. */
+/** The Quorum desk, as the engine of Avouch Social's County room. */
 export function QuorumPanel() {
   const view = useQuorum((state) => state.view);
   const setView = useQuorum((state) => state.setView);
