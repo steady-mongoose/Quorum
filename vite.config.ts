@@ -145,6 +145,12 @@ function authPopupPlugin(): Plugin {
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
+//
+// `BUILD_TARGET=frontend` (`npm run build:frontend`) emits a static SPA for
+// Cloudflare Workers. It skips the Nitro/Vercel server so the dedicated-box
+// API is not uploaded with the static site. `npm run build` is unchanged.
+const staticFrontend = process.env.BUILD_TARGET === "frontend";
+
 export default defineConfig(({ command, isPreview }) => ({
   server: {
     host: "0.0.0.0",
@@ -157,6 +163,7 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  ...(staticFrontend ? { build: { outDir: "dist/frontend" } } : {}),
   plugins: [
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
@@ -166,8 +173,24 @@ export default defineConfig(({ command, isPreview }) => ({
     // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
     grokPwaPlugin(),
     tailwindcss(),
-    tanstackStart(),
-    ...(command === "build" || isPreview
+    tanstackStart(
+      staticFrontend
+        ? {
+            // Shell at dist/frontend/client/index.html. Workers SPA fallback
+            // serves that file for client routes that are not real assets.
+            spa: {
+              enabled: true,
+              prerender: {
+                outputPath: "/index",
+                crawlLinks: false,
+              },
+            },
+          }
+        : undefined,
+    ),
+    // The Vercel/Nitro server stays on `npm run build`. The static frontend
+    // build must not emit it: Cloudflare hosts assets only.
+    ...((command === "build" || isPreview) && !staticFrontend
       ? [
           nitro({
             preset: "vercel",

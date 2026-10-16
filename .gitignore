@@ -5,6 +5,7 @@ node_modules
 screenshots
 artifacts
 dist
+.wrangler
 .env
 .env.*
 !.env.example
