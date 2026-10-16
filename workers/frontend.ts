@@ -1,5 +1,5 @@
 /**
- * Edge gate for the static hall.
+ * Edge gate for the Avouch Social static site.
  *
  * `/api/*` is not the SPA. Until the dedicated box is wired up, every method
  * gets a JSON 503. Paths with a file extension are real files: a miss is a

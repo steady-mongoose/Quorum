@@ -1,8 +1,8 @@
-# The Hall
+# Avouch Social
 
 **An invite-only social app for your church, your shop, and your county.**
 
-The Hall is a social network built around showing up. It holds where a small set of people meet, who said they'd be there, what they did, and what the parish needs this week. Members get in by a host's code to one real event; they RSVP, the host takes roll, and the people you've stood in a room with are the people you can message. There is no feed algorithm, no reshare, no likes, no scores. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
+Avouch Social is a social network built around showing up. It holds where a small set of people meet, who said they'd be there, what they did, and what the parish needs this week. Members get in by a host's code to one real event; they RSVP, the host takes roll, and the people you've stood in a room with are the people you can message. There is no feed algorithm, no reshare, no likes, no scores. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
 
 Quorum (below) is the engine of The County room. A campaign is one demand on one office in one hour; while its window is open it is **this week's call** on the front page, and every call, letter, or visit logged on the desk files in The County as a **Did**: an act, a date, one proof.
 
@@ -33,7 +33,7 @@ Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is 
 
 ## Engaging, not addictive: the model
 
-Addictive apps run on variable reward: you open them not knowing what you will get, and that uncertainty is the hook. The Hall runs on **obligation to people you have met**. You open it knowing what you will get: Thursday, the book, the Nelsons' Tuesday. Three loops do the work, and each has a built-in limit that keeps it from turning into a feed.
+Addictive apps run on variable reward: you open them not knowing what you will get, and that uncertainty is the hook. Avouch Social runs on **obligation to people you have met**. You open it knowing what you will get: Thursday, the book, the Nelsons' Tuesday. Three loops do the work, and each has a built-in limit that keeps it from turning into a feed.
 
 | Loop | What pulls you back | The limit that keeps it honest |
 |---|---|---|

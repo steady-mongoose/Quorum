@@ -8,7 +8,7 @@
  *
  * The static Worker answers `/api` with a JSON 503 until the dedicated box
  * exists. An HTML body (a shell, or an error page) is still treated as
- * unavailable, so the page never parses the hall as JSON.
+ * unavailable, so the page never parses the site shell as JSON.
  */
 
 const HTML_TYPE = /text\/html/i;

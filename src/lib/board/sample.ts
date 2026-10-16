@@ -1,4 +1,4 @@
-// Seed cards from the brief, and a sample week at The Hall: one invite-only
+// Seed cards from the brief, and a sample week at Avouch Social: one invite-only
 // group around Brandon and Riverview. Every name in the week is invented.
 
 import {

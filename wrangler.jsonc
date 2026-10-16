@@ -6,6 +6,12 @@
   // Default `wrangler deploy` publishes the preview Worker (workers.dev, no
   // custom domains). Custom domains are the `production` environment and are
   // attached only by `wrangler deploy --env production`.
+  //
+  // Do not set `name` to "quorum". A separate Worker with that name
+  // (quorum.xpkiro.workers.dev) is connected to this repo through Cloudflare
+  // Workers Builds and reads this file. Giving it this name would publish
+  // this site onto that Worker. Disconnect that connection in the dashboard:
+  // Workers & Pages → quorum → Settings → Builds → Disconnect.
   "name": "avouchsocial-preview",
   "compatibility_date": "2026-10-15",
   "workers_dev": true,

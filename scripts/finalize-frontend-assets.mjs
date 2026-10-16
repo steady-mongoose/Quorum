@@ -11,10 +11,10 @@ import { join } from "node:path";
 
 const clientDir = join(process.cwd(), "dist/frontend/client");
 
-// Document title from src/routes/__root.tsx. English only.
+// Document title from APP_NAME in src/lib/board/model.ts. English only.
 const manifest = {
-  name: "The Hall",
-  short_name: "The Hall",
+  name: "Avouch Social",
+  short_name: "Avouch Social",
   id: "/",
   start_url: "/",
   scope: "/",
