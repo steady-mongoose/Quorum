@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
-import { CONGREGATIONS, MEMBER_ROOMS, localRoomLabel } from "@/lib/board/places";
+import { CONGREGATIONS, directoryRooms, localRoomLabel } from "@/lib/board/places";
 import { useBoard } from "@/lib/board/store";
 import { resolvedTown } from "@/lib/board/zcta";
 import { ZCTA_SEED } from "@/lib/board/zcta-seed";
@@ -25,6 +25,8 @@ export function ProfileView() {
   const openDm = useBoard((state) => state.openDm);
   const admin = useBoard((state) => state.admin);
   const corrections = useBoard((state) => state.zipCorrections);
+  const extraTownRooms = useBoard((state) => state.extraTownRooms);
+  const rooms = useMemo(() => directoryRooms(extraTownRooms), [extraTownRooms]);
   const correctZip = useBoard((state) => state.correctZip);
   const clearZip = useBoard((state) => state.clearZip);
   const [fixZip, setFixZip] = useState("");
@@ -174,7 +176,7 @@ export function ProfileView() {
           <h2 className="text-2xl text-fg">Rooms you've joined</h2>
           <p className="max-w-prose text-sm text-muted">Joined rooms come first on the front page. Your town's other rooms come next, from the ZIP above. Leaving a room does not erase its cards.</p>
           <ul className="flex flex-col gap-2 lg:max-w-xl">
-            {MEMBER_ROOMS.map((room) => {
+            {rooms.map((room) => {
               const on = joined.some((place) => place.kind === "room" && place.id === room.id);
               return (
                 <li key={room.id} className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface px-3 py-2">

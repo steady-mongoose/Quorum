@@ -21,7 +21,7 @@ import {
   type MeetingCard,
   type RoomId,
 } from "@/lib/board/model";
-import { MEMBER_ROOMS, localRoomLabel } from "@/lib/board/places";
+import { directoryRooms, localRoomLabel } from "@/lib/board/places";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -308,6 +308,8 @@ function AddCard({ me }: { me: string }) {
   const [kind, setKind] = useState<CardKind>("meeting");
   const [fields, setFields] = useState({ name: "", place: "", time: "", host: "", next: "", firstTimer: false, book: "", pages: "" });
   const [localRoomId, setLocalRoomId] = useState("");
+  const extraTownRooms = useBoard((state) => state.extraTownRooms);
+  const localRooms = useMemo(() => directoryRooms(extraTownRooms), [extraTownRooms]);
   const [days, setDays] = useState<string[]>([]);
   const reading = room === "shelf" && kind === "meeting";
   const kinds = roomById(room).cardKinds;
@@ -366,7 +368,7 @@ function AddCard({ me }: { me: string }) {
           Town, church, or county
           <select className={fieldClass} value={localRoomId} onChange={(event) => setLocalRoomId(event.target.value)}>
             <option value="">Leave off the front page</option>
-            {MEMBER_ROOMS.map((item) => (
+            {localRooms.map((item) => (
               <option key={item.id} value={item.id}>
                 {localRoomLabel(item)}
               </option>

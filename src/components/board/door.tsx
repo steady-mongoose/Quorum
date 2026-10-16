@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { APP_NAME, ROOMS, formatDate } from "@/lib/board/model";
+import { APP_NAME, FOUNDER_CODE, ROOMS, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 /** What a typical week looks like. Nothing from any real card; the shape only. */
@@ -21,6 +21,8 @@ const WEEK = [
 export function Door() {
   const redeemInvite = useBoard((state) => state.redeemInvite);
   const loadSample = useBoard((state) => state.loadSample);
+  const seatFoundingAdmin = useBoard((state) => state.seatFoundingAdmin);
+  const bootstrapped = useBoard((state) => state.bootstrapped);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -59,6 +61,10 @@ export function Door() {
           className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
           onSubmit={(event) => {
             event.preventDefault();
+            if (code.trim().toUpperCase() === FOUNDER_CODE) {
+              setOutcome("That code no longer opens the box. Seat Josh once, below. After that, a host's code is the way in.");
+              return;
+            }
             const result = redeemInvite(code, name);
             if (result === null) setOutcome("That code is spent or stale, or the name is blank. Ask the host for another.");
             else if (result === "founder") setOutcome(null);
@@ -81,6 +87,21 @@ export function Door() {
         </form>
 
         <section className="flex flex-col gap-2 border-t border-line pt-5">
+          <p className="text-sm text-muted">
+            {bootstrapped
+              ? "Josh is already seated as founding admin and council chair. That seat does not run again."
+              : "One seat, once: Josh becomes the founding admin and council chair. It refuses to run a second time."}
+          </p>
+          <button
+            type="button"
+            className={cn(btnGhost, "self-start")}
+            onClick={() => {
+              const result = seatFoundingAdmin();
+              if (!result.ok) setOutcome(result.error);
+            }}
+          >
+            Seat Josh, founding admin
+          </button>
           <p className="text-sm text-muted">Just looking? The sample week is six invented members and a week of cards. You become Josh.</p>
           <button type="button" className={cn(btnGhost, "self-start")} onClick={loadSample}>
             Load the sample week

@@ -37,10 +37,11 @@ export function WeekView() {
   const joined = useBoard((state) => state.joined);
   const approvals = useBoard((state) => state.councilApprovals);
   const corrections = useBoard((state) => state.zipCorrections);
+  const extraTownRooms = useBoard((state) => state.extraTownRooms);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
   const today = todayIso();
-  const catalog = useMemo(() => homeCatalog(zipRowsForMember(profile.zip, ZCTA_SEED, corrections)), [corrections, profile.zip]);
+  const catalog = useMemo(() => homeCatalog(zipRowsForMember(profile.zip, ZCTA_SEED, corrections), extraTownRooms), [corrections, extraTownRooms, profile.zip]);
   const member = useMemo(() => toHomeMember(profile, joined, CONGREGATIONS), [profile, joined]);
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
   const needs = useMemo(() => needsFor(cards), [cards]);

@@ -31,10 +31,23 @@ import {
   type RoomId,
   type Section,
 } from "@/lib/board/model";
+import {
+  founderNameFromEnv,
+  grantAdmin,
+  grantMember,
+  grantSteward,
+  revokeAccess,
+  stewardRooms,
+  seatFounder,
+  type AccessResult,
+  type AccessRole,
+  type AccessRow,
+} from "@/lib/board/access";
 import { congregationIdForParish, type CouncilApproval, type HomePlace } from "@/lib/board/home";
-import { CONGREGATIONS } from "@/lib/board/places";
+import { CONGREGATIONS, directoryRooms, type LocalRoom } from "@/lib/board/places";
 import { addCouncilApproval, proposeZipClear, proposeZipCorrection, revokeCouncilApproval, type GateResult } from "@/lib/board/roles";
 import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
+import { decideTownRoom, requestTownRoom, type TownRoomRequest } from "@/lib/board/town-rooms";
 import type { ZipCorrection } from "@/lib/board/zcta";
 
 type BoardState = {
@@ -58,6 +71,15 @@ type BoardState = {
   council: boolean;
   /** May revoke a council approval and correct a ZIP. Not granted by the founder code. */
   admin: boolean;
+  /** The one-time founding seat. Josh, admin and council chair. */
+  councilChair: boolean;
+  /** True after the bootstrap has seated Josh. It does not run again. */
+  bootstrapped: boolean;
+  /** Charter rule 9. Grants and revocations. Newest row wins. */
+  accessLog: AccessRow[];
+  /** Town rooms created only after an admin or steward approves a request. */
+  extraTownRooms: LocalRoom[];
+  townRoomRequests: TownRoomRequest[];
   /** Admin overlays on the census ZIP seed. Newest row for a ZIP wins. */
   zipCorrections: ZipCorrection[];
   /** Whose profile is open. */
@@ -82,6 +104,16 @@ type BoardState = {
   revokeApproval: (entryId: string) => GateResult<CouncilApproval>;
   correctZip: (zip: string, name: string, state: string) => GateResult<ZipCorrection>;
   clearZip: (zip: string) => GateResult<ZipCorrection>;
+  /** Env var path. No-ops when the var is unset. Refuses after the first seat. */
+  bootstrapFromEnv: () => AccessResult<unknown> | { ok: false; error: string };
+  /** Door command. Seats Josh once. */
+  seatFoundingAdmin: () => AccessResult<unknown>;
+  vouchMember: (name: string, roomId: string) => AccessResult<AccessRow>;
+  appointSteward: (name: string, roomId: string, inviter: string) => AccessResult<AccessRow>;
+  appointAdmin: (name: string, stewardApprover: string) => AccessResult<AccessRow>;
+  revokeRole: (name: string, role: AccessRole, roomId: string) => AccessResult<AccessRow>;
+  requestTownRoom: (name: string, state: string) => { ok: true } | { ok: false; error: string };
+  decideTownRoom: (id: string, decision: "approved" | "refused", note: string) => { ok: true } | { ok: false; error: string };
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Check;
@@ -103,7 +135,8 @@ type BoardState = {
   createInvite: (cardId: string) => string | null;
   /**
    * The door. A host's code opens its card, sets the name, marks going, and
-   * makes a member. The founder code makes the first member a steward.
+   * makes a member and logs the voucher. The founding admin is seated once,
+   * not by this code.
    * Returns the card, "founder", or null if the code is spent or stale.
    */
   redeemInvite: (code: string, name: string) => MeetingCard | "founder" | null;
@@ -180,6 +213,11 @@ export const useBoard = create<BoardState>()(
         councilApprovals: [],
         council: false,
         admin: false,
+        councilChair: false,
+        bootstrapped: false,
+        accessLog: [],
+        extraTownRooms: [],
+        townRoomRequests: [],
         zipCorrections: [],
         viewing: null,
         steward: false,
@@ -222,6 +260,94 @@ export const useBoard = create<BoardState>()(
           const result = proposeZipClear(get().admin, me(), zip, Date.now(), crypto.randomUUID());
           if (result.ok) set({ zipCorrections: [...get().zipCorrections, result.row] });
           return result;
+        },
+        bootstrapFromEnv: () => {
+          const envName = (import.meta.env.VITE_BOOTSTRAP_OWNER as string | undefined) ?? "";
+          if (!founderNameFromEnv(envName)) return { ok: false, error: "" };
+          const result = seatFounder({
+            bootstrapped: get().bootstrapped,
+            currentMember: get().member ? get().me : "",
+            envName,
+            command: false,
+            now: Date.now(),
+            memberId: crypto.randomUUID(),
+            adminId: crypto.randomUUID(),
+          });
+          if (!result.ok) return result;
+          set({
+            me: result.row.name,
+            member: true,
+            founded: true,
+            bootstrapped: true,
+            admin: true,
+            council: true,
+            councilChair: true,
+            accessLog: [...get().accessLog, ...result.row.rows],
+            section: "week",
+          });
+          return result;
+        },
+        seatFoundingAdmin: () => {
+          const result = seatFounder({
+            bootstrapped: get().bootstrapped,
+            currentMember: get().member ? get().me : "",
+            envName: "",
+            command: true,
+            now: Date.now(),
+            memberId: crypto.randomUUID(),
+            adminId: crypto.randomUUID(),
+          });
+          if (!result.ok) return result;
+          set({
+            me: result.row.name,
+            member: true,
+            founded: true,
+            bootstrapped: true,
+            admin: true,
+            council: true,
+            councilChair: true,
+            accessLog: [...get().accessLog, ...result.row.rows],
+            section: "week",
+          });
+          return result;
+        },
+        vouchMember: (name, roomId) => {
+          const result = grantMember(get().accessLog, me(), { name, roomId }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ accessLog: [...get().accessLog, result.row] });
+          return result;
+        },
+        appointSteward: (name, roomId, inviter) => {
+          const result = grantSteward(get().accessLog, me(), get().councilChair, { name, roomId, inviter }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ accessLog: [...get().accessLog, result.row], steward: result.row.name === me() ? true : get().steward });
+          return result;
+        },
+        appointAdmin: (name, stewardApprover) => {
+          const result = grantAdmin(get().accessLog, me(), { name, stewardApprover }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ accessLog: [...get().accessLog, result.row], admin: result.row.name === me() ? true : get().admin });
+          return result;
+        },
+        revokeRole: (name, role, roomId) => {
+          const result = revokeAccess(get().accessLog, me(), { name, role, roomId }, Date.now(), crypto.randomUUID());
+          if (result.ok) {
+            const log = [...get().accessLog, result.row];
+            set({ accessLog: log, steward: name === me() && role === "steward" ? stewardRooms(log, me()).length > 0 : get().steward });
+          }
+          return result;
+        },
+        requestTownRoom: (name, state) => {
+          const result = requestTownRoom(me(), directoryRooms(get().extraTownRooms), get().townRoomRequests, { name, state }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ townRoomRequests: [...get().townRoomRequests, result.value] });
+          return result.ok ? { ok: true } : result;
+        },
+        decideTownRoom: (id, decision, note) => {
+          const request = get().townRoomRequests.find((row) => row.id === id);
+          const result = decideTownRoom(me(), { admin: get().admin, steward: get().steward }, directoryRooms(get().extraTownRooms), request, decision, note, Date.now());
+          if (!result.ok) return result;
+          set({
+            townRoomRequests: get().townRoomRequests.map((row) => (row.id === id ? result.value.request : row)),
+            extraTownRooms: result.value.room ? [...get().extraTownRooms, result.value.room] : get().extraTownRooms,
+          });
+          return { ok: true };
         },
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
@@ -317,22 +443,24 @@ export const useBoard = create<BoardState>()(
           const typed = code.trim().toUpperCase();
           if (get().member) return null;
           if (typed === FOUNDER_CODE) {
-            // The founder code opens a box once. After that, the box has a steward
-            // and everyone else comes in by a host's code.
-            if (get().founded) return null;
-            set({ me: who, member: true, steward: true, founded: true });
-            return "founder";
+            // The founding admin is seated by the bootstrap, once. The founder
+            // code no longer grants a steward. Charter rule 9 does that.
+            return null;
           }
           const invite = get().invites.find((item) => item.code === typed);
           if (!invite || !inviteLive(invite, Date.now())) return null;
           const card = get().cards.find((item) => item.id === invite.cardId);
           if (!card) return null;
+          const roomId = card.localRoomId || card.room;
+          const vouched = grantMember(get().accessLog, invite.by, { name: who, roomId }, Date.now(), crypto.randomUUID());
+          if (!vouched.ok) return null;
           set({
             me: who,
             member: true,
             invites: get().invites.map((item) => (item.code === invite.code ? { ...item, redeemedBy: who } : item)),
             cards: get().cards.map((item) => (item.id === card.id ? { ...item, going: addName(item.going, who) } : item)),
             joined: card.localRoomId ? addPlace(get().joined, { kind: "room", id: card.localRoomId }) : get().joined,
+            accessLog: [...get().accessLog, vouched.row],
           });
           return card;
         },
@@ -361,7 +489,10 @@ export const useBoard = create<BoardState>()(
             steward: true,
             council: true,
             admin: true,
+            councilChair: true,
+            bootstrapped: true,
             zipCorrections: [],
+            extraTownRooms: [],
             invites: [],
             removals: [],
             openThread: null,
@@ -383,6 +514,8 @@ export const useBoard = create<BoardState>()(
             joined: [],
             councilApprovals: [],
             zipCorrections: [],
+            townRoomRequests: [],
+            extraTownRooms: [],
           }),
       };
     },
@@ -402,6 +535,11 @@ export const useBoard = create<BoardState>()(
         councilApprovals: state.councilApprovals,
         council: state.council,
         admin: state.admin,
+        councilChair: state.councilChair,
+        bootstrapped: state.bootstrapped,
+        accessLog: state.accessLog,
+        extraTownRooms: state.extraTownRooms,
+        townRoomRequests: state.townRoomRequests,
         zipCorrections: state.zipCorrections,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
@@ -432,7 +570,10 @@ export const useBoard = create<BoardState>()(
             steward: true,
             council: true,
             admin: true,
+            councilChair: true,
+            bootstrapped: true,
             zipCorrections: [],
+            extraTownRooms: [],
             messages: pruneMessages(fresh.messages, Date.now()),
           };
         }
@@ -444,6 +585,11 @@ export const useBoard = create<BoardState>()(
           councilApprovals: Array.isArray(saved.councilApprovals) ? saved.councilApprovals : [],
           council: saved.council === true,
           admin: saved.admin === true,
+          councilChair: saved.councilChair === true,
+          bootstrapped: saved.bootstrapped === true,
+          accessLog: Array.isArray(saved.accessLog) ? saved.accessLog : [],
+          extraTownRooms: Array.isArray(saved.extraTownRooms) ? saved.extraTownRooms : [],
+          townRoomRequests: Array.isArray(saved.townRoomRequests) ? saved.townRoomRequests : [],
           zipCorrections: Array.isArray(saved.zipCorrections) ? saved.zipCorrections : [],
           messages: pruneMessages(saved.messages ?? [], Date.now()),
         };
