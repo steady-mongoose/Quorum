@@ -6,9 +6,9 @@
  * any host that reverse-proxies `/api` itself. Set it to the API origin
  * (`https://api.avouchsocial.com`) for the static site on Cloudflare.
  *
- * The static host answers unknown paths with `index.html`. Treating that HTML
- * (and network failures) as "API unavailable" keeps the page from parsing the
- * shell as JSON.
+ * The static Worker answers `/api` with a JSON 503 until the dedicated box
+ * exists. An HTML body (a shell, or an error page) is still treated as
+ * unavailable, so the page never parses the hall as JSON.
  */
 
 const HTML_TYPE = /text\/html/i;

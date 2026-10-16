@@ -22,6 +22,14 @@ const manifest = {
   background_color: "#000000",
   theme_color: "#0e0e0c",
   lang: "en",
+  icons: [
+    {
+      src: "/__grok/icon-180.png",
+      sizes: "180x180",
+      type: "image/png",
+      purpose: "any",
+    },
+  ],
 };
 
 const headers = `# Static frontend on Cloudflare Workers.

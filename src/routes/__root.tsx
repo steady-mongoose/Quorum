@@ -1,6 +1,8 @@
+import { useEffect, useState, type ReactNode } from "react";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { NotFoundPage } from "@/components/not-found";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "The Hall";
@@ -19,6 +21,7 @@ export const Route = createRootRoute({
       { name: "theme-color", content: "#0e0e0c" },
     ],
     links: [
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
@@ -35,18 +38,37 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  notFoundComponent: NotFoundPage,
   component: () => (
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body>
-        <PreviewHostBridge />
-        <AuthProvider>
-          <Outlet />
-        </AuthProvider>
+        <StaticSpaGate>
+          <PreviewHostBridge />
+          <AuthProvider>
+            <Outlet />
+          </AuthProvider>
+        </StaticSpaGate>
         <Scripts />
       </body>
     </html>
   ),
 });
+
+/**
+ * The Workers shell is one `index.html` for every URL. It is prerendered as an
+ * empty route, then the client fills in whichever page the address asked for.
+ * Rendering that page during hydration does not match the shell (React #418).
+ * Hold the tree back until after hydration on the static build only.
+ */
+function StaticSpaGate({ children }: { children: ReactNode }) {
+  const deferred = import.meta.env.VITE_STATIC_SPA === "true";
+  const [ready, setReady] = useState(!deferred);
+  useEffect(() => {
+    if (deferred) setReady(true);
+  }, [deferred]);
+  if (!ready) return null;
+  return children;
+}

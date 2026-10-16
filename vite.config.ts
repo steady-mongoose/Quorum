@@ -149,7 +149,10 @@ function authPopupPlugin(): Plugin {
 // `BUILD_TARGET=frontend` (`npm run build:frontend`) emits a static SPA for
 // Cloudflare Workers. It skips the Nitro/Vercel server so the dedicated-box
 // API is not uploaded with the static site. `npm run build` is unchanged.
+// `VITE_STATIC_SPA` is inlined into that build so the shell can defer the
+// route tree until after hydration. The server build leaves it unset.
 const staticFrontend = process.env.BUILD_TARGET === "frontend";
+if (staticFrontend) process.env.VITE_STATIC_SPA = "true";
 
 export default defineConfig(({ command, isPreview }) => ({
   server: {

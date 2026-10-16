@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  // Static frontend only. There is no Worker script: Cloudflare is DNS plus
-  // this asset site. The API and Postgres stay on a dedicated box.
+  // Static frontend. A small script keeps `/api` and missing files out of the
+  // SPA shell. The API and Postgres stay on a dedicated box.
   //
   // Default `wrangler deploy` publishes the preview Worker (workers.dev, no
   // custom domains). Custom domains are the `production` environment and are
@@ -23,9 +23,17 @@
       "head_sampling_rate": 1,
     },
   },
+  "main": "workers/frontend.ts",
   "assets": {
     "directory": "./dist/frontend/client",
-    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    // The script serves index.html for extensionless routes. Misses stay
+    // 404s, and /index.html must not redirect back to / (that loops).
+    "not_found_handling": "none",
+    "html_handling": "none",
+    // Hashed /assets/* are served directly. Everything else hits the script
+    // first, including navigations to /api and to missing icons.
+    "run_worker_first": ["/*", "!/assets/*"],
   },
   "env": {
     // CUSTOM DOMAINS. Do not deploy this environment until QA has checked the
