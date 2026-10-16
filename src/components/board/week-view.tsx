@@ -1,10 +1,12 @@
 import { useMemo } from "react";
 import { btnGhost, btnSignal, Kicker, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { COUNCIL_APPROVED_LABEL, homeOrder, homeSections, roomPlace, toHomeMember } from "@/lib/board/home";
+import { CouncilBar } from "@/components/board/council-bar";
+import { COUNCIL_APPROVED_LABEL, homeMeetingEntries, homeOrder, homePostEntries, homeSections, toHomeMember } from "@/lib/board/home";
 import { CONGREGATIONS, homeCatalog } from "@/lib/board/places";
+import { zipRowsForMember } from "@/lib/board/zcta";
+import { ZCTA_SEED } from "@/lib/board/zcta-seed";
 import {
-  ROOMS,
   addDays,
   authorName,
   parseIsoDate,
@@ -26,7 +28,7 @@ import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/mo
 /**
  * The front door: the next seven days, nearest first, this week's call, and
  * what a parish needs. Council-approved posts are the only thing that jumps
- * the order. The page still ends: other towns stay in their rooms.
+ * the order. A card with no local room stays off this page.
  */
 export function WeekView() {
   const cards = useBoard((state) => state.cards);
@@ -34,31 +36,32 @@ export function WeekView() {
   const profile = useBoard((state) => state.profile);
   const joined = useBoard((state) => state.joined);
   const approvals = useBoard((state) => state.councilApprovals);
+  const corrections = useBoard((state) => state.zipCorrections);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
   const today = todayIso();
-  const catalog = useMemo(() => homeCatalog(ROOMS.map((room) => room.id)), []);
+  const catalog = useMemo(() => homeCatalog(zipRowsForMember(profile.zip, ZCTA_SEED, corrections)), [corrections, profile.zip]);
   const member = useMemo(() => toHomeMember(profile, joined, CONGREGATIONS), [profile, joined]);
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
   const needs = useMemo(() => needsFor(cards), [cards]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const postById = useMemo(() => new Map(posts.map((post) => [post.id, post])), [posts]);
   const sections = useMemo(() => {
-    const cardEntries = week.flatMap((day) => day.cards).map((card) => ({
-      id: card.id,
-      at: parseIsoDate(card.next)?.getTime() ?? 0,
-      place: roomPlace(card.localRoomId, card.room),
-    }));
-    const approved = new Set(approvals.map((row) => row.entryId));
-    const postEntries = posts
-      .filter((post) => !post.removed && !post.parentId && approved.has(post.id))
-      .map((post) => ({ id: post.id, at: post.at, place: roomPlace(post.localRoomId, post.room) }));
+    const cardEntries = homeMeetingEntries(
+      week.flatMap((day) => day.cards).map((card) => ({
+        id: card.id,
+        at: parseIsoDate(card.next)?.getTime() ?? 0,
+        localRoomId: card.localRoomId,
+        going: card.going,
+      })),
+    );
+    const postEntries = homePostEntries(posts, approvals);
     return homeSections(homeOrder(member, [...postEntries, ...cardEntries], catalog, approvals));
   }, [approvals, catalog, member, posts, week]);
   const orderedNeeds = useMemo(() => {
     const rows = homeOrder(
       member,
-      needs.map((card) => ({ id: card.id, at: 0, place: roomPlace(card.localRoomId, card.room) })),
+      homeMeetingEntries(needs.map((card) => ({ id: card.id, at: 0, localRoomId: card.localRoomId }))),
       catalog,
     );
     return rows.flatMap((row) => {
@@ -76,7 +79,7 @@ export function WeekView() {
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{empty ? "Nothing on the calendar yet." : "This week"}</h1>
           {empty ? (
             <p className="max-w-2xl text-base text-muted">
-              A card lands here when it has a date inside seven days and it is in a room you've joined, your town, your church, or a wider region.{" "}
+              A card lands here when it has a date inside seven days and a town, church, or county on it, and that place is one you've joined, your town, your church, or a wider region. A card with no place stays off this page.{" "}
               <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
                 Look in the rooms
               </button>{" "}
@@ -84,7 +87,7 @@ export function WeekView() {
             </p>
           ) : (
             <p className="max-w-prose text-base text-muted">
-              Nearest first: what you've joined, then your town, then your church, then farther out. Inside each, the list is by date. Press <strong className="font-semibold text-fg">I'll be there</strong> on anything you will go to.
+              Nearest first: what you've joined, then your town, then your church, then farther out. Inside each, the soonest date is first. Saying you'll be there does not move a card. Press <strong className="font-semibold text-fg">I'll be there</strong> on anything you will go to.
             </p>
           )}
         </section>
@@ -173,6 +176,7 @@ function PromotedPost({ post, reason }: { post: Post; reason: string }) {
       {reason ? <p className="mt-2 text-sm text-muted">{reason}</p> : null}
       <h3 className="mt-2 text-2xl text-fg">{post.claim}</h3>
       {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
+      <CouncilBar entryId={post.id} />
     </article>
   );
 }

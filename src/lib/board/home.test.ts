@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
   COUNCIL_APPROVED_LABEL,
   congregationIdForParish,
+  homeMeetingEntries,
   homeOrder,
+  homePostEntries,
   homeSections,
   liveApproval,
   normalizeZip,
@@ -15,7 +17,7 @@ import {
   type HomeMember,
   type HomePlace,
 } from "./home.ts";
-import { CONGREGATIONS, MEMBER_ROOMS, ZIP_TOWNS, homeCatalog } from "./places.ts";
+import { CONGREGATIONS, MEMBER_ROOMS, homeCatalog } from "./places.ts";
 
 const room = (id: string): HomePlace => ({ kind: "room", id });
 const group = (id: string): HomePlace => ({ kind: "group", id });
@@ -66,12 +68,17 @@ describe("zip and congregation", () => {
   });
 
   it("maps many ZIPs to one town and refuses a ZIP claimed twice", () => {
-    assert.equal(townIdForZip("33578", ZIP_TOWNS), "riverview");
-    assert.equal(townIdForZip("33569", ZIP_TOWNS), "riverview");
-    assert.equal(townIdForZip("33511", ZIP_TOWNS), "brandon");
-    assert.equal(townIdForZip("00000", ZIP_TOWNS), null);
+    const zips = [
+      { zip: "33578", townId: "riverview-fl" },
+      { zip: "33569", townId: "riverview-fl" },
+      { zip: "33511", townId: "brandon-fl" },
+    ];
+    assert.equal(townIdForZip("33578", zips), "riverview-fl");
+    assert.equal(townIdForZip("33569", zips), "riverview-fl");
+    assert.equal(townIdForZip("33511", zips), "brandon-fl");
+    assert.equal(townIdForZip("00000", zips), null);
     assert.equal(townIdForZip("33578", [{ zip: "33578", townId: "a" }, { zip: "33578", townId: "b" }]), null);
-    assert.equal(townIdForZip("33578", [{ zip: "33578", townId: "riverview" }, { zip: "33578", townId: "riverview" }]), "riverview");
+    assert.equal(townIdForZip("33578", [{ zip: "33578", townId: "riverview-fl" }, { zip: "33578", townId: "riverview-fl" }]), "riverview-fl");
   });
 
   it("keeps an explicit congregation id, and otherwise matches the parish name", () => {
@@ -96,6 +103,11 @@ describe("homeOrder", () => {
     entry("brandon", 0, room("brandon-town")),
     entry("grace", 0, room("cong-grace")),
   ];
+
+  it("lists the earliest upcoming item first inside a tier", () => {
+    const rows = homeOrder(member(), [entry("later", 9, room("rv-shop")), entry("sooner", 1, room("rv-shop"))], catalog);
+    assert.deepEqual(ids(rows), ["sooner", "later"]);
+  });
 
   it("orders joined, then town, then congregation, then wider, earlier first inside each", () => {
     const rows = homeOrder(member(), entries, catalog);
@@ -235,15 +247,40 @@ describe("homeSections", () => {
   });
 });
 
+describe("what stays off Home", () => {
+  it("drops a card with no local room, and does not read the RSVP list", () => {
+    const entries = homeMeetingEntries([
+      { id: "untied", at: 1, localRoomId: "", going: ["Josh"] },
+      { id: "blank", at: 0, going: ["Josh", "Dale"] },
+      { id: "tied", at: 5, localRoomId: "rv-shop", going: [] },
+      { id: "also", at: 2, localRoomId: "  rv-town  ", going: ["Josh"] },
+    ]);
+    assert.deepEqual(entries.map((item) => item.id), ["tied", "also"]);
+    assert.equal("going" in entries[0]!, false);
+  });
+
+  it("puts a post with no local room on Home only while a council approval is live", () => {
+    const posts = [{ id: "p4", at: 3, localRoomId: "" }];
+    assert.equal(homePostEntries(posts, []).length, 0);
+    const live = homePostEntries(posts, [approval({ id: "c1", entryId: "p4", reason: "Standing notice." })]);
+    assert.equal(live[0]?.place.id, "post:p4");
+    const rows = homeOrder(member(), live, catalog, [approval({ id: "c1", entryId: "p4", reason: "Standing notice." })]);
+    assert.equal(rows[0]?.tier, "council");
+    const revoked = homePostEntries(posts, [approval({ id: "c1", entryId: "p4", revokedAt: 9 })]);
+    assert.equal(revoked.length, 0);
+  });
+});
+
 describe("sample directory", () => {
-  it("places Riverview shop nights in Riverview and Epiphany on that congregation", () => {
+  it("places Riverview shop nights in Riverview and does not invent a region for a topical room", () => {
     const shop = MEMBER_ROOMS.find((item) => item.id === "rv-shop");
     const church = MEMBER_ROOMS.find((item) => item.id === "cong-epiphany");
-    assert.deepEqual(shop?.scope, { kind: "town", townId: "riverview" });
+    assert.deepEqual(shop?.scope, { kind: "town", townId: "riverview-fl" });
     assert.deepEqual(church?.scope, { kind: "congregation", congregationId: "epiphany" });
-    const catalogWithShop = homeCatalog(["shop"]);
-    const rows = homeOrder(member({ joined: [], zip: "", congregationId: "" }), [entry("loose", 1, room("shop"))], catalogWithShop);
-    assert.equal(rows[0]?.tier, "region");
-    assert.equal(MEMBER_ROOMS.some((item) => item.id === "shop"), false);
+    const wired = homeCatalog([{ zip: "33578", townId: "riverview-fl" }]);
+    assert.equal(wired.zips[0]?.townId, "riverview-fl");
+    assert.equal(wired.rooms.some((item) => item.id === "shop"), false);
+    const rows = homeOrder(member({ joined: [], zip: "33578", congregationId: "" }), [entry("loose", 1, room("shop"))], wired);
+    assert.equal(rows.length, 0);
   });
 });

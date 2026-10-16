@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { CONGREGATIONS, MEMBER_ROOMS, localRoomLabel } from "@/lib/board/places";
 import { useBoard } from "@/lib/board/store";
+import { resolvedTown } from "@/lib/board/zcta";
+import { ZCTA_SEED } from "@/lib/board/zcta-seed";
 
 /**
  * Household, church, trade, plus who you have met, what you host, and
@@ -21,8 +23,17 @@ export function ProfileView() {
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
+  const admin = useBoard((state) => state.admin);
+  const corrections = useBoard((state) => state.zipCorrections);
+  const correctZip = useBoard((state) => state.correctZip);
+  const clearZip = useBoard((state) => state.clearZip);
+  const [fixZip, setFixZip] = useState("");
+  const [fixName, setFixName] = useState("");
+  const [fixState, setFixState] = useState("");
+  const [fixError, setFixError] = useState("");
   const name = viewing?.trim() || me;
   const mine = name === me;
+  const town = mine ? resolvedTown(profile.zip, ZCTA_SEED, corrections) : null;
 
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const allowed = mine || peers.has(name);
@@ -72,6 +83,52 @@ export function ProfileView() {
               <input className={fieldClass} inputMode="numeric" autoComplete="postal-code" placeholder="33578" maxLength={10} value={profile.zip} onChange={(event) => setProfile({ zip: event.target.value })} />
             </label>
           </div>
+        ) : null}
+        {mine ? (
+          <p className="text-sm text-muted">{profile.zip.trim() ? (town ? `Town: ${town.name}, ${town.state}` : "No town for that ZIP") : "Add a ZIP to pick your town."}</p>
+        ) : null}
+        {mine && admin ? (
+          <form
+            className="grid gap-3 sm:grid-cols-[8rem_1fr_5rem_auto] sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const result = correctZip(fixZip || profile.zip, fixName, fixState);
+              setFixError(result.ok ? "" : result.error);
+              if (result.ok) {
+                setFixName("");
+                setFixState("");
+              }
+            }}
+          >
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Correct a ZIP
+              <input className={fieldClass} inputMode="numeric" placeholder={profile.zip || "33578"} value={fixZip} onChange={(event) => setFixZip(event.target.value)} aria-label="ZIP to correct" />
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Town
+              <input className={fieldClass} placeholder="Beverly Hills" value={fixName} onChange={(event) => setFixName(event.target.value)} aria-label="Corrected town" />
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              State
+              <input className={fieldClass} placeholder="CA" maxLength={2} value={fixState} onChange={(event) => setFixState(event.target.value)} aria-label="Corrected state" />
+            </label>
+            <div className="flex gap-2">
+              <button type="submit" className={btnSignal}>
+                Save town
+              </button>
+              <button
+                type="button"
+                className={btnQuiet}
+                onClick={() => {
+                  const result = clearZip(fixZip || profile.zip);
+                  setFixError(result.ok ? "" : result.error);
+                }}
+              >
+                Clear ZIP
+              </button>
+            </div>
+            {fixError ? <p className="text-sm text-signal sm:col-span-4">{fixError}</p> : null}
+          </form>
         ) : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>

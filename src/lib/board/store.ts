@@ -33,7 +33,9 @@ import {
 } from "@/lib/board/model";
 import { congregationIdForParish, type CouncilApproval, type HomePlace } from "@/lib/board/home";
 import { CONGREGATIONS } from "@/lib/board/places";
+import { addCouncilApproval, proposeZipClear, proposeZipCorrection, revokeCouncilApproval, type GateResult } from "@/lib/board/roles";
 import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
+import type { ZipCorrection } from "@/lib/board/zcta";
 
 type BoardState = {
   section: Section;
@@ -52,6 +54,12 @@ type BoardState = {
   joined: HomePlace[];
   /** Guard rail 7. The log is the only Home override. */
   councilApprovals: CouncilApproval[];
+  /** May add a council approval. Not granted by the founder code. */
+  council: boolean;
+  /** May revoke a council approval and correct a ZIP. Not granted by the founder code. */
+  admin: boolean;
+  /** Admin overlays on the census ZIP seed. Newest row for a ZIP wins. */
+  zipCorrections: ZipCorrection[];
   /** Whose profile is open. */
   viewing: string | null;
   steward: boolean;
@@ -70,6 +78,10 @@ type BoardState = {
   setProfile: (patch: Partial<Profile>) => void;
   joinPlace: (place: HomePlace) => void;
   leavePlace: (place: HomePlace) => void;
+  approveForHome: (entryId: string, reason: string) => GateResult<CouncilApproval>;
+  revokeApproval: (entryId: string) => GateResult<CouncilApproval>;
+  correctZip: (zip: string, name: string, state: string) => GateResult<ZipCorrection>;
+  clearZip: (zip: string) => GateResult<ZipCorrection>;
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Check;
@@ -166,6 +178,9 @@ export const useBoard = create<BoardState>()(
         profile: EMPTY_PROFILE,
         joined: [],
         councilApprovals: [],
+        council: false,
+        admin: false,
+        zipCorrections: [],
         viewing: null,
         steward: false,
         posts: [],
@@ -187,6 +202,27 @@ export const useBoard = create<BoardState>()(
         },
         joinPlace: (place) => set({ joined: addPlace(get().joined, place) }),
         leavePlace: (place) => set({ joined: get().joined.filter((item) => !samePlace(item, place)) }),
+        approveForHome: (entryId, reason) => {
+          const post = get().posts.find((item) => item.id === entryId && !item.removed && !item.parentId);
+          const result = addCouncilApproval({ council: get().council }, me(), { entryId, reason }, Date.now(), crypto.randomUUID(), Boolean(post));
+          if (result.ok) set({ councilApprovals: [...get().councilApprovals, result.row] });
+          return result;
+        },
+        revokeApproval: (entryId) => {
+          const result = revokeCouncilApproval({ admin: get().admin }, me(), get().councilApprovals, entryId, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ councilApprovals: [...get().councilApprovals, result.row] });
+          return result;
+        },
+        correctZip: (zip, name, state) => {
+          const result = proposeZipCorrection(get().admin, me(), { zip, name, state }, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ zipCorrections: [...get().zipCorrections, result.row] });
+          return result;
+        },
+        clearZip: (zip) => {
+          const result = proposeZipClear(get().admin, me(), zip, Date.now(), crypto.randomUUID());
+          if (result.ok) set({ zipCorrections: [...get().zipCorrections, result.row] });
+          return result;
+        },
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: (draft) => {
@@ -316,8 +352,38 @@ export const useBoard = create<BoardState>()(
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
-        loadSample: () => set({ ...sampleBoard(), sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),
-        clearBoard: () => set({ sample: false, posts: [], cards: SEED_CARDS, invites: [], markLog: [], threads: [], messages: [], removals: [], openThread: null, viewing: null, joined: [], councilApprovals: [] }),
+        loadSample: () =>
+          set({
+            ...sampleBoard(),
+            sample: true,
+            sampleVersion: SAMPLE_VERSION,
+            member: true,
+            steward: true,
+            council: true,
+            admin: true,
+            zipCorrections: [],
+            invites: [],
+            removals: [],
+            openThread: null,
+            viewing: null,
+            section: "week",
+          }),
+        clearBoard: () =>
+          set({
+            sample: false,
+            posts: [],
+            cards: SEED_CARDS,
+            invites: [],
+            markLog: [],
+            threads: [],
+            messages: [],
+            removals: [],
+            openThread: null,
+            viewing: null,
+            joined: [],
+            councilApprovals: [],
+            zipCorrections: [],
+          }),
       };
     },
     {
@@ -334,6 +400,9 @@ export const useBoard = create<BoardState>()(
         profile: state.profile,
         joined: state.joined,
         councilApprovals: state.councilApprovals,
+        council: state.council,
+        admin: state.admin,
+        zipCorrections: state.zipCorrections,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         posts: state.posts,
@@ -353,7 +422,19 @@ export const useBoard = create<BoardState>()(
         const isSample = saved.sample === true || (saved.cards?.some((card) => card.id === "s-framing") ?? false);
         if (isSample && (saved.sampleVersion ?? 0) < SAMPLE_VERSION) {
           const fresh = sampleBoard();
-          return { ...current, ...saved, ...fresh, sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, messages: pruneMessages(fresh.messages, Date.now()) };
+          return {
+            ...current,
+            ...saved,
+            ...fresh,
+            sample: true,
+            sampleVersion: SAMPLE_VERSION,
+            member: true,
+            steward: true,
+            council: true,
+            admin: true,
+            zipCorrections: [],
+            messages: pruneMessages(fresh.messages, Date.now()),
+          };
         }
         return {
           ...current,
@@ -361,6 +442,9 @@ export const useBoard = create<BoardState>()(
           profile: { ...EMPTY_PROFILE, ...saved.profile },
           joined: Array.isArray(saved.joined) ? saved.joined : [],
           councilApprovals: Array.isArray(saved.councilApprovals) ? saved.councilApprovals : [],
+          council: saved.council === true,
+          admin: saved.admin === true,
+          zipCorrections: Array.isArray(saved.zipCorrections) ? saved.zipCorrections : [],
           messages: pruneMessages(saved.messages ?? [], Date.now()),
         };
       },

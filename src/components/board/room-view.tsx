@@ -32,6 +32,7 @@ import {
   type MeetingCard,
   type Post,
 } from "@/lib/board/model";
+import { CouncilBar } from "@/components/board/council-bar";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -482,6 +483,7 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
           )}
         </div>
       ) : null}
+      <CouncilBar entryId={post.id} />
     </article>
   );
 });

@@ -1,7 +1,7 @@
-// Directory of towns, ZIPs, congregations, and the rooms Home can place.
-// Topical rooms (The Shop, The County, …) stay what they are. A card's
-// local room is where it sits for Home. This is the sample area around
-// Brandon and Riverview, not a national ZIP file.
+// Directory of towns, congregations, and the rooms Home can place.
+// Town ids match the census ZIP seed (`riverview-fl`, not `riverview`).
+// The national ZIP file is `zcta-towns.json`. A card with no local room
+// is not given a topical stand-in here.
 
 import type { CongregationRef, HomeCatalog, RoomScope, ZipTown } from "@/lib/board/home";
 
@@ -27,24 +27,10 @@ export type LocalRoom = {
 };
 
 export const TOWNS: readonly Town[] = [
-  { id: "brandon", name: "Brandon" },
-  { id: "riverview", name: "Riverview" },
-  { id: "valrico", name: "Valrico" },
-  { id: "tampa", name: "Tampa" },
-];
-
-export const ZIP_TOWNS: readonly ZipTown[] = [
-  { zip: "33510", townId: "brandon" },
-  { zip: "33511", townId: "brandon" },
-  { zip: "33568", townId: "riverview" },
-  { zip: "33569", townId: "riverview" },
-  { zip: "33578", townId: "riverview" },
-  { zip: "33579", townId: "riverview" },
-  { zip: "33594", townId: "valrico" },
-  { zip: "33596", townId: "valrico" },
-  { zip: "33602", townId: "tampa" },
-  { zip: "33609", townId: "tampa" },
-  { zip: "33610", townId: "tampa" },
+  { id: "brandon-fl", name: "Brandon" },
+  { id: "riverview-fl", name: "Riverview" },
+  { id: "valrico-fl", name: "Valrico" },
+  { id: "tampa-fl", name: "Tampa" },
 ];
 
 export const CONGREGATIONS: readonly CongregationRef[] = [
@@ -56,11 +42,11 @@ export const CONGREGATIONS: readonly CongregationRef[] = [
 
 /** Rooms a member can join. Not theme groups; those are a later PR. */
 export const MEMBER_ROOMS: readonly LocalRoom[] = [
-  { id: PLACE.rvShop, name: "Shop nights", scope: { kind: "town", townId: "riverview" } },
-  { id: PLACE.rvTown, name: "Town room", scope: { kind: "town", townId: "riverview" } },
-  { id: PLACE.brandonTown, name: "Town room", scope: { kind: "town", townId: "brandon" } },
-  { id: PLACE.valricoTown, name: "Town room", scope: { kind: "town", townId: "valrico" } },
-  { id: PLACE.tampaTown, name: "Town room", scope: { kind: "town", townId: "tampa" } },
+  { id: PLACE.rvShop, name: "Shop nights", scope: { kind: "town", townId: "riverview-fl" } },
+  { id: PLACE.rvTown, name: "Town room", scope: { kind: "town", townId: "riverview-fl" } },
+  { id: PLACE.brandonTown, name: "Town room", scope: { kind: "town", townId: "brandon-fl" } },
+  { id: PLACE.valricoTown, name: "Town room", scope: { kind: "town", townId: "valrico-fl" } },
+  { id: PLACE.tampaTown, name: "Town room", scope: { kind: "town", townId: "tampa-fl" } },
   { id: PLACE.epiphany, name: "Epiphany of Our Lord", scope: { kind: "congregation", congregationId: "epiphany" } },
   { id: PLACE.grace, name: "Grace Bible Church of Brandon", scope: { kind: "congregation", congregationId: "grace" } },
   { id: PLACE.redeemer, name: "Redeemer Presbyterian", scope: { kind: "congregation", congregationId: "redeemer" } },
@@ -76,17 +62,9 @@ export function localRoomLabel(room: LocalRoom): string {
 }
 
 /**
- * Member rooms, plus each topical room id as a wider region. A card that is
- * not tied to a town yet still has a place on Home: last, with the other
- * wider rooms. Pass the topical ids from `ROOMS` so this file does not import
- * the board model.
+ * Rooms Home may place, plus the member's one ZIP row. Topical room ids are
+ * not added. A card with no local room has nothing to match and stays off Home.
  */
-export function homeCatalog(topicalRoomIds: readonly string[]): HomeCatalog {
-  return {
-    zips: ZIP_TOWNS,
-    rooms: [
-      ...MEMBER_ROOMS,
-      ...topicalRoomIds.map((id) => ({ id, scope: { kind: "region" as const, regionId: "hillsborough" } })),
-    ],
-  };
+export function homeCatalog(zips: readonly ZipTown[]): HomeCatalog {
+  return { zips, rooms: MEMBER_ROOMS };
 }

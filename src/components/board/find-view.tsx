@@ -365,7 +365,7 @@ function AddCard({ me }: { me: string }) {
         <label className="flex flex-col gap-2 text-sm text-muted">
           Town, church, or county
           <select className={fieldClass} value={localRoomId} onChange={(event) => setLocalRoomId(event.target.value)}>
-            <option value="">Not tied to one yet</option>
+            <option value="">Leave off the front page</option>
             {MEMBER_ROOMS.map((item) => (
               <option key={item.id} value={item.id}>
                 {localRoomLabel(item)}

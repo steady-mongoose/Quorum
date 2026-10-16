@@ -151,10 +151,48 @@ export function toHomeMember(
   };
 }
 
-/** Town/congregation/region room when one is set; otherwise the topical room. */
-export function roomPlace(localRoomId: string | undefined, topicalRoomId: string): HomePlace {
-  const id = (localRoomId ?? "").trim() || topicalRoomId;
-  return { kind: "room", id };
+/**
+ * Home place for a card or post. An empty local room stays off Home.
+ * Find and the topical rooms still list it. A council approval places a
+ * post that has no local room; see `homePostEntries`.
+ */
+export function homeRoomPlace(localRoomId: string | undefined): HomePlace | null {
+  const id = (localRoomId ?? "").trim();
+  return id ? { kind: "room", id } : null;
+}
+
+/**
+ * Meeting cards for Home. `going` is ignored: an RSVP is not a join and
+ * does not put a card on Home. No local room means the card is omitted.
+ */
+export function homeMeetingEntries(
+  cards: readonly { id: string; at: number; localRoomId?: string; going?: readonly string[] }[],
+): HomeEntry[] {
+  const entries: HomeEntry[] = [];
+  for (const card of cards) {
+    const place = homeRoomPlace(card.localRoomId);
+    if (!place || !card.id) continue;
+    entries.push({ id: card.id, at: card.at, place });
+  }
+  return entries;
+}
+
+/**
+ * A post reaches Home only with a live council approval. If it has no local
+ * room, the approval still places it, under an id that is not a room.
+ */
+export function homePostEntries(
+  posts: readonly { id: string; at: number; localRoomId?: string; removed?: boolean; parentId?: string | null }[],
+  approvals: readonly CouncilApproval[],
+): HomeEntry[] {
+  const entries: HomeEntry[] = [];
+  for (const post of posts) {
+    if (!post.id || post.removed || post.parentId) continue;
+    if (!liveApproval(post.id, approvals)) continue;
+    const place = homeRoomPlace(post.localRoomId) ?? { kind: "room" as const, id: `post:${post.id}` };
+    entries.push({ id: post.id, at: post.at, place });
+  }
+  return entries;
 }
 
 function isJoined(member: HomeMember, place: HomePlace): boolean {
@@ -214,7 +252,9 @@ function toRow(entry: HomeEntry, tier: HomeRank, approval: CouncilApproval | nul
  *
  * An entry is listed once, in the most local tier that fits. Joined wins
  * over geography. Another town, another congregation, and an unjoined group
- * are left out. Nothing here reads marks, replies, attendance, or a score.
+ * are left out. Inside a tier, earlier `at` is first: the soonest upcoming
+ * item, not the newest post. Nothing here reads marks, replies, attendance,
+ * an RSVP (`going`), or a score.
  */
 export function homeOrder(
   member: HomeMember,
