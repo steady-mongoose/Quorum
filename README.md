@@ -49,9 +49,9 @@ Every feature proposal gets the same question: *does this make someone leave the
 
 ## How it works
 
-**The week comes first.** The front page is the next seven days that have something on them. Empty days are left out; an empty week says so and points at the rooms. The County's open call window sits at the top with the number to dial.
+**The week comes first, nearest first.** The front page is the next seven days that have something on them, in a fixed order: rooms you've joined, then town rooms for your ZIP, then your congregation, then wider regions. Inside each, the soonest date is first. Nothing is ranked. Saying you'll be there does not put a card on the front page. A card with no town, church, or county stays off the front page and can still be found under Find or in its room. The one exception is a council-approved notice: a council member logs a reason, the notice is labeled, and it sits above that order. An admin can revoke it; the log keeps both rows. ZIPs come from the Census ZCTA place file, and an admin can correct one. Meetings in another town stay in their rooms. Empty weeks say so. The County's open call window sits at the side with the number to dial.
 
-**Invite only.** Without a code, the only page is the door. A host makes a one-use code for one card and hands it over however they like. The code reveals nothing until a name is entered; then that name is a member and on the going list. Codes expire after seven days. The first thing a new member sees is a date, not a feed. On a new box, the first member gets in with the founder code (`VITE_FOUNDER_CODE` in `.env`; the dev default is `FOUNDER`) and becomes a steward. Change it before anyone else can reach the box.
+**Invite only.** Without a code, the only page is the door. Josh is seated once as founding admin and council chair, from the door or from `VITE_BOOTSTRAP_OWNER=Josh`. That seat refuses to run again. Everyone after him is added in layers and every grant is logged: a member needs one inviter (a host's code), a steward needs that inviter plus a steward of the room, and an admin needs a steward plus a role owner. A town room is not created from a ZIP. A member requests it, and an admin or a steward approves it. The first thing a new member sees is a date, not a feed.
 
 **Say you'll be there. The host takes roll.** A card's going list is names, never a count. After the hour the host files a **Hosted**: how it went in a line (no headcount; the composer refuses one), who came, one person **Named** if someone earned it (they must have been there; never the host), and the next date. Who came joins the card's "been" list. A card that does not happen is a Hosted that says so.
 
@@ -61,7 +61,7 @@ Every feature proposal gets the same question: *does this make someone leave the
 
 **A parish need** is posted by whoever is organizing it, with the family's say-so: what is needed, where to bring it, and a list of days. You put your name on a day. Nothing enforces it.
 
-**Profiles are four lines** (name, household, parish, trade) plus what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name.
+**Profiles are four lines** (name, household, parish, trade) plus a ZIP, and what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name. The sample week is Josh's box after the founding seat, so council and admin are already on.
 
 **Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
 

@@ -1,3 +1,4 @@
+import { AccessPanel } from "@/components/board/access-panel";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -6,7 +7,7 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 const HOW = [
   { title: "Getting in", text: "Someone who hosts a meeting gives you a code. You enter your name and the code, and you are a member and on the list for that meeting. There is no public sign-up." },
-  { title: "The week", text: "The front page is the next seven days: which meetings are on, where, and who is going. Press \"I'll be there\" on the ones you will attend." },
+  { title: "The week", text: "The front page is the next seven days, nearest first: rooms you've joined, then your ZIP's town, then your church, then farther out. Inside each, the soonest date is first. A council-approved notice is the only thing that jumps ahead, and it is labeled with the reason. Saying you'll be there does not move a card. A card with no town, church, or county stays off the front page; Find and the rooms still list it." },
   { title: "After a meeting", text: "The host writes it up: how it went, who came, and the next date. If someone did something worth mentioning, the host can name one person. There is no headcount and no score." },
   { title: "Who can see you", text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted." },
   { title: "Posting", text: "In a room you can post something you did, with proof, or ask one question. Posts are in order of time; nothing is ranked and nothing refreshes on its own." },
@@ -20,6 +21,8 @@ export function AboutView() {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
+  const council = useBoard((state) => state.council);
+  const admin = useBoard((state) => state.admin);
   const removals = useBoard((state) => state.removals);
   const loadSample = useBoard((state) => state.loadSample);
   const clearBoard = useBoard((state) => state.clearBoard);
@@ -85,7 +88,11 @@ export function AboutView() {
             Your name, as it appears on your posts
             <input className={fieldClass} value={me} placeholder="Your name" onChange={(event) => setMe(event.target.value)} />
           </label>
-          <p className="self-end text-sm text-muted">{steward ? "You are a steward: you can post notices and remove posts." : "Stewards are appointed by the founder."}</p>
+          <p className="self-end text-sm text-muted">
+            {steward ? "You are a steward of a room: you can post notices, remove posts, and decide a town room." : "A steward is approved for one room, and that approval is logged."}{" "}
+            {council ? "You are on the council: you can approve a post for the front page, and the reason is logged." : "The council chair is seated once, with the founding admin."}{" "}
+            {admin ? "You are an admin: you can revoke a council approval, correct a ZIP, and sign off on access." : "An admin is signed off by a role owner after a steward approves."}
+          </p>
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
           <button type="button" className={btnSignal} onClick={loadSample}>
@@ -95,8 +102,9 @@ export function AboutView() {
             Clear the board
           </button>
         </div>
-        <p className="mt-2 max-w-prose text-sm text-muted">The sample is six invented people and a week of meetings, for trying the app. It replaces whatever is here, and you become "Josh."</p>
+        <p className="mt-2 max-w-prose text-sm text-muted">The sample is six invented people and a week of meetings, for trying the app. It replaces whatever is here, and you become Josh, already seated as founding admin and council chair.</p>
       </section>
+      <AccessPanel />
 
       {removals.length > 0 ? (
         <section className="flex flex-col gap-3">
