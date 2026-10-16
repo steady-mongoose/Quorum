@@ -16,9 +16,11 @@ import {
   type Profile,
   type RoomId,
 } from "@/lib/board/model";
+import { FOUNDING_ADMIN, type AccessRow } from "@/lib/board/access";
 import type { CouncilApproval, HomePlace } from "@/lib/board/home";
 import { SEED_GROUPS, type GroupModerationRow, type GroupNote, type ThemeGroup } from "@/lib/board/groups";
 import { PLACE } from "@/lib/board/places";
+import type { TownRoomRequest } from "@/lib/board/town-rooms";
 
 function card(id: string, room: RoomId, name: string, place: string, time: string, extra: Partial<MeetingCard> = {}): MeetingCard {
   return newCard({ id, room, kind: "meeting", name, place, time, host: "", ...extra });
@@ -40,7 +42,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 8;
+export const SAMPLE_VERSION = 9;
 
 export type SampleBoard = {
   me: string;
@@ -56,6 +58,9 @@ export type SampleBoard = {
   groups: ThemeGroup[];
   groupNotes: GroupNote[];
   groupLog: GroupModerationRow[];
+  /** Rule 9 log, including the one-time founding seat. */
+  accessLog: AccessRow[];
+  townRoomRequests: TownRoomRequest[];
 };
 
 export function sampleBoard(): SampleBoard {
@@ -228,5 +233,31 @@ export function sampleBoard(): SampleBoard {
       { id: "gn-brew", groupId: "brewing", author: "Luis", body: "First Saturday, brown ale. Growlers welcome.", on: iso(2), at: ago(2), mark: null, removed: false, removedFor: null },
     ],
     groupLog: [{ id: "gm1", noteId: "gn-old", groupId: "carpentry", by: "Tom", action: "mark", mark: "sloppy", reason: "sloppy", at: ago(19) }],
+    accessLog: sampleAccessLog(ago),
+    townRoomRequests: [
+      {
+        id: "tr-seffner",
+        townId: "seffner-fl",
+        name: "Seffner",
+        state: "FL",
+        by: "Maria",
+        at: ago(1),
+        status: "open",
+        decidedBy: "",
+        decidedAt: null,
+        note: "",
+      },
+    ],
   };
+}
+
+function sampleAccessLog(ago: (days: number, hours?: number) => number): AccessRow[] {
+  return [
+    { id: "boot-member", name: FOUNDING_ADMIN, role: "member", roomId: "", action: "grant", vouchedBy: "bootstrap", approvedBy: "", by: "bootstrap", at: ago(30), note: "Founding member." },
+    { id: "boot-admin", name: FOUNDING_ADMIN, role: "admin", roomId: "", action: "grant", vouchedBy: "bootstrap", approvedBy: "bootstrap", by: "bootstrap", at: ago(30), note: "Founding admin and council chair." },
+    { id: "m-maria", name: "Maria", role: "member", roomId: PLACE.rvShop, action: "grant", vouchedBy: "Josh", approvedBy: "", by: "Josh", at: ago(20), note: "Member, one inviter." },
+    { id: "m-tom", name: "Tom", role: "member", roomId: PLACE.rvShop, action: "grant", vouchedBy: "Josh", approvedBy: "", by: "Josh", at: ago(19), note: "Member, one inviter." },
+    { id: "s-tom", name: "Tom", role: "steward", roomId: PLACE.rvShop, action: "grant", vouchedBy: "Maria", approvedBy: "Josh", by: "Josh", at: ago(18), note: "First steward of that room, inviter plus the council chair." },
+    { id: "s-josh", name: "Josh", role: "steward", roomId: PLACE.rvShop, action: "grant", vouchedBy: "Maria", approvedBy: "Tom", by: "Tom", at: ago(17), note: "Steward, inviter plus a steward of that room." },
+  ];
 }

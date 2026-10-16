@@ -1,3 +1,4 @@
+import { AccessPanel } from "@/components/board/access-panel";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -89,9 +90,9 @@ export function AboutView() {
             <input className={fieldClass} value={me} placeholder="Your name" onChange={(event) => setMe(event.target.value)} />
           </label>
           <p className="self-end text-sm text-muted">
-            {steward ? "You are a steward: you can post notices and remove posts." : "Stewards are appointed by the founder."}{" "}
-            {council ? "You are on the council: you can approve a post for the front page, and the reason is logged." : "Council members are appointed. The founder code does not make you one."}{" "}
-            {admin ? "You are an admin: you can revoke a council approval and correct a ZIP." : "Admins are appointed. The founder code does not make you one."} The sample week turns council and admin on so you can try them.
+            {steward ? "You are a steward of a room: you can post notices, remove posts, and decide a town room." : "A steward is approved for one room, and that approval is logged."}{" "}
+            {council ? "You are on the council: you can approve a post for the front page, and the reason is logged." : "The council chair is seated once, with the founding admin."}{" "}
+            {admin ? "You are an admin: you can revoke a council approval, correct a ZIP, and sign off on access." : "An admin is signed off by a role owner after a steward approves."}
           </p>
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
@@ -102,8 +103,9 @@ export function AboutView() {
             Clear the board
           </button>
         </div>
-        <p className="mt-2 max-w-prose text-sm text-muted">The sample is six invented people and a week of meetings, for trying the app. It replaces whatever is here, and you become "Josh."</p>
+        <p className="mt-2 max-w-prose text-sm text-muted">The sample is six invented people and a week of meetings, for trying the app. It replaces whatever is here, and you become Josh, already seated as founding admin and council chair.</p>
       </section>
+      <AccessPanel />
 
       {removals.length > 0 ? (
         <section className="flex flex-col gap-3">

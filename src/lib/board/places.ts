@@ -65,6 +65,14 @@ export function localRoomLabel(room: LocalRoom): string {
  * Rooms Home may place, plus the member's one ZIP row. Topical room ids are
  * not added. A card with no local room has nothing to match and stays off Home.
  */
-export function homeCatalog(zips: readonly ZipTown[]): HomeCatalog {
-  return { zips, rooms: MEMBER_ROOMS };
+/** Shipped rooms plus town rooms an admin or steward has approved. A ZIP does not add one. */
+export function directoryRooms(extra: readonly LocalRoom[] = []): readonly LocalRoom[] {
+  const seen = new Set(MEMBER_ROOMS.map((room) => room.id));
+  const towns = new Set(MEMBER_ROOMS.flatMap((room) => (room.scope.kind === "town" ? [room.scope.townId] : [])));
+  const added = extra.filter((room) => room.scope.kind === "town" && !seen.has(room.id) && !towns.has(room.scope.townId));
+  return [...MEMBER_ROOMS, ...added];
+}
+
+export function homeCatalog(zips: readonly ZipTown[], extra: readonly LocalRoom[] = []): HomeCatalog {
+  return { zips, rooms: directoryRooms(extra) };
 }

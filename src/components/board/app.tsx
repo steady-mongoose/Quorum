@@ -38,7 +38,9 @@ export function BoardApp() {
   const theme = themeById(OWNER_THEME);
 
   useEffect(() => {
-    void useBoard.persist.rehydrate();
+    void Promise.resolve(useBoard.persist.rehydrate()).then(() => {
+      useBoard.getState().bootstrapFromEnv();
+    });
     void useQuorum.persist.rehydrate();
   }, []);
 
