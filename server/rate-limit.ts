@@ -30,9 +30,11 @@ export function maxLockMs(rule: LimitRule): number {
 }
 
 /**
- * Rate-limit identity for an email. Trimmed and lowercased, dots removed from
- * the local part, and the plus tag dropped. Null when the value is empty,
- * too long, or not an address — those must not become table keys.
+ * Rate-limit identity for an email. Trimmed and lowercased, and the plus tag
+ * dropped. Dots in the local part are removed only for gmail.com and
+ * googlemail.com, and those two domains share one key (gmail.com). Other
+ * providers keep dots, because first.last and firstlast are different
+ * mailboxes there. Null when the value is empty, too long, or not an address.
  * Account rows still keep the address the person typed, aside from trim and case.
  */
 export function emailRateKey(value: string): string | null {
@@ -41,13 +43,14 @@ export function emailRateKey(value: string): string | null {
   if (!EMAIL_SHAPE.test(trimmed)) return null;
   const at = trimmed.lastIndexOf("@");
   let local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
+  let domain = trimmed.slice(at + 1);
   const plus = local.indexOf("+");
   if (plus >= 0) local = local.slice(0, plus);
-  local = local.replaceAll(".", "");
+  if (domain === "googlemail.com") domain = "gmail.com";
+  if (domain === "gmail.com") local = local.replaceAll(".", "");
   if (!local) return null;
   const key = `${local}@${domain}`;
-  if (key.length > EMAIL_KEY_MAX || !/^[a-z0-9_-]+@[a-z0-9.-]+$/.test(key)) return null;
+  if (key.length > EMAIL_KEY_MAX || !/^[a-z0-9._-]+@[a-z0-9.-]+$/.test(key)) return null;
   return key;
 }
 
@@ -63,6 +66,44 @@ export async function clearEmailLimit(db: Db, email: string): Promise<string[]> 
   if (!keys) throw new Error("Enter an email address.");
   await db.query(`delete from "rateLimit" where "key" in ($1, $2, $3)`, keys);
   return keys;
+}
+
+/** One prune covers this many expired rows. The rest wait for a later sample. */
+export const PRUNE_BATCH = 500;
+
+/** A prune runs on every Nth limited write, not on each one. */
+export const PRUNE_EVERY = 20;
+
+let writesSincePrune = 0;
+
+/** Test hook. Production starts at zero and counts writes in this process. */
+export function resetPruneSchedule(): void {
+  writesSincePrune = 0;
+}
+
+/** True on writes N, 2N, 3N, … so concurrent floods do not each scan the table. */
+export function shouldPruneWrite(writeIndex: number): boolean {
+  return writeIndex > 0 && writeIndex % PRUNE_EVERY === 0;
+}
+
+/**
+ * Deletes at most `limit` rows whose last request is older than the longest
+ * lock. The lastRequest index (migration 0005, owner approval required)
+ * serves the filter. Callers sample writes instead of pruning on every one.
+ */
+export async function pruneRateLimits(
+  db: Db,
+  now: number,
+  rule: LimitRule,
+  limit = PRUNE_BATCH,
+): Promise<void> {
+  const cutoff = now - maxLockMs(rule);
+  await db.query(
+    `delete from "rateLimit" where ctid in (
+       select ctid from "rateLimit" where "lastRequest" < $1 order by "lastRequest" limit $2
+     )`,
+    [cutoff, limit],
+  );
 }
 
 /**
@@ -82,7 +123,19 @@ export async function consumeLimit(
     throw new Error("Rate limit window must be at least 1 second.");
   }
   try {
-    await db.query(`delete from "rateLimit" where "lastRequest" < $1`, [now - maxLockMs(rule)]);
+    writesSincePrune += 1;
+    if (shouldPruneWrite(writesSincePrune)) {
+      try {
+        await pruneRateLimits(db, now, rule);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "rate-limit-prune-failed",
+            message: error instanceof Error ? error.message : "unknown",
+          }),
+        );
+      }
+    }
     return await db.transaction(async (tx) => {
       const rows = await tx.query<{ count: number; lastRequest: number | string }>(
         `select "count", "lastRequest" from "rateLimit" where "key" = $1 for update`,

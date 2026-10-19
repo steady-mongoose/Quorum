@@ -3,10 +3,27 @@ import { isIP } from "node:net";
 /** Header the API sets itself. Clients cannot supply the address used for limits. */
 export const CLIENT_IP_HEADER = "x-avouch-client-ip";
 
+function unbracket(value: string): string {
+  if (value.startsWith("[") && value.endsWith("]") && value.length > 2) return value.slice(1, -1);
+  return value;
+}
+
+/** ::ffff:1.2.3.4 and ::ffff:hhhh:hhhh both become a dotted IPv4 address. */
+function mappedIpv4(value: string): string | null {
+  const mapped = /^::ffff:(.+)$/.exec(value);
+  if (!mapped) return null;
+  const rest = mapped[1];
+  if (isIP(rest) === 4) return rest;
+  const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+  if (!hex) return null;
+  const hi = Number.parseInt(hex[1], 16);
+  const lo = Number.parseInt(hex[2], 16);
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
 export function normalizeIp(value: string | undefined): string {
-  const trimmed = (value ?? "").trim();
-  if (trimmed.startsWith("::ffff:")) return trimmed.slice("::ffff:".length);
-  return trimmed;
+  const trimmed = unbracket((value ?? "").trim()).split("%")[0].trim().toLowerCase();
+  return mappedIpv4(trimmed) ?? trimmed;
 }
 
 export function isTrustedProxy(

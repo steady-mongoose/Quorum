@@ -34,6 +34,11 @@ test("IPv6 rate limits use the /64 and IPv4 stays a single address", () => {
   assert.equal(rateLimitIp("2001:db8:1:3::1"), "2001:db8:1:3::/64");
   assert.equal(rateLimitIp("203.0.113.8"), "203.0.113.8");
   assert.equal(rateLimitIp("::ffff:203.0.113.8"), "203.0.113.8");
+  assert.equal(rateLimitIp("::FFFF:203.0.113.8"), "203.0.113.8");
+  assert.equal(rateLimitIp("::ffff:cb00:7108"), "203.0.113.8");
+  assert.equal(rateLimitIp("::FFFF:CB00:7108"), "203.0.113.8");
+  assert.equal(rateLimitIp("[2001:db8:1:2::10]"), "2001:db8:1:2::/64");
+  assert.equal(rateLimitIp("[::FFFF:1.2.3.4]"), "1.2.3.4");
   assert.equal(rateLimitIp("local"), "local");
 
   const caddy = resolveIncoming({
