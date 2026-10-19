@@ -2,7 +2,7 @@ import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
-import { consumeLimit, INVITE_LIMIT, SIGN_IN_LIMIT, SIGNUP_LIMIT } from "./rate-limit.ts";
+import { ATTEMPT_LIMIT, consumeLimit } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
   listInviteLog,
@@ -57,12 +57,16 @@ function withCors(request: Request, response: Response, origins: string[]): Resp
   return new Response(response.body, { status: response.status, headers });
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+async function readBody(request: Request): Promise<string> {
   const claimed = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(claimed) && claimed > 65_536)
     throw new HttpError(413, "That request is too large.");
   const text = await request.text();
   if (text.length > 65_536) throw new HttpError(413, "That request is too large.");
+  return text;
+}
+
+function parseObject(text: string): Record<string, unknown> {
   if (!text) return {};
   try {
     const body = JSON.parse(text) as unknown;
@@ -74,6 +78,36 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
     if (error instanceof HttpError) throw error;
     throw new HttpError(400, "Send JSON.");
   }
+}
+
+async function readJson(request: Request): Promise<Record<string, unknown>> {
+  return parseObject(await readBody(request));
+}
+
+function replay(request: Request, body: string): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  return new Request(request.url, { method: request.method, headers, body });
+}
+
+function emailKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** IP first. A blocked address does not consume the email bucket. A missing email counts only the address. */
+async function limitIpAndEmail(
+  db: Db,
+  scope: string,
+  ip: string,
+  email: string,
+): Promise<Response | null> {
+  const ipHit = await consumeLimit(db, `${scope}:ip:${ip}`, ATTEMPT_LIMIT, Date.now());
+  if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
+  const emailId = emailKey(email);
+  if (!emailId) return null;
+  const emailHit = await consumeLimit(db, `${scope}:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
+  if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
+  return null;
 }
 
 function stringField(body: Record<string, unknown>, key: string): string {
@@ -155,13 +189,19 @@ async function route(
   }
 
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
-    const limit = await consumeLimit(
-      deps.db,
-      `sign-in:${clientIp(request)}`,
-      SIGN_IN_LIMIT,
-      Date.now(),
-    );
-    if (!limit.allowed) return tooMany(limit.retryAfter);
+    const text = await readBody(request);
+    let email = "";
+    let parseError: HttpError | null = null;
+    try {
+      email = stringField(parseObject(text), "email");
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      parseError = error;
+    }
+    const blocked = await limitIpAndEmail(deps.db, "sign-in", clientIp(request), parseError ? "" : email);
+    if (blocked) return blocked;
+    if (parseError) throw parseError;
+    return deps.forwardAuth(replay(request, text));
   }
 
   if (url.pathname.startsWith("/api/auth/")) {
@@ -169,14 +209,23 @@ async function route(
   }
 
   if (url.pathname === "/api/signup" && request.method === "POST") {
-    const limit = await consumeLimit(
+    const text = await readBody(request);
+    let body: Record<string, unknown> | null = null;
+    let parseError: HttpError | null = null;
+    try {
+      body = parseObject(text);
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      parseError = error;
+    }
+    const blocked = await limitIpAndEmail(
       deps.db,
-      `signup:${clientIp(request)}`,
-      SIGNUP_LIMIT,
-      Date.now(),
+      "signup",
+      clientIp(request),
+      body ? stringField(body, "email") : "",
     );
-    if (!limit.allowed) return tooMany(limit.retryAfter);
-    const body = await readJson(request);
+    if (blocked) return blocked;
+    if (parseError || !body) throw parseError ?? new HttpError(400, "Send JSON.");
     const result = await redeemInvite(
       deps.db,
       {
@@ -202,15 +251,20 @@ async function route(
   }
 
   if (url.pathname === "/api/invites" && request.method === "POST") {
-    const limit = await consumeLimit(
+    const ipHit = await consumeLimit(
       deps.db,
-      `invite:${clientIp(request)}`,
-      INVITE_LIMIT,
+      `invite:ip:${clientIp(request)}`,
+      ATTEMPT_LIMIT,
       Date.now(),
     );
-    if (!limit.allowed) return tooMany(limit.retryAfter);
+    if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
+    const emailId = emailKey(session.email);
+    if (emailId) {
+      const emailHit = await consumeLimit(deps.db, `invite:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
+      if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
+    }
     const body = await readJson(request);
     const minted = await mintInvite(
       deps.db,

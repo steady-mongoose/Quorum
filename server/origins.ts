@@ -16,10 +16,15 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
+/** Localhost is trusted only when NODE_ENV is not "production". */
+export function allowLocalOrigins(nodeEnv: string | undefined): boolean {
+  return nodeEnv !== "production";
+}
+
 /**
  * Browser origins allowed to call the API with cookies.
- * Loopback origins are added only outside production, and a production
- * WEB_ORIGINS list cannot put them back.
+ * Loopback origins are added only when NODE_ENV is not production, and a
+ * production WEB_ORIGINS list cannot put them back.
  */
 export function parseOrigins(
   value: string | undefined,

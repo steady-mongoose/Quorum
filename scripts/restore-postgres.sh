@@ -1,30 +1,38 @@
 #!/bin/sh
-# Restore one encrypted Avouch dump.
+# Restore one age-encrypted Avouch dump.
 #
-#   ./scripts/restore-postgres.sh /var/backups/avouch/avouch-STAMP.dump.enc
+#   ./scripts/restore-postgres.sh /var/backups/avouch/avouch-STAMP.dump.age
 #
 # Stop the API first. This replaces the accounts, invite log, and founding
-# seat with the dump. It does not change the static site. The passphrase is
-# read from BACKUP_KEY_FILE and is not printed.
+# seat with the dump. It does not change the static site.
+#
+# AGE_IDENTITY_FILE is the age identity (AGE-SECRET-KEY-1...). Copy it onto
+# the box only for this restore, then delete it. The nightly backup env keeps
+# the public key only.
 #
 #   docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop api
-#   BACKUP_KEY_FILE=/etc/avouch/backup.key ./scripts/restore-postgres.sh /path/to/avouch-STAMP.dump.enc
+#   AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh /path/to/avouch-STAMP.dump.age
+#   shred -u /tmp/avouch-backup-identity.txt 2>/dev/null || rm -f /tmp/avouch-backup-identity.txt
 #   docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 #   curl -fsS https://api.avouchsocial.com/api/health
+#
+# To fetch a copy from the bucket Josh approved:
+#   aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_REGION:-auto}" \
+#     --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 #
 # BACKUP_MODE=docker (default) restores into the compose Postgres.
 # BACKUP_MODE=pg_restore shells out to pg_restore on PATH, which tests use.
 set -eu
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: restore-postgres.sh <avouch-STAMP.dump.enc>" >&2
+  echo "Usage: restore-postgres.sh <avouch-STAMP.dump.age>" >&2
   exit 1
 fi
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 ENC="$1"
 BACKUP_MODE="${BACKUP_MODE:-docker}"
-BACKUP_KEY_FILE="${BACKUP_KEY_FILE:-}"
+AGE_IDENTITY_FILE="${AGE_IDENTITY_FILE:-}"
 POSTGRES_USER="${POSTGRES_USER:-avouch}"
 POSTGRES_DB="${POSTGRES_DB:-avouch}"
 ENV_FILE="${ENV_FILE:-$ROOT/deploy/.env}"
@@ -34,16 +42,14 @@ if [ ! -f "$ENC" ]; then
   echo "Encrypted dump not found." >&2
   exit 1
 fi
-if [ -z "$BACKUP_KEY_FILE" ] || [ ! -f "$BACKUP_KEY_FILE" ]; then
-  echo "Set BACKUP_KEY_FILE to the passphrase file that encrypted this dump." >&2
+if [ -z "$AGE_IDENTITY_FILE" ] || [ ! -f "$AGE_IDENTITY_FILE" ]; then
+  echo "Set AGE_IDENTITY_FILE to the age identity for this restore. Remove it when you are done." >&2
   exit 1
 fi
 
 PLAIN="$(mktemp)"
 trap 'rm -f "$PLAIN"' EXIT
-gpg --batch --yes --pinentry-mode loopback \
-  --passphrase-file "$BACKUP_KEY_FILE" \
-  --decrypt --output "$PLAIN" "$ENC"
+age -d -i "$AGE_IDENTITY_FILE" -o "$PLAIN" "$ENC"
 
 if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
