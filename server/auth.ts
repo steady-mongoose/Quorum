@@ -6,6 +6,21 @@ import { assertAccountCreateAllowed } from "./closed-test/account-create.ts";
 type AuthDatabase = Pool | { dialect: Dialect; type: "postgres" };
 
 /**
+ * Shared database limiter. Sign-in is 5 per minute per client address.
+ * The app adds the same cap per email, and the same caps on /api/signup and /api/invites.
+ */
+export const authRateLimit = {
+  enabled: true,
+  storage: "database" as const,
+  window: 60,
+  max: 60,
+  customRules: {
+    "/sign-in/*": { window: 60, max: 5 },
+    "/sign-up/*": { window: 60, max: 5 },
+  },
+};
+
+/**
  * Better Auth for the dedicated box. Email and password only.
  * The Grok broker config in src/lib/auth/server.ts is left as the preview scaffold.
  * Open signup is refused in the database hook; the HTTP route is refused as well.
@@ -27,19 +42,7 @@ export function createClosedAuth(options: {
       minPasswordLength: 8,
       maxPasswordLength: 128,
     },
-    // Database rows are shared by every process on the box. Memory would
-    // reset on restart and would not be shared. Sign-in is tighter than
-    // the default window. The app also limits /api/signup and /api/invites.
-    rateLimit: {
-      enabled: true,
-      storage: "database",
-      window: 60,
-      max: 30,
-      customRules: {
-        "/sign-in/*": { window: 600, max: 5 },
-        "/sign-up/*": { window: 600, max: 3 },
-      },
-    },
+    rateLimit: authRateLimit,
     telemetry: { enabled: false },
     databaseHooks: {
       user: {

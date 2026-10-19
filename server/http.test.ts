@@ -4,7 +4,7 @@ import { createApp, type AppDeps } from "./http.ts";
 import { GENERIC_SIGNUP_ERROR } from "./closed-test/rules.ts";
 import { mintInvite, seatFoundingAdmin, type CreateAccount, type SignIn } from "./closed-test/store.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
-import { SIGNUP_LIMIT } from "./rate-limit.ts";
+import { ATTEMPT_LIMIT } from "./rate-limit.ts";
 import { openTestDb } from "./closed-test/test-db.ts";
 import type { Db } from "./db.ts";
 import { randomUUID } from "node:crypto";
@@ -32,7 +32,7 @@ function app(db: Db, extra: Partial<AppDeps> = {}) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
-      return { id, name: "Josh", email: "josh@example.com" };
+      return { id, name: "Josh", email: headers.get("x-user-email") ?? "josh@example.com" };
     },
     forwardAuth: async () => {
       throw new Error("auth handler should not see an open sign-up");
@@ -163,10 +163,10 @@ test("signup requires an invite, then a member can read who invited whom", async
 test("sign-in is forwarded and a stranger origin is not echoed", async () => {
   const { db, close } = await openTestDb();
   try {
-    let forwarded = false;
+    let forwarded = "";
     const handler = app(db, {
-      forwardAuth: async () => {
-        forwarded = true;
+      forwardAuth: async (request) => {
+        forwarded = await request.text();
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -177,10 +177,10 @@ test("sign-in is forwarded and a stranger origin is not echoed", async () => {
       new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
         method: "POST",
         headers: { origin: "https://evil.example", "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ email: "josh@example.com", password: "correct-horse" }),
       }),
     );
-    assert.equal(forwarded, true);
+    assert.equal(forwarded, JSON.stringify({ email: "josh@example.com", password: "correct-horse" }));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("access-control-allow-origin"), null);
   } finally {
@@ -242,37 +242,110 @@ test("signup errors do not say whether the email is registered", async () => {
   }
 });
 
-test("signup is limited per client address", async () => {
+function attempt(path: string, ip: string, body: string, headers: Record<string, string> = {}) {
+  return new Request(`http://127.0.0.1:8787${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: ip, ...headers },
+    body,
+  });
+}
+
+test("signup is limited per address and per email", async () => {
   const { db, close } = await openTestDb();
   try {
     const handler = app(db);
-    const body = JSON.stringify({ name: "A", email: "a@example.com", password: "short" });
-    for (let n = 0; n < SIGNUP_LIMIT.max; n += 1) {
-      const response = await handler(
-        new Request("http://127.0.0.1:8787/api/signup", {
-          method: "POST",
-          headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.10" },
-          body,
-        }),
-      );
+    const body = JSON.stringify({ name: "A", email: "A@Example.com", password: "short" });
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(attempt("/api/signup", "203.0.113.10", body));
       assert.equal(response.status, 400);
     }
+    const blocked = await handler(attempt("/api/signup", "203.0.113.10", body));
+    assert.equal(blocked.status, 429);
+    assert.ok(Number(blocked.headers.get("retry-after")) >= 1);
+    const sameEmail = await handler(
+      attempt(
+        "/api/signup",
+        "203.0.113.11",
+        JSON.stringify({ name: "A", email: "a@example.com", password: "short" }),
+      ),
+    );
+    assert.equal(sameEmail.status, 429);
+    assert.ok(Number(sameEmail.headers.get("retry-after")) >= 1);
+    const otherEmail = await handler(
+      attempt(
+        "/api/signup",
+        "203.0.113.12",
+        JSON.stringify({ name: "B", email: "b@example.com", password: "short" }),
+      ),
+    );
+    assert.equal(otherEmail.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+test("sign-in is limited per address and per email and a blocked attempt is not forwarded", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    let forwarded = 0;
+    const handler = app(db, {
+      forwardAuth: async () => {
+        forwarded += 1;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+    const body = JSON.stringify({ email: "Maria@Example.com", password: "correct-horse" });
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(attempt("/api/auth/sign-in/email", "203.0.113.20", body));
+      assert.equal(response.status, 200);
+    }
+    const blocked = await handler(attempt("/api/auth/sign-in/email", "203.0.113.20", body));
+    assert.equal(blocked.status, 429);
+    assert.ok(Number(blocked.headers.get("retry-after")) >= 1);
+    assert.equal(forwarded, ATTEMPT_LIMIT.max);
+    const sameEmail = await handler(
+      attempt(
+        "/api/auth/sign-in/email",
+        "203.0.113.21",
+        JSON.stringify({ email: "maria@example.com", password: "correct-horse" }),
+      ),
+    );
+    assert.equal(sameEmail.status, 429);
+    assert.equal(forwarded, ATTEMPT_LIMIT.max);
+  } finally {
+    await close();
+  }
+});
+
+test("invites are limited per address and per signed-in email", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const body = "{}";
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(
+        attempt("/api/invites", "203.0.113.30", body, {
+          "x-user-id": "user-a",
+          "x-user-email": "Host@Example.com",
+        }),
+      );
+      assert.equal(response.status, 403);
+    }
     const blocked = await handler(
-      new Request("http://127.0.0.1:8787/api/signup", {
-        method: "POST",
-        headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.10" },
-        body,
+      attempt("/api/invites", "203.0.113.30", body, {
+        "x-user-id": "user-a",
+        "x-user-email": "host@example.com",
       }),
     );
     assert.equal(blocked.status, 429);
-    const other = await handler(
-      new Request("http://127.0.0.1:8787/api/signup", {
-        method: "POST",
-        headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.11" },
-        body,
+    assert.ok(Number(blocked.headers.get("retry-after")) >= 1);
+    const sameEmail = await handler(
+      attempt("/api/invites", "203.0.113.31", body, {
+        "x-user-id": "user-b",
+        "x-user-email": "host@example.com",
       }),
     );
-    assert.equal(other.status, 400);
+    assert.equal(sameEmail.status, 429);
   } finally {
     await close();
   }

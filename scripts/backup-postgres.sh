@@ -1,14 +1,15 @@
 #!/bin/sh
 # Nightly logical backup of the Avouch Social Postgres database.
 #
-# Dumps the database, encrypts it with gpg (AES256, a local key file), and
-# copies the ciphertext to BACKUP_OFFBOX_DIR. The plaintext dump is removed.
-# Dumps older than BACKUP_RETENTION_DAYS (default 14) are deleted in both places.
+# Dumps the database and encrypts it with age to a public-key recipient.
+# The private identity is not on this machine and is not read here.
+# The plaintext dump is removed. Local ciphertext older than
+# BACKUP_RETENTION_DAYS (default 14) is deleted.
 #
-# BACKUP_OFFBOX_DIR is a directory on another disk or machine. A value with a
-# colon is copied with scp (for example backup@192.0.2.10:/var/backups/avouch).
-# A local path on the same device as BACKUP_DIR is refused, so the copy is not
-# another folder on the database disk. No paid storage service is used.
+# Off-site copy goes to S3-compatible storage when BACKUP_S3_BUCKET,
+# BACKUP_S3_ENDPOINT, BACKUP_S3_ACCESS_KEY_ID, and BACKUP_S3_SECRET_ACCESS_KEY
+# are all set. Leave them blank until Josh approves a bucket. The script
+# does not delete remote objects.
 #
 # Restore with scripts/restore-postgres.sh. See deploy/README.md.
 set -eu
@@ -17,27 +18,31 @@ ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/avouch}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_MODE="${BACKUP_MODE:-docker}"
-BACKUP_KEY_FILE="${BACKUP_KEY_FILE:-}"
-BACKUP_OFFBOX_DIR="${BACKUP_OFFBOX_DIR:-}"
+BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 POSTGRES_USER="${POSTGRES_USER:-avouch}"
 POSTGRES_DB="${POSTGRES_DB:-avouch}"
 ENV_FILE="${ENV_FILE:-$ROOT/deploy/.env}"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT/deploy/docker-compose.yml}"
 
-if [ -z "$BACKUP_KEY_FILE" ] || [ ! -f "$BACKUP_KEY_FILE" ]; then
-  echo "Set BACKUP_KEY_FILE to a passphrase file on this machine." >&2
-  exit 1
-fi
-if [ -z "$BACKUP_OFFBOX_DIR" ]; then
-  echo "Set BACKUP_OFFBOX_DIR to a directory off this database disk." >&2
-  exit 1
-fi
+case "$BACKUP_AGE_RECIPIENT" in
+  age1*) ;;
+  *)
+    echo "Set BACKUP_AGE_RECIPIENT to an age public key (age1...). Keep the private key off this machine." >&2
+    exit 1
+    ;;
+esac
+case "$BACKUP_AGE_RECIPIENT" in
+  *SECRET*)
+    echo "BACKUP_AGE_RECIPIENT must be a public key, not an identity." >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PLAIN="$BACKUP_DIR/avouch-$STAMP.dump.partial"
-OUT="$BACKUP_DIR/avouch-$STAMP.dump.enc"
+OUT="$BACKUP_DIR/avouch-$STAMP.dump.age"
 trap 'rm -f "$PLAIN"' EXIT
 
 if [ "$BACKUP_MODE" = "docker" ]; then
@@ -54,36 +59,10 @@ else
   exit 1
 fi
 
-gpg --batch --yes --pinentry-mode loopback \
-  --passphrase-file "$BACKUP_KEY_FILE" \
-  --symmetric --cipher-algo AES256 \
-  --output "$OUT" "$PLAIN"
+age -r "$BACKUP_AGE_RECIPIENT" -o "$OUT" "$PLAIN"
 rm -f "$PLAIN"
 chmod 600 "$OUT"
 
-case "$BACKUP_OFFBOX_DIR" in
-  *:*)
-    scp -o BatchMode=yes "$OUT" "$BACKUP_OFFBOX_DIR/"
-    ;;
-  *)
-    mkdir -p "$BACKUP_OFFBOX_DIR"
-    chmod 700 "$BACKUP_OFFBOX_DIR"
-    if [ "${BACKUP_ALLOW_SAME_DEVICE:-}" != "1" ]; then
-      local_dev="$(stat -c %d "$BACKUP_DIR")"
-      off_dev="$(stat -c %d "$BACKUP_OFFBOX_DIR")"
-      if [ "$local_dev" = "$off_dev" ]; then
-        echo "BACKUP_OFFBOX_DIR is on the same disk as $BACKUP_DIR. Point it at another disk or an scp target." >&2
-        exit 1
-      fi
-    fi
-    cp "$OUT" "$BACKUP_OFFBOX_DIR/"
-    chmod 600 "$BACKUP_OFFBOX_DIR/$(basename "$OUT")"
-    ;;
-esac
-
+node "$ROOT/scripts/backup-offsite.mjs" "$OUT"
 node "$ROOT/scripts/prune-backups.mjs" "$BACKUP_DIR" "$BACKUP_RETENTION_DAYS"
-case "$BACKUP_OFFBOX_DIR" in
-  *:*) ;;
-  *) node "$ROOT/scripts/prune-backups.mjs" "$BACKUP_OFFBOX_DIR" "$BACKUP_RETENTION_DAYS" ;;
-esac
 echo "Wrote $OUT"

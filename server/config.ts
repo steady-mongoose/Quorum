@@ -1,4 +1,4 @@
-import { parseOrigins } from "./origins.ts";
+import { allowLocalOrigins, parseOrigins } from "./origins.ts";
 
 export type HostConfig = {
   databaseUrl: string;
@@ -27,7 +27,7 @@ export function readHostConfig(): HostConfig {
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("PORT must be a port number.");
   const baseURL = required("BETTER_AUTH_URL").replace(/\/+$/, "");
-  const production = process.env.NODE_ENV === "production" || baseURL.startsWith("https:");
+  const production = !allowLocalOrigins(process.env.NODE_ENV);
   return {
     databaseUrl: required("DATABASE_URL"),
     secret,
