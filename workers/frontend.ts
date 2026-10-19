@@ -1,8 +1,9 @@
 /**
  * Edge gate for the Avouch Social static site.
  *
- * `/api/*` is not the SPA. Until the dedicated box is wired up, every method
- * gets a JSON 503. Paths with a file extension are real files: a miss is a
+ * `/api/*` is not the SPA. The API is the dedicated box at api.avouchsocial.com.
+ * This Worker keeps answering every method with a JSON 503 so a same-origin
+ * call falls back to demo mode. Paths with a file extension are real files: a miss is a
  * 404, not index.html. Extensionless addresses get the shell so the client
  * router can show the page, including the styled not-found.
  */

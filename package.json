@@ -1,6 +1,9 @@
 {
   "name": "app-builder-workspace",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "sideEffects": false,
   "type": "module",
   "overrides": {
@@ -8,16 +11,18 @@
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",
+    "build": "node scripts/with-app-env.mjs vite build",
     "build:frontend": "BUILD_TARGET=frontend node scripts/with-app-env.mjs vite build && node scripts/finalize-frontend-assets.mjs",
     "db:migrate": "node scripts/migrate.mjs",
+    "api": "node --experimental-strip-types server/host.ts",
+    "seed:owner": "node --experimental-strip-types server/seed-owner.ts",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
     "preview:restart": "node scripts/preview.mjs restart",
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit && tsc -p workers --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/api-base.test.ts src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts workers/frontend.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

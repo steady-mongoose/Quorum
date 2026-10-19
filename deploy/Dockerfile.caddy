@@ -1,0 +1,7 @@
+# Stock caddy:2.10 has no rate_limit handler. This image adds it.
+# Built on the VPS with `docker compose up --build`. CI does not build it.
+FROM caddy:2.10-builder AS builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+
+FROM caddy:2.10
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

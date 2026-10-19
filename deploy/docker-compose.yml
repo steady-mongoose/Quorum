@@ -1,0 +1,106 @@
+# API for api.avouchsocial.com. Postgres is not published to the host.
+# `docker compose up -d` does not migrate. See README.md before the migrate profile.
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-avouch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-avouch}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-avouch} -d ${POSTGRES_DB:-avouch}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - avouch
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}
+      PORT: "8787"
+      # Caddy's address on the avouch network. X-Forwarded-For is read only from this peer.
+      # The request URL is BETTER_AUTH_URL.
+      TRUSTED_PROXIES: 172.28.19.10
+      ENV_FILE: /app/deploy/.env
+    volumes:
+      - ./.env:/app/deploy/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8787"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - avouch
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    environment:
+      API_HOST: ${API_HOST:-api.avouchsocial.com}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      avouch:
+        ipv4_address: 172.28.19.10
+
+  # Not started by `docker compose up`. Run only after the owner approves the SQL:
+  #   docker compose --profile migrate run --rm migrate
+  migrate:
+    profiles: ["migrate"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}
+    command: ["node", "scripts/migrate.mjs"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - avouch
+
+networks:
+  avouch:
+    ipam:
+      config:
+        - subnet: 172.28.19.0/24
+
+volumes:
+  pgdata:
+  caddy-data:
+  caddy-config:
