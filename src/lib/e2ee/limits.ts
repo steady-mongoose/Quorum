@@ -1,3 +1,13 @@
+import core from "@zxcvbn-ts/core";
+import common from "@zxcvbn-ts/language-common";
+import english from "@zxcvbn-ts/language-en";
+
+const zxcvbn = new core.ZxcvbnFactory({
+  translations: english.translations,
+  graphs: common.adjacencyGraphs,
+  dictionary: { ...common.dictionary, ...english.dictionary },
+});
+
 /** Shared mailbox bounds. The 30-day lifetime is the existing message rule. */
 
 export const DM_RETENTION_DAYS = 30;
@@ -15,12 +25,16 @@ export const DM_PREKEY_STOCK_MAX = 30;
 /** Their devices, our devices, and one backup envelope for each member. */
 export const DM_MAX_ENVELOPES = DM_MAX_DEVICES * 2 + 2;
 
-export const BACKUP_OPSLIMIT_MIN = 1;
+/** Argon2id floor: libsodium interactive (2 passes, 64 MiB). There is no weaker option. */
+export const BACKUP_OPSLIMIT_MIN = 2;
 export const BACKUP_OPSLIMIT_MAX = 4;
-export const BACKUP_MEMLIMIT_MIN = 8192;
+export const BACKUP_MEMLIMIT_MIN = 67_108_864;
 export const BACKUP_MEMLIMIT_MAX = 268_435_456;
 export const BACKUP_OPSLIMIT_INTERACTIVE = 2;
 export const BACKUP_MEMLIMIT_INTERACTIVE = 67_108_864;
+
+/** One-time key fetches for a single recipient, on top of the account-wide cap. */
+export const DM_BUNDLE_TARGET_MAX = 4;
 
 export const BODY_CIPHER_MAX_BYTES = 16_384;
 export const WRAP_CIPHER_MAX_BYTES = 128;
@@ -32,8 +46,20 @@ export function dmTextError(text: string): string | null {
   return null;
 }
 
+function passphraseScore(passphrase: string): number {
+  return zxcvbn.check(passphrase).score;
+}
+
 export function passphraseError(passphrase: string): string | null {
   if (passphrase.length < 12) return "Use at least 12 characters.";
   if (passphrase.length > 128) return "Use at most 128 characters.";
+  const words = passphrase
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+  if (words.length >= 4) return null;
+  if (passphraseScore(passphrase) < 3) {
+    return "Use a stronger passphrase. Four words, or a longer phrase, works.";
+  }
   return null;
 }

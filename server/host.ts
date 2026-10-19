@@ -3,6 +3,7 @@ import { createCredentialAccount, createSignIn, readSessionUser } from "./accoun
 import { createClosedAuth } from "./auth.ts";
 import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
+import { sweepExpired } from "./dm/store.ts";
 import { createApp } from "./http.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
@@ -74,6 +75,16 @@ export function startHost(): void {
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
   });
+  const database = pgDb(pool);
+  const sweep = setInterval(
+    () => {
+      void sweepExpired(database, new Date()).catch((error: unknown) => {
+        console.error(error);
+      });
+    },
+    60 * 60 * 1000,
+  );
+  sweep.unref();
   const server = createServer(async (req, res) => {
     try {
       await send(res, await app(await toRequest(req, config)));

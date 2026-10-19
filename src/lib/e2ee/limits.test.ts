@@ -10,6 +10,7 @@ test("message limits stay two people, plain text, and 30 days", () => {
   assert.match(dmTextError("a".repeat(DM_TEXT_MAX + 1)) ?? "", /4000/);
   assert.equal(passphraseError("short"), "Use at least 12 characters.");
   assert.equal(passphraseError("a long enough passphrase"), null);
+  assert.match(passphraseError("aaaaaaaaaaaa") ?? "", /stronger passphrase/);
 });
 
 test("message copy is English and does not add a feed, likes, reshares, or scores", () => {

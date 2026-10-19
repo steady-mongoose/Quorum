@@ -80,20 +80,29 @@ function mp4WithGps(): Uint8Array {
 
 type Entry = {
   userId: string;
+  identityPublic: string;
   backupPublic: string | null;
   device: PublicDevice;
+  signedPrekey: PublicPrekey;
   prekeys: PublicPrekey[];
 };
 
 function publish(userId: string, device: DeviceRecord, backupPublic: string | null): Entry {
   return {
     userId,
+    identityPublic: device.identityPublic,
     backupPublic,
     device: {
       deviceId: device.deviceId,
       signPublic: device.signPublic,
       boxPublic: device.boxPublic,
       statementSig: device.statementSig,
+      identitySig: device.identitySig,
+    },
+    signedPrekey: {
+      id: device.signedPrekey.id,
+      publicKey: device.signedPrekey.publicKey,
+      signature: device.signedPrekey.signature,
     },
     prekeys: device.prekeys.map((prekey) => ({
       id: prekey.id,
@@ -127,10 +136,12 @@ function directory(entries: Entry[]) {
           status: 200,
           body: {
             userId: target,
+            identityPublic: mine[0]?.identityPublic ?? null,
             backupPublic: mine[0]?.backupPublic ?? null,
             devices: mine.map((entry) => ({
               ...entry.device,
               prekey: entry.prekeys.shift() ?? null,
+              signedPrekey: entry.signedPrekey,
             })),
           },
         };
@@ -160,8 +171,9 @@ function directory(entries: Entry[]) {
           status: 200,
           body: {
             userId: id,
+            identityPublic: mine[0]?.identityPublic ?? null,
             backupPublic: mine[0]?.backupPublic ?? null,
-            deviceCount: mine.length,
+            devices: mine.map((entry) => entry.device),
           },
         };
       }
@@ -176,7 +188,30 @@ function vaultFor(
   device: DeviceRecord,
   backup: VaultState["backup"] = null,
 ): VaultStore {
-  return memoryVault({ userId, device, backup, pins: [], confirmed: [] });
+  return memoryVault({ userId, device, backup, pins: [], confirmed: [], spentPrekeys: [] });
+}
+
+async function allow(
+  vault: VaultStore,
+  peerId: string,
+  mine: DeviceRecord[],
+  theirs: DeviceRecord[],
+) {
+  const number = await safetyNumber(
+    {
+      identityPublic: mine[0]?.identityPublic ?? "",
+      devices: mine.map((device) => ({ deviceId: device.deviceId, signPublic: device.signPublic })),
+    },
+    {
+      identityPublic: theirs[0]?.identityPublic ?? "",
+      devices: theirs.map((device) => ({
+        deviceId: device.deviceId,
+        signPublic: device.signPublic,
+      })),
+    },
+  );
+  assert.ok(number);
+  if (number) confirmSafety(vault, peerId, number);
 }
 
 test("a picture is stripped, sealed, and opened by the other device", async () => {
@@ -187,6 +222,7 @@ test("a picture is stripped, sealed, and opened by the other device", async () =
   const book = directory([publish(aliceId, aliceDevice, null), publish(bobId, bobDevice, null)]);
   const aliceVault = vaultFor(aliceId, aliceDevice);
   const bobVault = vaultFor(bobId, bobDevice);
+  await allow(aliceVault, bobId, [aliceDevice], [bobDevice]);
   const jpeg = jpegWithGps();
   const sealed = await createDmMediaCrypto({
     transport: book.transportFor(aliceId),
@@ -219,9 +255,11 @@ test("a changed ciphertext or the wrong person does not open", async () => {
   const aliceDevice = await createDevice({ userId: aliceId, prekeyCount: 2 });
   const bobDevice = await createDevice({ userId: bobId, prekeyCount: 2 });
   const book = directory([publish(aliceId, aliceDevice, null), publish(bobId, bobDevice, null)]);
+  const aliceVault = vaultFor(aliceId, aliceDevice);
+  await allow(aliceVault, bobId, [aliceDevice], [bobDevice]);
   const sealed = await createDmMediaCrypto({
     transport: book.transportFor(aliceId),
-    vault: vaultFor(aliceId, aliceDevice),
+    vault: aliceVault,
   }).seal({
     bytes: jpegWithGps(),
     kind: "image",
@@ -273,7 +311,16 @@ test("safety numbers block a picture before a one-time key is taken", async () =
   );
   assert.equal(book.bundles(), 0);
 
-  const number = await safetyNumber(aliceBackup.boxPublic, bobBackup.boxPublic);
+  const number = await safetyNumber(
+    {
+      identityPublic: aliceDevice.identityPublic,
+      devices: [{ deviceId: aliceDevice.deviceId, signPublic: aliceDevice.signPublic }],
+    },
+    {
+      identityPublic: bobDevice.identityPublic,
+      devices: [{ deviceId: bobDevice.deviceId, signPublic: bobDevice.signPublic }],
+    },
+  );
   assert.ok(number);
   if (!number) return;
   confirmSafety(aliceVault, bobId, number);
@@ -291,12 +338,35 @@ test("safety numbers block a picture before a one-time key is taken", async () =
 test("eight devices on each side still fit in the opaque envelope", async () => {
   const aliceId = "a".repeat(64);
   const bobId = "b".repeat(64);
-  const aliceDevices = await Promise.all(
-    Array.from({ length: 8 }, () => createDevice({ userId: aliceId, prekeyCount: 1 })),
-  );
-  const bobDevices = await Promise.all(
-    Array.from({ length: 8 }, () => createDevice({ userId: bobId, prekeyCount: 1 })),
-  );
+  const aliceFirst = await createDevice({ userId: aliceId, prekeyCount: 1 });
+  const bobFirst = await createDevice({ userId: bobId, prekeyCount: 1 });
+  const aliceDevices = [
+    aliceFirst,
+    ...(await Promise.all(
+      Array.from({ length: 7 }, () =>
+        createDevice({
+          userId: aliceId,
+          prekeyCount: 1,
+          identity: {
+            signPublic: aliceFirst.identityPublic,
+            signSecret: aliceFirst.identitySecret,
+          },
+        }),
+      ),
+    )),
+  ];
+  const bobDevices = [
+    bobFirst,
+    ...(await Promise.all(
+      Array.from({ length: 7 }, () =>
+        createDevice({
+          userId: bobId,
+          prekeyCount: 1,
+          identity: { signPublic: bobFirst.identityPublic, signSecret: bobFirst.identitySecret },
+        }),
+      ),
+    )),
+  ];
   const book = directory([
     ...aliceDevices.map((device) => publish(aliceId, device, null)),
     ...bobDevices.map((device) => publish(bobId, device, null)),
@@ -304,9 +374,11 @@ test("eight devices on each side still fit in the opaque envelope", async () => 
   const alice = aliceDevices[0];
   const bob = bobDevices[0];
   if (!alice || !bob) throw new Error("missing device");
+  const aliceVault = vaultFor(aliceId, alice);
+  await allow(aliceVault, bobId, aliceDevices, bobDevices);
   const sealed = await createDmMediaCrypto({
     transport: book.transportFor(aliceId),
-    vault: vaultFor(aliceId, alice),
+    vault: aliceVault,
   }).seal({ bytes: jpegWithGps(), kind: "image", contentType: "image/jpeg", peerUserId: bobId });
   assert.ok(sealed.keyEnvelope.length <= KEY_ENVELOPE_MAX);
   const opened = await createDmMediaCrypto({
@@ -322,9 +394,11 @@ test("a video is stripped on this device and then sealed", async () => {
   const aliceDevice = await createDevice({ userId: aliceId, prekeyCount: 1 });
   const bobDevice = await createDevice({ userId: bobId, prekeyCount: 1 });
   const book = directory([publish(aliceId, aliceDevice, null), publish(bobId, bobDevice, null)]);
+  const aliceVault = vaultFor(aliceId, aliceDevice);
+  await allow(aliceVault, bobId, [aliceDevice], [bobDevice]);
   const sealed = await createDmMediaCrypto({
     transport: book.transportFor(aliceId),
-    vault: vaultFor(aliceId, aliceDevice),
+    vault: aliceVault,
   }).seal({ bytes: mp4WithGps(), kind: "video", contentType: "video/mp4", peerUserId: bobId });
   assert.equal(new TextDecoder().decode(sealed.ciphertext).includes("GPS latitude"), false);
   const opened = await createDmMediaCrypto({

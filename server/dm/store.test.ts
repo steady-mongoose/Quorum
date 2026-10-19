@@ -7,6 +7,7 @@ import { DM_MAX_DEVICES } from "../../src/lib/e2ee/limits.ts";
 import {
   createBackupKey,
   createDevice,
+  createIdentity,
   encryptBackupSecret,
   sealMessage,
   type DeviceRecord,
@@ -18,8 +19,10 @@ import {
   openThread,
   postMessage,
   putBackup,
+  recordAttendance,
   registerDevice,
   revokeDevice,
+  sweepExpired,
   type DeviceRegistration,
 } from "./store.ts";
 
@@ -42,6 +45,13 @@ function registration(device: DeviceRecord): DeviceRegistration {
     signPublic: device.signPublic,
     boxPublic: device.boxPublic,
     statementSig: device.statementSig,
+    identityPublic: device.identityPublic,
+    identitySig: device.identitySig,
+    signedPrekey: {
+      id: device.signedPrekey.id,
+      publicKey: device.signedPrekey.publicKey,
+      signature: device.signedPrekey.signature,
+    },
     prekeys: device.prekeys.map((prekey) => ({
       id: prekey.id,
       publicKey: prekey.publicKey,
@@ -55,16 +65,35 @@ function destination(userId: string, device: DeviceRecord): SealDestination {
   return {
     kind: "device",
     userId,
+    identityPublic: device.identityPublic,
     device: {
       deviceId: device.deviceId,
       signPublic: device.signPublic,
       boxPublic: device.boxPublic,
       statementSig: device.statementSig,
+      identitySig: device.identitySig,
     },
     prekey: prekey
       ? { id: prekey.id, publicKey: prekey.publicKey, signature: prekey.signature }
       : null,
+    signedPrekey: {
+      id: device.signedPrekey.id,
+      publicKey: device.signedPrekey.publicKey,
+      signature: device.signedPrekey.signature,
+    },
   };
+}
+
+async function meet(db: Db, userIds: string[]): Promise<void> {
+  for (const userId of userIds) {
+    const saved = await recordAttendance(
+      db,
+      userId,
+      ["s-framing"],
+      new Date("2026-10-19T12:00:00Z"),
+    );
+    assert.equal(saved.ok, true);
+  }
 }
 
 test("a bad device signature is refused and eight devices is the cap", async () => {
@@ -79,8 +108,25 @@ test("a bad device signature is refused and eight devices is the cap", async () 
     const refused = await registerDevice(db, alice, bad);
     assert.equal(refused.ok, false);
 
-    for (let i = 0; i < DM_MAX_DEVICES; i += 1) {
-      const next = await createDevice({ userId: alice, prekeyCount: 1, label: `Browser ${i}` });
+    const identity = await createIdentity();
+    const first = await createDevice({
+      userId: alice,
+      prekeyCount: 1,
+      label: "Browser 0",
+      identity,
+    });
+    assert.equal((await registerDevice(db, alice, registration(first))).ok, true);
+    const otherIdentity = await createDevice({ userId: alice, prekeyCount: 1 });
+    const replaced = await registerDevice(db, alice, registration(otherIdentity));
+    assert.equal(replaced.ok, false);
+    if (!replaced.ok) assert.match(replaced.error, /identity key/);
+    for (let i = 1; i < DM_MAX_DEVICES; i += 1) {
+      const next = await createDevice({
+        userId: alice,
+        prekeyCount: 1,
+        label: `Browser ${i}`,
+        identity,
+      });
       const saved = await registerDevice(db, alice, registration(next));
       assert.equal(saved.ok, true);
     }
@@ -99,8 +145,12 @@ test("the backup row stores ciphertext, not the passphrase or the private key", 
   try {
     const alice = await member(db, "Alice");
     const backup = await createBackupKey();
-    const passphrase = "correct horse battery";
-    const cipher = await encryptBackupSecret(backup.boxSecret, passphrase, "min");
+    const identity = await createIdentity();
+    const passphrase = "correct horse battery staple";
+    const cipher = await encryptBackupSecret(
+      { boxSecret: backup.boxSecret, identitySecret: identity.signSecret },
+      passphrase,
+    );
     assert.equal(cipher.ok, true);
     if (!cipher.ok) return;
     const saved = await putBackup(
@@ -131,6 +181,7 @@ test("a thread is one pair, the text is not stored, and a third member cannot re
     const alice = await member(db, "Alice");
     const bob = await member(db, "Bob");
     const carol = await member(db, "Carol");
+    await meet(db, [alice, bob]);
     const self = await openThread(db, alice, alice, now);
     assert.equal(self.ok, false);
 
@@ -188,15 +239,14 @@ test("a thread is one pair, the text is not stored, and a third member cannot re
     assert.equal(bobRead.value.length, 1);
     assert.equal(JSON.stringify(bobRead.value).includes(TEXT), false);
 
-    const later = await listMessages(
-      db,
-      bob,
-      opened.value.id,
-      new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000),
-    );
+    const laterDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+    const later = await listMessages(db, bob, opened.value.id, laterDate);
     assert.equal(later.ok, true);
     if (!later.ok) return;
     assert.equal(later.value.length, 0);
+    const hidden = await db.query(`select id from dm_message`);
+    assert.equal(hidden.length, 1);
+    await sweepExpired(db, laterDate);
     const left = await db.query(`select id from dm_message`);
     assert.equal(left.length, 0);
   } finally {
@@ -211,6 +261,9 @@ test("an envelope aimed outside the pair is refused, and a revoked device cannot
     const alice = await member(db, "Alice");
     const bob = await member(db, "Bob");
     const carol = await member(db, "Carol");
+    await meet(db, [alice, bob]);
+    const stranger = await openThread(db, alice, carol, now);
+    assert.equal(stranger.ok, false);
     const opened = await openThread(db, alice, bob, now);
     assert.equal(opened.ok, true);
     if (!opened.ok) return;
@@ -242,6 +295,10 @@ test("an envelope aimed outside the pair is refused, and a revoked device cannot
     assert.equal(direct.ok, true);
     if (!direct.ok) return;
     await revokeDevice(db, alice, aliceDevice.deviceId, now);
+    const leftPrekeys = await db.query(`select id from dm_prekey where device_id = $1`, [
+      aliceDevice.deviceId,
+    ]);
+    assert.equal(leftPrekeys.length, 0);
     const revoked = await postMessage(db, alice, opened.value.id, direct.value, now);
     assert.equal(revoked.ok, false);
   } finally {

@@ -10,6 +10,8 @@ export const INVITE_LIMIT = ATTEMPT_LIMIT;
 /** Private messages, separate from the sign-in attempt cap. */
 export const DM_SEND_LIMIT = { windowMs: 10 * 60 * 1000, max: 30 };
 export const DM_BUNDLE_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
+/** Per recipient, so one account cannot empty another member's one-time keys. */
+export const DM_BUNDLE_TARGET_LIMIT = { windowMs: 10 * 60 * 1000, max: 4 };
 
 export type LimitRule = { windowMs: number; max: number };
 
@@ -34,7 +36,8 @@ export async function consumeLimit(
   now: number,
   attempt = 0,
 ): Promise<{ allowed: boolean; retryAfter: number }> {
-  if (!Number.isFinite(rule.max) || rule.max < 1) throw new Error("Rate limit max must be at least 1.");
+  if (!Number.isFinite(rule.max) || rule.max < 1)
+    throw new Error("Rate limit max must be at least 1.");
   if (!Number.isFinite(rule.windowMs) || rule.windowMs < 1000) {
     throw new Error("Rate limit window must be at least 1 second.");
   }
@@ -72,7 +75,8 @@ export async function consumeLimit(
       return { allowed: false, retryAfter };
     });
   } catch (error) {
-    if (attempt < 1 && isUniqueViolation(error)) return consumeLimit(db, key, rule, now, attempt + 1);
+    if (attempt < 1 && isUniqueViolation(error))
+      return consumeLimit(db, key, rule, now, attempt + 1);
     throw error;
   }
 }

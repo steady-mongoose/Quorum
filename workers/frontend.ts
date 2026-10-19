@@ -8,25 +8,59 @@
  * router can show the page, including the styled not-found.
  */
 
+/**
+ * Scripts and objects come only from this site. Styles and fonts also allow
+ * the typefaces the shell already loads. Trusted Types are not required:
+ * React writes the page without a policy, and turning the requirement on
+ * would stop the app from booting. The policy still refuses injected script
+ * sources, plugins, and a swapped base URL.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' https://api.avouchsocial.com",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+].join("; ");
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (isApiPath(url.pathname)) return apiUnavailable(request);
-    if (hasFileExtension(url.pathname)) return env.ASSETS.fetch(request);
+    if (isApiPath(url.pathname)) return withSecurity(apiUnavailable(request));
+    if (hasFileExtension(url.pathname)) return withSecurity(await env.ASSETS.fetch(request));
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method not allowed", {
-        status: 405,
-        headers: {
-          allow: "GET, HEAD",
-          "content-type": "text/plain; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      });
+      return withSecurity(
+        new Response("Method not allowed", {
+          status: 405,
+          headers: {
+            allow: "GET, HEAD",
+            "content-type": "text/plain; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        }),
+      );
     }
     const shell = new URL("/index.html", url);
-    return env.ASSETS.fetch(new Request(shell, request));
+    return withSecurity(await env.ASSETS.fetch(new Request(shell, request)));
   },
 } satisfies ExportedHandler<Env>;
+
+function withSecurity(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("content-security-policy", CONTENT_SECURITY_POLICY);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");

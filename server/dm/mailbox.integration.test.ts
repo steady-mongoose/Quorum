@@ -8,6 +8,8 @@ import { DM_SEND_LIMIT, consumeLimit } from "../rate-limit.ts";
 import {
   confirmSafety,
   createLocalDevice,
+  createSiblingDevice,
+  recordAttendance,
   listEncryptedThreads,
   memoryVault,
   openEncryptedThread,
@@ -21,7 +23,7 @@ import {
 } from "../../src/lib/e2ee/mailbox.ts";
 
 const TEXT = "The framing night is Thursday, bring the saw.";
-const PASSPHRASE = "correct horse battery";
+const PASSPHRASE = "correct horse battery staple";
 
 async function member(db: Db, name: string): Promise<string> {
   const id = randomUUID();
@@ -85,20 +87,17 @@ test("two members, two devices, and a restored backup can read ciphertext the se
     const alice = await member(db, "Alice");
     const bob = await member(db, "Bob");
     const carol = await member(db, "Carol");
-    const aliceVault = memoryVault(await createLocalDevice(alice, "Browser"));
-    const alicePhone = memoryVault(await createLocalDevice(alice, "Phone"));
+    const aliceState = await createLocalDevice(alice, "Browser");
+    const aliceVault = memoryVault(aliceState);
+    const alicePhone = memoryVault(await createSiblingDevice(aliceState, "Phone"));
     const bobVault = memoryVault(await createLocalDevice(bob, "Browser"));
     assert.equal((await registerDevice(transport(handler, alice), aliceVault)).ok, true);
     assert.equal((await registerDevice(transport(handler, alice), alicePhone)).ok, true);
     assert.equal((await registerDevice(transport(handler, bob), bobVault)).ok, true);
-    assert.equal(
-      (await publishBackup(transport(handler, alice), aliceVault, PASSPHRASE, "min")).ok,
-      true,
-    );
-    assert.equal(
-      (await publishBackup(transport(handler, bob), bobVault, PASSPHRASE, "min")).ok,
-      true,
-    );
+    assert.equal((await publishBackup(transport(handler, alice), aliceVault, PASSPHRASE)).ok, true);
+    assert.equal((await publishBackup(transport(handler, bob), bobVault, PASSPHRASE)).ok, true);
+    assert.equal((await recordAttendance(transport(handler, alice), ["s-framing"])).ok, true);
+    assert.equal((await recordAttendance(transport(handler, bob), ["s-framing"])).ok, true);
 
     const opened = await openEncryptedThread(transport(handler, alice), bob);
     assert.equal(opened.ok, true);
@@ -196,6 +195,16 @@ test("two members, two devices, and a restored backup can read ciphertext the se
     );
     assert.equal(history.ok && history.messages[0]?.text, TEXT);
 
+    const changed = await sendEncrypted(
+      transport(handler, alice),
+      aliceVault,
+      opened.thread.id,
+      bob,
+      "The new browser needs a fresh check.",
+    );
+    assert.equal(changed.ok, false);
+    if (!changed.ok && changed.safety) confirmSafety(aliceVault, bob, changed.safety);
+
     const wrong = await restoreFromBackup(
       transport(handler, bob),
       bob,
@@ -239,6 +248,8 @@ test("two members, two devices, and a restored backup can read ciphertext the se
       "Alice",
     );
     assert.equal(expired.ok && expired.messages.length, 0);
+    const left = await db.query(`select id from dm_message`);
+    assert.equal(left.length, 0);
   } finally {
     await close();
   }

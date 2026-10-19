@@ -19,6 +19,8 @@ import {
   openContentKey,
   sealContentKey,
   verifyDeviceStatement,
+  verifyIdentitySignature,
+  wrapListCanonical,
 } from "./protocol.ts";
 import { stripBeforeSeal } from "./media-strip.ts";
 import { loadSodium, type Sodium } from "./sodium.ts";
@@ -65,6 +67,8 @@ type DecodedEnvelope = {
   boxPublic: Uint8Array;
   signPublic: Uint8Array;
   statementSig: Uint8Array;
+  identityPublic: Uint8Array;
+  identitySig: Uint8Array;
   mediaSig: Uint8Array;
   contentNonce: Uint8Array;
   kind: "image" | "video";
@@ -73,6 +77,7 @@ type DecodedEnvelope = {
     recipientDeviceId: string | null;
     recipientUserBackup: string | null;
     prekeyId: string | null;
+    signedPrekeyId: string | null;
     ephemeralPublic: Uint8Array;
     nonce: Uint8Array;
     ciphertext: Uint8Array;
@@ -197,11 +202,12 @@ function mediaStatement(
     contentType: string;
     contentNonce: Uint8Array;
     ciphertext: Uint8Array;
+    wrapsCanonical: string;
   },
 ): Uint8Array {
   const hash = lib.crypto_generichash(32, input.ciphertext);
   const text = [
-    "avouch-media-body-v1",
+    "avouch-media-body-v2",
     input.mediaId,
     input.senderDeviceId,
     input.binding,
@@ -209,6 +215,7 @@ function mediaStatement(
     input.contentType,
     b64(lib, input.contentNonce),
     b64(lib, hash),
+    input.wrapsCanonical,
   ].join("\n");
   lib.memzero(hash);
   return lib.from_string(text);
@@ -216,13 +223,15 @@ function mediaStatement(
 
 function encodeEnvelope(lib: Sodium, decoded: DecodedEnvelope): string {
   const writer = new Writer();
-  writer.u8(1);
+  writer.u8(2);
   writer.uuid(decoded.mediaId);
   writer.text(decoded.senderUserId);
   writer.uuid(decoded.senderDeviceId);
   writer.bytes(decoded.boxPublic);
   writer.bytes(decoded.signPublic);
   writer.bytes(decoded.statementSig);
+  writer.bytes(decoded.identityPublic);
+  writer.bytes(decoded.identitySig);
   writer.bytes(decoded.mediaSig);
   writer.bytes(decoded.contentNonce);
   writer.u8(decoded.kind === "image" ? 1 : 2);
@@ -235,6 +244,9 @@ function encodeEnvelope(lib: Sodium, decoded: DecodedEnvelope): string {
       if (wrap.prekeyId) {
         writer.u8(1);
         writer.uuid(wrap.prekeyId);
+      } else if (wrap.signedPrekeyId) {
+        writer.u8(2);
+        writer.uuid(wrap.signedPrekeyId);
       } else {
         writer.u8(0);
       }
@@ -261,13 +273,15 @@ function decodeEnvelope(lib: Sodium, value: string): DecodedEnvelope | null {
     return null;
   }
   const reader = new Reader(bytes);
-  if (reader.u8() !== 1) return null;
+  if (reader.u8() !== 2) return null;
   const mediaId = reader.take(16);
   const senderUserId = reader.text();
   const senderDeviceId = reader.take(16);
   const boxPublic = reader.take(32);
   const signPublic = reader.take(32);
   const statementSig = reader.take(64);
+  const identityPublic = reader.take(32);
+  const identitySig = reader.take(64);
   const mediaSig = reader.take(64);
   const contentNonce = reader.take(24);
   const kindByte = reader.u8();
@@ -280,6 +294,8 @@ function decodeEnvelope(lib: Sodium, value: string): DecodedEnvelope | null {
     !boxPublic ||
     !signPublic ||
     !statementSig ||
+    !identityPublic ||
+    !identitySig ||
     !mediaSig ||
     !contentNonce ||
     !contentType ||
@@ -308,11 +324,14 @@ function decodeEnvelope(lib: Sodium, value: string): DecodedEnvelope | null {
     }
     const flag = reader.u8();
     let prekeyId: string | null = null;
-    if (flag === 1) {
+    let signedPrekeyId: string | null = null;
+    if (flag === 1 || flag === 2) {
       const id = reader.take(16);
       if (!id) return null;
-      prekeyId = bytesToUuid(id);
-      if (!isUuid(prekeyId)) return null;
+      const parsed = bytesToUuid(id);
+      if (!isUuid(parsed)) return null;
+      if (flag === 1) prekeyId = parsed;
+      else signedPrekeyId = parsed;
     } else if (flag !== 0) {
       return null;
     }
@@ -324,6 +343,7 @@ function decodeEnvelope(lib: Sodium, value: string): DecodedEnvelope | null {
       recipientDeviceId,
       recipientUserBackup,
       prekeyId,
+      signedPrekeyId,
       ephemeralPublic,
       nonce,
       ciphertext,
@@ -337,6 +357,8 @@ function decodeEnvelope(lib: Sodium, value: string): DecodedEnvelope | null {
     boxPublic,
     signPublic,
     statementSig,
+    identityPublic,
+    identitySig,
     mediaSig,
     contentNonce,
     kind: kindByte === 1 ? "image" : "video",
@@ -386,23 +408,22 @@ async function sealMedia(
   const boxPublic = raw(lib, ready.sender.boxPublic, 32);
   const signPublic = raw(lib, ready.sender.signPublic, 32);
   const statementSig = raw(lib, ready.sender.statementSig, 64);
+  const identityPublic = raw(lib, ready.sender.identityPublic, 32);
+  const identitySig = raw(lib, ready.sender.identitySig, 64);
   try {
-    if (!signSecret || !boxPublic || !signPublic || !statementSig) {
+    if (
+      !signSecret ||
+      !boxPublic ||
+      !signPublic ||
+      !statementSig ||
+      !identityPublic ||
+      !identitySig
+    ) {
       throw new Error("The keys on this device are not valid.");
     }
     const ciphertext = lib.crypto_secretbox_easy(plain, contentNonce, contentKey);
     const binding = mediaBinding(state.userId, request.peerUserId);
     const mediaId = crypto.randomUUID();
-    const statement = mediaStatement(lib, {
-      mediaId,
-      senderDeviceId: ready.sender.deviceId,
-      binding,
-      kind: request.kind,
-      contentType,
-      contentNonce,
-      ciphertext,
-    });
-    const mediaSig = lib.crypto_sign_detached(statement, signSecret);
     const wrapped = await sealContentKey({
       mediaId,
       binding,
@@ -411,6 +432,17 @@ async function sealMedia(
       destinations: ready.destinations,
     });
     if (!wrapped.ok) throw new Error(wrapped.message);
+    const statement = mediaStatement(lib, {
+      mediaId,
+      senderDeviceId: ready.sender.deviceId,
+      binding,
+      kind: request.kind,
+      contentType,
+      contentNonce,
+      ciphertext,
+      wrapsCanonical: wrapListCanonical(wrapped.value),
+    });
+    const mediaSig = lib.crypto_sign_detached(statement, signSecret);
     const decoded: DecodedEnvelope = {
       mediaId,
       senderUserId: state.userId,
@@ -418,6 +450,8 @@ async function sealMedia(
       boxPublic,
       signPublic,
       statementSig,
+      identityPublic,
+      identitySig,
       mediaSig,
       contentNonce,
       kind: request.kind,
@@ -433,6 +467,7 @@ async function sealMedia(
           recipientDeviceId: envelope.recipientDeviceId,
           recipientUserBackup: envelope.recipientUserBackup,
           prekeyId: envelope.prekeyId,
+          signedPrekeyId: envelope.signedPrekeyId,
           ephemeralPublic,
           nonce,
           ciphertext: wrapCipher,
@@ -474,13 +509,33 @@ async function openMedia(
   const signPublic = b64(lib, decoded.signPublic);
   const boxPublic = b64(lib, decoded.boxPublic);
   const statementSig = b64(lib, decoded.statementSig);
+  const identityPublic = b64(lib, decoded.identityPublic);
+  const identitySig = b64(lib, decoded.identitySig);
   const deviceOk = await verifyDeviceStatement(decoded.senderUserId, {
     deviceId: decoded.senderDeviceId,
     signPublic,
     boxPublic,
     statementSig,
+    identitySig,
   });
   if (!deviceOk) throw new Error("That picture could not be read.");
+  const identityOk = await verifyIdentitySignature(identityPublic, decoded.senderUserId, {
+    deviceId: decoded.senderDeviceId,
+    signPublic,
+    boxPublic,
+    statementSig,
+    identitySig,
+  });
+  if (!identityOk) throw new Error("That picture could not be read.");
+  const envelopes = decoded.wraps.map((wrap) => ({
+    recipientDeviceId: wrap.recipientDeviceId,
+    recipientUserBackup: wrap.recipientUserBackup,
+    prekeyId: wrap.prekeyId,
+    signedPrekeyId: wrap.signedPrekeyId,
+    ephemeralPublic: b64(lib, wrap.ephemeralPublic),
+    nonce: b64(lib, wrap.nonce),
+    ciphertext: b64(lib, wrap.ciphertext),
+  }));
   const statement = mediaStatement(lib, {
     mediaId: decoded.mediaId,
     senderDeviceId: decoded.senderDeviceId,
@@ -489,6 +544,7 @@ async function openMedia(
     contentType: decoded.contentType,
     contentNonce: decoded.contentNonce,
     ciphertext: request.ciphertext,
+    wrapsCanonical: wrapListCanonical(envelopes),
   });
   let signed = false;
   try {
@@ -504,14 +560,7 @@ async function openMedia(
     senderBoxPublic: boxPublic,
     recipientDevice: state.device,
     backup: state.backup,
-    envelopes: decoded.wraps.map((wrap) => ({
-      recipientDeviceId: wrap.recipientDeviceId,
-      recipientUserBackup: wrap.recipientUserBackup,
-      prekeyId: wrap.prekeyId,
-      ephemeralPublic: b64(lib, wrap.ephemeralPublic),
-      nonce: b64(lib, wrap.nonce),
-      ciphertext: b64(lib, wrap.ciphertext),
-    })),
+    envelopes,
   });
   if (!opened.ok) throw new Error(opened.message);
   try {
@@ -526,6 +575,7 @@ async function openMedia(
         next.device.prekeys = next.device.prekeys.filter(
           (prekey) => prekey.id !== opened.consumedPrekeyId,
         );
+        next.spentPrekeys = [...new Set([...(next.spentPrekeys ?? []), opened.consumedPrekeyId])];
         deps.vault.write(next);
       }
     }

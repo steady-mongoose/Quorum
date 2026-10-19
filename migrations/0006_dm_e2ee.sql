@@ -6,6 +6,14 @@
 --
 -- Private messages between two members. Rows hold ciphertext and public keys.
 -- Messages are eligible for deletion 30 days after they are stored.
+-- One identity key per member signs every device. A shared meeting is recorded
+-- by each member before a conversation can be opened.
+
+create table if not exists dm_identity (
+  user_id text primary key references "user" ("id") on delete cascade,
+  sign_public text not null,
+  created_at timestamptz not null default now()
+);
 
 create table if not exists dm_device (
   id text primary key,
@@ -14,6 +22,10 @@ create table if not exists dm_device (
   sign_public text not null,
   box_public text not null,
   statement_sig text not null,
+  identity_sig text not null,
+  signed_prekey_id text not null,
+  signed_prekey_public text not null,
+  signed_prekey_sig text not null,
   created_at timestamptz not null default now(),
   revoked_at timestamptz
 );
@@ -39,8 +51,18 @@ create table if not exists dm_backup (
   salt text not null,
   nonce text not null,
   ciphertext text not null,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint dm_backup_kdf_floor check (opslimit >= 2 and memlimit >= 67108864)
 );
+
+create table if not exists dm_attendance (
+  user_id text not null references "user" ("id") on delete cascade,
+  meeting_id text not null,
+  recorded_at timestamptz not null default now(),
+  primary key (user_id, meeting_id)
+);
+
+create index if not exists dm_attendance_meeting_idx on dm_attendance (meeting_id);
 
 create table if not exists dm_thread (
   id text primary key,
@@ -50,6 +72,8 @@ create table if not exists dm_thread (
   unique (user_a, user_b),
   check (user_a < user_b)
 );
+
+create index if not exists dm_thread_user_b_idx on dm_thread (user_b);
 
 create table if not exists dm_message (
   id text primary key,
@@ -75,10 +99,13 @@ create table if not exists dm_envelope (
   ciphertext text not null,
   ephemeral_public text not null,
   prekey_id text,
+  signed_prekey_id text,
   check (
     (recipient_device_id is not null and recipient_user_backup is null)
     or (recipient_device_id is null and recipient_user_backup is not null)
-  )
+  ),
+  constraint dm_envelope_prekey_once unique (recipient_device_id, prekey_id)
 );
 
 create index if not exists dm_envelope_message_idx on dm_envelope (message_id);
+create index if not exists dm_envelope_recipient_device_idx on dm_envelope (recipient_device_id);

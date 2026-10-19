@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Db } from "../db.ts";
+import { isUniqueViolation, type Db } from "../db.ts";
 import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
@@ -15,7 +15,9 @@ import {
   isUuid,
   verifyBodySignature,
   verifyDeviceStatement,
+  verifyIdentitySignature,
   verifyPrekey,
+  verifySignedPrekey,
   type BackupCipher,
   type EnvelopeWire,
   type MessageWire,
@@ -37,6 +39,22 @@ class Rejected extends Error {
   }
 }
 
+async function saveIdentity(db: Db, userId: string, signPublic: string): Promise<Result<null>> {
+  const existing = await db.query<{ sign_public: string }>(
+    `select sign_public from dm_identity where user_id = $1`,
+    [userId],
+  );
+  if (!existing[0]) {
+    await db.query(`insert into dm_identity (user_id, sign_public) values ($1, $2)`, [
+      userId,
+      signPublic,
+    ]);
+    return { ok: true, value: null };
+  }
+  if (existing[0].sign_public !== signPublic) return fail(409, "The identity key is already set.");
+  return { ok: true, value: null };
+}
+
 async function commit<T>(db: Db, fn: (tx: Db) => Promise<Result<T>>): Promise<Result<T>> {
   try {
     return await db.transaction(async (tx) => {
@@ -56,11 +74,15 @@ export type DeviceRegistration = {
   signPublic: string;
   boxPublic: string;
   statementSig: string;
+  identityPublic: string;
+  identitySig: string;
+  signedPrekey: PublicPrekey;
   prekeys: PublicPrekey[];
 };
 
 export type StoredMessage = MessageWire & {
   senderUserId: string;
+  senderIdentityPublic: string;
   createdAt: string;
   sender: PublicDevice;
 };
@@ -72,6 +94,10 @@ type DeviceRow = {
   sign_public: string;
   box_public: string;
   statement_sig: string;
+  identity_sig: string;
+  signed_prekey_id: string;
+  signed_prekey_public: string;
+  signed_prekey_sig: string;
   created_at: Date | string;
   revoked_at: Date | string | null;
 };
@@ -100,6 +126,7 @@ function asPublic(row: DeviceRow): PublicDevice {
     signPublic: row.sign_public,
     boxPublic: row.box_public,
     statementSig: row.statement_sig,
+    identitySig: row.identity_sig,
   };
 }
 
@@ -130,9 +157,16 @@ export async function registerDevice(
     signPublic: input.signPublic,
     boxPublic: input.boxPublic,
     statementSig: input.statementSig,
+    identitySig: input.identitySig,
   };
   if (!(await verifyDeviceStatement(userId, device)))
     return fail(400, "That device key was not accepted.");
+  if (!(await verifyIdentitySignature(input.identityPublic, userId, device))) {
+    return fail(400, "That device key was not accepted.");
+  }
+  if (!(await verifySignedPrekey(input.deviceId, input.signPublic, input.signedPrekey))) {
+    return fail(400, "That device key was not accepted.");
+  }
   if (!(await prekeysOk(input.deviceId, input.signPublic, input.prekeys))) {
     return fail(400, "That device key was not accepted.");
   }
@@ -148,8 +182,16 @@ export async function registerDevice(
       const same =
         row.sign_public === input.signPublic &&
         row.box_public === input.boxPublic &&
-        row.statement_sig === input.statementSig;
+        row.statement_sig === input.statementSig &&
+        row.identity_sig === input.identitySig;
       if (!same) return fail(409, "That device already has different keys.");
+      const identity = await tx.query<{ sign_public: string }>(
+        `select sign_public from dm_identity where user_id = $1`,
+        [userId],
+      );
+      if (identity[0] && identity[0].sign_public !== input.identityPublic) {
+        return fail(409, "The identity key is already set.");
+      }
       const added = await insertPrekeys(tx, input.deviceId, input.prekeys);
       if (!added.ok) return added;
       return { ok: true, value: { deviceId: input.deviceId } };
@@ -161,10 +203,25 @@ export async function registerDevice(
     if (Number(active[0]?.count ?? 0) >= DM_MAX_DEVICES) {
       return fail(400, `A member can have ${DM_MAX_DEVICES} devices.`);
     }
+    const identitySaved = await saveIdentity(tx, userId, input.identityPublic);
+    if (!identitySaved.ok) return identitySaved;
     await tx.query(
-      `insert into dm_device (id, user_id, label, sign_public, box_public, statement_sig)
-       values ($1, $2, $3, $4, $5, $6)`,
-      [input.deviceId, userId, label, input.signPublic, input.boxPublic, input.statementSig],
+      `insert into dm_device (
+         id, user_id, label, sign_public, box_public, statement_sig, identity_sig,
+         signed_prekey_id, signed_prekey_public, signed_prekey_sig
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        input.deviceId,
+        userId,
+        label,
+        input.signPublic,
+        input.boxPublic,
+        input.statementSig,
+        input.identitySig,
+        input.signedPrekey.id,
+        input.signedPrekey.publicKey,
+        input.signedPrekey.signature,
+      ],
     );
     const added = await insertPrekeys(tx, input.deviceId, input.prekeys);
     if (!added.ok) return added;
@@ -203,6 +260,7 @@ export async function addPrekeys(
   userId: string,
   deviceId: string,
   prekeys: PublicPrekey[],
+  signedPrekey: PublicPrekey | null = null,
 ): Promise<Result<null>> {
   if (!isUuid(deviceId)) return fail(400, "That device was not recognized.");
   const rows = await db.query<DeviceRow>(
@@ -214,7 +272,20 @@ export async function addPrekeys(
   if (!(await prekeysOk(deviceId, device.sign_public, prekeys))) {
     return fail(400, "That device key was not accepted.");
   }
-  return commit(db, async (tx) => insertPrekeys(tx, deviceId, prekeys));
+  if (signedPrekey && !(await verifySignedPrekey(deviceId, device.sign_public, signedPrekey))) {
+    return fail(400, "That device key was not accepted.");
+  }
+  return commit(db, async (tx) => {
+    const added = await insertPrekeys(tx, deviceId, prekeys);
+    if (!added.ok) return added;
+    if (signedPrekey) {
+      await tx.query(
+        `update dm_device set signed_prekey_id = $2, signed_prekey_public = $3, signed_prekey_sig = $4 where id = $1`,
+        [deviceId, signedPrekey.id, signedPrekey.publicKey, signedPrekey.signature],
+      );
+    }
+    return { ok: true, value: null };
+  });
 }
 
 export async function revokeDevice(
@@ -229,6 +300,7 @@ export async function revokeDevice(
     [deviceId, userId, now],
   );
   if (!updated[0]) return fail(404, "That device was not recognized.");
+  await db.query(`delete from dm_prekey where device_id = $1`, [deviceId]);
   return { ok: true, value: null };
 }
 
@@ -333,6 +405,56 @@ export async function getBackup(
   };
 }
 
+const MEETING_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+export async function recordAttendance(
+  db: Db,
+  userId: string,
+  meetingIds: string[],
+  now: Date,
+): Promise<Result<null>> {
+  if (meetingIds.length < 1 || meetingIds.length > 40)
+    return fail(400, "That meeting was not recorded.");
+  const unique = [...new Set(meetingIds)];
+  if (unique.some((id) => !MEETING_ID.test(id))) return fail(400, "That meeting was not recorded.");
+  for (const meetingId of unique) {
+    await db.query(
+      `insert into dm_attendance (user_id, meeting_id, recorded_at) values ($1, $2, $3)
+       on conflict (user_id, meeting_id) do nothing`,
+      [userId, meetingId, now],
+    );
+  }
+  return { ok: true, value: null };
+}
+
+export async function listPeers(db: Db, userId: string): Promise<{ id: string; name: string }[]> {
+  const rows = await db.query<{ id: string; name: string }>(
+    `select distinct u.id, u.name
+     from dm_attendance mine
+     join dm_attendance theirs
+       on theirs.meeting_id = mine.meeting_id and theirs.user_id <> mine.user_id
+     join "user" u on u.id = theirs.user_id
+     where mine.user_id = $1
+     order by u.name, u.id`,
+    [userId],
+  );
+  return rows;
+}
+
+async function sharesMeeting(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
+  if (callerId === otherUserId) return true;
+  const rows = await db.query<{ meeting_id: string }>(
+    `select mine.meeting_id
+     from dm_attendance mine
+     join dm_attendance theirs
+       on theirs.meeting_id = mine.meeting_id and theirs.user_id = $2
+     where mine.user_id = $1
+     limit 1`,
+    [callerId, otherUserId],
+  );
+  return Boolean(rows[0]);
+}
+
 async function sharesThread(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
   if (callerId === otherUserId) return true;
   const [low, high] = callerId < otherUserId ? [callerId, otherUserId] : [otherUserId, callerId];
@@ -351,11 +473,15 @@ export async function claimBundle(
 ): Promise<
   Result<{
     userId: string;
+    identityPublic: string | null;
     backupPublic: string | null;
-    devices: (PublicDevice & { prekey: PublicPrekey | null })[];
+    devices: (PublicDevice & { prekey: PublicPrekey | null; signedPrekey: PublicPrekey | null })[];
   }>
 > {
   if (!isMemberId(targetUserId)) return fail(400, "That member was not found.");
+  if (!(await sharesMeeting(db, callerId, targetUserId))) {
+    return fail(403, "You can message someone you have been to a meeting with.");
+  }
   if (!(await sharesThread(db, callerId, targetUserId))) {
     return fail(403, "Open the conversation before asking for keys.");
   }
@@ -364,34 +490,54 @@ export async function claimBundle(
       `select * from dm_device where user_id = $1 and revoked_at is null order by created_at`,
       [targetUserId],
     );
+    const identity = await tx.query<{ sign_public: string }>(
+      `select sign_public from dm_identity where user_id = $1`,
+      [targetUserId],
+    );
     const backup = await tx.query<{ box_public: string }>(
       `select box_public from dm_backup where user_id = $1`,
       [targetUserId],
     );
-    const packed: (PublicDevice & { prekey: PublicPrekey | null })[] = [];
+    const packed: (PublicDevice & {
+      prekey: PublicPrekey | null;
+      signedPrekey: PublicPrekey | null;
+    })[] = [];
     for (const device of devices) {
-      const prekeys = await tx.query<{ id: string; public_key: string; signature: string }>(
-        `select id, public_key, signature from dm_prekey
-         where device_id = $1 and used_at is null order by id limit 1`,
-        [device.id],
+      const taken = await tx.query<{ id: string; public_key: string; signature: string }>(
+        `with picked as (
+           select id from dm_prekey
+           where device_id = $1 and used_at is null
+           order by id
+           for update skip locked
+           limit 1
+         )
+         update dm_prekey set used_at = $2
+         from picked
+         where dm_prekey.id = picked.id
+         returning dm_prekey.id, dm_prekey.public_key, dm_prekey.signature`,
+        [device.id, now],
       );
-      const prekey = prekeys[0];
-      if (prekey) {
-        await tx.query(`update dm_prekey set used_at = $2 where id = $1 and used_at is null`, [
-          prekey.id,
-          now,
-        ]);
-      }
+      const prekey = taken[0];
       packed.push({
         ...asPublic(device),
         prekey: prekey
           ? { id: prekey.id, publicKey: prekey.public_key, signature: prekey.signature }
           : null,
+        signedPrekey: {
+          id: device.signed_prekey_id,
+          publicKey: device.signed_prekey_public,
+          signature: device.signed_prekey_sig,
+        },
       });
     }
     return {
       ok: true,
-      value: { userId: targetUserId, backupPublic: backup[0]?.box_public ?? null, devices: packed },
+      value: {
+        userId: targetUserId,
+        identityPublic: identity[0]?.sign_public ?? null,
+        backupPublic: backup[0]?.box_public ?? null,
+        devices: packed,
+      },
     };
   });
 }
@@ -401,13 +547,27 @@ export async function previewBundle(
   db: Db,
   callerId: string,
   targetUserId: string,
-): Promise<Result<{ userId: string; backupPublic: string | null; deviceCount: number }>> {
+): Promise<
+  Result<{
+    userId: string;
+    identityPublic: string | null;
+    backupPublic: string | null;
+    devices: PublicDevice[];
+  }>
+> {
   if (!isMemberId(targetUserId)) return fail(400, "That member was not found.");
+  if (!(await sharesMeeting(db, callerId, targetUserId))) {
+    return fail(403, "You can message someone you have been to a meeting with.");
+  }
   if (!(await sharesThread(db, callerId, targetUserId))) {
     return fail(403, "Open the conversation before asking for keys.");
   }
-  const devices = await db.query<{ count: number | string }>(
-    `select count(*)::int as count from dm_device where user_id = $1 and revoked_at is null`,
+  const devices = await db.query<DeviceRow>(
+    `select * from dm_device where user_id = $1 and revoked_at is null order by created_at`,
+    [targetUserId],
+  );
+  const identity = await db.query<{ sign_public: string }>(
+    `select sign_public from dm_identity where user_id = $1`,
     [targetUserId],
   );
   const backup = await db.query<{ box_public: string }>(
@@ -418,8 +578,9 @@ export async function previewBundle(
     ok: true,
     value: {
       userId: targetUserId,
+      identityPublic: identity[0]?.sign_public ?? null,
       backupPublic: backup[0]?.box_public ?? null,
-      deviceCount: Number(devices[0]?.count ?? 0),
+      devices: devices.map(asPublic),
     },
   };
 }
@@ -455,6 +616,9 @@ export async function openThread(
   );
   const other = people[0];
   if (!other) return fail(404, "That member was not found.");
+  if (!(await sharesMeeting(db, userId, otherUserId))) {
+    return fail(403, "You can message someone you have been to a meeting with.");
+  }
   const [low, high] = userId < otherUserId ? [userId, otherUserId] : [otherUserId, userId];
   const existing = await db.query<{ id: string }>(
     `select id from dm_thread where user_a = $1 and user_b = $2`,
@@ -524,6 +688,9 @@ export async function postMessage(
   const thread = await threadFor(db, threadId, userId);
   if (!thread) return fail(404, "That conversation was not found.");
   const otherUserId = thread.user_a === userId ? thread.user_b : thread.user_a;
+  if (!(await sharesMeeting(db, userId, otherUserId))) {
+    return fail(403, "You can message someone you have been to a meeting with.");
+  }
   const devices = await db.query<DeviceRow>(`select * from dm_device where id = $1`, [
     message.senderDeviceId,
   ]);
@@ -558,8 +725,8 @@ export async function postMessage(
       for (const envelope of message.envelopes) {
         await tx.query(
           `insert into dm_envelope (
-             id, message_id, recipient_device_id, recipient_user_backup, nonce, ciphertext, ephemeral_public, prekey_id
-           ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+             id, message_id, recipient_device_id, recipient_user_backup, nonce, ciphertext, ephemeral_public, prekey_id, signed_prekey_id
+           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             randomUUID(),
             message.messageId,
@@ -569,14 +736,17 @@ export async function postMessage(
             envelope.ciphertext,
             envelope.ephemeralPublic,
             envelope.prekeyId,
+            envelope.signedPrekeyId,
           ],
         );
       }
     });
   } catch (error) {
     const text = error instanceof Error ? error.message : "";
-    if (/duplicate key|unique constraint/i.test(text))
-      return fail(409, "That message was already sent.");
+    if (/dm_envelope_prekey_once/i.test(text)) {
+      return fail(409, "That one-time key was already used.");
+    }
+    if (isUniqueViolation(error)) return fail(409, "That message was already sent.");
     throw error;
   }
   return { ok: true, value: { id: message.messageId } };
@@ -617,6 +787,11 @@ async function envelopesOk(
         );
         if (!prekeys[0]) return fail(400, "That message was not accepted.");
       }
+      if (envelope.signedPrekeyId) {
+        if (envelope.signedPrekeyId !== device.signed_prekey_id) {
+          return fail(400, "That message was not accepted.");
+        }
+      }
     } else if (envelope.recipientUserBackup) {
       if (
         envelope.recipientUserBackup !== thread.user_a &&
@@ -629,12 +804,40 @@ async function envelopesOk(
         [envelope.recipientUserBackup],
       );
       if (!backups[0]) return fail(400, "That message was not accepted.");
-      if (envelope.prekeyId) return fail(400, "That message was not accepted.");
+      if (envelope.prekeyId || envelope.signedPrekeyId)
+        return fail(400, "That message was not accepted.");
       if (envelope.recipientUserBackup === otherUserId) reachesOther = true;
     }
   }
   if (!reachesOther) return fail(400, "Messages are between two people.");
   return { ok: true, value: null };
+}
+
+let lastSweepAt = Number.NEGATIVE_INFINITY;
+const SWEEP_GAP_MS = 60 * 60 * 1000;
+
+/** Delete expired messages in batches. Not called from the message list itself. */
+export async function sweepExpired(db: Db, now: Date): Promise<number> {
+  let removed = 0;
+  for (let batch = 0; batch < 20; batch += 1) {
+    const rows = await db.query<{ id: string }>(
+      `delete from dm_message where id in (
+         select id from dm_message where expires_at <= $1 order by expires_at limit 200
+       ) returning id`,
+      [now],
+    );
+    removed += rows.length;
+    if (rows.length < 200) break;
+  }
+  return removed;
+}
+
+/** Run the sweep when the clock has moved at least an hour since the last one. */
+export async function sweepIfDue(db: Db, now: Date): Promise<void> {
+  const time = now.getTime();
+  if (time - lastSweepAt < SWEEP_GAP_MS) return;
+  lastSweepAt = time;
+  await sweepExpired(db, now);
 }
 
 export async function listMessages(
@@ -644,7 +847,6 @@ export async function listMessages(
   now: Date,
 ): Promise<Result<StoredMessage[]>> {
   if (!isUuid(threadId)) return fail(404, "That conversation was not found.");
-  await db.query(`delete from dm_message where expires_at <= $1`, [now]);
   const thread = await threadFor(db, threadId, userId);
   if (!thread) return fail(404, "That conversation was not found.");
   const messages = await db.query<{
@@ -663,49 +865,67 @@ export async function listMessages(
      order by created_at asc`,
     [threadId, now],
   );
+  if (messages.length === 0) return { ok: true, value: [] };
+  const deviceIds = [...new Set(messages.map((message) => message.sender_device_id))];
+  const senderIds = [...new Set(messages.map((message) => message.sender_user_id))];
+  const messageIds = messages.map((message) => message.id);
+  const devices = await db.query<DeviceRow>(
+    `select * from dm_device where id in (${placeholders(deviceIds.length)})`,
+    deviceIds,
+  );
+  const identities = await db.query<{ user_id: string; sign_public: string }>(
+    `select user_id, sign_public from dm_identity where user_id in (${placeholders(senderIds.length)})`,
+    senderIds,
+  );
+  const envelopes = await db.query<{
+    message_id: string;
+    recipient_device_id: string | null;
+    recipient_user_backup: string | null;
+    nonce: string;
+    ciphertext: string;
+    ephemeral_public: string;
+    prekey_id: string | null;
+    signed_prekey_id: string | null;
+  }>(
+    `select message_id, recipient_device_id, recipient_user_backup, nonce, ciphertext, ephemeral_public, prekey_id, signed_prekey_id
+     from dm_envelope
+     where message_id in (${placeholders(messageIds.length)})`,
+    messageIds,
+  );
+  const deviceById = new Map(devices.map((device) => [device.id, device]));
+  const identityByUser = new Map(identities.map((row) => [row.user_id, row.sign_public]));
   const stored: StoredMessage[] = [];
   for (const message of messages) {
-    const devices = await db.query<DeviceRow>(`select * from dm_device where id = $1`, [
-      message.sender_device_id,
-    ]);
-    const sender = devices[0];
-    if (!sender) continue;
-    const envelopes = await db.query<{
-      recipient_device_id: string | null;
-      recipient_user_backup: string | null;
-      nonce: string;
-      ciphertext: string;
-      ephemeral_public: string;
-      prekey_id: string | null;
-    }>(
-      `select recipient_device_id, recipient_user_backup, nonce, ciphertext, ephemeral_public, prekey_id
-       from dm_envelope
-       where message_id = $1
-         and (
-           recipient_user_backup = $2
-           or recipient_device_id in (select id from dm_device where user_id = $2)
-         )`,
-      [message.id, userId],
-    );
+    const sender = deviceById.get(message.sender_device_id);
+    const senderIdentityPublic = identityByUser.get(message.sender_user_id);
+    if (!sender || !senderIdentityPublic) continue;
     stored.push({
       messageId: message.id,
       threadId,
       senderDeviceId: message.sender_device_id,
       senderUserId: message.sender_user_id,
+      senderIdentityPublic,
       createdAt: iso(message.created_at),
       sender: asPublic(sender),
       bodyNonce: message.body_nonce,
       bodyCiphertext: message.body_ciphertext,
       bodySig: message.body_sig,
-      envelopes: envelopes.map((envelope) => ({
-        recipientDeviceId: envelope.recipient_device_id,
-        recipientUserBackup: envelope.recipient_user_backup,
-        nonce: envelope.nonce,
-        ciphertext: envelope.ciphertext,
-        ephemeralPublic: envelope.ephemeral_public,
-        prekeyId: envelope.prekey_id,
-      })),
+      envelopes: envelopes
+        .filter((envelope) => envelope.message_id === message.id)
+        .map((envelope) => ({
+          recipientDeviceId: envelope.recipient_device_id,
+          recipientUserBackup: envelope.recipient_user_backup,
+          nonce: envelope.nonce,
+          ciphertext: envelope.ciphertext,
+          ephemeralPublic: envelope.ephemeral_public,
+          prekeyId: envelope.prekey_id,
+          signedPrekeyId: envelope.signed_prekey_id,
+        })),
     });
   }
   return { ok: true, value: stored };
+}
+
+function placeholders(count: number, offset = 0): string {
+  return Array.from({ length: count }, (_, index) => `$${index + 1 + offset}`).join(", ");
 }

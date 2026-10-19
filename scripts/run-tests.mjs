@@ -15,6 +15,7 @@ const appTests = [
   "src/lib/auth/gate-identity.test.ts",
   "src/lib/auth/sign-in-gate.test.ts",
   "src/lib/e2ee/limits.test.ts",
+  "src/lib/e2ee/vault-wrap.test.ts",
   "src/lib/e2ee/protocol.test.ts",
   "src/lib/e2ee/media-strip.test.ts",
   "src/lib/e2ee/media-crypto.test.ts",

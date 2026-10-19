@@ -43,6 +43,9 @@ export type PrekeySecret = {
   signature: string;
 };
 
+/** Ed25519 identity for one member. It signs every device. The safety number covers it. */
+export type IdentityKey = { signPublic: string; signSecret: string };
+
 export type DeviceRecord = {
   deviceId: string;
   label: string;
@@ -51,6 +54,11 @@ export type DeviceRecord = {
   boxPublic: string;
   boxSecret: string;
   statementSig: string;
+  identityPublic: string;
+  identitySecret: string;
+  identitySig: string;
+  signedPrekey: PrekeySecret;
+  previousSignedPrekey: PrekeySecret | null;
   prekeys: PrekeySecret[];
 };
 
@@ -59,6 +67,7 @@ export type PublicDevice = {
   signPublic: string;
   boxPublic: string;
   statementSig: string;
+  identitySig: string;
 };
 
 export type PublicPrekey = {
@@ -74,6 +83,7 @@ export type EnvelopeWire = {
   ciphertext: string;
   ephemeralPublic: string;
   prekeyId: string | null;
+  signedPrekeyId: string | null;
 };
 
 export type MessageWire = {
@@ -96,6 +106,9 @@ export type BackupCipher = {
 };
 
 export type BackupKey = { boxPublic: string; boxSecret: string };
+
+/** Both secrets travel inside the backup ciphertext. The passphrase never does. */
+export type BackupSecrets = { boxSecret: string; identitySecret: string };
 
 type Fail = { ok: false; message: string };
 type Ok<T> = { ok: true; value: T };
@@ -174,6 +187,19 @@ export function deviceStatement(
   return utf8(lib, `avouch-device-v1\n${userId}\n${deviceId}\n${signPublic}\n${boxPublic}`);
 }
 
+export function identityDeviceStatement(
+  lib: Sodium,
+  userId: string,
+  deviceId: string,
+  signPublic: string,
+  boxPublic: string,
+): Uint8Array {
+  return utf8(
+    lib,
+    `avouch-identity-device-v1\n${userId}\n${deviceId}\n${signPublic}\n${boxPublic}`,
+  );
+}
+
 function prekeyStatement(
   lib: Sodium,
   deviceId: string,
@@ -183,16 +209,32 @@ function prekeyStatement(
   return utf8(lib, `avouch-prekey-v1\n${deviceId}\n${prekeyId}\n${publicKey}`);
 }
 
-function bodyStatement(
+function signedPrekeyStatement(
   lib: Sodium,
-  message: Pick<
-    MessageWire,
-    "threadId" | "messageId" | "senderDeviceId" | "bodyNonce" | "bodyCiphertext"
-  >,
+  deviceId: string,
+  prekeyId: string,
+  publicKey: string,
 ): Uint8Array {
+  return utf8(lib, `avouch-signed-prekey-v1\n${deviceId}\n${prekeyId}\n${publicKey}`);
+}
+
+/** Sorted wrap lines. The body signature covers this, so a dropped envelope fails. */
+export function wrapListCanonical(envelopes: EnvelopeWire[]): string {
+  return envelopes
+    .map((envelope) => {
+      const who = envelope.recipientDeviceId
+        ? `device:${envelope.recipientDeviceId}`
+        : `backup:${envelope.recipientUserBackup ?? ""}`;
+      return `${who}|${envelope.prekeyId ?? ""}|${envelope.signedPrekeyId ?? ""}|${envelope.ephemeralPublic}`;
+    })
+    .sort()
+    .join("\n");
+}
+
+function bodyStatement(lib: Sodium, message: MessageWire): Uint8Array {
   return utf8(
     lib,
-    `avouch-body-v1\n${message.threadId}\n${message.messageId}\n${message.senderDeviceId}\n${message.bodyNonce}\n${message.bodyCiphertext}`,
+    `avouch-body-v2\n${message.threadId}\n${message.messageId}\n${message.senderDeviceId}\n${message.bodyNonce}\n${message.bodyCiphertext}\n${wrapListCanonical(message.envelopes)}`,
   );
 }
 
@@ -207,13 +249,54 @@ export function isMemberId(value: string): boolean {
   return /^[A-Za-z0-9-]{8,64}$/.test(value);
 }
 
+/** The Ed25519 secret is the seed plus the public key. Restore uses that public half. */
+export async function identityKeyFromSecret(signSecret: string): Promise<IdentityKey | null> {
+  const lib = await sodium();
+  const secret = decodeFixed(lib, signSecret, lib.crypto_sign_SECRETKEYBYTES);
+  if (!secret || secret.length !== 64) return null;
+  const signPublic = encode(lib, secret.subarray(32));
+  wipe(lib, secret);
+  return { signPublic, signSecret };
+}
+
+export async function createIdentity(): Promise<IdentityKey> {
+  const lib = await sodium();
+  const sign = lib.crypto_sign_keypair();
+  const key = { signPublic: encode(lib, sign.publicKey), signSecret: encode(lib, sign.privateKey) };
+  wipe(lib, sign.privateKey);
+  return key;
+}
+
+async function signIdentity(
+  identity: IdentityKey,
+  userId: string,
+  deviceId: string,
+  signPublic: string,
+  boxPublic: string,
+): Promise<string | null> {
+  const lib = await sodium();
+  const secret = decodeFixed(lib, identity.signSecret, lib.crypto_sign_SECRETKEYBYTES);
+  if (!secret) return null;
+  const signature = encode(
+    lib,
+    lib.crypto_sign_detached(
+      identityDeviceStatement(lib, userId, deviceId, signPublic, boxPublic),
+      secret,
+    ),
+  );
+  wipe(lib, secret);
+  return signature;
+}
+
 export async function createDevice(input: {
   userId: string;
   label?: string;
   prekeyCount?: number;
   deviceId?: string;
+  identity?: IdentityKey;
 }): Promise<DeviceRecord> {
   const lib = await sodium();
+  const identity = input.identity ?? (await createIdentity());
   const sign = lib.crypto_sign_keypair();
   const box = lib.crypto_box_keypair();
   const deviceId = input.deviceId ?? crypto.randomUUID();
@@ -228,6 +311,11 @@ export async function createDevice(input: {
       sign.privateKey,
     ),
   );
+  const identitySig = await signIdentity(identity, input.userId, deviceId, signPublic, boxPublic);
+  if (!identitySig) {
+    wipe(lib, sign.privateKey, box.privateKey);
+    throw new Error("The identity key is not valid.");
+  }
   const device: DeviceRecord = {
     deviceId,
     label: (input.label ?? "This browser").slice(0, 40),
@@ -236,11 +324,41 @@ export async function createDevice(input: {
     boxPublic,
     boxSecret,
     statementSig,
+    identityPublic: identity.signPublic,
+    identitySecret: identity.signSecret,
+    identitySig,
+    signedPrekey: {
+      id: crypto.randomUUID(),
+      publicKey: "",
+      secretKey: "",
+      signature: "",
+    },
+    previousSignedPrekey: null,
     prekeys: [],
   };
+  device.signedPrekey = await createSignedPrekey(device);
   device.prekeys = await createPrekeys(device, input.prekeyCount ?? DM_PREKEY_BATCH);
   wipe(lib, sign.privateKey, box.privateKey);
   return device;
+}
+
+export async function createSignedPrekey(device: DeviceRecord): Promise<PrekeySecret> {
+  const lib = await sodium();
+  const signSecret = decodeFixed(lib, device.signSecret, lib.crypto_sign_SECRETKEYBYTES);
+  if (!signSecret) throw new Error("The keys on this device are not valid.");
+  const pair = lib.crypto_box_keypair();
+  const id = crypto.randomUUID();
+  const publicKey = encode(lib, pair.publicKey);
+  const signature = encode(
+    lib,
+    lib.crypto_sign_detached(
+      signedPrekeyStatement(lib, device.deviceId, id, publicKey),
+      signSecret,
+    ),
+  );
+  const prekey = { id, publicKey, secretKey: encode(lib, pair.privateKey), signature };
+  wipe(lib, pair.privateKey, signSecret);
+  return prekey;
 }
 
 export async function createPrekeys(device: DeviceRecord, count: number): Promise<PrekeySecret[]> {
@@ -288,6 +406,48 @@ export async function verifyDeviceStatement(
   }
 }
 
+export async function verifyIdentitySignature(
+  identityPublic: string,
+  userId: string,
+  device: PublicDevice,
+): Promise<boolean> {
+  const lib = await sodium();
+  const identity = decodeFixed(lib, identityPublic, lib.crypto_sign_PUBLICKEYBYTES);
+  const signature = decodeFixed(lib, device.identitySig, lib.crypto_sign_BYTES);
+  if (!identity || !signature || !isUuid(device.deviceId)) return false;
+  try {
+    return lib.crypto_sign_verify_detached(
+      signature,
+      identityDeviceStatement(lib, userId, device.deviceId, device.signPublic, device.boxPublic),
+      identity,
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function verifySignedPrekey(
+  deviceId: string,
+  signPublicB64: string,
+  prekey: PublicPrekey,
+): Promise<boolean> {
+  const lib = await sodium();
+  const signPublic = decodeFixed(lib, signPublicB64, lib.crypto_sign_PUBLICKEYBYTES);
+  const publicKey = decodeFixed(lib, prekey.publicKey, lib.crypto_box_PUBLICKEYBYTES);
+  const signature = decodeFixed(lib, prekey.signature, lib.crypto_sign_BYTES);
+  if (!signPublic || !publicKey || !signature || !isUuid(deviceId) || !isUuid(prekey.id))
+    return false;
+  try {
+    return lib.crypto_sign_verify_detached(
+      signature,
+      signedPrekeyStatement(lib, deviceId, prekey.id, prekey.publicKey),
+      signPublic,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyPrekey(
   deviceId: string,
   signPublicB64: string,
@@ -311,10 +471,7 @@ export async function verifyPrekey(
 }
 
 export async function verifyBodySignature(
-  message: Pick<
-    MessageWire,
-    "threadId" | "messageId" | "senderDeviceId" | "bodyNonce" | "bodyCiphertext" | "bodySig"
-  >,
+  message: MessageWire,
   signPublicB64: string,
 ): Promise<boolean> {
   const lib = await sodium();
@@ -339,18 +496,23 @@ export async function createBackupKey(): Promise<BackupKey> {
   return key;
 }
 
+export function backupPlaintext(secrets: BackupSecrets): string {
+  return `avouch-backup-v2\n${secrets.boxSecret}\n${secrets.identitySecret}`;
+}
+
 export async function encryptBackupSecret(
-  boxSecret: string,
+  secrets: BackupSecrets,
   passphrase: string,
-  strength: "interactive" | "min" = "interactive",
 ): Promise<Ok<BackupCipher> | Fail> {
   const problem = passphraseError(passphrase);
   if (problem) return fail(problem);
   const lib = await sodium();
-  const secret = decodeFixed(lib, boxSecret, lib.crypto_box_SECRETKEYBYTES);
-  if (!secret) return fail("The backup key is not valid.");
-  const opslimit = strength === "min" ? BACKUP_OPSLIMIT_MIN : BACKUP_OPSLIMIT_INTERACTIVE;
-  const memlimit = strength === "min" ? BACKUP_MEMLIMIT_MIN : BACKUP_MEMLIMIT_INTERACTIVE;
+  const box = decodeFixed(lib, secrets.boxSecret, lib.crypto_box_SECRETKEYBYTES);
+  const identity = decodeFixed(lib, secrets.identitySecret, lib.crypto_sign_SECRETKEYBYTES);
+  if (!box || !identity) return fail("The backup key is not valid.");
+  const opslimit = BACKUP_OPSLIMIT_INTERACTIVE;
+  const memlimit = BACKUP_MEMLIMIT_INTERACTIVE;
+  const secret = utf8(lib, backupPlaintext(secrets));
   const salt = lib.randombytes_buf(lib.crypto_pwhash_SALTBYTES);
   const nonce = lib.randombytes_buf(lib.crypto_secretbox_NONCEBYTES);
   const key = lib.crypto_pwhash(
@@ -370,14 +532,14 @@ export async function encryptBackupSecret(
     nonce: encode(lib, nonce),
     ciphertext: encode(lib, ciphertext),
   };
-  wipe(lib, secret, key);
+  wipe(lib, box, identity, secret, key);
   return { ok: true, value: record };
 }
 
 export async function decryptBackupSecret(
   record: BackupCipher,
   passphrase: string,
-): Promise<string | null> {
+): Promise<BackupSecrets | null> {
   if (passphraseError(passphrase)) return null;
   if (record.kdf !== "argon2id") return null;
   if (
@@ -397,11 +559,7 @@ export async function decryptBackupSecret(
   const lib = await sodium();
   const salt = decodeFixed(lib, record.salt, lib.crypto_pwhash_SALTBYTES);
   const nonce = decodeFixed(lib, record.nonce, lib.crypto_secretbox_NONCEBYTES);
-  const ciphertext = decode(
-    lib,
-    record.ciphertext,
-    lib.crypto_box_SECRETKEYBYTES + lib.crypto_secretbox_MACBYTES,
-  );
+  const ciphertext = decode(lib, record.ciphertext, 512);
   if (!salt || !nonce || !ciphertext) return null;
   let key: Uint8Array | null = null;
   try {
@@ -414,10 +572,15 @@ export async function decryptBackupSecret(
       lib.crypto_pwhash_ALG_ARGON2ID13,
     );
     const secret = lib.crypto_secretbox_open_easy(ciphertext, nonce, key);
-    if (secret.length !== lib.crypto_box_SECRETKEYBYTES) return null;
-    const encoded = encode(lib, secret);
+    const text = lib.to_string(secret);
     wipe(lib, secret);
-    return encoded;
+    const lines = text.split("\n");
+    if (lines.length !== 3 || lines[0] !== "avouch-backup-v2") return null;
+    const boxSecret = lines[1] ?? "";
+    const identitySecret = lines[2] ?? "";
+    if (!decodeFixed(lib, boxSecret, lib.crypto_box_SECRETKEYBYTES)) return null;
+    if (!decodeFixed(lib, identitySecret, lib.crypto_sign_SECRETKEYBYTES)) return null;
+    return { boxSecret, identitySecret };
   } catch {
     return null;
   } finally {
@@ -429,10 +592,54 @@ export type SealDestination =
   | {
       kind: "device";
       userId: string;
+      identityPublic: string;
       device: PublicDevice;
       prekey: PublicPrekey | null;
+      signedPrekey: PublicPrekey | null;
     }
   | { kind: "backup"; userId: string; boxPublic: string };
+
+async function destinationsOk(destinations: SealDestination[]): Promise<string | null> {
+  for (const destination of destinations) {
+    if (destination.kind !== "device") continue;
+    if (!(await verifyDeviceStatement(destination.userId, destination.device))) {
+      return "A device key did not check out. The message was not sent.";
+    }
+    if (
+      !(await verifyIdentitySignature(
+        destination.identityPublic,
+        destination.userId,
+        destination.device,
+      ))
+    ) {
+      return "A device key did not check out. The message was not sent.";
+    }
+    if (
+      destination.prekey &&
+      !(await verifyPrekey(
+        destination.device.deviceId,
+        destination.device.signPublic,
+        destination.prekey,
+      ))
+    ) {
+      return "A one-time key did not check out. The message was not sent.";
+    }
+    const signed = destination.prekey ? null : destination.signedPrekey;
+    if (!destination.prekey && !signed)
+      return "A signed prekey is missing. The message was not sent.";
+    if (
+      signed &&
+      !(await verifySignedPrekey(
+        destination.device.deviceId,
+        destination.device.signPublic,
+        signed,
+      ))
+    ) {
+      return "A signed prekey did not check out. The message was not sent.";
+    }
+  }
+  return null;
+}
 
 function zeros(size: number): Uint8Array {
   return new Uint8Array(size);
@@ -488,6 +695,64 @@ async function wrapKey(
   return wrapped;
 }
 
+function prekeyChoice(destination: SealDestination): {
+  publicKey: string | null;
+  prekeyId: string | null;
+  signedPrekeyId: string | null;
+} {
+  if (destination.kind !== "device")
+    return { publicKey: null, prekeyId: null, signedPrekeyId: null };
+  if (destination.prekey) {
+    return {
+      publicKey: destination.prekey.publicKey,
+      prekeyId: destination.prekey.id,
+      signedPrekeyId: null,
+    };
+  }
+  return {
+    publicKey: destination.signedPrekey?.publicKey ?? null,
+    prekeyId: null,
+    signedPrekeyId: destination.signedPrekey?.id ?? null,
+  };
+}
+
+async function wrapDestination(
+  lib: Sodium,
+  messageKey: Uint8Array,
+  senderBoxSecret: Uint8Array,
+  senderBoxPublic: string,
+  message: Pick<MessageWire, "messageId" | "threadId">,
+  destination: SealDestination,
+): Promise<EnvelopeWire | null> {
+  const recipientBoxPublic =
+    destination.kind === "device" ? destination.device.boxPublic : destination.boxPublic;
+  const chosen = prekeyChoice(destination);
+  const tag =
+    destination.kind === "device"
+      ? `device:${destination.device.deviceId}`
+      : `backup:${destination.userId}`;
+  const wrapped = await wrapKey(
+    lib,
+    messageKey,
+    senderBoxSecret,
+    senderBoxPublic,
+    recipientBoxPublic,
+    chosen.publicKey,
+    message,
+    tag,
+  );
+  if (!wrapped) return null;
+  return {
+    recipientDeviceId: destination.kind === "device" ? destination.device.deviceId : null,
+    recipientUserBackup: destination.kind === "backup" ? destination.userId : null,
+    nonce: wrapped.nonce,
+    ciphertext: wrapped.ciphertext,
+    ephemeralPublic: wrapped.ephemeralPublic,
+    prekeyId: chosen.prekeyId,
+    signedPrekeyId: chosen.signedPrekeyId,
+  };
+}
+
 export async function sealMessage(input: {
   messageId: string;
   threadId: string;
@@ -505,23 +770,10 @@ export async function sealMessage(input: {
   const signSecret = decodeFixed(lib, input.sender.signSecret, lib.crypto_sign_SECRETKEYBYTES);
   if (!senderBoxSecret || !signSecret) return fail("The keys on this device are not valid.");
 
-  for (const destination of input.destinations) {
-    if (destination.kind !== "device") continue;
-    if (!(await verifyDeviceStatement(destination.userId, destination.device))) {
-      wipe(lib, senderBoxSecret, signSecret);
-      return fail("A device key did not check out. The message was not sent.");
-    }
-    if (
-      destination.prekey &&
-      !(await verifyPrekey(
-        destination.device.deviceId,
-        destination.device.signPublic,
-        destination.prekey,
-      ))
-    ) {
-      wipe(lib, senderBoxSecret, signSecret);
-      return fail("A one-time key did not check out. The message was not sent.");
-    }
+  const refused = await destinationsOk(input.destinations);
+  if (refused) {
+    wipe(lib, senderBoxSecret, signSecret);
+    return fail(refused);
   }
 
   const messageKey = lib.randombytes_buf(lib.crypto_secretbox_KEYBYTES);
@@ -536,39 +788,23 @@ export async function sealMessage(input: {
     bodySig: "",
     envelopes: [],
   };
-  wire.bodySig = encode(lib, lib.crypto_sign_detached(bodyStatement(lib, wire), signSecret));
 
   for (const destination of input.destinations) {
-    const recipientBoxPublic =
-      destination.kind === "device" ? destination.device.boxPublic : destination.boxPublic;
-    const prekey = destination.kind === "device" ? destination.prekey : null;
-    const tag =
-      destination.kind === "device"
-        ? `device:${destination.device.deviceId}`
-        : `backup:${destination.userId}`;
-    const wrapped = await wrapKey(
+    const wrapped = await wrapDestination(
       lib,
       messageKey,
       senderBoxSecret,
       input.sender.boxPublic,
-      recipientBoxPublic,
-      prekey?.publicKey ?? null,
       wire,
-      tag,
+      destination,
     );
     if (!wrapped) {
       wipe(lib, senderBoxSecret, signSecret, messageKey);
       return fail("The message could not be sealed.");
     }
-    wire.envelopes.push({
-      recipientDeviceId: destination.kind === "device" ? destination.device.deviceId : null,
-      recipientUserBackup: destination.kind === "backup" ? destination.userId : null,
-      nonce: wrapped.nonce,
-      ciphertext: wrapped.ciphertext,
-      ephemeralPublic: wrapped.ephemeralPublic,
-      prekeyId: prekey?.id ?? null,
-    });
+    wire.envelopes.push(wrapped);
   }
+  wire.bodySig = encode(lib, lib.crypto_sign_detached(bodyStatement(lib, wire), signSecret));
 
   wipe(lib, senderBoxSecret, signSecret, messageKey);
   return { ok: true, value: wire };
@@ -594,57 +830,28 @@ export async function sealContentKey(input: {
   const senderBoxSecret = decodeFixed(lib, input.sender.boxSecret, lib.crypto_box_SECRETKEYBYTES);
   if (!senderBoxSecret) return fail("The keys on this device are not valid.");
 
-  for (const destination of input.destinations) {
-    if (destination.kind !== "device") continue;
-    if (!(await verifyDeviceStatement(destination.userId, destination.device))) {
-      wipe(lib, senderBoxSecret);
-      return fail("A device key did not check out. The message was not sent.");
-    }
-    if (
-      destination.prekey &&
-      !(await verifyPrekey(
-        destination.device.deviceId,
-        destination.device.signPublic,
-        destination.prekey,
-      ))
-    ) {
-      wipe(lib, senderBoxSecret);
-      return fail("A one-time key did not check out. The message was not sent.");
-    }
+  const refused = await destinationsOk(input.destinations);
+  if (refused) {
+    wipe(lib, senderBoxSecret);
+    return fail(refused);
   }
 
   const wire = { messageId: input.mediaId, threadId: input.binding };
   const envelopes: EnvelopeWire[] = [];
   for (const destination of input.destinations) {
-    const recipientBoxPublic =
-      destination.kind === "device" ? destination.device.boxPublic : destination.boxPublic;
-    const prekey = destination.kind === "device" ? destination.prekey : null;
-    const tag =
-      destination.kind === "device"
-        ? `device:${destination.device.deviceId}`
-        : `backup:${destination.userId}`;
-    const wrapped = await wrapKey(
+    const wrapped = await wrapDestination(
       lib,
       input.contentKey,
       senderBoxSecret,
       input.sender.boxPublic,
-      recipientBoxPublic,
-      prekey?.publicKey ?? null,
       wire,
-      tag,
+      destination,
     );
     if (!wrapped) {
       wipe(lib, senderBoxSecret);
       return fail("That picture could not be sealed.");
     }
-    envelopes.push({
-      recipientDeviceId: destination.kind === "device" ? destination.device.deviceId : null,
-      recipientUserBackup: destination.kind === "backup" ? destination.userId : null,
-      nonce: wrapped.nonce,
-      ciphertext: wrapped.ciphertext,
-      ephemeralPublic: wrapped.ephemeralPublic,
-      prekeyId: prekey?.id ?? null,
-    });
+    envelopes.push(wrapped);
   }
   wipe(lib, senderBoxSecret);
   return { ok: true, value: envelopes };
@@ -685,7 +892,8 @@ async function openWrap(
     : null;
   if (!senderPub || !recipientPub || !ephemeralPub || !nonce || !ciphertext) return null;
   if (prekey && (!prekeySecret || !prekeyPub)) return null;
-  if (!envelope.prekeyId && prekey) return null;
+  const namesPrekey = Boolean(envelope.prekeyId || envelope.signedPrekeyId);
+  if (namesPrekey !== Boolean(prekey)) return null;
   const dh1 = dh(lib, recipientBoxSecret, ephemeralPub);
   const dh2 = dh(lib, recipientBoxSecret, senderPub);
   const dh3 = prekeySecret
@@ -720,19 +928,59 @@ async function openWrap(
   }
 }
 
+function prekeyOnDevice(
+  device: DeviceRecord,
+  envelope: EnvelopeWire,
+  spentPrekeyIds: string[],
+): { prekey: PrekeySecret | null; skip: boolean; reused: boolean } {
+  if (envelope.prekeyId) {
+    const prekey = device.prekeys.find((item) => item.id === envelope.prekeyId) ?? null;
+    if (!prekey)
+      return { prekey: null, skip: true, reused: spentPrekeyIds.includes(envelope.prekeyId) };
+    return { prekey, skip: false, reused: false };
+  }
+  if (envelope.signedPrekeyId) {
+    const prekey =
+      device.signedPrekey.id === envelope.signedPrekeyId
+        ? device.signedPrekey
+        : device.previousSignedPrekey?.id === envelope.signedPrekeyId
+          ? device.previousSignedPrekey
+          : null;
+    if (!prekey) return { prekey: null, skip: true, reused: false };
+    return { prekey, skip: false, reused: false };
+  }
+  return { prekey: null, skip: false, reused: false };
+}
+
 export async function openMessage(input: {
   message: MessageWire;
   senderUserId: string;
+  senderIdentityPublic: string;
   sender: PublicDevice;
   recipientDevice: DeviceRecord | null;
   backup: (BackupKey & { userId: string }) | null;
+  spentPrekeyIds?: string[];
 }): Promise<{ ok: true; text: string; consumedPrekeyId: string | null } | Fail> {
   if (input.sender.deviceId !== input.message.senderDeviceId)
     return fail("This message could not be read.");
   if (!(await verifyDeviceStatement(input.senderUserId, input.sender))) {
     return fail("This message could not be read.");
   }
+  if (
+    !(await verifyIdentitySignature(input.senderIdentityPublic, input.senderUserId, input.sender))
+  ) {
+    return fail("This message could not be read.");
+  }
   if (!(await verifyBodySignature(input.message, input.sender.signPublic))) {
+    return fail("This message could not be read.");
+  }
+  const spent = input.spentPrekeyIds ?? [];
+  const ownListed =
+    !input.recipientDevice ||
+    input.message.envelopes.some(
+      (envelope) => envelope.recipientDeviceId === input.recipientDevice?.deviceId,
+    );
+  if (input.recipientDevice && !ownListed && !input.backup) {
     return fail("This message could not be read.");
   }
   const lib = await sodium();
@@ -743,24 +991,24 @@ export async function openMessage(input: {
     prekey: PrekeySecret | null;
     tag: string;
   }[] = [];
+  let reusedPrekey = false;
 
-  if (input.recipientDevice) {
+  if (input.recipientDevice && ownListed) {
     const envelope = findDeviceEnvelope(input.message, input.recipientDevice.deviceId);
     const secret = envelope
       ? decodeFixed(lib, input.recipientDevice.boxSecret, lib.crypto_box_SECRETKEYBYTES)
       : null;
     if (envelope && secret) {
-      const prekey = envelope.prekeyId
-        ? (input.recipientDevice.prekeys.find((item) => item.id === envelope.prekeyId) ?? null)
-        : null;
-      if (envelope.prekeyId && !prekey) {
+      const found = prekeyOnDevice(input.recipientDevice, envelope, spent);
+      if (found.reused) reusedPrekey = true;
+      if (found.skip) {
         wipe(lib, secret);
       } else {
         attempts.push({
           envelope,
           secret,
           publicKey: input.recipientDevice.boxPublic,
-          prekey,
+          prekey: found.prekey,
           tag: `device:${input.recipientDevice.deviceId}`,
         });
       }
@@ -811,11 +1059,16 @@ export async function openMessage(input: {
       const plain = lib.crypto_secretbox_open_easy(body, bodyNonce, messageKey);
       const text = lib.to_string(plain);
       wipe(lib, plain, messageKey);
-      return { ok: true, text, consumedPrekeyId: attempt.prekey?.id ?? null };
+      return {
+        ok: true,
+        text,
+        consumedPrekeyId: attempt.envelope.prekeyId ? (attempt.prekey?.id ?? null) : null,
+      };
     } catch {
       wipe(lib, messageKey);
     }
   }
+  if (reusedPrekey) return fail("A one-time key was reused.");
   return fail("This message could not be read.");
 }
 
@@ -849,17 +1102,15 @@ export async function openContentKey(input: {
       ? decodeFixed(lib, input.recipientDevice.boxSecret, lib.crypto_box_SECRETKEYBYTES)
       : null;
     if (envelope && secret) {
-      const prekey = envelope.prekeyId
-        ? (input.recipientDevice.prekeys.find((item) => item.id === envelope.prekeyId) ?? null)
-        : null;
-      if (envelope.prekeyId && !prekey) {
+      const found = prekeyOnDevice(input.recipientDevice, envelope, []);
+      if (found.skip) {
         wipe(lib, secret);
       } else {
         attempts.push({
           envelope,
           secret,
           publicKey: input.recipientDevice.boxPublic,
-          prekey,
+          prekey: found.prekey,
           tag: `device:${input.recipientDevice.deviceId}`,
         });
       }
@@ -933,27 +1184,43 @@ export async function backupRecordOk(boxPublic: string, record: BackupCipher): P
   const lib = await sodium();
   const salt = decodeFixed(lib, record.salt, lib.crypto_pwhash_SALTBYTES);
   const nonce = decodeFixed(lib, record.nonce, lib.crypto_secretbox_NONCEBYTES);
-  const ciphertext = decode(
-    lib,
-    record.ciphertext,
-    lib.crypto_box_SECRETKEYBYTES + lib.crypto_secretbox_MACBYTES,
-  );
+  const sample = backupPlaintext({
+    boxSecret: encode(lib, new Uint8Array(lib.crypto_box_SECRETKEYBYTES)),
+    identitySecret: encode(lib, new Uint8Array(lib.crypto_sign_SECRETKEYBYTES)),
+  });
+  const expected = utf8(lib, sample).length + lib.crypto_secretbox_MACBYTES;
+  const ciphertext = decode(lib, record.ciphertext, expected);
   return Boolean(
-    (await isBoxPublic(boxPublic)) &&
-    salt &&
-    nonce &&
-    ciphertext &&
-    ciphertext.length === lib.crypto_box_SECRETKEYBYTES + lib.crypto_secretbox_MACBYTES,
+    (await isBoxPublic(boxPublic)) && salt && nonce && ciphertext && ciphertext.length === expected,
   );
 }
 
-export async function safetyNumber(publicA: string, publicB: string): Promise<string | null> {
+export type SafetyParty = {
+  identityPublic: string;
+  devices: { deviceId: string; signPublic: string }[];
+};
+
+function safetyCanon(party: SafetyParty): string {
+  const devices = [...party.devices].sort((left, right) =>
+    left.deviceId < right.deviceId ? -1 : left.deviceId > right.deviceId ? 1 : 0,
+  );
+  return `${party.identityPublic}\n${devices.map((device) => `${device.deviceId}|${device.signPublic}`).join("\n")}`;
+}
+
+export async function safetyNumber(
+  first: SafetyParty,
+  second: SafetyParty,
+): Promise<string | null> {
   const lib = await sodium();
-  const left = decodeFixed(lib, publicA, lib.crypto_box_PUBLICKEYBYTES);
-  const right = decodeFixed(lib, publicB, lib.crypto_box_PUBLICKEYBYTES);
-  if (!left || !right) return null;
-  const [low, high] = [publicA, publicB].sort();
-  const hash = lib.crypto_generichash(30, utf8(lib, `avouch-safety-v1\n${low}\n${high}`));
+  for (const party of [first, second]) {
+    if (!decodeFixed(lib, party.identityPublic, lib.crypto_sign_PUBLICKEYBYTES)) return null;
+    for (const device of party.devices) {
+      if (!isUuid(device.deviceId)) return null;
+      if (!decodeFixed(lib, device.signPublic, lib.crypto_sign_PUBLICKEYBYTES)) return null;
+    }
+  }
+  const [low, high] = [safetyCanon(first), safetyCanon(second)].sort();
+  const hash = lib.crypto_generichash(30, utf8(lib, `avouch-safety-v2\n${low}\n${high}`));
   const groups: string[] = [];
   for (let i = 0; i < 6; i += 1) {
     let value = 0;

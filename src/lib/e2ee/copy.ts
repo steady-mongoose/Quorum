@@ -13,4 +13,4 @@ export const DM_ABOUT_NOTICE =
   "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, plain text, encrypted on the device when you are signed in, and deleted after 30 days.";
 
 export const DM_SAFETY_HINT =
-  "Compare this number with the other person, in person or on a call. If it does not match, do not send.";
+  "Compare this number with the other person, in person or on a call. A new device changes the number. If it does not match, do not send.";

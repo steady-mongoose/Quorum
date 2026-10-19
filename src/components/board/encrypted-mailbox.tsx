@@ -3,18 +3,19 @@ import { ArrowLeft } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { DM_ENCRYPTED_NOTICE, DM_SAFETY_HINT } from "@/lib/e2ee/copy";
-import { browserTransport, browserVaultStore, readBrowserVault } from "@/lib/e2ee/browser";
+import { browserTransport, browserVaultStore, loadBrowserVault } from "@/lib/e2ee/browser";
 import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
 import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
 import {
   confirmSafety,
   createLocalDevice,
-  findMember,
+  listDmPeers,
   listEncryptedThreads,
   listOwnDevices,
   openEncryptedThread,
   publishBackup,
   readEncrypted,
+  recordAttendance,
   registerDevice,
   restoreFromBackup,
   revokeOtherDevice,
@@ -54,14 +55,22 @@ export function EncryptedMailbox() {
   const [again, setAgain] = useState("");
   const [notice, setNotice] = useState("");
   const [safety, setSafety] = useState("");
+  const [choices, setChoices] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
   const gateName = boardName || me?.name || "";
   const peers = useMemo(() => stoodWith(gateName, cards, posts), [gateName, cards, posts]);
 
   useEffect(() => {
-    setVault(readBrowserVault());
-    setLoaded(true);
+    let cancelled = false;
+    void loadBrowserVault().then((loadedVault) => {
+      if (cancelled) return;
+      setVault(loadedVault);
+      setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function refreshDevices(current: VaultState) {
@@ -115,35 +124,56 @@ export function EncryptedMailbox() {
     }
     let cancelled = false;
     void (async () => {
-      const found = await findMember(transport, other);
+      const meetingIds = cards
+        .filter((card) => card.wentBy.includes(gateName))
+        .map((card) => card.id)
+        .filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id));
+      if (meetingIds.length > 0) {
+        const recorded = await recordAttendance(transport, meetingIds);
+        if (cancelled) return;
+        if (!recorded.ok) {
+          setNotice(recorded.message);
+          return;
+        }
+      }
+      const found = await listDmPeers(transport);
       if (cancelled) return;
       if (!found.ok) {
         setNotice(found.message);
         return;
       }
-      if (found.matches.length !== 1) {
-        setNotice(
-          found.matches.length === 0
-            ? "That person does not have an account yet."
-            : "More than one member has that name.",
-        );
+      const matches = found.peers.filter((peer) => peer.name === other);
+      if (matches.length === 0) {
+        setChoices([]);
+        setNotice("That person does not have an account for this meeting yet.");
         return;
       }
-      const opened = await openEncryptedThread(transport, found.matches[0].id);
-      if (cancelled) return;
-      if (!opened.ok) {
-        setNotice(opened.message);
+      if (matches.length > 1) {
+        setChoices(matches);
+        setNotice("More than one member has that name. Choose the account.");
         return;
       }
-      setNotice("");
-      setActive(opened.thread);
-      await loadThread(opened.thread);
+      const match = matches[0];
+      if (!match) return;
+      await openPeer(match.id);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThread, me?.id, vault?.device.deviceId, gateName]);
+
+  async function openPeer(userId: string) {
+    setChoices([]);
+    const opened = await openEncryptedThread(transport, userId);
+    if (!opened.ok) {
+      setNotice(opened.message);
+      return;
+    }
+    setNotice("");
+    setActive(opened.thread);
+    await loadThread(opened.thread);
+  }
 
   async function loadThread(thread: ThreadSummary) {
     if (!me) return;
@@ -154,6 +184,7 @@ export function EncryptedMailbox() {
     }
     setMessages(read.messages);
     setUnreadable(read.unreadable);
+    if (read.warnings[0]) setNotice(read.warnings[0]);
     setVault(store.read());
   }
 
@@ -290,7 +321,8 @@ export function EncryptedMailbox() {
         </button>
         <h1 className="font-display text-3xl text-fg">{active.otherName}</h1>
         <p className="text-sm text-muted">
-          Encrypted on this device, deleted after {DM_RETENTION_DAYS} days.
+          Account {active.otherUserId.slice(0, 8)}. Encrypted on this device, deleted after{" "}
+          {DM_RETENTION_DAYS} days.
         </p>
         {safety ? (
           <div className="rounded-md border border-line bg-surface px-3 py-3">
@@ -382,7 +414,9 @@ export function EncryptedMailbox() {
                   void loadThread(thread);
                 }}
               >
-                <span className="text-base font-semibold text-fg">{thread.otherName}</span>
+                <span className="text-base font-semibold text-fg">
+                  {thread.otherName} · {thread.otherUserId.slice(0, 8)}
+                </span>
                 <span className="text-sm text-muted">Open to read. Nothing is previewed here.</span>
               </button>
             </li>
@@ -465,6 +499,22 @@ export function EncryptedMailbox() {
           ))}
         </ul>
       </section>
+      {choices.length > 1 ? (
+        <ul className="flex max-w-xl flex-col gap-2">
+          {choices.map((peer) => (
+            <li key={peer.id}>
+              <button
+                type="button"
+                className="flex w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
+                onClick={() => void openPeer(peer.id)}
+              >
+                <span className="text-base font-semibold text-fg">{peer.name}</span>
+                <span className="text-sm text-muted">Account {peer.id.slice(0, 8)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {notice ? <p className="text-sm text-muted">{notice}</p> : null}
     </div>
   );

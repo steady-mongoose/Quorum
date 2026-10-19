@@ -8,15 +8,19 @@ import {
   createBackupKey,
   createDevice,
   createPrekeys,
+  createSignedPrekey,
   decryptBackupSecret,
   encryptBackupSecret,
+  identityKeyFromSecret,
   isMemberId,
   isUuid,
   openMessage,
   safetyNumber,
   sealMessage,
   verifyDeviceStatement,
+  verifyIdentitySignature,
   verifyPrekey,
+  verifySignedPrekey,
   type BackupCipher,
   type BackupKey,
   type DeviceRecord,
@@ -24,17 +28,29 @@ import {
   type MessageWire,
   type PublicDevice,
   type PublicPrekey,
+  type SafetyParty,
   type SealDestination,
 } from "./protocol.ts";
+
+export type PinnedDevice = { deviceId: string; signPublic: string; boxPublic: string };
+
+/** Identity, backup, and the device list the member has already accepted. */
+export type PinRecord = {
+  userId: string;
+  identityPublic: string;
+  backupPublic: string | null;
+  devices: PinnedDevice[];
+};
 
 export type VaultState = {
   userId: string;
   device: DeviceRecord;
   backup: (BackupKey & { userId: string }) | null;
-  /** First-seen backup public keys. A later change means the server swapped one. */
-  pins: { userId: string; boxPublic: string }[];
+  pins: PinRecord[];
   /** Safety numbers the member has compared out of band. */
   confirmed: { userId: string; safety: string }[];
+  /** One-time prekey ids this device has already opened. A repeat is reported. */
+  spentPrekeys: string[];
 };
 
 export type VaultStore = {
@@ -57,8 +73,22 @@ export type OwnDevice = {
   current: boolean;
 };
 
-type BundleDevice = PublicDevice & { prekey: PublicPrekey | null };
-type Bundle = { userId: string; backupPublic: string | null; devices: BundleDevice[] };
+type BundleDevice = PublicDevice & {
+  prekey: PublicPrekey | null;
+  signedPrekey: PublicPrekey | null;
+};
+type Bundle = {
+  userId: string;
+  identityPublic: string | null;
+  backupPublic: string | null;
+  devices: BundleDevice[];
+};
+type KeyPreview = {
+  userId: string;
+  identityPublic: string | null;
+  backupPublic: string | null;
+  devices: PublicDevice[];
+};
 
 function messageOf(body: unknown, fallback: string): string {
   if (
@@ -98,7 +128,33 @@ export async function createLocalDevice(
   label = "This browser",
 ): Promise<VaultState> {
   const device = await createDevice({ userId, label });
-  return { userId, device, backup: null, pins: [], confirmed: [] };
+  return { userId, device, backup: null, pins: [], confirmed: [], spentPrekeys: [] };
+}
+
+/** Another browser for the same identity. It can sign in as the same member. */
+export async function createSiblingDevice(
+  existing: VaultState,
+  label: string,
+): Promise<VaultState> {
+  const device = await createDevice({
+    userId: existing.userId,
+    label,
+    identity: {
+      signPublic: existing.device.identityPublic,
+      signSecret: existing.device.identitySecret,
+    },
+  });
+  return {
+    userId: existing.userId,
+    device,
+    backup: existing.backup ? { ...existing.backup } : null,
+    pins: existing.pins.map((pin) => ({
+      ...pin,
+      devices: pin.devices.map((item) => ({ ...item })),
+    })),
+    confirmed: existing.confirmed.map((item) => ({ ...item })),
+    spentPrekeys: [],
+  };
 }
 
 function registrationBody(state: VaultState): unknown {
@@ -108,6 +164,13 @@ function registrationBody(state: VaultState): unknown {
     signPublic: state.device.signPublic,
     boxPublic: state.device.boxPublic,
     statementSig: state.device.statementSig,
+    identityPublic: state.device.identityPublic,
+    identitySig: state.device.identitySig,
+    signedPrekey: {
+      id: state.device.signedPrekey.id,
+      publicKey: state.device.signedPrekey.publicKey,
+      signature: state.device.signedPrekey.signature,
+    },
     prekeys: state.device.prekeys.map((prekey) => ({
       id: prekey.id,
       publicKey: prekey.publicKey,
@@ -145,12 +208,20 @@ async function replenishPrekeys(
   const mine = devices.find((device) => device.current);
   if (!mine || mine.prekeysLeft >= 3) return { ok: true };
   const extra = await createPrekeys(state.device, DM_PREKEY_BATCH);
+  const signedPrekey = await createSignedPrekey(state.device);
   const next = vault.read();
   if (!next) return { ok: false, message: "Create keys on this device first." };
+  next.device.previousSignedPrekey = next.device.signedPrekey;
+  next.device.signedPrekey = signedPrekey;
   next.device.prekeys.push(...extra);
   vault.write(next);
   const response = await expectOk(
     await transport.post(`/api/dm/devices/${next.device.deviceId}/prekeys`, {
+      signedPrekey: {
+        id: signedPrekey.id,
+        publicKey: signedPrekey.publicKey,
+        signature: signedPrekey.signature,
+      },
       prekeys: extra.map((prekey) => ({
         id: prekey.id,
         publicKey: prekey.publicKey,
@@ -166,12 +237,14 @@ export async function publishBackup(
   transport: DmTransport,
   vault: VaultStore,
   passphrase: string,
-  strength: "interactive" | "min" = "interactive",
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const state = vault.read();
   if (!state) return { ok: false, message: "Create keys on this device first." };
   const backup = state.backup ?? { ...(await createBackupKey()), userId: state.userId };
-  const cipher = await encryptBackupSecret(backup.boxSecret, passphrase, strength);
+  const cipher = await encryptBackupSecret(
+    { boxSecret: backup.boxSecret, identitySecret: state.device.identitySecret },
+    passphrase,
+  );
   if (!cipher.ok) return cipher;
   const response = await expectOk(
     await transport.post("/api/dm/backup", { boxPublic: backup.boxPublic, ...cipher.value }),
@@ -180,7 +253,6 @@ export async function publishBackup(
   if (!response.ok) return response;
   const next = vault.read() ?? state;
   next.backup = backup;
-  next.pins = pin(next.pins, state.userId, backup.boxPublic);
   vault.write(next);
   return { ok: true };
 }
@@ -200,13 +272,16 @@ export async function restoreFromBackup(
   if (!record) return { ok: false, message: "No key backup is stored." };
   const secret = await decryptBackupSecret(record.cipher, passphrase);
   if (!secret) return { ok: false, message: "That passphrase did not open the backup." };
-  const device = await createDevice({ userId, label });
+  const identity = await identityKeyFromSecret(secret.identitySecret);
+  if (!identity) return { ok: false, message: "That passphrase did not open the backup." };
+  const device = await createDevice({ userId, label, identity });
   const vault: VaultState = {
     userId,
     device,
-    backup: { userId, boxPublic: record.boxPublic, boxSecret: secret },
-    pins: [{ userId, boxPublic: record.boxPublic }],
+    backup: { userId, boxPublic: record.boxPublic, boxSecret: secret.boxSecret },
+    pins: [],
     confirmed: [],
+    spentPrekeys: [],
   };
   return { ok: true, vault };
 }
@@ -283,8 +358,8 @@ export async function revokeOtherDevice(
 
 /**
  * Keys for one other member. A safety refusal returns before any one-time
- * prekey is taken. The caller opens the conversation first when the server
- * requires one.
+ * prekey is taken. Sending stays blocked until the safety number is confirmed,
+ * and again when a device is added. The caller opens the conversation first.
  */
 export async function messageDestinations(
   transport: DmTransport,
@@ -301,34 +376,33 @@ export async function messageDestinations(
   const state = vault.read();
   if (!state) return { ok: false, message: "Create keys on this device first." };
 
-  const minePreview = await previewKeys(transport, state.userId);
-  const theirPreview = await previewKeys(transport, otherUserId);
-  if (!minePreview.ok) return minePreview;
-  if (!theirPreview.ok) return theirPreview;
-  if (theirPreview.deviceCount === 0)
-    return { ok: false, message: "That member has no device yet." };
-
-  const pinCheck = applyPins(state, [
-    { userId: state.userId, boxPublic: minePreview.backupPublic },
-    { userId: otherUserId, boxPublic: theirPreview.backupPublic },
-  ]);
-  if (!pinCheck.ok) return pinCheck;
-  vault.write(pinCheck.state);
-
-  const safety =
-    pinCheck.state.backup && theirPreview.backupPublic
-      ? await safetyNumber(pinCheck.state.backup.boxPublic, theirPreview.backupPublic)
-      : null;
-  if (
-    safety &&
-    !pinCheck.state.confirmed.some((item) => item.userId === otherUserId && item.safety === safety)
-  ) {
-    return {
-      ok: false,
-      message: "Compare safety numbers before you send.",
-      safety,
-    };
+  const mineLoaded = await previewKeys(transport, state.userId);
+  const theirLoaded = await previewKeys(transport, otherUserId);
+  if (!mineLoaded.ok) return mineLoaded;
+  if (!theirLoaded.ok) return theirLoaded;
+  const minePreview = mineLoaded.preview;
+  const theirPreview = theirLoaded.preview;
+  if (!theirPreview.identityPublic || theirPreview.devices.length === 0) {
+    return { ok: false, message: "They have not set up encryption yet." };
   }
+  if (!minePreview.identityPublic || minePreview.devices.length === 0) {
+    return { ok: false, message: "Create keys on this device first." };
+  }
+  const checked = await identitiesOk(minePreview, theirPreview);
+  if (!checked.ok) return checked;
+
+  const safety = await safetyNumber(partyOf(minePreview), partyOf(theirPreview));
+  if (!safety) return { ok: false, message: "Compare safety numbers before you send." };
+  const confirmed = state.confirmed.some(
+    (item) => item.userId === otherUserId && item.safety === safety,
+  );
+  const pinCheck = applyPins(state, minePreview, theirPreview, confirmed);
+  if (!pinCheck.ok) return { ...pinCheck, safety };
+  if (!confirmed) {
+    vault.write(pinCheck.state);
+    return { ok: false, message: "Compare safety numbers before you send.", safety };
+  }
+  vault.write(pinCheck.state);
 
   const fresh = vault.read();
   if (!fresh) return { ok: false, message: "Create keys on this device first." };
@@ -336,14 +410,27 @@ export async function messageDestinations(
   const theirs = await claimBundle(transport, otherUserId);
   if (!mine.ok) return mine;
   if (!theirs.ok) return theirs;
-  if (theirs.bundle.devices.length === 0) {
-    return { ok: false, message: "That member has no device yet." };
+  if (
+    !bundlesMatchPreview(mine.bundle, minePreview) ||
+    !bundlesMatchPreview(theirs.bundle, theirPreview)
+  ) {
+    return {
+      ok: false,
+      message:
+        "The keys from the server did not match the ones you checked. The message was not sent.",
+    };
   }
 
   const destinations: SealDestination[] = [];
   for (const bundle of [mine.bundle, theirs.bundle]) {
+    if (!bundle.identityPublic) {
+      return { ok: false, message: "They have not set up encryption yet." };
+    }
     for (const device of bundle.devices) {
       if (!(await verifyDeviceStatement(bundle.userId, device))) {
+        return { ok: false, message: "A device key did not check out. The message was not sent." };
+      }
+      if (!(await verifyIdentitySignature(bundle.identityPublic, bundle.userId, device))) {
         return { ok: false, message: "A device key did not check out. The message was not sent." };
       }
       if (
@@ -355,18 +442,57 @@ export async function messageDestinations(
           message: "A one-time key did not check out. The message was not sent.",
         };
       }
-      destinations.push({ kind: "device", userId: bundle.userId, device, prekey: device.prekey });
+      if (
+        !device.prekey &&
+        (!device.signedPrekey ||
+          !(await verifySignedPrekey(device.deviceId, device.signPublic, device.signedPrekey)))
+      ) {
+        return {
+          ok: false,
+          message: "A signed prekey did not check out. The message was not sent.",
+        };
+      }
+      destinations.push({
+        kind: "device",
+        userId: bundle.userId,
+        identityPublic: bundle.identityPublic,
+        device,
+        prekey: device.prekey,
+        signedPrekey: device.signedPrekey,
+      });
     }
     if (bundle.backupPublic) {
       destinations.push({ kind: "backup", userId: bundle.userId, boxPublic: bundle.backupPublic });
     }
   }
 
-  const warning =
-    safety === null
-      ? "There is no safety number yet. Set a key backup, and ask them to set one, before you trust this conversation."
-      : null;
-  return { ok: true, destinations, warning, sender: pinCheck.state.device };
+  return { ok: true, destinations, warning: null, sender: fresh.device };
+}
+
+function partyOf(preview: KeyPreview): SafetyParty {
+  return {
+    identityPublic: preview.identityPublic ?? "",
+    devices: preview.devices.map((device) => ({
+      deviceId: device.deviceId,
+      signPublic: device.signPublic,
+    })),
+  };
+}
+
+async function identitiesOk(
+  mine: KeyPreview,
+  theirs: KeyPreview,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  for (const preview of [mine, theirs]) {
+    if (!preview.identityPublic)
+      return { ok: false, message: "They have not set up encryption yet." };
+    for (const device of preview.devices) {
+      if (!(await verifyIdentitySignature(preview.identityPublic, preview.userId, device))) {
+        return { ok: false, message: "A device key did not check out. The message was not sent." };
+      }
+    }
+  }
+  return { ok: true };
 }
 
 export async function sendEncrypted(
@@ -418,7 +544,8 @@ export async function readEncrypted(
   myName: string,
   otherName: string,
 ): Promise<
-  { ok: true; messages: DecodedMessage[]; unreadable: number } | { ok: false; message: string }
+  | { ok: true; messages: DecodedMessage[]; unreadable: number; warnings: string[] }
+  | { ok: false; message: string }
 > {
   const state = vault.read();
   if (!state) return { ok: false, message: "Create keys on this device first." };
@@ -429,18 +556,31 @@ export async function readEncrypted(
   if (!response.ok) return response;
   const rows = readMessageRows(response.body);
   const messages: DecodedMessage[] = [];
+  const warnings: string[] = [];
+  const seen = new Set<string>();
   let unreadable = 0;
   const consumed: string[] = [];
   for (const row of rows) {
+    if (row.message.threadId !== threadId) {
+      unreadable += 1;
+      continue;
+    }
+    if (seen.has(row.message.messageId)) continue;
+    seen.add(row.message.messageId);
     const opened = await openMessage({
       message: row.message,
       senderUserId: row.senderUserId,
+      senderIdentityPublic: row.senderIdentityPublic,
       sender: row.sender,
       recipientDevice: state.device,
       backup: state.backup,
+      spentPrekeyIds: state.spentPrekeys,
     });
     if (!opened.ok) {
       unreadable += 1;
+      if (opened.message === "A one-time key was reused." && !warnings.includes(opened.message)) {
+        warnings.push(opened.message);
+      }
       continue;
     }
     if (opened.consumedPrekeyId) consumed.push(opened.consumedPrekeyId);
@@ -455,72 +595,133 @@ export async function readEncrypted(
     const next = vault.read();
     if (next) {
       next.device.prekeys = next.device.prekeys.filter((prekey) => !consumed.includes(prekey.id));
+      next.spentPrekeys = [...new Set([...next.spentPrekeys, ...consumed])];
       vault.write(next);
     }
   }
-  return { ok: true, messages, unreadable };
+  return { ok: true, messages, unreadable, warnings };
 }
 
-function pin(
-  pins: { userId: string; boxPublic: string }[],
-  userId: string,
-  boxPublic: string,
-): { userId: string; boxPublic: string }[] {
-  const rest = pins.filter((item) => item.userId !== userId);
-  return [...rest, { userId, boxPublic }];
+export async function recordAttendance(
+  transport: DmTransport,
+  meetingIds: string[],
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const response = await expectOk(
+    await transport.post("/api/dm/attendance", { meetingIds }),
+    "The meeting was not recorded.",
+  );
+  return response.ok ? { ok: true } : response;
+}
+
+export async function listDmPeers(
+  transport: DmTransport,
+): Promise<{ ok: true; peers: { id: string; name: string }[] } | { ok: false; message: string }> {
+  const response = await expectOk(
+    await transport.get("/api/dm/peers"),
+    "The people from your meetings did not load.",
+  );
+  if (!response.ok) return response;
+  const body = response.body;
+  if (!body || typeof body !== "object" || !("peers" in body) || !Array.isArray(body.peers)) {
+    return { ok: true, peers: [] };
+  }
+  const peers = body.peers.flatMap((item) => {
+    if (!item || typeof item !== "object" || !("id" in item) || !("name" in item)) return [];
+    if (typeof item.id !== "string" || typeof item.name !== "string") return [];
+    return [{ id: item.id, name: item.name }];
+  });
+  return { ok: true, peers };
+}
+
+function deviceKey(device: { deviceId: string; signPublic: string; boxPublic: string }): string {
+  return `${device.deviceId}|${device.signPublic}|${device.boxPublic}`;
+}
+
+function sameDevices(left: PinnedDevice[], right: PublicDevice[]): boolean {
+  const a = left.map(deviceKey).sort();
+  const b = right.map(deviceKey).sort();
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function pinFrom(preview: KeyPreview): PinRecord {
+  return {
+    userId: preview.userId,
+    identityPublic: preview.identityPublic ?? "",
+    backupPublic: preview.backupPublic,
+    devices: preview.devices.map((device) => ({
+      deviceId: device.deviceId,
+      signPublic: device.signPublic,
+      boxPublic: device.boxPublic,
+    })),
+  };
 }
 
 function applyPins(
   state: VaultState,
-  found: { userId: string; boxPublic: string | null }[],
+  mine: KeyPreview,
+  theirs: KeyPreview,
+  confirmed: boolean,
 ): { ok: true; state: VaultState } | { ok: false; message: string } {
   const next: VaultState = {
     ...state,
-    pins: state.pins.map((item) => ({ ...item })),
+    pins: state.pins.map((item) => ({
+      ...item,
+      devices: item.devices.map((device) => ({ ...device })),
+    })),
     confirmed: state.confirmed.map((item) => ({ ...item })),
-    device: state.device,
-    backup: state.backup,
+    spentPrekeys: [...state.spentPrekeys],
   };
-  for (const item of found) {
-    if (!item.boxPublic) continue;
-    const seen = next.pins.find((pinItem) => pinItem.userId === item.userId);
+  for (const preview of [mine, theirs]) {
+    const seen = next.pins.find((item) => item.userId === preview.userId);
     if (!seen) {
-      next.pins = pin(next.pins, item.userId, item.boxPublic);
+      next.pins = [...next.pins.filter((item) => item.userId !== preview.userId), pinFrom(preview)];
       continue;
     }
-    if (seen.boxPublic !== item.boxPublic) {
-      return {
-        ok: false,
-        message: "A backup key changed. Do not send until you confirm this in person.",
-      };
+    const identityChanged = seen.identityPublic !== preview.identityPublic;
+    const backupChanged = seen.backupPublic !== preview.backupPublic;
+    const devicesChanged = !sameDevices(seen.devices, preview.devices);
+    if (identityChanged || backupChanged || devicesChanged) {
+      if (!confirmed) {
+        return {
+          ok: false,
+          message: identityChanged
+            ? "An identity key changed. Compare safety numbers again before you send."
+            : backupChanged
+              ? "A backup key changed. Compare safety numbers again before you send."
+              : "A new device appeared. Compare safety numbers again before you send.",
+        };
+      }
+      next.pins = [...next.pins.filter((item) => item.userId !== preview.userId), pinFrom(preview)];
     }
   }
   return { ok: true, state: next };
 }
 
+function bundlesMatchPreview(bundle: Bundle, preview: KeyPreview): boolean {
+  if (bundle.identityPublic !== preview.identityPublic) return false;
+  if (bundle.backupPublic !== preview.backupPublic) return false;
+  return sameDevices(
+    preview.devices.map((device) => ({
+      deviceId: device.deviceId,
+      signPublic: device.signPublic,
+      boxPublic: device.boxPublic,
+    })),
+    bundle.devices,
+  );
+}
+
 async function previewKeys(
   transport: DmTransport,
   userId: string,
-): Promise<
-  { ok: true; backupPublic: string | null; deviceCount: number } | { ok: false; message: string }
-> {
+): Promise<{ ok: true; preview: KeyPreview } | { ok: false; message: string }> {
   const response = await expectOk(
     await transport.get(`/api/dm/keys?userId=${encodeURIComponent(userId)}`),
     "The device keys did not load.",
   );
   if (!response.ok) return response;
-  const body = response.body;
-  if (!body || typeof body !== "object")
-    return { ok: false, message: "The device keys did not load." };
-  const record = body as { userId?: unknown; backupPublic?: unknown; deviceCount?: unknown };
-  if (record.userId !== userId || typeof record.deviceCount !== "number") {
-    return { ok: false, message: "The device keys did not load." };
-  }
-  return {
-    ok: true,
-    backupPublic: typeof record.backupPublic === "string" ? record.backupPublic : null,
-    deviceCount: record.deviceCount,
-  };
+  const preview = readPreview(response.body, userId);
+  if (!preview) return { ok: false, message: "The device keys did not load." };
+  return { ok: true, preview };
 }
 
 async function claimBundle(
@@ -537,10 +738,34 @@ async function claimBundle(
   return { ok: true, bundle };
 }
 
+function readPreview(body: unknown, userId: string): KeyPreview | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as {
+    userId?: unknown;
+    identityPublic?: unknown;
+    backupPublic?: unknown;
+    devices?: unknown;
+  };
+  if (record.userId !== userId || !Array.isArray(record.devices)) return null;
+  const devices: PublicDevice[] = [];
+  for (const item of record.devices) {
+    const device = readPublicDevice(item);
+    if (!device) return null;
+    devices.push(device);
+  }
+  return {
+    userId,
+    identityPublic: typeof record.identityPublic === "string" ? record.identityPublic : null,
+    backupPublic: typeof record.backupPublic === "string" ? record.backupPublic : null,
+    devices,
+  };
+}
+
 function readBundle(body: unknown, userId: string): Bundle | null {
   if (!body || typeof body !== "object") return null;
   const record = body as {
     userId?: unknown;
+    identityPublic?: unknown;
     backupPublic?: unknown;
     devices?: unknown;
   };
@@ -549,11 +774,18 @@ function readBundle(body: unknown, userId: string): Bundle | null {
   for (const item of record.devices) {
     const device = readPublicDevice(item);
     if (!device) return null;
-    const prekey = readPrekey(item);
-    devices.push({ ...device, prekey });
+    devices.push({
+      ...device,
+      prekey: readPrekey(item, "prekey"),
+      signedPrekey: readPrekey(item, "signedPrekey"),
+    });
   }
-  const backupPublic = typeof record.backupPublic === "string" ? record.backupPublic : null;
-  return { userId, backupPublic, devices };
+  return {
+    userId,
+    identityPublic: typeof record.identityPublic === "string" ? record.identityPublic : null,
+    backupPublic: typeof record.backupPublic === "string" ? record.backupPublic : null,
+    devices,
+  };
 }
 
 function readPublicDevice(item: unknown): PublicDevice | null {
@@ -563,7 +795,8 @@ function readPublicDevice(item: unknown): PublicDevice | null {
     typeof device.deviceId !== "string" ||
     typeof device.signPublic !== "string" ||
     typeof device.boxPublic !== "string" ||
-    typeof device.statementSig !== "string"
+    typeof device.statementSig !== "string" ||
+    typeof device.identitySig !== "string"
   ) {
     return null;
   }
@@ -572,12 +805,13 @@ function readPublicDevice(item: unknown): PublicDevice | null {
     signPublic: device.signPublic,
     boxPublic: device.boxPublic,
     statementSig: device.statementSig,
+    identitySig: device.identitySig,
   };
 }
 
-function readPrekey(item: unknown): PublicPrekey | null {
-  if (!item || typeof item !== "object" || !("prekey" in item)) return null;
-  const prekey = (item as { prekey?: unknown }).prekey;
+function readPrekey(item: unknown, field: "prekey" | "signedPrekey"): PublicPrekey | null {
+  if (!item || typeof item !== "object" || !(field in item)) return null;
+  const prekey = (item as Record<string, unknown>)[field];
   if (!prekey || typeof prekey !== "object") return null;
   const record = prekey as Record<string, unknown>;
   if (
@@ -656,6 +890,7 @@ function readBackup(body: unknown): { boxPublic: string; cipher: BackupCipher } 
 
 type MessageRow = {
   senderUserId: string;
+  senderIdentityPublic: string;
   createdAt: string;
   sender: PublicDevice;
   message: MessageWire;
@@ -668,8 +903,14 @@ function readMessageRows(body: unknown): MessageRow[] {
     if (!item || typeof item !== "object") return [];
     const record = item as Record<string, unknown>;
     const sender = readPublicDevice(record.sender);
-    if (!sender || typeof record.senderUserId !== "string" || typeof record.createdAt !== "string")
+    if (
+      !sender ||
+      typeof record.senderUserId !== "string" ||
+      typeof record.senderIdentityPublic !== "string" ||
+      typeof record.createdAt !== "string"
+    ) {
       return [];
+    }
     if (
       typeof record.messageId !== "string" ||
       typeof record.threadId !== "string" ||
@@ -689,6 +930,7 @@ function readMessageRows(body: unknown): MessageRow[] {
     return [
       {
         senderUserId: record.senderUserId,
+        senderIdentityPublic: record.senderIdentityPublic,
         createdAt: record.createdAt,
         sender,
         message: {
@@ -720,6 +962,8 @@ function readEnvelope(item: unknown): EnvelopeWire | null {
   const recipientUserBackup =
     typeof envelope.recipientUserBackup === "string" ? envelope.recipientUserBackup : null;
   const prekeyId = typeof envelope.prekeyId === "string" ? envelope.prekeyId : null;
+  const signedPrekeyId =
+    typeof envelope.signedPrekeyId === "string" ? envelope.signedPrekeyId : null;
   return {
     recipientDeviceId,
     recipientUserBackup,
@@ -727,5 +971,6 @@ function readEnvelope(item: unknown): EnvelopeWire | null {
     ciphertext: envelope.ciphertext,
     ephemeralPublic: envelope.ephemeralPublic,
     prekeyId,
+    signedPrekeyId,
   };
 }

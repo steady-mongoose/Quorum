@@ -1,9 +1,15 @@
 import type { AppDeps } from "../http.ts";
-import { DM_BUNDLE_LIMIT, DM_SEND_LIMIT, consumeLimit } from "../rate-limit.ts";
+import {
+  DM_BUNDLE_LIMIT,
+  DM_BUNDLE_TARGET_LIMIT,
+  DM_SEND_LIMIT,
+  consumeLimit,
+} from "../rate-limit.ts";
 import {
   addPrekeys,
   claimBundle,
   getBackup,
+  listPeers,
   previewBundle,
   listMessages,
   listOwnDevices,
@@ -12,8 +18,10 @@ import {
   openThread,
   postMessage,
   putBackup,
+  recordAttendance,
   registerDevice,
   revokeDevice,
+  sweepIfDue,
   type DeviceRegistration,
 } from "./store.ts";
 import type {
@@ -87,8 +95,21 @@ function registrationOf(body: Record<string, unknown>): DeviceRegistration | nul
     signPublic: stringField(body, "signPublic"),
     boxPublic: stringField(body, "boxPublic"),
     statementSig: stringField(body, "statementSig"),
+    identityPublic: stringField(body, "identityPublic"),
+    identitySig: stringField(body, "identitySig"),
+    signedPrekey: {
+      id: stringField(signedPrekey(body), "id"),
+      publicKey: stringField(signedPrekey(body), "publicKey"),
+      signature: stringField(signedPrekey(body), "signature"),
+    },
     prekeys,
   };
+}
+
+function signedPrekey(body: Record<string, unknown>): Record<string, unknown> {
+  const value = body.signedPrekey;
+  if (!value || typeof value !== "object") return {};
+  return value as Record<string, unknown>;
 }
 
 function messageOf(body: Record<string, unknown>): MessageWire | null {
@@ -113,6 +134,7 @@ function messageOf(body: Record<string, unknown>): MessageWire | null {
       ciphertext: row.ciphertext,
       ephemeralPublic: row.ephemeralPublic,
       prekeyId: typeof row.prekeyId === "string" ? row.prekeyId : null,
+      signedPrekeyId: typeof row.signedPrekeyId === "string" ? row.signedPrekeyId : null,
     });
   }
   if (
@@ -169,6 +191,7 @@ export async function handleDm(
   const session = await deps.readSession(request.headers);
   if (!session) return json(401, { error: "Sign in first." });
   try {
+    await sweepIfDue(deps.db, deps.now());
     return await dispatch(deps, request, url, session.id);
   } catch (error) {
     const status =
@@ -208,9 +231,25 @@ async function dispatch(
       if (!revoked.ok) return json(revoked.status, { error: revoked.error });
       return json(200, { ok: true });
     }
-    const prekeys = prekeysOf((await readJson(request)).prekeys);
+    const raw = await readJson(request);
+    const prekeys = prekeysOf(raw.prekeys);
     if (!prekeys) return json(400, { error: "That device key was not accepted." });
-    const saved = await addPrekeys(deps.db, userId, deviceId, prekeys);
+    const signed = raw.signedPrekey;
+    const signedPrekey =
+      signed && typeof signed === "object"
+        ? {
+            id: stringField(signed as Record<string, unknown>, "id"),
+            publicKey: stringField(signed as Record<string, unknown>, "publicKey"),
+            signature: stringField(signed as Record<string, unknown>, "signature"),
+          }
+        : null;
+    const saved = await addPrekeys(
+      deps.db,
+      userId,
+      deviceId,
+      prekeys,
+      signedPrekey && signedPrekey.id ? signedPrekey : null,
+    );
     if (!saved.ok) return json(saved.status, { error: saved.error });
     return json(200, { ok: true });
   }
@@ -235,6 +274,7 @@ async function dispatch(
   }
 
   if (path === "/api/dm/bundles" && method === "POST") {
+    const target = stringField(await readJson(request), "userId");
     const limit = await consumeLimit(
       deps.db,
       `dm-bundle:${userId}`,
@@ -242,10 +282,30 @@ async function dispatch(
       deps.now().getTime(),
     );
     if (!limit.allowed) return tooMany(limit.retryAfter);
-    const target = stringField(await readJson(request), "userId");
+    const perTarget = await consumeLimit(
+      deps.db,
+      `dm-bundle:${userId}:${target}`,
+      DM_BUNDLE_TARGET_LIMIT,
+      deps.now().getTime(),
+    );
+    if (!perTarget.allowed) return tooMany(perTarget.retryAfter);
     const bundle = await claimBundle(deps.db, userId, target, deps.now());
     if (!bundle.ok) return json(bundle.status, { error: bundle.error });
     return json(200, bundle.value);
+  }
+
+  if (path === "/api/dm/attendance" && method === "POST") {
+    const body = await readJson(request);
+    const meetingIds = Array.isArray(body.meetingIds)
+      ? body.meetingIds.filter((item): item is string => typeof item === "string")
+      : null;
+    if (!meetingIds) return json(400, { error: "That meeting was not recorded." });
+    const saved = await recordAttendance(deps.db, userId, meetingIds, deps.now());
+    if (!saved.ok) return json(saved.status, { error: saved.error });
+    return json(200, { ok: true });
+  }
+  if (path === "/api/dm/peers" && method === "GET") {
+    return json(200, { peers: await listPeers(deps.db, userId) });
   }
 
   if (path === "/api/dm/members" && method === "GET") {
