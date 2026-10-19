@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from "react";
+import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { Check as CheckIcon, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -297,6 +298,13 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               No child's face. No home address. No private person named who was not acting in public.
             </label>
           ) : null}
+          <AttachPicture
+            roomId={room}
+            postId={current.postId}
+            media={current.media}
+            onAttached={({ postId, media }) => patch({ postId, media: [media] })}
+            onClear={() => patch({ media: [], postId: "" })}
+          />
           {result && !result.ok ? (
             <ul className="flex flex-col gap-1 text-sm text-signal">
               {result.stops.map((stop) => (
@@ -387,6 +395,9 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
         <>
           <p className="mt-2 max-w-prose text-base text-fg">{post.claim}</p>
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
+          {(post.media ?? []).map((item) => (
+            <SharedMediaFigure key={item.id} item={item} />
+          ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
               {post.came.length > 0 ? `There: ${post.came.join(", ")}. ` : ""}

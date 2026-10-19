@@ -6,6 +6,8 @@ export const ATTEMPT_LIMIT = { windowMs: 60_000, max: 5 };
 export const SIGNUP_LIMIT = ATTEMPT_LIMIT;
 export const SIGN_IN_LIMIT = ATTEMPT_LIMIT;
 export const INVITE_LIMIT = ATTEMPT_LIMIT;
+/** Per member and per address. A picture is a direct upload, so this stays tight. */
+export const UPLOAD_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
 
 export type LimitRule = { windowMs: number; max: number };
 

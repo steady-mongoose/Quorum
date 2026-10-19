@@ -24,6 +24,23 @@ const appTests = [
   "server/closed-test/store.test.ts",
   "server/closed-test/schema.test.ts",
   "server/closed-test/auth.integration.test.ts",
+  "server/media/limits.test.ts",
+  "server/media/config.test.ts",
+  "server/media/s3.test.ts",
+  "server/media/strip.test.ts",
+  "server/media/ffmpeg.test.ts",
+  "server/media/output.test.ts",
+  "server/media/schema.test.ts",
+  "server/media/service.test.ts",
+  "server/media/worker.test.ts",
+  "server/media/http.test.ts",
+  "server/media/ip.test.ts",
+  "server/media/sandbox.test.ts",
+  "server/media/worker-env.test.ts",
+  "server/media/egress.test.ts",
+  "src/lib/media/bounds.test.ts",
+  "src/lib/media/e2e.test.ts",
+  "src/lib/media/upload.test.ts",
 ];
 
 const suites = [

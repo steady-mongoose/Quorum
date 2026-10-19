@@ -96,7 +96,7 @@ OUT="$BACKUP_DIR/avouch-$STAMP.dump.age"
 
 if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner > "$PLAIN"
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner' > "$PLAIN"
 elif [ "$BACKUP_MODE" = "pg_dump" ]; then
   if [ -z "${DATABASE_URL:-}" ]; then
     echo "Set DATABASE_URL for BACKUP_MODE=pg_dump." >&2

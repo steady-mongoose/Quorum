@@ -42,8 +42,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Install age and psql
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+      - name: Install age, psql, and ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y age postgresql-client ffmpeg
 
       - name: Template script tests
         id: scripts
@@ -83,3 +83,13 @@ jobs:
 
       - name: Build the pinned Caddy image
         run: docker build -f deploy/Dockerfile.caddy deploy
+
+  media-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Process a picture and a video in the media profile
+        run: chmod +x scripts/media-compose-smoke.sh && ./scripts/media-compose-smoke.sh

@@ -30,6 +30,7 @@ import {
   type RemovalRow,
   type RoomId,
   type Section,
+  type SharedMedia,
 } from "@/lib/board/model";
 import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "@/lib/board/sample";
 
@@ -90,7 +91,7 @@ type BoardState = {
   /** Put your name on a day of a need. Nothing enforces it. */
   takeSlot: (cardId: string, day: string) => void;
   openDm: (other: string) => void;
-  sendDm: (threadId: string, text: string) => void;
+  sendDm: (threadId: string, text: string, media?: SharedMedia) => void;
   setOpenThread: (id: string | null) => void;
   loadSample: () => void;
   clearBoard: () => void;
@@ -121,8 +122,8 @@ export const useBoard = create<BoardState>()(
         at: Date.now(),
       });
       /** The one way a date closes. Who came joins wentBy; the going list resets. */
-      const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string; pages?: string }) => {
-        const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id });
+      const hosted = (card: MeetingCard, input: { happened: boolean; next: string; line: string; on: string; came: string[]; named: string; pages?: string; postId?: string; media?: Draft["media"] }) => {
+        const post = newPost({ room: card.room, type: "hosted", claim: input.line, on: input.on, next: input.next, came: input.came, named: input.named, author: me(), cardId: card.id, ...(input.postId ? { id: input.postId } : {}), media: input.media ?? [] });
         const closed: MeetingCard = {
           ...card,
           lastFour: [...card.lastFour, input.happened].slice(-4),
@@ -170,7 +171,7 @@ export const useBoard = create<BoardState>()(
           if (!check.ok || !draft.type) return check;
           if (draft.type === "hosted") {
             const card = cards.find((item) => item.id === draft.cardId);
-            if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named, pages: draft.pages });
+            if (card) hosted(card, { happened: true, next: draft.next, line: draft.claim.trim(), on: draft.on, came: draft.came, named: draft.named, pages: draft.pages, postId: draft.postId, media: draft.media.slice(0, 1) });
             return check;
           }
           const post = newPost({
@@ -180,6 +181,8 @@ export const useBoard = create<BoardState>()(
             reason: draft.reason.trim(),
             on: draft.on,
             author: me(),
+            media: draft.media.slice(0, 1),
+            ...(draft.postId ? { id: draft.postId } : {}),
             ...(draft.cardId ? { cardId: draft.cardId } : {}),
             ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
           });
@@ -281,11 +284,12 @@ export const useBoard = create<BoardState>()(
           const threads = get().threads.some((thread) => thread.id === id) ? get().threads : [{ id, between: [me(), name].sort() as [string, string] }, ...get().threads];
           set({ threads, openThread: id, section: "messages" });
         },
-        sendDm: (threadId, text) => {
+        sendDm: (threadId, text, media) => {
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
-          if (!body || !thread?.between.includes(me())) return;
-          set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
+          const attachment = media ? [media] : [];
+          if ((!body && attachment.length === 0) || !thread?.between.includes(me())) return;
+          set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now(), media: attachment }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
         loadSample: () => set({ ...sampleBoard(), sample: true, sampleVersion: SAMPLE_VERSION, member: true, steward: true, invites: [], removals: [], openThread: null, viewing: null, section: "week" }),

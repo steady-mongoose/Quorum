@@ -15,6 +15,7 @@
     "build:frontend": "BUILD_TARGET=frontend node scripts/with-app-env.mjs vite build && node scripts/finalize-frontend-assets.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "api": "node --experimental-strip-types server/host.ts",
+    "media:worker": "node --experimental-strip-types server/media-worker.ts",
     "seed:owner": "node --experimental-strip-types server/seed-owner.ts",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",

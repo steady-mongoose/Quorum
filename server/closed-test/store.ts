@@ -194,6 +194,14 @@ export async function redeemInvite(
          values ($1, $2, $3, 'member', $4, 'grant', $5, '', $5, $6)`,
         [randomUUID(), account.id, name, reserved.room_id, invitedByName, MEMBER_NOTE],
       );
+      if (reserved.room_id) {
+        await tx.query(
+          `insert into room_member (room_id, user_id)
+           select id, $2 from room where id = $1
+           on conflict do nothing`,
+          [reserved.room_id, account.id],
+        );
+      }
       return { inviteId: reserved.id, invitedBy: reserved.created_by, userId: account.id };
     });
     if (!saved) return explainBlockedCode(db, code, now);

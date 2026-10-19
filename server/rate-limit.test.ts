@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { authRateLimit } from "./auth.ts";
+import type { Db } from "./db.ts";
 import { openTestDb } from "./closed-test/test-db.ts";
 import {
   ATTEMPT_LIMIT,
@@ -131,16 +132,16 @@ test("a prune failure is logged and the request still finishes", async () => {
   console.error = (...args: unknown[]) => {
     errors.push(args.map((arg) => String(arg)).join(" "));
   };
-  const flaky = {
-    query: async (text: string, params?: unknown[]) => {
+  const flaky: Db = {
+    async query<T = Record<string, unknown>>(text: string, params?: unknown[]) {
       if (text.includes("ctid")) {
         const failure = new Error("lock timeout");
         Object.assign(failure, { code: "55P03" });
         throw failure;
       }
-      return db.query(text, params);
+      return db.query<T>(text, params);
     },
-    transaction: db.transaction.bind(db),
+    transaction: (fn) => db.transaction(fn),
   };
   try {
     resetPruneSchedule();

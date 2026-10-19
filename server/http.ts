@@ -1,5 +1,8 @@
 import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
+import { registerRoomPost } from "./media/access.ts";
+import { handleMedia, type MediaRuntime } from "./media/routes.ts";
+import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
@@ -20,6 +23,8 @@ export type AppDeps = {
   signIn: SignIn;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   forwardAuth: (request: Request) => Promise<Response>;
+  /** Omitted in tests that do not exercise pictures. Storage stays off. */
+  media?: MediaRuntime;
 };
 
 class HttpError extends Error {
@@ -126,10 +131,15 @@ function tooMany(retryAfter: number): Response {
 }
 
 export function createApp(deps: AppDeps): (request: Request) => Promise<Response> {
+  const media: MediaRuntime = deps.media ?? {
+    config: readMediaConfig({}),
+    store: null,
+    now: deps.now,
+  };
   return async (request) => {
     const url = new URL(request.url);
     try {
-      const response = await route(deps, request, url);
+      const response = await route(deps, media, request, url);
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -149,7 +159,12 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
 }
 
-async function route(deps: AppDeps, request: Request, url: URL): Promise<Response> {
+async function route(
+  deps: AppDeps,
+  media: MediaRuntime,
+  request: Request,
+  url: URL,
+): Promise<Response> {
   if (request.method === "OPTIONS") {
     const headers = new Headers({
       "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -185,7 +200,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
       if (!(error instanceof HttpError)) throw error;
       parseError = error;
     }
-    const blocked = await limitIpAndEmail(deps.db, "sign-in", clientIp(request), parseError ? "" : email);
+    const blocked = await limitIpAndEmail(
+      deps.db,
+      "sign-in",
+      clientIp(request),
+      parseError ? "" : email,
+    );
     if (blocked) return blocked;
     if (parseError) throw parseError;
     return deps.forwardAuth(replay(request, text));
@@ -249,7 +269,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     if (!session) return json(401, { error: "Sign in first." });
     const emailId = emailRateKey(session.email);
     if (emailId) {
-      const emailHit = await consumeLimit(deps.db, `invite:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
+      const emailHit = await consumeLimit(
+        deps.db,
+        `invite:email:${emailId}`,
+        ATTEMPT_LIMIT,
+        Date.now(),
+      );
       if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
     }
     const body = await readJson(request);
@@ -272,6 +297,30 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
+  if (roomPost && request.method === "POST") {
+    const session = await deps.readSession(request.headers);
+    if (!session) return json(401, { error: "Sign in first." });
+    const body = await readJson(request);
+    const recorded = await registerRoomPost(
+      deps.db,
+      session.id,
+      roomPost[1] ?? "",
+      stringField(body, "id"),
+    );
+    if (!recorded.ok) return json(recorded.status, { error: recorded.error });
+    return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
+  }
+
+  if (url.pathname.startsWith("/api/media/")) {
+    const session =
+      url.pathname === "/api/media/status" ? null : await deps.readSession(request.headers);
+    return (
+      (await handleMedia(media, deps.db, request, url, session, clientIp(request))) ??
+      json(404, { error: "Not found." })
+    );
   }
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });

@@ -10,7 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
+import { mediaWorkerPasswordSql } from "./media-worker-password.mjs";
+import {
+  isMigrationFile,
+  isNoTransaction,
+  isSkipEmbedded,
+  migrationName,
+  pendingMigrations,
+  sqlStatements,
+} from "./migration-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const AUTH_MIGRATION = "0001_auth.sql";
@@ -56,11 +64,18 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
 });
 
-test("closed-test migrations are the auth schema copy and the invite tables", () => {
+test("closed-test migrations are auth, invites, rate limits, and media", () => {
   const migrationsDir = join(projectRoot(), "migrations");
   assert.deepEqual(
     pendingMigrations(readdirSync(migrationsDir), []).map((item) => item.name),
-    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql", "0005_rate_limit_index.sql"],
+    [
+      "0001_auth.sql",
+      "0002_closed_test.sql",
+      "0003_rate_limit.sql",
+      "0004_media.sql",
+      "0005_rate_limit_index.sql",
+      "0007_media_worker_role.sql",
+    ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
@@ -90,4 +105,37 @@ test("the copy check reads both files and catches an edit", () => {
   writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\n");
   const drifted = authSchemaCopy(root);
   assert.notEqual(drifted.copy, drifted.source);
+});
+
+test("the media worker role is owner-approved and limited to the media tables", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0007_media_worker_role.sql"), "utf8");
+  assert.equal(sql.includes("The owner must approve this file"), true);
+  assert.equal(isNoTransaction(sql), true);
+  assert.equal(isSkipEmbedded(sql), true);
+  assert.equal(sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), false);
+  assert.match(sql, /create role media_worker/i);
+  assert.match(sql, /nosuperuser/i);
+  assert.match(
+    sql,
+    /grant select, update, delete on table media_object, media_job to media_worker/i,
+  );
+  assert.equal(sql.toLowerCase().includes('on table "user"'), false);
+  assert.equal(sql.toLowerCase().includes("on table room"), false);
+  const statements = sqlStatements(sql);
+  const code = statements
+    .join("\n")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  assert.equal(code.includes("password"), false);
+  assert.equal(statements.length, 3);
+  assert.match(statements[0], /create role media_worker/i);
+  const password = "mediaworkerpass1";
+  const first = mediaWorkerPasswordSql(password);
+  const second = mediaWorkerPasswordSql(password);
+  assert.match(first, /^ALTER ROLE media_worker PASSWORD 'SCRAM-SHA-256\$/);
+  assert.equal(first.includes(password), false);
+  assert.notEqual(first, second);
+  assert.throws(() => mediaWorkerPasswordSql("short"), /owner's approval/);
 });
