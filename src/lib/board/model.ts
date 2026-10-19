@@ -68,7 +68,12 @@ export type Post = {
   campaignId?: string;
   cardId?: string;
   tradeId?: string;
+  /** One picture or video, kept with the post. Older posts omit this. */
+  media?: SharedMedia[];
 };
+
+/** A picture or video stored for members. The bytes are not in the browser's board. */
+export type SharedMedia = { id: string; kind: "image" | "video" };
 
 export type Slot = { day: string; by: string };
 
@@ -111,7 +116,7 @@ export type Profile = { household: string; parish: string; trade: string };
 export type MarkRow = { id: string; room: RoomId; postId: string; author: string; by: string; mark: Mark | null; at: number };
 export type RemovalRow = { id: string; postId: string; author: string; reason: HardRule; at: number };
 export type DmThread = { id: string; between: [string, string] };
-export type DmMessage = { id: string; threadId: string; from: string; text: string; at: number };
+export type DmMessage = { id: string; threadId: string; from: string; text: string; at: number; media?: SharedMedia[] };
 
 export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
@@ -228,6 +233,7 @@ export function newPost(fields: Pick<Post, "room" | "type" | "claim" | "author">
     mark: null,
     removed: false,
     ...fields,
+    media: fields.media ?? [],
   };
 }
 
@@ -283,10 +289,13 @@ export type Draft = {
   attested: boolean;
   cardId: string;
   tradeId: string;
+  /** Set when a picture is uploaded, so the post id matches the stored object. */
+  postId: string;
+  media: SharedMedia[];
 };
 
 export function blankDraft(room: RoomId): Draft {
-  return { room, type: null, claim: "", reason: "", on: todayIso(), next: "", came: [], named: "", pages: "", attested: false, cardId: "", tradeId: "" };
+  return { room, type: null, claim: "", reason: "", on: todayIso(), next: "", came: [], named: "", pages: "", attested: false, cardId: "", tradeId: "", postId: "", media: [] };
 }
 
 export type Check = { ok: boolean; stops: string[]; notes: string[] };
@@ -361,6 +370,7 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   if (PORN.test(text)) stops.push("That will not post.");
   if (meta.reasonLabel && reason && reason.length < 12) notes.push("That is a short reason. A steward may mark the post unsupported.");
   if (/^https?:\/\/\S+$/i.test(claim)) notes.push("A link on its own is not a post. Say what is at the link.");
+  if (draft.media.length > 1) stops.push("One picture per post.");
 
   return { ok: stops.length === 0, stops, notes };
 }

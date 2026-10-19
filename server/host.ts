@@ -4,6 +4,8 @@ import { createClosedAuth } from "./auth.ts";
 import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
 import { createApp } from "./http.ts";
+import { readMediaConfig } from "./media/config.ts";
+import { storeFromConfig } from "./media/s3.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -70,14 +72,24 @@ export function startHost(): void {
     baseURL: config.baseURL,
     trustedOrigins: config.origins,
   });
+  const now = () => new Date();
+  const mediaConfig = readMediaConfig();
+  console.log(
+    JSON.stringify({
+      event: "media-storage",
+      enabled: mediaConfig.enabled,
+      video: mediaConfig.enabled && mediaConfig.video,
+    }),
+  );
   const app = createApp({
     db: pgDb(pool),
     origins: config.origins,
-    now: () => new Date(),
+    now,
     createAccount: createCredentialAccount(),
     signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
+    media: { config: mediaConfig, store: storeFromConfig(mediaConfig), now },
   });
   const server = createServer(async (req, res) => {
     try {

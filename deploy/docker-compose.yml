@@ -73,6 +73,25 @@ services:
       avouch:
         ipv4_address: 172.28.19.10
 
+  # Not started by `docker compose up`. Run only after the owner approves the SQL
+  # in migrations/0004_media.sql and sets MEDIA_S3_* in deploy/.env:
+  #   docker compose --profile media up -d media-worker
+  media-worker:
+    profiles: ["media"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}
+    command: ["node", "--experimental-strip-types", "server/media-worker.ts"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - avouch
+
   # Not started by `docker compose up`. Run only after the owner approves the SQL:
   #   docker compose --profile migrate run --rm migrate
   migrate:

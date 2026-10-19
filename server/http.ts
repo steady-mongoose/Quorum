@@ -1,5 +1,7 @@
 import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
+import { handleMedia, type MediaRuntime } from "./media/routes.ts";
+import { readMediaConfig } from "./media/config.ts";
 import { consumeLimit, INVITE_LIMIT, SIGN_IN_LIMIT, SIGNUP_LIMIT } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
@@ -20,6 +22,8 @@ export type AppDeps = {
   signIn: SignIn;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   forwardAuth: (request: Request) => Promise<Response>;
+  /** Omitted in tests that do not exercise pictures. Storage stays off. */
+  media?: MediaRuntime;
 };
 
 class HttpError extends Error {
@@ -91,10 +95,15 @@ function tooMany(retryAfter: number): Response {
 }
 
 export function createApp(deps: AppDeps): (request: Request) => Promise<Response> {
+  const media: MediaRuntime = deps.media ?? {
+    config: readMediaConfig({}),
+    store: null,
+    now: deps.now,
+  };
   return async (request) => {
     const url = new URL(request.url);
     try {
-      const response = await route(deps, request, url);
+      const response = await route(deps, media, request, url);
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -114,7 +123,12 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
 }
 
-async function route(deps: AppDeps, request: Request, url: URL): Promise<Response> {
+async function route(
+  deps: AppDeps,
+  media: MediaRuntime,
+  request: Request,
+  url: URL,
+): Promise<Response> {
   if (request.method === "OPTIONS") {
     const headers = new Headers({
       "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -141,7 +155,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `sign-in:${clientIp(request)}`, SIGN_IN_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `sign-in:${clientIp(request)}`,
+      SIGN_IN_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
   }
 
@@ -150,7 +169,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname === "/api/signup" && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `signup:${clientIp(request)}`, SIGNUP_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `signup:${clientIp(request)}`,
+      SIGNUP_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
     const body = await readJson(request);
     const result = await redeemInvite(
@@ -178,7 +202,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname === "/api/invites" && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `invite:${clientIp(request)}`, INVITE_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `invite:${clientIp(request)}`,
+      INVITE_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
@@ -202,6 +231,15 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  if (url.pathname.startsWith("/api/media/")) {
+    const session =
+      url.pathname === "/api/media/status" ? null : await deps.readSession(request.headers);
+    return (
+      (await handleMedia(media, deps.db, request, url, session, clientIp(request))) ??
+      json(404, { error: "Not found." })
+    );
   }
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });

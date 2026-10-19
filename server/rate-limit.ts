@@ -4,6 +4,8 @@ import { isUniqueViolation, type Db } from "./db.ts";
 export const SIGNUP_LIMIT = { windowMs: 10 * 60 * 1000, max: 5 };
 export const SIGN_IN_LIMIT = { windowMs: 10 * 60 * 1000, max: 5 };
 export const INVITE_LIMIT = { windowMs: 60 * 60 * 1000, max: 30 };
+/** Per member and per address. A picture is a direct upload, so this stays tight. */
+export const UPLOAD_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
 
 export type LimitRule = { windowMs: number; max: number };
 
@@ -19,7 +21,8 @@ export async function consumeLimit(
   now: number,
   attempt = 0,
 ): Promise<{ allowed: boolean; retryAfter: number }> {
-  if (!Number.isFinite(rule.max) || rule.max < 1) throw new Error("Rate limit max must be at least 1.");
+  if (!Number.isFinite(rule.max) || rule.max < 1)
+    throw new Error("Rate limit max must be at least 1.");
   if (!Number.isFinite(rule.windowMs) || rule.windowMs < 1000) {
     throw new Error("Rate limit window must be at least 1 second.");
   }
@@ -57,7 +60,8 @@ export async function consumeLimit(
       return { allowed: true, retryAfter: 0 };
     });
   } catch (error) {
-    if (attempt < 1 && isUniqueViolation(error)) return consumeLimit(db, key, rule, now, attempt + 1);
+    if (attempt < 1 && isUniqueViolation(error))
+      return consumeLimit(db, key, rule, now, attempt + 1);
     throw error;
   }
 }

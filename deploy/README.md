@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql` and `migrations/0002_closed_test.sql` in the pull request. Merging is not that approval. Do not apply them before you say so.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0004_media.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. `0004_media.sql` is not approved by being added.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -117,7 +117,23 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0004_media.sql`.
+
+## Pictures and video
+
+Uploads stay off until `MEDIA_S3_ENDPOINT`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_KEY_ID`, and `MEDIA_S3_SECRET_ACCESS_KEY` are set in `deploy/.env`. That is deliberate: object storage is a paid service, or a store you run, and it needs your OK. Do not order it from this repository.
+
+Video stays off unless `MEDIA_VIDEO=on`. The charter keeps video off until the $250 band is boring.
+
+After you approve `migrations/0004_media.sql` and the credentials, the media worker is a separate compose profile. `docker compose up` does not start it.
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile media up -d media-worker
+```
+
+The worker strips location data from pictures and, when ffmpeg is present, makes a thumbnail and re-encodes video. Members receive a signed link that lasts two minutes. There is no public object URL.
+
+Pictures in a direct message are ciphertext. The server stores a wrapped key and does not read the bytes. The messaging change has to encrypt on the device. See `src/lib/media/e2e.ts`.
 
 ## What this box does not do
 
