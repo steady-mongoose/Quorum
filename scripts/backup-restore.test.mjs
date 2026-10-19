@@ -21,7 +21,7 @@ function writeCommands(root) {
   );
   writeFileSync(
     join(bin, "curl"),
-    "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$CURL_LOG\"\n",
+    "#!/bin/sh\nprintf 'argv:%s\\n' \"$*\" >> \"$CURL_LOG\"\ncat >> \"$CURL_LOG\"\n",
   );
   writeFileSync(
     join(bin, "aws"),
@@ -84,7 +84,11 @@ test("an age dump restores to the same bytes and stays local until credentials e
     env: { ...env, BACKUP_MODE: "pg_restore", AGE_IDENTITY_FILE: identity, RESTORE_SINK: sink },
   });
   assert.equal(readFileSync(sink, "utf8"), DUMP);
-  assert.equal(readFileSync(join(root, "curl.log"), "utf8"), "");
+  const successPing = readFileSync(join(root, "curl.log"), "utf8");
+  assert.match(successPing, /url = "https:\/\/hc\.example\/ping\/secret-token"/);
+  assert.equal(successPing.includes("/fail"), false);
+  const argv = successPing.split("\n").find((line) => line.startsWith("argv:")) ?? "";
+  assert.equal(argv.includes("secret-token"), false);
 
   const wrong = join(root, "wrong.txt");
   await publicKey(wrong);
@@ -139,7 +143,7 @@ test("a failed backup pings the health-check URL and a blank URL stays quiet", a
   const root = mkdtempSync(join(tmpdir(), "avouch-backup-"));
   const bin = writeCommands(root);
   const curlLog = join(root, "curl.log");
-  const url = "https://hc.example/ping/secret-token/fail";
+  const url = "https://hc.example/ping/secret-token";
   const env = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -158,7 +162,10 @@ test("a failed backup pings the health-check URL and a blank URL stays quiet", a
   assert.match(String(failed.stderr ?? ""), /age1/);
   assert.equal(String(failed.stdout ?? "").includes(url), false);
   assert.equal(String(failed.stderr ?? "").includes(url), false);
-  assert.match(readFileSync(curlLog, "utf8"), /https:\/\/hc\.example\/ping\/secret-token\/fail/);
+  const ping = readFileSync(curlLog, "utf8");
+  assert.match(ping, /url = "https:\/\/hc\.example\/ping\/secret-token\/fail"/);
+  const argv = ping.split("\n").find((line) => line.startsWith("argv:")) ?? "";
+  assert.equal(argv.includes("secret-token"), false);
 
   const quietLog = join(root, "quiet.log");
   writeFileSync(quietLog, "");

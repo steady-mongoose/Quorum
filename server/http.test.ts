@@ -334,11 +334,11 @@ test("a bad email is refused and does not become a rate-limit key", async () => 
   }
 });
 
-test("dot and plus variants share an email bucket, and one IPv6 /64 shares an address bucket", async () => {
+test("gmail dots share an email bucket, other domains keep dots, and one IPv6 /64 shares an address bucket", async () => {
   const { db, close } = await openTestDb();
   try {
     const handler = app(db);
-    const dotted = JSON.stringify({ name: "A", email: "A.B+tag@Example.com", password: "short" });
+    const dotted = JSON.stringify({ name: "A", email: "A.B+tag@Gmail.com", password: "short" });
     for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
       const response = await handler(attempt("/api/signup", "2001:db8:4:5::1", dotted));
       assert.equal(response.status, 400);
@@ -347,10 +347,23 @@ test("dot and plus variants share an email bucket, and one IPv6 /64 shares an ad
       attempt(
         "/api/signup",
         "203.0.113.41",
-        JSON.stringify({ name: "A", email: "ab@example.com", password: "short" }),
+        JSON.stringify({ name: "A", email: "ab@googlemail.com", password: "short" }),
       ),
     );
     assert.equal(sameEmail.status, 429);
+    const corp = JSON.stringify({ name: "B", email: "first.last@corp.com", password: "short" });
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(attempt("/api/signup", `203.0.113.${50 + n}`, corp));
+      assert.equal(response.status, 400);
+    }
+    const otherMailbox = await handler(
+      attempt(
+        "/api/signup",
+        "203.0.113.60",
+        JSON.stringify({ name: "B", email: "firstlast@corp.com", password: "short" }),
+      ),
+    );
+    assert.equal(otherMailbox.status, 400);
     const samePrefix = await handler(
       attempt(
         "/api/signup",

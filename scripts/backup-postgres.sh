@@ -17,15 +17,48 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 PLAIN=""
 
-# A failed run pings BACKUP_HEALTHCHECK_URL when it is set. Unset means no ping.
-# The URL is not printed. A ping failure does not replace the backup's exit code.
+# BACKUP_HEALTHCHECK_URL is the success ping (a dead-man's switch). A failed
+# run pings the same URL with /fail appended, unless the value already ends
+# in /fail. Unset means no ping. The URL is written to curl's config on stdin
+# so it is not a process argument, and it is not printed. A ping failure does
+# not replace the backup's exit code.
+ping_healthcheck() {
+  target="$1"
+  if [ -z "$target" ]; then
+    return 0
+  fi
+  printf '%s\n' \
+    "silent" \
+    "show-error" \
+    "max-time = 10" \
+    "output = \"/dev/null\"" \
+    "url = \"${target}\"" \
+    | curl --config - || true
+}
+
 on_exit() {
   status="$?"
   if [ -n "$PLAIN" ]; then
     rm -f "$PLAIN"
   fi
-  if [ "$status" -ne 0 ] && [ -n "${BACKUP_HEALTHCHECK_URL:-}" ]; then
-    curl -fsS --max-time 10 -o /dev/null --retry 0 "$BACKUP_HEALTHCHECK_URL" || true
+  url="${BACKUP_HEALTHCHECK_URL:-}"
+  url="${url%/}"
+  if [ -n "$url" ]; then
+    case "$url" in
+      */fail)
+        success="${url%/fail}"
+        fail="$url"
+        ;;
+      *)
+        success="$url"
+        fail="${url}/fail"
+        ;;
+    esac
+    if [ "$status" -eq 0 ]; then
+      ping_healthcheck "$success"
+    else
+      ping_healthcheck "$fail"
+    fi
   fi
   exit "$status"
 }

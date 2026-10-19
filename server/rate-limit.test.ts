@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { authRateLimit } from "./auth.ts";
 import { openTestDb } from "./closed-test/test-db.ts";
-import { ATTEMPT_LIMIT, clearEmailLimit, consumeLimit, emailRateKey, lockMs, maxLockMs } from "./rate-limit.ts";
+import {
+  ATTEMPT_LIMIT,
+  PRUNE_EVERY,
+  clearEmailLimit,
+  consumeLimit,
+  emailRateKey,
+  lockMs,
+  maxLockMs,
+  pruneRateLimits,
+  resetPruneSchedule,
+  shouldPruneWrite,
+} from "./rate-limit.ts";
 
 test("a shared limit blocks with backoff and resets after the longer wait", async () => {
   const { db, close } = await openTestDb();
@@ -45,16 +56,65 @@ test("backoff doubles the wait and stops at sixteen minutes", () => {
   assert.equal(lockMs(ATTEMPT_LIMIT.max + 9, ATTEMPT_LIMIT), 960_000);
 });
 
-test("rows older than the longest lock are deleted on the next write", async () => {
+test("expired rows are pruned in a batch, and only on a sampled write", async () => {
+  assert.equal(shouldPruneWrite(1), false);
+  assert.equal(shouldPruneWrite(PRUNE_EVERY - 1), false);
+  assert.equal(shouldPruneWrite(PRUNE_EVERY), true);
   const { db, close } = await openTestDb();
   try {
+    const indexes = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes where tablename = 'rateLimit'`,
+    );
+    assert.ok(indexes.some((row) => row.indexname === "rateLimit_lastRequest_idx"));
     const now = 2_000_000;
     const cutoff = now - maxLockMs(ATTEMPT_LIMIT);
     await db.query(
-      `insert into "rateLimit" ("id", "key", "count", "lastRequest") values ($1, $2, $3, $4), ($5, $6, $7, $8)`,
-      ["old", "signup:email:stale@example.com", 9, cutoff - 1, "new", "signup:email:fresh@example.com", 2, cutoff],
+      `insert into "rateLimit" ("id", "key", "count", "lastRequest") values
+        ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12), ($13, $14, $15, $16)`,
+      [
+        "old-a",
+        "signup:email:stale-a@example.com",
+        9,
+        cutoff - 3,
+        "old-b",
+        "signup:email:stale-b@example.com",
+        9,
+        cutoff - 2,
+        "old-c",
+        "signup:email:stale-c@example.com",
+        9,
+        cutoff - 1,
+        "new",
+        "signup:email:fresh@example.com",
+        2,
+        cutoff,
+      ],
     );
+    resetPruneSchedule();
     await consumeLimit(db, "signup:ip:203.0.113.9", ATTEMPT_LIMIT, now);
+    const before = (await db.query<{ key: string }>(`select "key" from "rateLimit" order by "key"`)).map(
+      (row) => row.key,
+    );
+    assert.deepEqual(before, [
+      "signup:email:fresh@example.com",
+      "signup:email:stale-a@example.com",
+      "signup:email:stale-b@example.com",
+      "signup:email:stale-c@example.com",
+      "signup:ip:203.0.113.9",
+    ]);
+    await pruneRateLimits(db, now, ATTEMPT_LIMIT, 2);
+    const batched = (await db.query<{ key: string }>(`select "key" from "rateLimit" order by "key"`)).map(
+      (row) => row.key,
+    );
+    assert.deepEqual(batched, [
+      "signup:email:fresh@example.com",
+      "signup:email:stale-c@example.com",
+      "signup:ip:203.0.113.9",
+    ]);
+    resetPruneSchedule();
+    for (let n = 0; n < PRUNE_EVERY; n += 1) {
+      await consumeLimit(db, "signup:ip:203.0.113.9", ATTEMPT_LIMIT, now);
+    }
     const keys = (await db.query<{ key: string }>(`select "key" from "rateLimit" order by "key"`)).map(
       (row) => row.key,
     );
@@ -64,9 +124,12 @@ test("rows older than the longest lock are deleted on the next write", async () 
   }
 });
 
-test("email keys drop dots and plus tags and refuse a bad address", () => {
-  assert.equal(emailRateKey("  A.B+tag@Example.com "), "ab@example.com");
+test("email keys drop plus tags everywhere and dots only for gmail", () => {
+  assert.equal(emailRateKey("  A.B+tag@Example.com "), "a.b@example.com");
   assert.equal(emailRateKey("ab@example.com"), "ab@example.com");
+  assert.equal(emailRateKey("first.last+tag@gmail.com"), "firstlast@gmail.com");
+  assert.equal(emailRateKey("first.last+tag@GoogleMail.com"), "firstlast@gmail.com");
+  assert.equal(emailRateKey("first.last@corp.com"), "first.last@corp.com");
   assert.equal(emailRateKey(""), null);
   assert.equal(emailRateKey("not-an-email"), null);
   assert.equal(emailRateKey("+tag@example.com"), null);
@@ -78,17 +141,17 @@ test("the owner can clear a locked email before the wait ends", async () => {
   try {
     const now = 5_000_000;
     for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
-      const hit = await consumeLimit(db, "signup:email:ab@example.com", ATTEMPT_LIMIT, now + n);
+      const hit = await consumeLimit(db, "signup:email:firstlast@gmail.com", ATTEMPT_LIMIT, now + n);
       assert.equal(hit.allowed, true);
     }
-    const blocked = await consumeLimit(db, "signup:email:ab@example.com", ATTEMPT_LIMIT, now + 10);
+    const blocked = await consumeLimit(db, "signup:email:firstlast@gmail.com", ATTEMPT_LIMIT, now + 10);
     assert.equal(blocked.allowed, false);
-    assert.deepEqual(await clearEmailLimit(db, "a.b+x@example.com"), [
-      "sign-in:email:ab@example.com",
-      "signup:email:ab@example.com",
-      "invite:email:ab@example.com",
+    assert.deepEqual(await clearEmailLimit(db, "first.last+x@googlemail.com"), [
+      "sign-in:email:firstlast@gmail.com",
+      "signup:email:firstlast@gmail.com",
+      "invite:email:firstlast@gmail.com",
     ]);
-    const again = await consumeLimit(db, "signup:email:ab@example.com", ATTEMPT_LIMIT, now + 11);
+    const again = await consumeLimit(db, "signup:email:firstlast@gmail.com", ATTEMPT_LIMIT, now + 11);
     assert.equal(again.allowed, true);
   } finally {
     await close();

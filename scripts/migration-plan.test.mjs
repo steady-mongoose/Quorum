@@ -60,7 +60,7 @@ test("closed-test migrations are the auth schema copy and the invite tables", ()
   const migrationsDir = join(projectRoot(), "migrations");
   assert.deepEqual(
     pendingMigrations(readdirSync(migrationsDir), []).map((item) => item.name),
-    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql"],
+    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql", "0004_rate_limit_index.sql"],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
