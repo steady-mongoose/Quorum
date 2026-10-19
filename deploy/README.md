@@ -89,7 +89,17 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 Better Auth stores its limiter in the `rateLimit` table, so every API process shares it. Sign-in is 5 attempts a minute per client address. The API applies that same cap, per address and per email, to sign-in, `/api/signup`, and `/api/invites`. A further attempt while the window is closed doubles the wait, up to 16 minutes. The response is HTTP 429 with `Retry-After`.
 
-Caddy applies the same 5-per-minute cap per client address to those POST routes. Its image is built from `deploy/Dockerfile.caddy` because the stock Caddy image has no rate-limit module. The module sets `Retry-After`, and the Caddyfile error route returns the same JSON 429.
+An email is locked as one address: `A.B+tag@Example.com` and `ab@example.com` share the lock. A value that is too long or not an address is refused and is not stored as a key. IPv6 is one bucket per /64, in the API and in Caddy. Each write also deletes rows whose last request is older than 16 minutes, which is as long as a lock can last. No extra migration is required for that cleanup.
+
+Five failures from anywhere lock a known email for a minute, and further tries stretch that to 16 minutes. That is the tradeoff for a shared email cap. To clear it before the wait ends:
+
+```bash
+./scripts/clear-email-limit.sh 'person@example.com'
+```
+
+The script deletes the sign-in, signup, and invite rows for the normalized address. It does not delete the account.
+
+Caddy applies the same 5-per-minute cap per client address, with IPv6 grouped by /64, in front of those POST routes. Its image is built from `deploy/Dockerfile.caddy` (Caddy 2.10.2 by digest, rate-limit module pinned to commit `5625512`). The module sets `Retry-After` to the seconds until that 1-minute window allows another try. The error route does not replace that header. When the API returns 429, Caddy forwards the API's `Retry-After`, which can be up to 16 minutes.
 
 The request URL is always `BETTER_AUTH_URL`. `X-Forwarded-For` is used for the client address only when the TCP peer is Caddy (`172.28.19.10`). Localhost browser origins are added only when `NODE_ENV` is not `production`. The API image sets `NODE_ENV=production`.
 
@@ -118,6 +128,8 @@ sudo crontab -e
 ```
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
+
+Set `BACKUP_HEALTHCHECK_URL` if a failed run should ping a monitor. Leave it blank and nothing is pinged. For Healthchecks.io, use the `/fail` URL. The script does not print the URL. A successful run does not ping.
 
 Restore, after stopping the API. Copy the identity onto the box only for this command, then remove it:
 

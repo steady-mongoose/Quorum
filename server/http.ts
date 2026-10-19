@@ -1,6 +1,6 @@
 import type { Db } from "./db.ts";
-import { CLIENT_IP_HEADER } from "./proxy.ts";
-import { ATTEMPT_LIMIT, consumeLimit } from "./rate-limit.ts";
+import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
+import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
   listInviteLog,
@@ -86,21 +86,22 @@ function replay(request: Request, body: string): Request {
   return new Request(request.url, { method: request.method, headers, body });
 }
 
-function emailKey(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-/** IP first. A blocked address does not consume the email bucket. A missing email counts only the address. */
+/**
+ * IP first. A blocked address does not consume the email bucket.
+ * An empty email counts only the address. A present email that is too long
+ * or not an address is rejected and does not become a key.
+ */
 async function limitIpAndEmail(
   db: Db,
   scope: string,
   ip: string,
   email: string,
 ): Promise<Response | null> {
-  const ipHit = await consumeLimit(db, `${scope}:ip:${ip}`, ATTEMPT_LIMIT, Date.now());
+  const ipHit = await consumeLimit(db, `${scope}:ip:${rateLimitIp(ip)}`, ATTEMPT_LIMIT, Date.now());
   if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
-  const emailId = emailKey(email);
-  if (!emailId) return null;
+  if (!email.trim()) return null;
+  const emailId = emailRateKey(email);
+  if (!emailId) throw new HttpError(400, "Enter an email address.");
   const emailHit = await consumeLimit(db, `${scope}:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
   if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
   return null;
@@ -113,7 +114,7 @@ function stringField(body: Record<string, unknown>, key: string): string {
 
 function clientIp(request: Request): string {
   const value = request.headers.get(CLIENT_IP_HEADER)?.trim();
-  return value || "local";
+  return rateLimitIp(value || "local");
 }
 
 function tooMany(retryAfter: number): Response {
@@ -246,7 +247,7 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
-    const emailId = emailKey(session.email);
+    const emailId = emailRateKey(session.email);
     if (emailId) {
       const emailHit = await consumeLimit(deps.db, `invite:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
       if (!emailHit.allowed) return tooMany(emailHit.retryAfter);

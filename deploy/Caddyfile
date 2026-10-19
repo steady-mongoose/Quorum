@@ -5,7 +5,10 @@
 {$API_HOST} {
 	encode gzip
 	# Five POSTs a minute per client address, in front of the API limiter.
-	# The module sets Retry-After. The error route keeps a Retry-After on the JSON 429.
+	# IPv6 is one bucket per /64. The module sets Retry-After to the seconds
+	# until this client may try again. Do not replace that header: a fixed 60
+	# would disagree with the wait the limiter just computed. When the API
+	# returns 429, reverse_proxy forwards the API's Retry-After unchanged.
 	rate_limit {
 		zone closed_test {
 			match {
@@ -15,6 +18,7 @@
 			key {remote_host}
 			events 5
 			window 1m
+			ipv6_prefix 64
 		}
 	}
 	# The API takes its URL from BETTER_AUTH_URL. It reads X-Forwarded-For
@@ -24,7 +28,6 @@
 		@too_many expression `{http.error.status_code} == 429`
 		handle @too_many {
 			header Content-Type "application/json; charset=utf-8"
-			header Retry-After "60"
 			header Cache-Control "no-store"
 			respond `{"error":"Too many attempts. Wait and try again."}` 429
 		}

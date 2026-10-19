@@ -20,12 +20,17 @@ function writeCommands(root) {
     "#!/bin/sh\ncat > \"$RESTORE_SINK\"\n",
   );
   writeFileSync(
+    join(bin, "curl"),
+    "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$CURL_LOG\"\n",
+  );
+  writeFileSync(
     join(bin, "aws"),
     "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$AWS_LOG\"\nif [ -n \"$AWS_ACCESS_KEY_ID\" ]; then echo access-key-present >> \"$AWS_LOG\"; fi\nif [ -n \"$AWS_SECRET_ACCESS_KEY\" ]; then echo secret-present >> \"$AWS_LOG\"; fi\necho \"metadata:$AWS_EC2_METADATA_DISABLED\" >> \"$AWS_LOG\"\n",
   );
   chmodSync(join(bin, "pg_dump"), 0o755);
   chmodSync(join(bin, "pg_restore"), 0o755);
   chmodSync(join(bin, "aws"), 0o755);
+  chmodSync(join(bin, "curl"), 0o755);
   return bin;
 }
 
@@ -57,10 +62,13 @@ test("an age dump restores to the same bytes and stays local until credentials e
     BACKUP_S3_ENDPOINT: "",
     BACKUP_S3_ACCESS_KEY_ID: "",
     BACKUP_S3_SECRET_ACCESS_KEY: "",
+    BACKUP_HEALTHCHECK_URL: "https://hc.example/ping/secret-token",
+    CURL_LOG: join(root, "curl.log"),
   };
   delete env.AGE_IDENTITY_FILE;
   delete env.BACKUP_KEY_FILE;
   delete env.BACKUP_OFFBOX_DIR;
+  writeFileSync(join(root, "curl.log"), "");
   const backup = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env });
   assert.match(backup.stdout, /Off-site copy is disabled until credentials are provided/);
   assert.match(backup.stdout, /Wrote /);
@@ -76,6 +84,7 @@ test("an age dump restores to the same bytes and stays local until credentials e
     env: { ...env, BACKUP_MODE: "pg_restore", AGE_IDENTITY_FILE: identity, RESTORE_SINK: sink },
   });
   assert.equal(readFileSync(sink, "utf8"), DUMP);
+  assert.equal(readFileSync(join(root, "curl.log"), "utf8"), "");
 
   const wrong = join(root, "wrong.txt");
   await publicKey(wrong);
@@ -124,6 +133,38 @@ test("credentials upload the ciphertext with object lock and without printing th
   assert.match(log, /secret-present/);
   assert.match(log, /metadata:true/);
   assert.equal(log.includes(secret), false);
+});
+
+test("a failed backup pings the health-check URL and a blank URL stays quiet", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-backup-"));
+  const bin = writeCommands(root);
+  const curlLog = join(root, "curl.log");
+  const url = "https://hc.example/ping/secret-token/fail";
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    BACKUP_DIR: join(root, "local"),
+    BACKUP_AGE_RECIPIENT: "not-a-key",
+    BACKUP_MODE: "pg_dump",
+    BACKUP_HEALTHCHECK_URL: url,
+    CURL_LOG: curlLog,
+  };
+  const failed = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env }).then(
+    () => {
+      throw new Error("backup should have failed");
+    },
+    (error) => error,
+  );
+  assert.match(String(failed.stderr ?? ""), /age1/);
+  assert.equal(String(failed.stdout ?? "").includes(url), false);
+  assert.equal(String(failed.stderr ?? "").includes(url), false);
+  assert.match(readFileSync(curlLog, "utf8"), /https:\/\/hc\.example\/ping\/secret-token\/fail/);
+
+  const quietLog = join(root, "quiet.log");
+  writeFileSync(quietLog, "");
+  const quiet = { ...env, BACKUP_HEALTHCHECK_URL: "", CURL_LOG: quietLog };
+  await assert.rejects(execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env: quiet }));
+  assert.equal(readFileSync(quietLog, "utf8"), "");
 });
 
 test("off-site upload is off until every credential is set", () => {
