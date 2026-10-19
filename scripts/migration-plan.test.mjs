@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { mediaWorkerPasswordSql } from "./media-worker-password.mjs";
 import {
-  applyMediaWorkerPassword,
   isMigrationFile,
   isNoTransaction,
   isSkipEmbedded,
@@ -112,7 +112,7 @@ test("the media worker role is owner-approved and limited to the media tables", 
   assert.equal(sql.includes("The owner must approve this file"), true);
   assert.equal(isNoTransaction(sql), true);
   assert.equal(isSkipEmbedded(sql), true);
-  assert.equal(sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), true);
+  assert.equal(sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), false);
   assert.match(sql, /create role media_worker/i);
   assert.match(sql, /nosuperuser/i);
   assert.match(
@@ -121,11 +121,21 @@ test("the media worker role is owner-approved and limited to the media tables", 
   );
   assert.equal(sql.toLowerCase().includes('on table "user"'), false);
   assert.equal(sql.toLowerCase().includes("on table room"), false);
-  const applied = applyMediaWorkerPassword(sql, "mediaworkerpass1");
-  assert.equal(applied.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), false);
-  assert.equal(applied.includes("mediaworkerpass"), true);
-  assert.throws(() => applyMediaWorkerPassword(sql, "short"), /owner's approval/);
-  const statements = sqlStatements(applied);
+  const statements = sqlStatements(sql);
+  const code = statements
+    .join("\n")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  assert.equal(code.includes("password"), false);
   assert.equal(statements.length, 3);
   assert.match(statements[0], /create role media_worker/i);
+  const password = "mediaworkerpass1";
+  const first = mediaWorkerPasswordSql(password);
+  const second = mediaWorkerPasswordSql(password);
+  assert.match(first, /^ALTER ROLE media_worker PASSWORD 'SCRAM-SHA-256\$/);
+  assert.equal(first.includes(password), false);
+  assert.notEqual(first, second);
+  assert.throws(() => mediaWorkerPasswordSql("short"), /owner's approval/);
 });

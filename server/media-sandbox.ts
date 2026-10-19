@@ -5,9 +5,9 @@ import { runSandboxLoop } from "./media/sandbox.ts";
  * files on the shared volume. Docker's seccomp profile blocks unshare, so
  * network isolation is the container, not a new namespace.
  */
-const dir = process.env.MEDIA_SANDBOX_DIR?.trim();
+const dir = process.env.MEDIA_JOBS_DIR?.trim();
 if (!dir) {
-  console.error("The media sandbox is unavailable. Set MEDIA_SANDBOX_DIR.");
+  console.error("The media sandbox is unavailable. Set MEDIA_JOBS_DIR.");
   process.exit(1);
 }
 

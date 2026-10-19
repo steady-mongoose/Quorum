@@ -1,12 +1,16 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createPool, pgDb } from "./db.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { PENDING_MS } from "../src/lib/media/limits.ts";
 import { createFfmpegTools } from "./media/ffmpeg.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { redactSecrets } from "./media/redact.ts";
-import { assertSandboxReady, createSandboxRunner, SANDBOX_UNAVAILABLE } from "./media/sandbox.ts";
+import {
+  assertSandboxReady,
+  createSandboxRunner,
+  SANDBOX_UNAVAILABLE,
+  workerReadyPath,
+} from "./media/sandbox.ts";
 import { applyWorkerEnv } from "./media/worker-env.ts";
 import {
   expireStaleUploads,
@@ -40,12 +44,13 @@ export async function main(): Promise<void> {
     console.log("Picture and video storage is not set up. The worker is not running.");
     process.exit(0);
   }
-  const sandboxDir = process.env.MEDIA_SANDBOX_DIR?.trim();
-  if (!sandboxDir) {
+  const jobsDir = process.env.MEDIA_JOBS_DIR?.trim();
+  const controlDir = process.env.MEDIA_CONTROL_DIR?.trim();
+  if (!jobsDir || !controlDir) {
     console.error(SANDBOX_UNAVAILABLE);
     process.exit(1);
   }
-  const runner = createSandboxRunner(sandboxDir);
+  const runner = createSandboxRunner(jobsDir);
   const tools = createFfmpegTools(runner);
   try {
     await assertSandboxReady(runner);
@@ -75,7 +80,10 @@ export async function main(): Promise<void> {
     }
     throw error;
   }
-  await writeFile(join(sandboxDir, "worker-ready"), "ok\n");
+  await mkdir(controlDir, { recursive: true });
+  await writeFile(workerReadyPath(controlDir), "ok\n");
+  // One file at a time. pids_limit and prlimit --nproc are per user, so they
+  // only hold while this loop waits for the current job to finish.
   for (;;) {
     const outcome = await runOneMediaJob(deps);
     await expireStaleUploads(deps, PENDING_MS);

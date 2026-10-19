@@ -22,12 +22,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
-import {
-  applyMediaWorkerPassword,
-  isNoTransaction,
-  pendingMigrations,
-  sqlStatements,
-} from "./migration-plan.mjs";
+import { mediaWorkerPasswordSql } from "./media-worker-password.mjs";
+import { isNoTransaction, pendingMigrations, sqlStatements } from "./migration-plan.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -61,10 +57,7 @@ async function main() {
 
     let count = 0;
     for (const { name } of pendingMigrations(entries, applied)) {
-      const text = applyMediaWorkerPassword(
-        await readFile(join(migrationsDir, name), "utf8"),
-        process.env.MEDIA_WORKER_DB_PASSWORD,
-      );
+      const text = await readFile(join(migrationsDir, name), "utf8");
       try {
         if (isNoTransaction(text)) {
           // CREATE ROLE cannot run inside a transaction block. Each statement
@@ -100,6 +93,19 @@ async function main() {
       }
       console.log(`[migrate] applied ${name}`);
       count += 1;
+    }
+    const password = process.env.MEDIA_WORKER_DB_PASSWORD;
+    if (password) {
+      const role = await client.query("select 1 from pg_roles where rolname = 'media_worker'");
+      if (role.rowCount !== 1) {
+        throw new Error(
+          "Approve migrations/0007_media_worker_role.sql before setting MEDIA_WORKER_DB_PASSWORD.",
+        );
+      }
+      // Every run, including a re-run. CREATE ROLE is recorded once and would
+      // otherwise keep the previous password.
+      await client.query(mediaWorkerPasswordSql(password));
+      console.log("[migrate] updated the media_worker password.");
     }
     console.log(
       count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.",

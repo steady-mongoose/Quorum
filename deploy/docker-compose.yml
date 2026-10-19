@@ -16,7 +16,11 @@ services:
     # TCP, not the socket. The image's init server listens only on the socket, so a
     # socket check can look healthy before Postgres is actually up.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-avouch} -d ${POSTGRES_DB:-avouch}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-avouch} -d ${POSTGRES_DB:-avouch}",
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -85,15 +89,32 @@ services:
 
   # Not started by `docker compose up`. Run only after the owner approves the SQL
   # in migrations/0004_media.sql and migrations/0007_media_worker_role.sql:
-  #   docker compose --profile media up -d
+  #   docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile media up -d
   # ffmpeg runs in media-sandbox, which has no network. unshare is not used:
   # Docker's default seccomp profile blocks it once SYS_ADMIN is dropped.
-  # pids_limit counts processes in the container. The worker runs one job at
-  # a time, so the cap only matters if jobs ever run in parallel.
+  # The worker claims one job and waits until that job finishes. pids_limit
+  # is per user, so it only holds while one job runs at a time.
+  # Root prepares the volumes, then exits. The sandbox and the worker drop
+  # every capability, so they cannot chown a new volume themselves.
+  media-init:
+    profiles: ["media"]
+    image: node:22-bookworm-slim
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - "mkdir -p /jobs/samples /control && chown 1000:1000 /jobs /jobs/samples /control && chmod 755 /jobs /jobs/samples /control"
+    volumes:
+      - media-jobs:/jobs
+      - media-control:/control
+    restart: "no"
+
   media-sandbox:
     profiles: ["media"]
     user: "node"
     init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -101,10 +122,15 @@ services:
     network_mode: none
     environment:
       PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      MEDIA_SANDBOX_DIR: /work
+      HOME: /tmp
+      TMPDIR: /tmp
+      MEDIA_JOBS_DIR: /jobs
     command: ["node", "--experimental-strip-types", "server/media-sandbox.ts"]
     volumes:
-      - media-work:/work
+      - media-jobs:/jobs
+    depends_on:
+      media-init:
+        condition: service_completed_successfully
     restart: "no"
     mem_limit: 512m
     cpus: "1.0"
@@ -112,13 +138,9 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop:
-      - NET_RAW
-      - NET_ADMIN
-      - SYS_ADMIN
-      - SYS_MODULE
-      - SYS_PTRACE
+      - ALL
     healthcheck:
-      test: ["CMD", "test", "-f", "/work/sandbox-ready"]
+      test: ["CMD", "test", "-f", "/jobs/sandbox-ready"]
       interval: 2s
       timeout: 3s
       retries: 20
@@ -136,8 +158,6 @@ services:
       PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       MEDIA_S3_HOST: ${MEDIA_S3_HOST:-storage.invalid}
       MEDIA_S3_PORT: ${MEDIA_S3_PORT:-443}
-      EGRESS_ALLOW_HOST: ${EGRESS_ALLOW_HOST:-}
-      EGRESS_ALLOW_PORT: ${EGRESS_ALLOW_PORT:-}
     command: ["node", "--experimental-strip-types", "server/media-egress.ts"]
     cap_add:
       - NET_BIND_SERVICE
@@ -175,9 +195,12 @@ services:
       target: app
     environment:
       PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      HOME: /tmp
+      TMPDIR: /tmp
       DATABASE_URL: postgres://media_worker:${MEDIA_WORKER_DB_PASSWORD:-}@/${POSTGRES_DB:-avouch}?host=/var/run/postgresql
       PGHOST: /var/run/postgresql
-      MEDIA_SANDBOX_DIR: /work
+      MEDIA_JOBS_DIR: /jobs
+      MEDIA_CONTROL_DIR: /control
       MEDIA_S3_ENDPOINT: ${MEDIA_S3_ENDPOINT:-}
       MEDIA_S3_BUCKET: ${MEDIA_S3_BUCKET:-}
       MEDIA_S3_REGION: ${MEDIA_S3_REGION:-us-east-1}
@@ -188,10 +211,16 @@ services:
     extra_hosts:
       - "${MEDIA_S3_HOST:-storage.invalid}:172.28.20.10"
     command: ["node", "--experimental-strip-types", "server/media-worker.ts"]
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
     volumes:
       - pgsocket:/var/run/postgresql
-      - media-work:/work
+      - media-jobs:/jobs
+      - media-control:/control
     depends_on:
+      media-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       media-sandbox:
@@ -205,14 +234,11 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop:
-      - NET_RAW
-      - SYS_ADMIN
-      - SYS_MODULE
-      - SYS_PTRACE
+      - ALL
     networks:
       - media-egress
     healthcheck:
-      test: ["CMD", "test", "-f", "/work/worker-ready"]
+      test: ["CMD", "test", "-f", "/control/worker-ready"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -255,6 +281,7 @@ networks:
 volumes:
   pgdata:
   pgsocket:
-  media-work:
+  media-jobs:
+  media-control:
   caddy-data:
   caddy-config:

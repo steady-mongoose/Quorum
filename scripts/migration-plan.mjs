@@ -79,24 +79,7 @@ export function isNoTransaction(sql) {
 }
 
 /**
- * Substitute the media worker password. The SQL file does not contain it.
- * @param {string} sql
- * @param {string | undefined} password
- * @returns {string}
- */
-export function applyMediaWorkerPassword(sql, password) {
-  if (!sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@")) return sql;
-  if (!password || !/^[A-Za-z0-9]{16,128}$/.test(password)) {
-    throw new Error(
-      "Set MEDIA_WORKER_DB_PASSWORD to 16 or more letters and digits before applying migrations/0007_media_worker_role.sql. That file needs the owner's approval.",
-    );
-  }
-  return sql.replaceAll("@@MEDIA_WORKER_DB_PASSWORD@@", password);
-}
-
-/**
- * Split a migration into statements. Passwords are letters and digits, so a
- * semicolon is always a statement boundary.
+ * Split a migration into statements. A semicolon is a statement boundary.
  * @param {string} sql
  * @returns {string[]}
  */

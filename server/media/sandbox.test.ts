@@ -12,7 +12,18 @@ import {
   createSandboxRunner,
   handleSandboxRequest,
   sandboxChildEnv,
+  sandboxReadyPath,
+  workerReadyPath,
 } from "./sandbox.ts";
+
+test("the sandbox cannot write the worker control file", () => {
+  const ready = sandboxReadyPath("/jobs");
+  const control = workerReadyPath("/control");
+  assert.equal(ready, "/jobs/sandbox-ready");
+  assert.equal(control, "/control/worker-ready");
+  assert.equal(ready.startsWith("/control"), false);
+  assert.equal(control.startsWith("/jobs"), false);
+});
 
 test("ffmpeg's environment is PATH and nothing else", () => {
   const env = sandboxChildEnv("/usr/bin");
@@ -21,7 +32,7 @@ test("ffmpeg's environment is PATH and nothing else", () => {
   assert.equal("MEDIA_S3_SECRET_ACCESS_KEY" in env, false);
 });
 
-test("the sandbox refuses a network path and a playlist format", () => {
+test("the sandbox allows only known formats and protocols", () => {
   assert.throws(
     () => assertSandboxCommand("ffmpeg", ["-i", "http://169.254.169.254/"]),
     /network path/,
@@ -30,22 +41,102 @@ test("the sandbox refuses a network path and a playlist format", () => {
     () => assertSandboxCommand("ffmpeg", ["-protocol_whitelist", "file,http", "-i", "in.mp4"]),
     /network protocol/,
   );
+  assert.throws(
+    () =>
+      assertSandboxCommand("ffmpeg", [
+        "-protocol_whitelist",
+        "file",
+        "-f",
+        "concat",
+        "-i",
+        "in.txt",
+      ]),
+    /format/,
+  );
+  assert.throws(
+    () =>
+      assertSandboxCommand("ffmpeg", ["-protocol_whitelist", "file", "-f", "hls", "-i", "in.m3u8"]),
+    /format/,
+  );
+  assert.throws(
+    () =>
+      assertSandboxCommand("ffmpeg", ["-protocol_whitelist", "file", "-f", "lavfi", "-i", "color"]),
+    /format/,
+  );
   assert.throws(() => assertSandboxCommand("bash", ["-c", "id"]), /only runs ffmpeg/);
   assert.doesNotThrow(() =>
     assertSandboxCommand("ffprobe", ["-protocol_whitelist", "file", "-f", "mp4", "-i", "in.mp4"]),
   );
+  assert.doesNotThrow(() =>
+    assertSandboxCommand(
+      "ffmpeg",
+      ["-protocol_whitelist", "file", "-f", "png_pipe", "-i", "/jobs/job/in.png"],
+      "/jobs/job",
+    ),
+  );
+  assert.throws(
+    () =>
+      assertSandboxCommand(
+        "ffmpeg",
+        ["-protocol_whitelist", "file", "-f", "png_pipe", "-i", "/control/worker-ready"],
+        "/jobs/job",
+      ),
+    /outside the job/,
+  );
+  assert.throws(
+    () =>
+      assertSandboxCommand(
+        "ffmpeg",
+        ["-protocol_whitelist", "file", "-f", "png_pipe", "-i", "../secret.png"],
+        "/jobs/job",
+      ),
+    /outside the job/,
+  );
+  assert.throws(
+    () =>
+      assertSandboxCommand(
+        "ffmpeg",
+        ["-protocol_whitelist", "file", "-f", "image2", "-i", "/jobs/job/in.png"],
+        "/jobs/job",
+      ),
+    /format/,
+  );
+});
+
+test("a job request cannot point ffmpeg at the worker control file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "avouch-sandbox-path-"));
+  const job = join(root, "job");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(job);
+  await writeFile(
+    join(job, "request.json"),
+    JSON.stringify({
+      command: "ffmpeg",
+      args: ["-protocol_whitelist", "file", "-f", "mp4", "-i", "/etc/passwd"],
+    }),
+  );
+  let spawned = false;
+  await handleSandboxRequest(job, async () => {
+    spawned = true;
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  assert.equal(spawned, false);
+  const result = JSON.parse(await readFile(join(job, "result.json"), "utf8")) as {
+    stderr: string;
+  };
+  assert.match(result.stderr, /outside the job/);
 });
 
 test("a sandbox request runs under prlimit with an empty environment", async () => {
   const root = await mkdtemp(join(tmpdir(), "avouch-sandbox-"));
-  const queue = join(root, "queue");
+  const job = join(root, "job");
   const { mkdir, writeFile } = await import("node:fs/promises");
-  await mkdir(queue);
+  await mkdir(job);
   await writeFile(
-    join(queue, "job.json"),
+    join(job, "request.json"),
     JSON.stringify({
       command: "ffmpeg",
-      args: ["-protocol_whitelist", "file", "-f", "mp4", "-i", "in.mp4"],
+      args: ["-protocol_whitelist", "file", "-f", "mp4", "-i", join(job, "in.mp4")],
     }),
   );
   const seen: { command: string; args: string[]; env: NodeJS.ProcessEnv } = {
@@ -53,7 +144,7 @@ test("a sandbox request runs under prlimit with an empty environment", async () 
     args: [],
     env: {},
   };
-  await handleSandboxRequest(queue, "job.json", async (command, args, _timeout, env) => {
+  await handleSandboxRequest(job, async (command, args, _timeout, env) => {
     seen.command = command;
     seen.args = args;
     seen.env = env;
@@ -61,9 +152,9 @@ test("a sandbox request runs under prlimit with an empty environment", async () 
   });
   assert.equal(seen.command, "prlimit");
   assert.equal(seen.args.includes("unshare"), false);
-  assert.equal(seen.args.at(-1), "in.mp4");
+  assert.equal(seen.args.at(-1), join(job, "in.mp4"));
   assert.deepEqual(Object.keys(seen.env), ["PATH"]);
-  const result = JSON.parse(await readFile(join(queue, "job.result.json"), "utf8")) as {
+  const result = JSON.parse(await readFile(join(job, "result.json"), "utf8")) as {
     code: number;
   };
   assert.equal(result.code, 0);
@@ -93,10 +184,10 @@ test("the worker and the sandbox agree on a finished command", async () => {
   const pending = runner("ffmpeg", ["-version"]);
   await new Promise((resolve) => setTimeout(resolve, 60));
   const { readdir } = await import("node:fs/promises");
-  const names = await readdir(join(root, "queue"));
-  const request = names.find((name) => name.endsWith(".json") && !name.endsWith(".result.json"));
+  const names = await readdir(root);
+  const request = names.find((name) => name !== "samples");
   assert.ok(request);
-  await handleSandboxRequest(join(root, "queue"), request, async () => ({
+  await handleSandboxRequest(join(root, request), async () => ({
     code: 0,
     stdout: "ffmpeg version",
     stderr: "",

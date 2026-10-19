@@ -155,7 +155,7 @@ aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_
   --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, and `migrations/0007_media_worker_role.sql`. Set `MEDIA_WORKER_DB_PASSWORD` before that apply. It is the password for the media worker's database login, 16 or more letters and digits.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, and `migrations/0007_media_worker_role.sql`. Set `MEDIA_WORKER_DB_PASSWORD` before that apply. It is the password for the media worker's database login, 16 or more letters and digits. The migrator turns that password into a SCRAM-SHA-256 verifier and runs `ALTER ROLE` on every migrate, including a re-run. The password is not written into the SQL file.
 
 ## Pictures and video
 
@@ -171,7 +171,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile med
 
 The worker re-encodes every room picture and video. It does not serve the original bytes. ffmpeg is pinned to Debian bookworm `7:5.1.9-0+deb12u1` and runs in `media-sandbox`, a container with no network, a CPU cap, and a memory cap. The worker does not call `unshare`. Docker's default seccomp profile would block that once privileges are dropped, and a failed sandbox refuses to start instead of blaming a missing ffmpeg. The worker signs in to Postgres as `media_worker`, which can use only the media tables. It reaches Postgres through a socket file. Its network has no default route. A proxy on that network dials the storage host from `MEDIA_S3_HOST` and no other destination. Set `MEDIA_S3_HOST` to the hostname of `MEDIA_S3_ENDPOINT`.
 
-The worker container runs as `node` and is limited to 512 MB and one CPU. It loads only its database URL, the storage settings, and the sandbox directory. The process limit of 64 only matters if jobs ever run in parallel. Today the worker handles one file at a time.
+The worker container runs as `node`, with a read-only root filesystem, no Linux capabilities, and a temporary `/tmp`. It is limited to 512 MB and one CPU. It loads only its database URL, the storage settings, and the job directory. The worker claims the next job only after the current file is finished. The sandbox process cap of 64 and the ffmpeg nproc cap of 32 are per user, so they only hold while that stays true. Each job has its own directory on a volume the sandbox can write. The worker's ready file is on a different volume, so the sandbox cannot write it.
 
 A room upload is accepted only when the room exists, the member has stood in that room, and the post exists. An invite that names a room records that membership. A signed-in member of another room cannot read the file.
 

@@ -97,8 +97,10 @@ export async function recoverStuckJobs(deps: WorkerDeps): Promise<number> {
 }
 
 /**
- * One queued room picture or video. Message ciphertext is never decoded:
- * a job for it only confirms the row and does not download the bytes.
+ * One queued room picture or video. The worker claims the next job only
+ * after this one returns. Message ciphertext is never decoded: a job for it
+ * only confirms the row and does not download the bytes. The sandbox process
+ * cap assumes this stays one job at a time.
  */
 export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" | "failed"> {
   const job = await claimJob(deps.db, deps.now());

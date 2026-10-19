@@ -41,7 +41,7 @@ function blocked(host: string, port: number): Promise<boolean> {
  * through the sandbox, then checks that only the storage host answers.
  */
 export async function main(): Promise<void> {
-  const dir = process.env.MEDIA_SANDBOX_DIR?.trim();
+  const dir = process.env.MEDIA_JOBS_DIR?.trim();
   const endpoint = process.env.MEDIA_S3_ENDPOINT?.trim();
   if (!dir || !endpoint) {
     console.error("The media sandbox is unavailable. The worker did not start.");

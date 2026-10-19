@@ -17,6 +17,7 @@ import {
   type CommandRunner,
 } from "./ffmpeg.ts";
 import { MediaReject } from "./errors.ts";
+import { assertKeptJpeg, assertKeptMp4 } from "./output.ts";
 
 function ftyp(): Uint8Array {
   const bytes = new Uint8Array(16);
@@ -355,6 +356,10 @@ test("a transcode drops chapters, data, and subtitles", async () => {
     const original = new Uint8Array(await readFile(tagged));
     assert.equal(bytes.byteLength > 0, true);
     assert.equal(Buffer.from(bytes).equals(Buffer.from(original)), false);
+    const checked = assertKeptMp4(bytes, 32 * 1024 * 1024);
+    assert.equal(checked.width, 64);
+    assert.equal(checked.height, 64);
+    assert.ok(checked.durationMs >= 1 && checked.durationMs <= 60_000);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -404,9 +409,12 @@ test("a png is re-encoded with the pipe demuxer", async () => {
       20_000,
     );
     assert.equal(encoded.code, 0, encoded.stderr);
-    const jpeg = await readFile(output);
+    const jpeg = new Uint8Array(await readFile(output));
     assert.equal(jpeg[0], 0xff);
     assert.equal(jpeg[1], 0xd8);
+    const checked = assertKeptJpeg(jpeg, 8 * 1024 * 1024);
+    assert.equal(checked.width, 8);
+    assert.equal(checked.height, 8);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -14,6 +14,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
+COMPOSE_TEST="$ROOT/deploy/docker-compose.media-test.yml"
 ENV_FILE="$ROOT/deploy/.env"
 PROJECT="${COMPOSE_PROJECT_NAME:-avouchmedia}"
 export COMPOSE_PROJECT_NAME="$PROJECT"
@@ -25,7 +26,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$COMPOSE_TEST" "$@"
 }
 
 cleanup() {
@@ -70,24 +71,36 @@ EOF
 
 compose up -d --wait postgres
 compose --profile migrate run --build --rm migrate
+compose exec -T -e PGPASSWORD=mediaworkerpass1 postgres \
+  psql -U media_worker -d avouch -c 'select count(*) from media_object'
+# The SQL file has no password. A second migrate still replaces the verifier.
+sed -i 's/MEDIA_WORKER_DB_PASSWORD=mediaworkerpass1/MEDIA_WORKER_DB_PASSWORD=mediaworkerpass2/' "$ENV_FILE"
+compose --profile migrate run --rm migrate
+if compose exec -T -e PGPASSWORD=mediaworkerpass1 postgres \
+  psql -U media_worker -d avouch -c 'select 1'; then
+  echo "The previous media worker password still works." >&2
+  exit 1
+fi
+compose exec -T -e PGPASSWORD=mediaworkerpass2 postgres \
+  psql -U media_worker -d avouch -c 'select count(*) from media_object'
 # The media profile. The test sink is a second profile so production does not start it.
 # Caddy is left out of this wait: it would ask Let's Encrypt for a certificate.
 compose --profile media --profile media-test up -d --build --wait --wait-timeout 240 \
   postgres media-sandbox media-proxy storage-sink media-worker
 
-compose exec -T media-sandbox ffmpeg -y -f lavfi -i color=c=red:s=64x64:d=1 -frames:v 1 -update 1 /work/samples/in.png
-compose exec -T media-sandbox ffmpeg -y \
+compose exec -T media-sandbox ffmpeg -y -threads 1 -f lavfi -i color=c=red:s=64x64:d=1 -frames:v 1 -update 1 /jobs/samples/in.png
+compose exec -T media-sandbox ffmpeg -y -threads 1 \
   -f lavfi -i color=c=black:s=64x64:d=1 \
   -f lavfi -i anullsrc=r=44100:cl=mono \
   -shortest -t 1 -c:v libx264 -pix_fmt yuv420p -c:a aac \
-  /work/samples/in.mp4
+  /jobs/samples/in.mp4
 
 compose exec -T media-worker node -e 'if (process.env.POSTGRES_PASSWORD || process.env.BETTER_AUTH_SECRET) process.exit(1)'
 compose exec -T media-sandbox node -e 'if (process.env.DATABASE_URL || process.env.MEDIA_S3_SECRET_ACCESS_KEY) process.exit(1)'
 
-compose exec -T -e PGPASSWORD=mediaworkerpass1 postgres \
+compose exec -T -e PGPASSWORD=mediaworkerpass2 postgres \
   psql -U media_worker -d avouch -c 'select count(*) from media_object'
-if compose exec -T -e PGPASSWORD=mediaworkerpass1 postgres \
+if compose exec -T -e PGPASSWORD=mediaworkerpass2 postgres \
   psql -U media_worker -d avouch -c 'select count(*) from "user"'; then
   echo "The media worker role can read accounts." >&2
   exit 1

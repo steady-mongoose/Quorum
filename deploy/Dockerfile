@@ -14,7 +14,7 @@ RUN npm ci --omit=dev
 COPY server ./server
 COPY migrations ./migrations
 COPY src/lib/media ./src/lib/media
-COPY scripts/migrate.mjs scripts/migration-plan.mjs ./scripts/
+COPY scripts/migrate.mjs scripts/migration-plan.mjs scripts/media-worker-password.mjs ./scripts/
 
 ENV NODE_ENV=production
 USER node

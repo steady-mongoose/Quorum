@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { imageBounds, ImageBoundsError, MAX_EDGE, MAX_PIXELS } from "../../src/lib/media/bounds.ts";
-import { VIDEO_MS } from "../../src/lib/media/limits.ts";
+import { IMAGE_BYTES, VIDEO_BYTES, VIDEO_MS } from "../../src/lib/media/limits.ts";
 import { sniffVideo, type VideoContainer } from "../../src/lib/media/sniff.ts";
 import { MediaReject } from "./errors.ts";
+import { assertKeptJpeg, assertKeptMp4 } from "./output.ts";
 
 export type CommandResult = {
   code: number;
@@ -249,8 +250,8 @@ export type MediaTools = {
 };
 
 function scratchDir(): string {
-  const sandbox = process.env.MEDIA_SANDBOX_DIR?.trim();
-  return sandbox ? join(sandbox, "jobs") : tmpdir();
+  const jobs = process.env.MEDIA_JOBS_DIR?.trim();
+  return jobs || tmpdir();
 }
 
 async function withTemp(
@@ -400,6 +401,8 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         if (thumbRun.code !== 0) throw new Error("ffmpeg could not make a thumbnail.");
         file = new Uint8Array(await readFile(filePath));
         thumb = new Uint8Array(await readFile(thumbPath));
+        assertKeptJpeg(file, IMAGE_BYTES);
+        assertKeptJpeg(thumb, IMAGE_BYTES);
       });
       if (file.byteLength < 1 || sameBytes(file, bytes)) {
         throw new MediaReject("That picture could not be prepared.");
@@ -423,7 +426,6 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         const probe = readProbe(probed.stdout, container);
         if (probe.durationMs > VIDEO_MS)
           throw new MediaReject("That video is longer than 60 seconds.");
-        durationMs = probe.durationMs;
         const filePath = join(dir, "file.mp4");
         const thumbPath = join(dir, "thumb.jpg");
         const encoded = await runner("ffmpeg", videoFileArgs(input, filePath, format));
@@ -436,6 +438,9 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         if (poster.code !== 0) throw new Error("ffmpeg could not make a thumbnail.");
         file = new Uint8Array(await readFile(filePath));
         thumb = new Uint8Array(await readFile(thumbPath));
+        const checked = assertKeptMp4(file, VIDEO_BYTES);
+        durationMs = checked.durationMs;
+        assertKeptJpeg(thumb, IMAGE_BYTES);
       });
       if (file.byteLength < 1 || sameBytes(file, bytes)) {
         throw new MediaReject("That video could not be prepared.");

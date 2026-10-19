@@ -29,6 +29,7 @@ const appTests = [
   "server/media/s3.test.ts",
   "server/media/strip.test.ts",
   "server/media/ffmpeg.test.ts",
+  "server/media/output.test.ts",
   "server/media/schema.test.ts",
   "server/media/service.test.ts",
   "server/media/worker.test.ts",
