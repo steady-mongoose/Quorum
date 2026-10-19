@@ -281,19 +281,21 @@ export async function revokeOtherDevice(
   return response.ok ? { ok: true } : response;
 }
 
-export async function sendEncrypted(
+/**
+ * Keys for one other member. A safety refusal returns before any one-time
+ * prekey is taken. The caller opens the conversation first when the server
+ * requires one.
+ */
+export async function messageDestinations(
   transport: DmTransport,
   vault: VaultStore,
-  threadId: string,
   otherUserId: string,
-  text: string,
-): Promise<{ ok: true; warning: string | null } | { ok: false; message: string; safety?: string }> {
-  const problem = dmTextError(text);
-  if (problem) return { ok: false, message: problem };
+): Promise<
+  | { ok: true; destinations: SealDestination[]; warning: string | null; sender: DeviceRecord }
+  | { ok: false; message: string; safety?: string }
+> {
   if (!vault.read()) return { ok: false, message: "Create keys on this device first." };
-  if (!isUuid(threadId) || !isMemberId(otherUserId)) {
-    return { ok: false, message: "That conversation was not found." };
-  }
+  if (!isMemberId(otherUserId)) return { ok: false, message: "That conversation was not found." };
   const filled = await replenishPrekeys(transport, vault);
   if (!filled.ok) return filled;
   const state = vault.read();
@@ -360,12 +362,34 @@ export async function sendEncrypted(
     }
   }
 
+  const warning =
+    safety === null
+      ? "There is no safety number yet. Set a key backup, and ask them to set one, before you trust this conversation."
+      : null;
+  return { ok: true, destinations, warning, sender: pinCheck.state.device };
+}
+
+export async function sendEncrypted(
+  transport: DmTransport,
+  vault: VaultStore,
+  threadId: string,
+  otherUserId: string,
+  text: string,
+): Promise<{ ok: true; warning: string | null } | { ok: false; message: string; safety?: string }> {
+  const problem = dmTextError(text);
+  if (problem) return { ok: false, message: problem };
+  if (!vault.read()) return { ok: false, message: "Create keys on this device first." };
+  if (!isUuid(threadId) || !isMemberId(otherUserId)) {
+    return { ok: false, message: "That conversation was not found." };
+  }
+  const ready = await messageDestinations(transport, vault, otherUserId);
+  if (!ready.ok) return ready;
   const sealed = await sealMessage({
     messageId: crypto.randomUUID(),
     threadId,
-    sender: pinCheck.state.device,
+    sender: ready.sender,
     text,
-    destinations,
+    destinations: ready.destinations,
   });
   if (!sealed.ok) return sealed;
   const response = await expectOk(
@@ -373,11 +397,7 @@ export async function sendEncrypted(
     "The message was not sent.",
   );
   if (!response.ok) return response;
-  const warning =
-    safety === null
-      ? "There is no safety number yet. Set a key backup, and ask them to set one, before you trust this conversation."
-      : null;
-  return { ok: true, warning };
+  return { ok: true, warning: ready.warning };
 }
 
 export function confirmSafety(vault: VaultStore, otherUserId: string, safety: string): void {

@@ -4,6 +4,8 @@ import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/compo
 import { cn } from "@/lib/cn";
 import { DM_ENCRYPTED_NOTICE, DM_SAFETY_HINT } from "@/lib/e2ee/copy";
 import { browserTransport, browserVaultStore, readBrowserVault } from "@/lib/e2ee/browser";
+import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
+import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
 import {
   confirmSafety,
   createLocalDevice,
@@ -83,6 +85,7 @@ export function EncryptedMailbox() {
         setNotice(registered.message);
         return;
       }
+      await installDmMediaCrypto(createDmMediaCrypto({ transport, vault: store }));
       await refreshDevices(store.read() ?? vault);
       await refreshThreads();
     })();

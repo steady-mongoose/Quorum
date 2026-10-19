@@ -26,6 +26,7 @@ import {
   BACKUP_OPSLIMIT_MAX,
   BACKUP_OPSLIMIT_MIN,
   BODY_CIPHER_MAX_BYTES,
+  DM_MAX_ENVELOPES,
   DM_PREKEY_BATCH,
   WRAP_CIPHER_MAX_BYTES,
   dmTextError,
@@ -573,6 +574,82 @@ export async function sealMessage(input: {
   return { ok: true, value: wire };
 }
 
+/** Wrap a picture or video key for the same devices as a text message. */
+export async function sealContentKey(input: {
+  mediaId: string;
+  binding: string;
+  sender: DeviceRecord;
+  contentKey: Uint8Array;
+  destinations: SealDestination[];
+}): Promise<Ok<EnvelopeWire[]> | Fail> {
+  if (!isUuid(input.mediaId) || input.binding.length < 1 || input.binding.length > 400) {
+    return fail("That picture could not be sealed.");
+  }
+  if (input.destinations.length === 0) return fail("That member has no device yet.");
+  if (input.destinations.length > DM_MAX_ENVELOPES) return fail("That wrapped key is too long.");
+  const lib = await sodium();
+  if (input.contentKey.length !== lib.crypto_secretbox_KEYBYTES) {
+    return fail("That picture could not be sealed.");
+  }
+  const senderBoxSecret = decodeFixed(lib, input.sender.boxSecret, lib.crypto_box_SECRETKEYBYTES);
+  if (!senderBoxSecret) return fail("The keys on this device are not valid.");
+
+  for (const destination of input.destinations) {
+    if (destination.kind !== "device") continue;
+    if (!(await verifyDeviceStatement(destination.userId, destination.device))) {
+      wipe(lib, senderBoxSecret);
+      return fail("A device key did not check out. The message was not sent.");
+    }
+    if (
+      destination.prekey &&
+      !(await verifyPrekey(
+        destination.device.deviceId,
+        destination.device.signPublic,
+        destination.prekey,
+      ))
+    ) {
+      wipe(lib, senderBoxSecret);
+      return fail("A one-time key did not check out. The message was not sent.");
+    }
+  }
+
+  const wire = { messageId: input.mediaId, threadId: input.binding };
+  const envelopes: EnvelopeWire[] = [];
+  for (const destination of input.destinations) {
+    const recipientBoxPublic =
+      destination.kind === "device" ? destination.device.boxPublic : destination.boxPublic;
+    const prekey = destination.kind === "device" ? destination.prekey : null;
+    const tag =
+      destination.kind === "device"
+        ? `device:${destination.device.deviceId}`
+        : `backup:${destination.userId}`;
+    const wrapped = await wrapKey(
+      lib,
+      input.contentKey,
+      senderBoxSecret,
+      input.sender.boxPublic,
+      recipientBoxPublic,
+      prekey?.publicKey ?? null,
+      wire,
+      tag,
+    );
+    if (!wrapped) {
+      wipe(lib, senderBoxSecret);
+      return fail("That picture could not be sealed.");
+    }
+    envelopes.push({
+      recipientDeviceId: destination.kind === "device" ? destination.device.deviceId : null,
+      recipientUserBackup: destination.kind === "backup" ? destination.userId : null,
+      nonce: wrapped.nonce,
+      ciphertext: wrapped.ciphertext,
+      ephemeralPublic: wrapped.ephemeralPublic,
+      prekeyId: prekey?.id ?? null,
+    });
+  }
+  wipe(lib, senderBoxSecret);
+  return { ok: true, value: envelopes };
+}
+
 function findDeviceEnvelope(message: MessageWire, deviceId: string): EnvelopeWire | null {
   return message.envelopes.find((envelope) => envelope.recipientDeviceId === deviceId) ?? null;
 }
@@ -740,6 +817,95 @@ export async function openMessage(input: {
     }
   }
   return fail("This message could not be read.");
+}
+
+/** Open a picture or video key that `sealContentKey` wrapped. */
+export async function openContentKey(input: {
+  mediaId: string;
+  binding: string;
+  envelopes: EnvelopeWire[];
+  senderBoxPublic: string;
+  recipientDevice: DeviceRecord | null;
+  backup: (BackupKey & { userId: string }) | null;
+}): Promise<{ ok: true; key: Uint8Array; consumedPrekeyId: string | null } | Fail> {
+  if (!isUuid(input.mediaId) || input.binding.length < 1) {
+    return fail("That picture could not be read.");
+  }
+  const lib = await sodium();
+  const message = { messageId: input.mediaId, threadId: input.binding };
+  const attempts: {
+    envelope: EnvelopeWire;
+    secret: Uint8Array;
+    publicKey: string;
+    prekey: PrekeySecret | null;
+    tag: string;
+  }[] = [];
+
+  if (input.recipientDevice) {
+    const envelope =
+      input.envelopes.find((item) => item.recipientDeviceId === input.recipientDevice?.deviceId) ??
+      null;
+    const secret = envelope
+      ? decodeFixed(lib, input.recipientDevice.boxSecret, lib.crypto_box_SECRETKEYBYTES)
+      : null;
+    if (envelope && secret) {
+      const prekey = envelope.prekeyId
+        ? (input.recipientDevice.prekeys.find((item) => item.id === envelope.prekeyId) ?? null)
+        : null;
+      if (envelope.prekeyId && !prekey) {
+        wipe(lib, secret);
+      } else {
+        attempts.push({
+          envelope,
+          secret,
+          publicKey: input.recipientDevice.boxPublic,
+          prekey,
+          tag: `device:${input.recipientDevice.deviceId}`,
+        });
+      }
+    }
+  }
+
+  if (input.backup) {
+    const backupEnvelope =
+      input.envelopes.find(
+        (item) =>
+          item.recipientDeviceId === null && item.recipientUserBackup === input.backup?.userId,
+      ) ?? null;
+    if (backupEnvelope) {
+      const secret = decodeFixed(lib, input.backup.boxSecret, lib.crypto_box_SECRETKEYBYTES);
+      if (secret) {
+        attempts.push({
+          envelope: backupEnvelope,
+          secret,
+          publicKey: input.backup.boxPublic,
+          prekey: null,
+          tag: `backup:${input.backup.userId}`,
+        });
+      }
+    }
+  }
+
+  for (const attempt of attempts) {
+    if (attempt.envelope.prekeyId && !attempt.prekey) {
+      wipe(lib, attempt.secret);
+      continue;
+    }
+    const key = await openWrap(
+      lib,
+      attempt.envelope,
+      input.senderBoxPublic,
+      attempt.secret,
+      attempt.publicKey,
+      attempt.prekey,
+      message,
+      attempt.tag,
+    );
+    wipe(lib, attempt.secret);
+    if (!key) continue;
+    return { ok: true, key, consumedPrekeyId: attempt.prekey?.id ?? null };
+  }
+  return fail("That picture could not be read.");
 }
 
 export async function isBoxPublic(value: string): Promise<boolean> {
