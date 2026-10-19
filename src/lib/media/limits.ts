@@ -33,8 +33,8 @@ export type UploadPlan = {
 export type PlanResult =
   { ok: true; plan: UploadPlan } | { ok: false; status: 400 | 403; error: string };
 
-const ROOM_ID = /^[a-z0-9-]{1,32}$/;
-const OBJECT_ID = /^[A-Za-z0-9_-]{1,80}$/;
+export const ROOM_ID = /^[a-z0-9-]{1,32}$/;
+export const OBJECT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 
 export function mediaLimits() {
   return {

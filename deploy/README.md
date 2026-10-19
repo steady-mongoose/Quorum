@@ -150,7 +150,22 @@ After you approve `migrations/0004_media.sql` and the credentials, the media wor
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile media up -d media-worker
 ```
 
-The worker strips location data from pictures and, when ffmpeg is present, makes a thumbnail and re-encodes video. Members receive a signed link that lasts two minutes. There is no public object URL.
+The worker re-encodes every room picture and video. It does not serve the original bytes. ffmpeg is pinned to Debian bookworm `7:5.1.9-0+deb12u1` and runs with no network namespace, a CPU cap, and a memory cap. The worker container runs as `node`, is limited to 512 MB and one CPU, and is not on the `avouch` network. It reaches Postgres through a socket file, so it has no network route to Postgres, Caddy, or the API. Its only network is outbound, for object storage.
+
+A room upload is accepted only when the room exists, the member has stood in that room, and the post exists. An invite that names a room records that membership. A signed-in member of another room cannot read the file.
+
+Members receive a signed link that lasts two minutes. The link sets `Content-Disposition: attachment`, a fixed content type, and `Cache-Control: private, no-store`. The storage host must not be `avouchsocial.com` or a subdomain of it. That host, or the CDN in front of it, must send `X-Content-Type-Options: nosniff`. Signed URLs are not written to the logs.
+
+After you approve the bucket, apply `deploy/media-lifecycle.json` so unfinished `incoming/` uploads expire after 24 hours. This repository does not apply that rule.
+
+```bash
+aws s3api put-bucket-lifecycle-configuration \
+  --endpoint-url "$MEDIA_S3_ENDPOINT" \
+  --bucket "$MEDIA_S3_BUCKET" \
+  --lifecycle-configuration file://deploy/media-lifecycle.json
+```
+
+Deleting a member tombstones pictures that member sent. A sweep in the worker deletes those objects. A message picture the other person sent stays.
 
 Pictures in a direct message are ciphertext. The server stores a wrapped key and does not read the bytes. The messaging change has to encrypt on the device. See `src/lib/media/e2e.ts`.
 

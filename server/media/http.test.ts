@@ -29,6 +29,18 @@ async function user(db: Db, id: string, email: string) {
   );
 }
 
+async function stand(db: Db, userId: string, roomId: string, postId: string) {
+  await db.query(
+    `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
+    [roomId, userId],
+  );
+  await db.query(`insert into room_post (id, room_id, author_user_id) values ($1, $2, $3)`, [
+    postId,
+    roomId,
+    userId,
+  ]);
+}
+
 function handler(db: Db, media: AppDeps["media"]) {
   return createApp({
     db,
@@ -102,6 +114,8 @@ test("video is refused while pictures are accepted, and uploads are rate limited
   try {
     const josh = randomUUID();
     await user(db, josh, "josh@example.com");
+    await stand(db, josh, "shop", "post-1");
+    await stand(db, josh, "shop", "post-video");
     const app = handler(db, { config: enabled, store: createMemoryStore(), now: () => now });
     const video = await app(
       new Request("http://127.0.0.1:8787/api/media/uploads", {
@@ -149,6 +163,7 @@ test("a stranger cannot read a room picture without a session", async () => {
   try {
     const josh = randomUUID();
     await user(db, josh, "josh@example.com");
+    await stand(db, josh, "shop", "post-9");
     const store = createMemoryStore();
     const app = handler(db, { config: enabled, store, now: () => now });
     const prepared = await app(

@@ -61,6 +61,8 @@ test("a room upload puts the bytes on object storage and not on the API", async 
   const put = calls.find((call) => call.url.startsWith("https://objects.example/"));
   assert.equal(put?.init?.method, "PUT");
   assert.equal(put?.init?.credentials, "omit");
+  const putHeaders = put?.init?.headers as Record<string, string>;
+  assert.equal(putHeaders["content-length"], "3");
   assert.ok(Object.is(put?.init?.body, bytes));
   const post = calls.find((call) => call.url === "/api/media/uploads");
   assert.equal(post?.init?.credentials, "include");

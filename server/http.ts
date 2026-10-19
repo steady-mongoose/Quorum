@@ -1,5 +1,6 @@
 import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
+import { registerRoomPost } from "./media/access.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit } from "./rate-limit.ts";
@@ -198,7 +199,12 @@ async function route(
       if (!(error instanceof HttpError)) throw error;
       parseError = error;
     }
-    const blocked = await limitIpAndEmail(deps.db, "sign-in", clientIp(request), parseError ? "" : email);
+    const blocked = await limitIpAndEmail(
+      deps.db,
+      "sign-in",
+      clientIp(request),
+      parseError ? "" : email,
+    );
     if (blocked) return blocked;
     if (parseError) throw parseError;
     return deps.forwardAuth(replay(request, text));
@@ -262,7 +268,12 @@ async function route(
     if (!session) return json(401, { error: "Sign in first." });
     const emailId = emailKey(session.email);
     if (emailId) {
-      const emailHit = await consumeLimit(deps.db, `invite:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
+      const emailHit = await consumeLimit(
+        deps.db,
+        `invite:email:${emailId}`,
+        ATTEMPT_LIMIT,
+        Date.now(),
+      );
       if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
     }
     const body = await readJson(request);
@@ -285,6 +296,21 @@ async function route(
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
+  if (roomPost && request.method === "POST") {
+    const session = await deps.readSession(request.headers);
+    if (!session) return json(401, { error: "Sign in first." });
+    const body = await readJson(request);
+    const recorded = await registerRoomPost(
+      deps.db,
+      session.id,
+      roomPost[1] ?? "",
+      stringField(body, "id"),
+    );
+    if (!recorded.ok) return json(recorded.status, { error: recorded.error });
+    return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
   }
 
   if (url.pathname.startsWith("/api/media/")) {

@@ -27,6 +27,7 @@ export type MediaRow = {
   thumb_key: string;
   reject_reason: string;
   created_at: Date | string;
+  deleted_at: Date | string | null;
 };
 
 export type JobRow = {
@@ -139,6 +140,17 @@ export async function markRejected(db: Db, id: string, reason: string): Promise<
     id,
     reason,
   ]);
+}
+
+export async function listDeleted(db: Db): Promise<MediaRow[]> {
+  const rows = await db.query<MediaRow>(
+    `select * from media_object where deleted_at is not null order by deleted_at, id`,
+  );
+  return rows.map(asRow);
+}
+
+export async function deleteMedia(db: Db, id: string): Promise<void> {
+  await db.query(`delete from media_object where id = $1`, [id]);
 }
 
 export async function listStalePending(db: Db, cutoff: Date): Promise<MediaRow[]> {

@@ -1,4 +1,5 @@
 import { consumeLimit, UPLOAD_LIMIT } from "../rate-limit.ts";
+import { uploadIpKey } from "./ip.ts";
 import type { Db } from "../db.ts";
 import { mediaLimits } from "../../src/lib/media/limits.ts";
 import { publicMediaStatus, type MediaConfig } from "./config.ts";
@@ -90,7 +91,7 @@ export async function handleMedia(
       if (!byUser.allowed) return tooMany(byUser.retryAfter);
       const byIp = await consumeLimit(
         db,
-        `upload-ip:${clientIp}`,
+        uploadIpKey(clientIp),
         UPLOAD_LIMIT,
         runtime.now().getTime(),
       );

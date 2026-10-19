@@ -10,6 +10,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-avouch}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - pgsocket:/var/run/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-avouch} -d ${POSTGRES_DB:-avouch}"]
       interval: 5s
@@ -79,21 +80,38 @@ services:
   # Not started by `docker compose up`. Run only after the owner approves the SQL
   # in migrations/0004_media.sql and sets MEDIA_S3_* in deploy/.env:
   #   docker compose --profile media up -d media-worker
+  # The worker is not on the avouch network, so it has no route to Caddy or the
+  # API. Postgres is reached through the socket volume, not an IP. ffmpeg itself
+  # is started with an empty network namespace.
   media-worker:
     profiles: ["media"]
+    user: "node"
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}
+      DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@/${POSTGRES_DB:-avouch}?host=/var/run/postgresql
+      PGHOST: /var/run/postgresql
     command: ["node", "--experimental-strip-types", "server/media-worker.ts"]
+    volumes:
+      - pgsocket:/var/run/postgresql
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_MODULE
+      - SYS_PTRACE
     networks:
-      - avouch
+      - media-egress
 
   # Not started by `docker compose up`. Run only after the owner approves the SQL:
   #   docker compose --profile migrate run --rm migrate
@@ -118,8 +136,11 @@ networks:
     ipam:
       config:
         - subnet: 172.28.19.0/24
+  # Outbound to object storage only. Postgres and Caddy are not attached.
+  media-egress:
 
 volumes:
   pgdata:
+  pgsocket:
   caddy-data:
   caddy-config:

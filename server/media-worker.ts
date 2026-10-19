@@ -3,7 +3,13 @@ import { readMediaConfig } from "./media/config.ts";
 import { PENDING_MS } from "../src/lib/media/limits.ts";
 import { createFfmpegTools } from "./media/ffmpeg.ts";
 import { storeFromConfig } from "./media/s3.ts";
-import { expireStaleUploads, recoverStuckJobs, runOneMediaJob } from "./media/worker.ts";
+import { redactSecrets } from "./media/redact.ts";
+import {
+  expireStaleUploads,
+  recoverStuckJobs,
+  runOneMediaJob,
+  sweepDeletedMedia,
+} from "./media/worker.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,6 +54,7 @@ export async function main(): Promise<void> {
   for (;;) {
     const outcome = await runOneMediaJob(deps);
     await expireStaleUploads(deps, PENDING_MS);
+    await sweepDeletedMedia(deps);
     await sleep(outcome === "idle" ? 2000 : 50);
   }
 }
@@ -55,7 +62,8 @@ export async function main(): Promise<void> {
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replaceAll("\\", "/"));
 if (isMain) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(redactSecrets(message));
     process.exit(1);
   });
 }

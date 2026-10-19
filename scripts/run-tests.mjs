@@ -33,6 +33,8 @@ const appTests = [
   "server/media/service.test.ts",
   "server/media/worker.test.ts",
   "server/media/http.test.ts",
+  "server/media/ip.test.ts",
+  "src/lib/media/bounds.test.ts",
   "src/lib/media/e2e.test.ts",
   "src/lib/media/upload.test.ts",
 ];

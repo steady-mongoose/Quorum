@@ -7,11 +7,19 @@ export function createMemoryStore(): ObjectStore & { objects: Map<string, Saved>
   const objects = new Map<string, Saved>();
   return {
     objects,
-    presignPut({ key, contentType }) {
-      return { url: `https://media.test/${key}`, headers: { "content-type": contentType } };
+    presignPut({ key, contentType, contentLength }) {
+      return {
+        url: `https://media.test/${key}`,
+        headers: { "content-type": contentType, "content-length": String(contentLength) },
+      };
     },
-    presignGet({ key }) {
-      return `https://media.test/${key}?signed=1`;
+    presignGet({ key, contentType, filename }) {
+      const query = new URLSearchParams({
+        "response-content-disposition": `attachment; filename="${filename}"`,
+        "response-content-type": contentType,
+        "response-cache-control": "private, no-store",
+      });
+      return `https://media.test/${key}?${query.toString()}`;
     },
     async head(key) {
       const found = objects.get(key);

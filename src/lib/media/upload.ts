@@ -66,7 +66,7 @@ export async function runUpload(input: {
   const put = await (input.putImpl ?? fetch)(url, {
     method: "PUT",
     credentials: "omit",
-    headers,
+    headers: { ...headers, "content-length": String(input.bytes.byteLength) },
     body: input.bytes as BodyInit,
   });
   if (!put.ok) return { ok: false, error: "The picture did not upload." };
@@ -89,6 +89,16 @@ export async function uploadRoomMedia(input: {
   durationMs?: number;
 }): Promise<{ ok: true; id: string; kind: MediaKind } | { ok: false; error: string }> {
   const kind: MediaKind = input.contentType.startsWith("video/") ? "video" : "image";
+  const posted = await apiFetch(`/api/rooms/${encodeURIComponent(input.roomId)}/posts`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: input.postId }),
+  });
+  if (!posted.ok) {
+    const postedBody = await posted.json().catch(() => null);
+    return { ok: false, error: errorMessage(postedBody, "That post is not here.") };
+  }
   const result = await runUpload({
     request: {
       kind,

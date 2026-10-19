@@ -13,6 +13,12 @@ export type PresignInput = {
   now: Date;
   forcePathStyle: boolean;
   contentType?: string;
+  /** Signed on PUT so the browser cannot send a larger body. */
+  contentLength?: number;
+  /** Signed response overrides for GET. The object itself is private. */
+  responseContentType?: string;
+  responseContentDisposition?: string;
+  responseCacheControl?: string;
 };
 
 export type SignedRequest = {
@@ -84,9 +90,9 @@ export function canonicalRequest(input: {
 }
 
 /**
- * Query-string SigV4 for an S3-compatible store. PUT signs content-type so the
- * browser cannot swap in a different type. The payload is unsigned; the server
- * checks the stored size after the upload.
+ * Query-string SigV4 for an S3-compatible store. PUT signs content-type and
+ * content-length, so a client cannot swap the type or send a larger body.
+ * GET signs the response type, attachment disposition, and no-store cache.
  */
 export function presignRequest(input: PresignInput): SignedRequest {
   const endpoint = new URL(input.endpoint);
@@ -97,7 +103,10 @@ export function presignRequest(input: PresignInput): SignedRequest {
     : `/${encodeKey(input.key)}`;
   const scope = `${stamp}/${input.region}/s3/aws4_request`;
   const headers: Array<[string, string]> = [];
-  if (input.contentType) headers.push(["content-type", input.contentType]);
+  if (input.contentLength !== undefined)
+    headers.push(["content-length", String(input.contentLength)]);
+  if (input.contentType && input.method !== "GET")
+    headers.push(["content-type", input.contentType]);
   headers.push(["host", host]);
   headers.sort((a, b) => a[0].localeCompare(b[0]));
   const signedHeaders = headers.map(([name]) => name).join(";");
@@ -108,6 +117,11 @@ export function presignRequest(input: PresignInput): SignedRequest {
     "X-Amz-Expires": String(input.expiresIn),
     "X-Amz-SignedHeaders": signedHeaders,
   };
+  if (input.responseCacheControl) params["response-cache-control"] = input.responseCacheControl;
+  if (input.responseContentDisposition) {
+    params["response-content-disposition"] = input.responseContentDisposition;
+  }
+  if (input.responseContentType) params["response-content-type"] = input.responseContentType;
   const query = canonicalQuery(params);
   const request = canonicalRequest({
     method: input.method,
@@ -123,18 +137,37 @@ export function presignRequest(input: PresignInput): SignedRequest {
   ).toString("hex");
   const base = `${endpoint.protocol}//${host}${canonicalUri}`;
   const headersOut: Record<string, string> = {};
-  if (input.contentType) headersOut["content-type"] = input.contentType;
+  if (input.contentLength !== undefined) headersOut["content-length"] = String(input.contentLength);
+  if (input.contentType && input.method !== "GET") headersOut["content-type"] = input.contentType;
   return { url: `${base}?${query}&X-Amz-Signature=${signature}`, headers: headersOut };
+}
+
+export function attachmentName(contentType: string): string {
+  if (contentType === "video/mp4") return "video.mp4";
+  if (contentType === "image/jpeg") return "picture.jpg";
+  return "message.bin";
 }
 
 export type StoredHead = { byteSize: number; contentType: string };
 
 export type ObjectStore = {
-  presignPut(input: { key: string; contentType: string; expiresIn: number; now: Date }): {
+  presignPut(input: {
+    key: string;
+    contentType: string;
+    contentLength: number;
+    expiresIn: number;
+    now: Date;
+  }): {
     url: string;
     headers: Record<string, string>;
   };
-  presignGet(input: { key: string; expiresIn: number; now: Date }): string;
+  presignGet(input: {
+    key: string;
+    expiresIn: number;
+    now: Date;
+    contentType: string;
+    filename: string;
+  }): string;
   head(key: string): Promise<StoredHead | null>;
   get(key: string): Promise<Uint8Array | null>;
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
@@ -191,7 +224,7 @@ export function createS3Store(
   }
 
   return {
-    presignPut({ key, contentType, expiresIn, now }) {
+    presignPut({ key, contentType, contentLength, expiresIn, now }) {
       return presignRequest({
         method: "PUT",
         endpoint: config.endpoint,
@@ -204,9 +237,10 @@ export function createS3Store(
         now,
         forcePathStyle: config.forcePathStyle,
         contentType,
+        contentLength,
       });
     },
-    presignGet({ key, expiresIn, now }) {
+    presignGet({ key, expiresIn, now, contentType, filename }) {
       return presignRequest({
         method: "GET",
         endpoint: config.endpoint,
@@ -218,6 +252,9 @@ export function createS3Store(
         expiresIn,
         now,
         forcePathStyle: config.forcePathStyle,
+        responseContentType: contentType,
+        responseContentDisposition: `attachment; filename="${filename}"`,
+        responseCacheControl: "private, no-store",
       }).url;
     },
     async head(key) {

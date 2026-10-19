@@ -6,7 +6,7 @@ import type { Db } from "../db.ts";
 import { insertPending, readMedia } from "./db.ts";
 import type { MediaTools } from "./ffmpeg.ts";
 import { createMemoryStore } from "./memory-store.ts";
-import { recoverStuckJobs, runOneMediaJob, type WorkerDeps } from "./worker.ts";
+import { recoverStuckJobs, runOneMediaJob, sweepDeletedMedia, type WorkerDeps } from "./worker.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 
@@ -21,6 +21,19 @@ function jpegWithGps(): Uint8Array {
     (length >> 8) & 0xff,
     length & 0xff,
     ...payload,
+    0xff,
+    0xc0,
+    0x00,
+    0x0b,
+    0x08,
+    0x00,
+    0x01,
+    0x00,
+    0x01,
+    0x01,
+    0x01,
+    0x11,
+    0x00,
     0xff,
     0xda,
     0x00,
@@ -267,6 +280,51 @@ test("a stuck running job is queued again", async () => {
       [id],
     );
     assert.equal(jobs[0]?.status, "queued");
+  } finally {
+    await close();
+  }
+});
+
+test("a sweep deletes tombstoned objects and leaves a message the other person sent", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria);
+    await user(db, josh);
+    const kept = randomUUID();
+    const gone = randomUUID();
+    await db.query(
+      `insert into media_object (
+        id, owner_user_id, scope, kind, status, content_type, byte_size,
+        peer_user_id, encryption, key_envelope, upload_key, file_key
+      ) values ($1, $2, 'dm', 'image', 'ready', 'image/jpeg', 2, $3, 'client-e2e', 'wrapped', $4, $4)`,
+      [kept, maria, josh, `dm/${kept}/cipher`],
+    );
+    await db.query(
+      `insert into media_object (
+        id, owner_user_id, scope, kind, status, content_type, byte_size,
+        duration_ms, room_id, post_id, encryption, upload_key, file_key
+      ) values ($1, $2, 'room', 'image', 'ready', 'image/jpeg', 2, null, 'shop', 'post-sweep', 'server-processed', $3, $4)`,
+      [gone, josh, `incoming/${gone}`, `ready/${gone}/file`],
+    );
+    const store = createMemoryStore();
+    await store.put(`dm/${kept}/cipher`, Uint8Array.of(1, 2), "application/octet-stream");
+    await store.put(`ready/${gone}/file`, Uint8Array.of(3, 4), "image/jpeg");
+    await db.query(`delete from "user" where id = $1`, [josh]);
+    const tools: MediaTools = {
+      async processImage() {
+        throw new Error("no");
+      },
+      async processVideo() {
+        throw new Error("no");
+      },
+    };
+    assert.equal(await sweepDeletedMedia({ db, store, tools, now: () => now }), 1);
+    assert.equal(await store.head(`ready/${gone}/file`), null);
+    assert.equal(await readMedia(db, gone), null);
+    assert.equal((await store.get(`dm/${kept}/cipher`))?.byteLength, 2);
+    assert.equal((await readMedia(db, kept))?.owner_user_id, maria);
   } finally {
     await close();
   }

@@ -9,6 +9,7 @@ import {
   planUpload,
   type UploadPlan,
 } from "../../src/lib/media/limits.ts";
+import { canAttachToPost, memberOfRoom } from "./access.ts";
 import {
   insertPending,
   markProcessing,
@@ -17,7 +18,7 @@ import {
   readMedia,
   userExists,
 } from "./db.ts";
-import type { ObjectStore } from "./s3.ts";
+import { attachmentName, type ObjectStore } from "./s3.ts";
 
 export type MediaResult<T> =
   { ok: true; status: number; body: T } | { ok: false; status: number; error: string };
@@ -65,6 +66,10 @@ export async function prepareUpload(
   if (plan.scope === "dm" && !(await userExists(deps.db, plan.peerUserId))) {
     return { ok: false, status: 400, error: "Choose the other person." };
   }
+  if (plan.scope === "room") {
+    const access = await canAttachToPost(deps.db, userId, plan.roomId, plan.postId);
+    if (!access.ok) return access;
+  }
   const id = randomUUID();
   const key = uploadKey(plan.scope, id);
   await insertPending(deps.db, id, userId, plan, key);
@@ -72,6 +77,7 @@ export async function prepareUpload(
   const upload = deps.store.presignPut({
     key,
     contentType: plan.uploadContentType,
+    contentLength: plan.byteSize,
     expiresIn: UPLOAD_SECONDS,
     now,
   });
@@ -146,10 +152,19 @@ export async function readForMember(
   }>
 > {
   const row = await readMedia(deps.db, id);
-  if (!row) return { ok: false, status: 404, error: "That file is not here." };
-  const allowed =
-    row.scope === "room" ? true : row.owner_user_id === userId || row.peer_user_id === userId;
-  if (!allowed) return { ok: false, status: 404, error: "That file is not here." };
+  if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
+  if (row.scope === "room") {
+    if (!(await memberOfRoom(deps.db, userId, row.room_id))) {
+      return { ok: false, status: 404, error: "That file is not here." };
+    }
+    const posts = await deps.db.query<{ id: string }>(
+      `select id from room_post where id = $1 and room_id = $2`,
+      [row.post_id, row.room_id],
+    );
+    if (!posts[0]) return { ok: false, status: 404, error: "That file is not here." };
+  } else if (row.owner_user_id !== userId && row.peer_user_id !== userId) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
   if (row.status === "rejected") {
     if (row.owner_user_id !== userId)
       return { ok: false, status: 404, error: "That file is not here." };
@@ -180,7 +195,15 @@ export async function readForMember(
     };
   }
   const now = deps.now();
-  const url = deps.store.presignGet({ key: row.file_key, expiresIn: READ_SECONDS, now });
+  const servedType =
+    row.encryption === "client-e2e" ? "application/octet-stream" : row.content_type;
+  const url = deps.store.presignGet({
+    key: row.file_key,
+    expiresIn: READ_SECONDS,
+    now,
+    contentType: servedType,
+    filename: attachmentName(servedType),
+  });
   const body: {
     id: string;
     status: string;
@@ -200,8 +223,15 @@ export async function readForMember(
     url,
     expiresIn: READ_SECONDS,
   };
-  if (row.thumb_key)
-    body.thumbUrl = deps.store.presignGet({ key: row.thumb_key, expiresIn: READ_SECONDS, now });
+  if (row.thumb_key) {
+    body.thumbUrl = deps.store.presignGet({
+      key: row.thumb_key,
+      expiresIn: READ_SECONDS,
+      now,
+      contentType: "image/jpeg",
+      filename: "thumb.jpg",
+    });
+  }
   if (row.encryption === "client-e2e") body.keyEnvelope = row.key_envelope;
   return { ok: true, status: 200, body };
 }

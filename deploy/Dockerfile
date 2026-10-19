@@ -2,8 +2,12 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
+# Bookworm security, 5.1.9. The epoch is part of the apt version.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends \
+    ffmpeg=7:5.1.9-0+deb12u1 \
+    util-linux \
+    ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

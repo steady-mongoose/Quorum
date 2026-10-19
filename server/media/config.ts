@@ -1,5 +1,9 @@
 export type MediaConfig =
-  | { enabled: false; video: false; reason: "unset" | "partial" | "invalid-endpoint" }
+  | {
+      enabled: false;
+      video: false;
+      reason: "unset" | "partial" | "invalid-endpoint" | "avouch-host";
+    }
   | {
       enabled: true;
       video: boolean;
@@ -39,6 +43,10 @@ export function readMediaConfig(env: NodeJS.ProcessEnv = process.env): MediaConf
   }
   if (!url.hostname || url.username || url.password || url.search || url.hash) {
     return { enabled: false, video: false, reason: "invalid-endpoint" };
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (host === "avouchsocial.com" || host.endsWith(".avouchsocial.com")) {
+    return { enabled: false, video: false, reason: "avouch-host" };
   }
   const region = field(env, "MEDIA_S3_REGION") || "us-east-1";
   const pathStyle = field(env, "MEDIA_S3_FORCE_PATH_STYLE").toLowerCase();

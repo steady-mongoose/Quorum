@@ -19,6 +19,18 @@ async function user(db: Db, id: string, email: string) {
   );
 }
 
+async function stand(db: Db, userId: string, roomId: string, postId: string) {
+  await db.query(
+    `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
+    [roomId, userId],
+  );
+  await db.query(`insert into room_post (id, room_id, author_user_id) values ($1, $2, $3)`, [
+    postId,
+    roomId,
+    userId,
+  ]);
+}
+
 function deps(
   db: Db,
   store = createMemoryStore(),
@@ -31,6 +43,7 @@ test("a member prepares a room picture and the server queues it after the bytes 
   try {
     const josh = randomUUID();
     await user(db, josh, "josh@example.com");
+    await stand(db, josh, "shop", "post-1");
     const media = deps(db);
     const prepared = await prepareUpload(media, josh, {
       kind: "image",
@@ -44,6 +57,7 @@ test("a member prepares a room picture and the server queues it after the bytes 
     if (!prepared.ok) return;
     assert.match(prepared.body.upload.url, /^https:\/\/media\.test\/incoming\//);
     assert.equal(prepared.body.upload.headers["content-type"], "image/jpeg");
+    assert.equal(prepared.body.upload.headers["content-length"], "4");
     const key = prepared.body.upload.url.replace("https://media.test/", "");
     await media.store.put(key, Uint8Array.of(1, 2, 3, 4), "image/jpeg");
     const done = await completeUpload(media, josh, prepared.body.id);
@@ -66,6 +80,7 @@ test("a larger upload than declared is refused and removed", async () => {
   try {
     const josh = randomUUID();
     await user(db, josh, "josh@example.com");
+    await stand(db, josh, "shop", "post-2");
     const media = deps(db);
     const prepared = await prepareUpload(media, josh, {
       kind: "image",
@@ -96,6 +111,7 @@ test("only the owner can finish an upload", async () => {
     const maria = randomUUID();
     await user(db, josh, "josh@example.com");
     await user(db, maria, "maria@example.com");
+    await stand(db, josh, "county", "post-3");
     const media = deps(db);
     const prepared = await prepareUpload(media, josh, {
       kind: "image",
@@ -153,6 +169,8 @@ test("a message picture is stored sealed and is not queued for transcoding", asy
     if (!peer.ok) return;
     assert.equal(peer.body.keyEnvelope, "wrapped-for-maria");
     assert.match(peer.body.url ?? "", /^https:\/\/media\.test\//);
+    assert.match(peer.body.url ?? "", /response-content-disposition=attachment/);
+    assert.match(peer.body.url ?? "", /response-cache-control=private/);
     assert.equal(peer.body.expiresIn, 120);
   } finally {
     await close();
@@ -185,6 +203,7 @@ test("an unfinished upload expires", async () => {
   try {
     const josh = randomUUID();
     await user(db, josh, "josh@example.com");
+    await stand(db, josh, "shop", "post-old");
     const media = deps(db);
     const prepared = await prepareUpload(media, josh, {
       kind: "image",
@@ -222,6 +241,58 @@ test("an unfinished upload expires", async () => {
     assert.equal(reading.ok, true);
     if (!reading.ok) return;
     assert.equal(reading.body.status, "rejected");
+  } finally {
+    await close();
+  }
+});
+
+test("a room picture requires membership and the post, and another room cannot read it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const josh = randomUUID();
+    const maria = randomUUID();
+    const pete = randomUUID();
+    await user(db, josh, "josh@example.com");
+    await user(db, maria, "maria@example.com");
+    await user(db, pete, "pete@example.com");
+    await stand(db, josh, "shop", "post-room");
+    await stand(db, maria, "shop", "maria-post");
+    await stand(db, pete, "county", "pete-post");
+    const media = deps(db);
+    const outsider = await prepareUpload(media, pete, {
+      kind: "image",
+      contentType: "image/jpeg",
+      byteSize: 2,
+      scope: "room",
+      roomId: "shop",
+      postId: "post-room",
+    });
+    assert.equal(outsider.ok, false);
+    if (outsider.ok) return;
+    assert.equal(outsider.status, 403);
+    const missing = await prepareUpload(media, josh, {
+      kind: "image",
+      contentType: "image/jpeg",
+      byteSize: 2,
+      scope: "room",
+      roomId: "shop",
+      postId: "missing-post",
+    });
+    assert.equal(missing.ok, false);
+    const prepared = await prepareUpload(media, josh, {
+      kind: "image",
+      contentType: "image/jpeg",
+      byteSize: 2,
+      scope: "room",
+      roomId: "shop",
+      postId: "post-room",
+    });
+    assert.equal(prepared.ok, true);
+    if (!prepared.ok) return;
+    const shop = await readForMember(media, maria, prepared.body.id);
+    assert.equal(shop.ok, true);
+    const other = await readForMember(media, pete, prepared.body.id);
+    assert.equal(other.ok, false);
   } finally {
     await close();
   }

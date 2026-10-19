@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import { createS3Store, presignRequest } from "./s3.ts";
+import { redactSecrets } from "./redact.ts";
 
 const secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 const access = "AKIAIOSFODNN7EXAMPLE";
@@ -62,6 +63,7 @@ test("a presigned PUT signs the content type and a different secret changes the 
     now: new Date("2026-10-19T12:00:00Z"),
     forcePathStyle: true,
     contentType: "image/jpeg",
+    contentLength: 4,
   });
   const second = presignRequest({
     method: "PUT",
@@ -75,11 +77,13 @@ test("a presigned PUT signs the content type and a different secret changes the 
     now: new Date("2026-10-19T12:00:00Z"),
     forcePathStyle: true,
     contentType: "image/jpeg",
+    contentLength: 4,
   });
   const url = new URL(first.url);
   assert.equal(url.searchParams.get("X-Amz-Expires"), "600");
-  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "content-type;host");
+  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "content-length;content-type;host");
   assert.equal(first.headers["content-type"], "image/jpeg");
+  assert.equal(first.headers["content-length"], "4");
   assert.equal(url.pathname, "/avouch/incoming/abc");
   assert.notEqual(
     url.searchParams.get("X-Amz-Signature"),
@@ -113,4 +117,58 @@ test("a store put uses the signed URL and does not send a cookie", async () => {
   assert.equal(headers["content-type"], "image/jpeg");
   assert.equal(headers.cookie, undefined);
   assert.equal(seen?.credentials, undefined);
+});
+
+test("a presigned GET forces attachment, a fixed type, and no-store", () => {
+  const signed = presignRequest({
+    method: "GET",
+    endpoint: "https://objects.example",
+    bucket: "avouch-media",
+    key: "ready/abc/file",
+    region: "us-east-1",
+    accessKeyId: "access",
+    secretAccessKey: "secret",
+    expiresIn: 120,
+    now: new Date("2026-10-19T12:00:00Z"),
+    forcePathStyle: true,
+    responseContentType: "image/jpeg",
+    responseContentDisposition: 'attachment; filename="picture.jpg"',
+    responseCacheControl: "private, no-store",
+  });
+  const url = new URL(signed.url);
+  assert.equal(url.searchParams.get("response-content-type"), "image/jpeg");
+  assert.equal(
+    url.searchParams.get("response-content-disposition"),
+    'attachment; filename="picture.jpg"',
+  );
+  assert.equal(url.searchParams.get("response-cache-control"), "private, no-store");
+  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "host");
+  const redacted = redactSecrets(`failed ${signed.url}`);
+  assert.equal(redacted.includes("[signed-url]"), true);
+  assert.equal(redacted.includes(url.searchParams.get("X-Amz-Signature") ?? "missing"), false);
+});
+
+test("a storage error does not include the signed URL", async () => {
+  const store = createS3Store(
+    {
+      enabled: true,
+      video: false,
+      endpoint: "http://127.0.0.1:9000",
+      bucket: "avouch",
+      region: "us-east-1",
+      accessKeyId: "access",
+      secretAccessKey: "secret",
+      forcePathStyle: true,
+    },
+    async (url) => new Response(url, { status: 500 }),
+  );
+  await assert.rejects(
+    () => store.head("ready/abc/file"),
+    (error: Error) => {
+      assert.match(error.message, /500/);
+      assert.equal(error.message.includes("X-Amz-Signature"), false);
+      assert.equal(error.message.includes("http"), false);
+      return true;
+    },
+  );
 });

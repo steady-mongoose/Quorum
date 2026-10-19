@@ -49,6 +49,13 @@ test("video turns on only when MEDIA_VIDEO is on", () => {
   assert.equal(on.enabled && on.video, true);
 });
 
+test("an avouchsocial.com host keeps storage off", () => {
+  const config = readMediaConfig(filled({ MEDIA_S3_ENDPOINT: "https://media.avouchsocial.com" }));
+  assert.equal(config.enabled, false);
+  if (config.enabled) return;
+  assert.equal(config.reason, "avouch-host");
+});
+
 test("a bad endpoint keeps storage off", () => {
   const config = readMediaConfig(filled({ MEDIA_S3_ENDPOINT: "not a url" }));
   assert.equal(config.enabled, false);

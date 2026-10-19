@@ -1,10 +1,13 @@
 import type { Db } from "../db.ts";
+import { imageBounds, ImageBoundsError } from "../../src/lib/media/bounds.ts";
 import { VIDEO_MS } from "../../src/lib/media/limits.ts";
 import { stripImageMetadata } from "../../src/lib/media/strip.ts";
 import {
   claimJob,
+  deleteMedia,
   failJob,
   finishJob,
+  listDeleted,
   listStalePending,
   markReady,
   markRejected,
@@ -43,6 +46,24 @@ async function failMedia(
   await deleteKeys(deps.store, keys);
   await markRejected(deps.db, mediaId, reason);
   await failJob(deps.db, jobId, reason);
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+/** Delete objects for tombstoned rows, then delete the rows. */
+export async function sweepDeletedMedia(deps: WorkerDeps): Promise<number> {
+  const rows = await listDeleted(deps.db);
+  for (const row of rows) {
+    await deleteKeys(deps.store, [row.upload_key, row.file_key, row.thumb_key]);
+    await deleteMedia(deps.db, row.id);
+  }
+  return rows.length;
 }
 
 export async function expireStaleUploads(deps: WorkerDeps, pendingMs: number): Promise<number> {
@@ -120,13 +141,19 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
     if (row.kind === "image") {
       let stripped: Uint8Array;
       try {
+        imageBounds(raw, row.content_type);
         stripped = stripImageMetadata(raw, row.content_type);
       } catch (error) {
         throw new MediaReject(
-          error instanceof Error ? error.message : "That file is not a picture we can keep.",
+          error instanceof ImageBoundsError || error instanceof Error
+            ? error.message
+            : "That file is not a picture we can keep.",
         );
       }
       const processed = await deps.tools.processImage(stripped, row.content_type);
+      if (sameBytes(processed.file, raw)) {
+        throw new MediaReject("That picture could not be prepared.");
+      }
       const fileKey = `ready/${row.id}/file`;
       const thumbKey = `ready/${row.id}/thumb`;
       await deps.store.put(fileKey, processed.file, processed.fileType);
