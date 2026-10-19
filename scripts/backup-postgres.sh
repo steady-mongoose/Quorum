@@ -30,6 +30,7 @@ ping_healthcheck() {
   printf '%s\n' \
     "silent" \
     "show-error" \
+    "fail" \
     "max-time = 10" \
     "output = \"/dev/null\"" \
     "url = \"${target}\"" \

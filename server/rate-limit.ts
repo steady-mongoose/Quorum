@@ -124,7 +124,18 @@ export async function consumeLimit(
   }
   try {
     writesSincePrune += 1;
-    if (shouldPruneWrite(writesSincePrune)) await pruneRateLimits(db, now, rule);
+    if (shouldPruneWrite(writesSincePrune)) {
+      try {
+        await pruneRateLimits(db, now, rule);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "rate-limit-prune-failed",
+            message: error instanceof Error ? error.message : "unknown",
+          }),
+        );
+      }
+    }
     return await db.transaction(async (tx) => {
       const rows = await tx.query<{ count: number; lastRequest: number | string }>(
         `select "count", "lastRequest" from "rateLimit" where "key" = $1 for update`,

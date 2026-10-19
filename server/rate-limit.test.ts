@@ -124,6 +124,35 @@ test("expired rows are pruned in a batch, and only on a sampled write", async ()
   }
 });
 
+test("a prune failure is logged and the request still finishes", async () => {
+  const { db, close } = await openTestDb();
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map((arg) => String(arg)).join(" "));
+  };
+  const flaky = {
+    query: async (text: string, params?: unknown[]) => {
+      if (text.includes("ctid")) throw new Error("lock timeout");
+      return db.query(text, params);
+    },
+    transaction: db.transaction.bind(db),
+  };
+  try {
+    resetPruneSchedule();
+    let last = { allowed: false, retryAfter: 0 };
+    for (let n = 0; n < PRUNE_EVERY; n += 1) {
+      last = await consumeLimit(flaky, "signup:ip:203.0.113.70", ATTEMPT_LIMIT, 3_000_000);
+    }
+    assert.equal(last.allowed, false);
+    assert.match(errors.join("\n"), /rate-limit-prune-failed/);
+    assert.match(errors.join("\n"), /lock timeout/);
+  } finally {
+    console.error = original;
+    await close();
+  }
+});
+
 test("email keys drop plus tags everywhere and dots only for gmail", () => {
   assert.equal(emailRateKey("  A.B+tag@Example.com "), "a.b@example.com");
   assert.equal(emailRateKey("ab@example.com"), "ab@example.com");

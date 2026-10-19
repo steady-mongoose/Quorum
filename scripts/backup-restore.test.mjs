@@ -86,6 +86,7 @@ test("an age dump restores to the same bytes and stays local until credentials e
   assert.equal(readFileSync(sink, "utf8"), DUMP);
   const successPing = readFileSync(join(root, "curl.log"), "utf8");
   assert.match(successPing, /url = "https:\/\/hc\.example\/ping\/secret-token"/);
+  assert.match(successPing, /^fail$/m);
   assert.equal(successPing.includes("/fail"), false);
   const argv = successPing.split("\n").find((line) => line.startsWith("argv:")) ?? "";
   assert.equal(argv.includes("secret-token"), false);
@@ -164,6 +165,7 @@ test("a failed backup pings the health-check URL and a blank URL stays quiet", a
   assert.equal(String(failed.stderr ?? "").includes(url), false);
   const ping = readFileSync(curlLog, "utf8");
   assert.match(ping, /url = "https:\/\/hc\.example\/ping\/secret-token\/fail"/);
+  assert.match(ping, /^fail$/m);
   const argv = ping.split("\n").find((line) => line.startsWith("argv:")) ?? "";
   assert.equal(argv.includes("secret-token"), false);
 

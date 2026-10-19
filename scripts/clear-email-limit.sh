@@ -63,8 +63,10 @@ trap cleanup EXIT
 
 case "$CLEAR_MODE" in
   docker)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -v "key=${key}" -c "$sql"
+    # psql does not substitute :'key' inside -c. -f - reads the SQL from stdin,
+    # and exec -T forwards that stdin into the container.
+    printf '%s\n' "$sql" | docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -w -v ON_ERROR_STOP=1 -v "key=${key}" -f -
     ;;
   psql)
     if [ -z "${DATABASE_URL:-}" ]; then
@@ -77,8 +79,9 @@ case "$CLEAR_MODE" in
     port="$(printf '%s\n' "$meta" | awk 'NR==2')"
     pguser="$(printf '%s\n' "$meta" | awk 'NR==3')"
     pgdb="$(printf '%s\n' "$meta" | awk 'NR==4')"
-    env -u DATABASE_URL PGPASSFILE="$passfile" psql -h "$host" -p "$port" -U "$pguser" -d "$pgdb" \
-      -v ON_ERROR_STOP=1 -v "key=${key}" -c "$sql"
+    printf '%s\n' "$sql" | env -u DATABASE_URL PGPASSFILE="$passfile" \
+      psql -h "$host" -p "$port" -U "$pguser" -d "$pgdb" -w \
+      -v ON_ERROR_STOP=1 -v "key=${key}" -f -
     ;;
   *)
     echo "CLEAR_MODE must be docker or psql." >&2
