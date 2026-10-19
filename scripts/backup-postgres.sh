@@ -15,6 +15,22 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+PLAIN=""
+
+# A failed run pings BACKUP_HEALTHCHECK_URL when it is set. Unset means no ping.
+# The URL is not printed. A ping failure does not replace the backup's exit code.
+on_exit() {
+  status="$?"
+  if [ -n "$PLAIN" ]; then
+    rm -f "$PLAIN"
+  fi
+  if [ "$status" -ne 0 ] && [ -n "${BACKUP_HEALTHCHECK_URL:-}" ]; then
+    curl -fsS --max-time 10 -o /dev/null --retry 0 "$BACKUP_HEALTHCHECK_URL" || true
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/avouch}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_MODE="${BACKUP_MODE:-docker}"
@@ -43,7 +59,6 @@ chmod 700 "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PLAIN="$BACKUP_DIR/avouch-$STAMP.dump.partial"
 OUT="$BACKUP_DIR/avouch-$STAMP.dump.age"
-trap 'rm -f "$PLAIN"' EXIT
 
 if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \

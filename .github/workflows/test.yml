@@ -44,7 +44,7 @@ jobs:
       - name: Backup restore drill
         id: backup
         if: always()
-        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs
+        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs scripts/clear-email-limit.test.mjs
 
       - name: Report suite results
         if: always()
@@ -56,3 +56,13 @@ jobs:
           if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
+
+  caddy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build the pinned Caddy image
+        run: docker build -f deploy/Dockerfile.caddy deploy

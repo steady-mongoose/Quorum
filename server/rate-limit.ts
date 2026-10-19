@@ -11,11 +11,58 @@ export type LimitRule = { windowMs: number; max: number };
 
 const BACKOFF_CAP = 4;
 
+/** Same length cap as account email checks. Longer values are not used as keys. */
+export const EMAIL_KEY_MAX = 200;
+
+const EMAIL_SHAPE =
+  /^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
 /** How long the current count keeps the key closed, in milliseconds. */
 export function lockMs(count: number, rule: LimitRule): number {
   const strikes = Math.max(0, count - rule.max);
   const steps = Math.min(strikes, BACKOFF_CAP);
   return rule.windowMs * 2 ** steps;
+}
+
+/** Oldest lastRequest that can still be inside a lock. Rows older than this are deleted. */
+export function maxLockMs(rule: LimitRule): number {
+  return lockMs(rule.max + BACKOFF_CAP, rule);
+}
+
+/**
+ * Rate-limit identity for an email. Trimmed and lowercased, dots removed from
+ * the local part, and the plus tag dropped. Null when the value is empty,
+ * too long, or not an address — those must not become table keys.
+ * Account rows still keep the address the person typed, aside from trim and case.
+ */
+export function emailRateKey(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || trimmed.length > EMAIL_KEY_MAX) return null;
+  if (!EMAIL_SHAPE.test(trimmed)) return null;
+  const at = trimmed.lastIndexOf("@");
+  let local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus >= 0) local = local.slice(0, plus);
+  local = local.replaceAll(".", "");
+  if (!local) return null;
+  const key = `${local}@${domain}`;
+  if (key.length > EMAIL_KEY_MAX || !/^[a-z0-9_-]+@[a-z0-9.-]+$/.test(key)) return null;
+  return key;
+}
+
+export function emailLimitKeys(email: string): string[] | null {
+  const key = emailRateKey(email);
+  if (!key) return null;
+  return ["sign-in", "signup", "invite"].map((scope) => `${scope}:email:${key}`);
+}
+
+/** Deletes the three email buckets. Returns the keys removed from consideration. */
+export async function clearEmailLimit(db: Db, email: string): Promise<string[]> {
+  const keys = emailLimitKeys(email);
+  if (!keys) throw new Error("Enter an email address.");
+  await db.query(`delete from "rateLimit" where "key" in ($1, $2, $3)`, keys);
+  return keys;
 }
 
 /**
@@ -35,6 +82,7 @@ export async function consumeLimit(
     throw new Error("Rate limit window must be at least 1 second.");
   }
   try {
+    await db.query(`delete from "rateLimit" where "lastRequest" < $1`, [now - maxLockMs(rule)]);
     return await db.transaction(async (tx) => {
       const rows = await tx.query<{ count: number; lastRequest: number | string }>(
         `select "count", "lastRequest" from "rateLimit" where "key" = $1 for update`,
