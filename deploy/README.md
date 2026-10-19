@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0004_dm_e2ee.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. The private-message migration needs the owner's approval before it is applied. Do not run it against a real database until then.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0006_dm_e2ee.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. The private-message migration needs the owner's approval before it is applied. Do not run it against a real database until then.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -136,7 +136,7 @@ aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_
   --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0004_dm_e2ee.sql`.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0006_dm_e2ee.sql`.
 
 ## What this box does not do
 

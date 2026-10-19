@@ -60,7 +60,7 @@ test("closed-test migrations are the auth schema copy and the invite tables", ()
   const migrationsDir = join(projectRoot(), "migrations");
   assert.deepEqual(
     pendingMigrations(readdirSync(migrationsDir), []).map((item) => item.name),
-    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql", "0004_dm_e2ee.sql"],
+    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql", "0006_dm_e2ee.sql"],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
@@ -78,7 +78,7 @@ test("this workspace's auth schema copy is byte-identical to its source", () => 
 });
 
 test("the private-message migration is flagged for the owner's approval", () => {
-  const text = readFileSync(join(projectRoot(), "migrations/0004_dm_e2ee.sql"), "utf8");
+  const text = readFileSync(join(projectRoot(), "migrations/0006_dm_e2ee.sql"), "utf8");
   assert.match(text, /owner must approve/i);
   assert.match(text, /ciphertext/i);
   assert.doesNotMatch(text, /plaintext/i);

@@ -1,5 +1,6 @@
 -- The owner must approve this file before it is applied to a database and
--- before the pull request that adds it is merged. The API process does not
+-- before the pull request that adds it is merged. This is 0006 so it does not
+-- collide with 0004_media.sql or 0005_rate_limit_index.sql. The API process does not
 -- apply migrations. `npm run db:migrate` does, and only when DATABASE_URL is
 -- set. Do not run that against a real database until the owner approves.
 --
