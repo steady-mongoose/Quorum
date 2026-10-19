@@ -35,15 +35,15 @@ Stop the server with Ctrl+C. Windows, Mac, and Linux all work; `npm run dev` is 
 
 Addictive apps run on variable reward: you open them not knowing what you will get, and that uncertainty is the hook. Avouch Social runs on **obligation to people you have met**. You open it knowing what you will get: Thursday, the book, the Nelsons' Tuesday. Three loops do the work, and each has a built-in limit that keeps it from turning into a feed.
 
-| Loop | What pulls you back | The limit that keeps it honest |
-|---|---|---|
-| **Rhythm** | The week has a shape: Sunday, the meal after, Thursday, the second Wednesday. The front page is those dates. | Only the next seven days, only days with something on them. No infinite scroll; the page ends. Nothing refreshes on its own. |
-| **Obligation** | You said you'd be there, and the host will take roll with your name in front of them. You put your name on Tuesday. Someone is reading chapter five because you are. | Names, never counts. No-shows get nothing: no streak lost, no badge gone, no public mark. The pull is the people, not the app. |
-| **Recognition** | A host who was there names one person who earned it, in front of the others. It lands on your profile where the people you've stood with can read it. | One per meeting. Never a number, never ranked, never from someone who wasn't in the room. Visible only to people who have stood with you. |
+| Loop            | What pulls you back                                                                                                                                                  | The limit that keeps it honest                                                                                                            |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rhythm**      | The week has a shape: Sunday, the meal after, Thursday, the second Wednesday. The front page is those dates.                                                         | Only the next seven days, only days with something on them. No infinite scroll; the page ends. Nothing refreshes on its own.              |
+| **Obligation**  | You said you'd be there, and the host will take roll with your name in front of them. You put your name on Tuesday. Someone is reading chapter five because you are. | Names, never counts. No-shows get nothing: no streak lost, no badge gone, no public mark. The pull is the people, not the app.            |
+| **Recognition** | A host who was there names one person who earned it, in front of the others. It lands on your profile where the people you've stood with can read it.                | One per meeting. Never a number, never ranked, never from someone who wasn't in the room. Visible only to people who have stood with you. |
 
 The measures that matter are the ones a feed cannot fake: how many people who said they'd be there were there; how many cards got a Hosted; how many parish days got a name on them; how many members come back the next week. Time in the app is a failure metric. A good week is ten minutes on Sunday night and one minute on Thursday afternoon.
 
-Every feature proposal gets the same question: *does this make someone leave the house?* If it makes them scroll, it does not go in.
+Every feature proposal gets the same question: _does this make someone leave the house?_ If it makes them scroll, it does not go in.
 
 **The Literary Society** is the clearest case. A book reading is the oldest engagement loop there is (a table of people who agreed to read the same chapters), and the app adds exactly three things to it: the date, what to have read by then, and who said they're coming. The host sets the next chapters when closing the table, so the obligation is always specific. There is no in-app discussion of the book. The discussion is the table.
 
@@ -65,9 +65,9 @@ Every feature proposal gets the same question: *does this make someone leave the
 
 **Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
 
-**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts *sloppy* or *unsupported* (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
+**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_ or _unsupported_ (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
 
-Status: browser skeleton on `localStorage`. The next step is the same screens on a $20 VPS with login (better-auth is already wired) in place of the name field, and invite codes creating accounts.
+Status: the screens still run in the browser. A closed test can point them at `https://api.avouchsocial.com` with `VITE_API_BASE_URL`. Signup on that API is invite-code only. When the variable is empty, or the API does not answer, the door stays in demo mode and nothing is saved on a server. The box itself is described in `deploy/README.md`. Do not apply `migrations/` until the owner approves those files.
 
 ---
 
@@ -91,13 +91,13 @@ Other groups can lock onto the same desk. They use your sentence, your office, a
 
 Quorum does not log into Signal, WhatsApp, X, or Facebook. You copy a ready text and paste it yourself.
 
-| Where | Who sees it | What you paste |
-|---|---|---|
-| Signal | Your private group | The call, the number, and the exact words. Pin it. People reply only after they have called. |
-| WhatsApp | Your private group | The same text. The phone number stays tappable. |
-| Text or iMessage | People you already know | A short ping, then the script as a second text so it is not cut off. |
-| X or Facebook | The public | The office, the number, the hour, and the sentence. Do not ask strangers for their names. |
-| Instagram | The public | A screenshot of the card on the desk, plus the public post as the caption. |
+| Where            | Who sees it             | What you paste                                                                               |
+| ---------------- | ----------------------- | -------------------------------------------------------------------------------------------- |
+| Signal           | Your private group      | The call, the number, and the exact words. Pin it. People reply only after they have called. |
+| WhatsApp         | Your private group      | The same text. The phone number stays tappable.                                              |
+| Text or iMessage | People you already know | A short ping, then the script as a second text so it is not cut off.                         |
+| X or Facebook    | The public              | The office, the number, the hour, and the sentence. Do not ask strangers for their names.    |
+| Instagram        | The public              | A screenshot of the card on the desk, plus the public post as the caption.                   |
 
 Private apps are how your own people get the script. Public apps are how other people see which office was asked, and what was asked. Both use the same sentence.
 
