@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0004_rate_limit_index.sql` in the pull request. Merging is not that approval. `0004` adds an index on `rateLimit.lastRequest` and still needs your OK before it is applied. Do not apply them before you say so.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0005_rate_limit_index.sql` in the pull request. Merging is not that approval. `0005` adds an index on `rateLimit.lastRequest` and still needs your OK before it is applied. Do not apply them before you say so.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -91,7 +91,7 @@ Better Auth stores its limiter in the `rateLimit` table, so every API process sh
 
 Plus tags share a lock on every domain. Dots share a lock only for `gmail.com` and `googlemail.com`, which count as one domain: `first.last+tag@googlemail.com` and `firstlast@gmail.com`. `first.last@corp.com` and `firstlast@corp.com` stay separate. A value that is too long or not an address is refused and is not stored as a key. IPv6 is one bucket per /64, in the API and in Caddy, including bracketed addresses and IPv4-mapped forms (`::FFFF:1.2.3.4` and `::ffff:cb00:7108`).
 
-Expired rows (last request older than 16 minutes, which is as long as a lock can last) are deleted in batches of 500. That delete runs on every 20th limited write in a process, not on every write. It uses the `lastRequest` index from `migrations/0004_rate_limit_index.sql`. That migration needs your approval before it is applied. Until then the delete still works, and it scans the table.
+Expired rows (last request older than 16 minutes, which is as long as a lock can last) are deleted in batches of 500. That delete runs on every 20th limited write in a process, not on every write. It uses the `lastRequest` index from `migrations/0005_rate_limit_index.sql`. That migration needs your approval before it is applied. Until then the delete still works, and it scans the table.
 
 Five failures from anywhere lock a known email for a minute, and further tries stretch that to 16 minutes. That is the tradeoff for a shared email cap. To clear it before the wait ends:
 
@@ -155,7 +155,7 @@ aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_
   --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0004_rate_limit_index.sql`.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0005_rate_limit_index.sql`.
 
 ## What this box does not do
 

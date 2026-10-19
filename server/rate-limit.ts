@@ -88,7 +88,7 @@ export function shouldPruneWrite(writeIndex: number): boolean {
 
 /**
  * Deletes at most `limit` rows whose last request is older than the longest
- * lock. The lastRequest index (migration 0004, owner approval required)
+ * lock. The lastRequest index (migration 0005, owner approval required)
  * serves the filter. Callers sample writes instead of pruning on every one.
  */
 export async function pruneRateLimits(
