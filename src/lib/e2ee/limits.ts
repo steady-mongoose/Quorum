@@ -1,0 +1,39 @@
+/** Shared mailbox bounds. The 30-day lifetime is the existing message rule. */
+
+export const DM_RETENTION_DAYS = 30;
+export const DM_RETENTION_MS = DM_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/** Plain text only, and short enough to stay inside one API request. */
+export const DM_TEXT_MAX = 4000;
+
+/** One member, several browsers. Not a group chat. */
+export const DM_MAX_DEVICES = 8;
+
+export const DM_PREKEY_BATCH = 10;
+export const DM_PREKEY_STOCK_MAX = 30;
+
+/** Their devices, our devices, and one backup envelope for each member. */
+export const DM_MAX_ENVELOPES = DM_MAX_DEVICES * 2 + 2;
+
+export const BACKUP_OPSLIMIT_MIN = 1;
+export const BACKUP_OPSLIMIT_MAX = 4;
+export const BACKUP_MEMLIMIT_MIN = 8192;
+export const BACKUP_MEMLIMIT_MAX = 268_435_456;
+export const BACKUP_OPSLIMIT_INTERACTIVE = 2;
+export const BACKUP_MEMLIMIT_INTERACTIVE = 67_108_864;
+
+export const BODY_CIPHER_MAX_BYTES = 16_384;
+export const WRAP_CIPHER_MAX_BYTES = 128;
+
+export function dmTextError(text: string): string | null {
+  const body = text.trim();
+  if (!body) return "Write a message first.";
+  if ([...body].length > DM_TEXT_MAX) return `Keep it under ${DM_TEXT_MAX} characters.`;
+  return null;
+}
+
+export function passphraseError(passphrase: string): string | null {
+  if (passphrase.length < 12) return "Use at least 12 characters.";
+  if (passphrase.length > 128) return "Use at most 128 characters.";
+  return null;
+}

@@ -1,4 +1,5 @@
 import type { Db } from "./db.ts";
+import { handleDm } from "./dm/routes.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
 import { consumeLimit, INVITE_LIMIT, SIGN_IN_LIMIT, SIGNUP_LIMIT } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
@@ -141,7 +142,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `sign-in:${clientIp(request)}`, SIGN_IN_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `sign-in:${clientIp(request)}`,
+      SIGN_IN_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
   }
 
@@ -150,7 +156,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname === "/api/signup" && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `signup:${clientIp(request)}`, SIGNUP_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `signup:${clientIp(request)}`,
+      SIGNUP_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
     const body = await readJson(request);
     const result = await redeemInvite(
@@ -178,7 +189,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname === "/api/invites" && request.method === "POST") {
-    const limit = await consumeLimit(deps.db, `invite:${clientIp(request)}`, INVITE_LIMIT, Date.now());
+    const limit = await consumeLimit(
+      deps.db,
+      `invite:${clientIp(request)}`,
+      INVITE_LIMIT,
+      Date.now(),
+    );
     if (!limit.allowed) return tooMany(limit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
@@ -202,6 +218,11 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  if (url.pathname.startsWith("/api/dm")) {
+    const response = await handleDm(deps, request, url);
+    if (response) return response;
   }
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });

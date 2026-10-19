@@ -63,7 +63,7 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Profiles are four lines** (name, household, parish, trade) plus what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name.
 
-**Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
+**Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post. On the demo board the text stays in the browser. When you are signed in, the text is encrypted on the device first. The server stores ciphertext and public keys, not the message.
 
 **Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_ or _unsupported_ (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
 

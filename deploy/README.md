@@ -117,7 +117,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0004_dm_e2ee.sql`. The private-message migration needs the owner's approval before it is applied. Do not run it against a real database until then.
 
 ## What this box does not do
 

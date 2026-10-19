@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import {
   DAY,
   DM_RETENTION_DAYS,
+  dmTextError,
   FOUNDER_CODE,
   authorName,
   blankDraft,
@@ -284,7 +285,7 @@ export const useBoard = create<BoardState>()(
         sendDm: (threadId, text) => {
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
-          if (!body || !thread?.between.includes(me())) return;
+          if (dmTextError(text) || !thread?.between.includes(me())) return;
           set({ messages: [...pruneMessages(get().messages, Date.now()), { id: crypto.randomUUID(), threadId, from: me(), text: body, at: Date.now() }] });
         },
         setOpenThread: (openThread) => set({ openThread }),
