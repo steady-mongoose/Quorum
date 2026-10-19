@@ -21,11 +21,11 @@ jobs:
         env:
           POSTGRES_USER: avouch
           POSTGRES_PASSWORD: secret
-          POSTGRES_DB: avouch
+          POSTGRES_DB: avouch_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U avouch -d avouch"
+          --health-cmd "pg_isready -U avouch -d avouch_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -59,7 +59,7 @@ jobs:
         id: backup
         if: always()
         env:
-          CLEAR_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch
+          CLEAR_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch_test
           CLEAR_POSTGRES_REQUIRED: "1"
         run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs scripts/clear-email-limit.test.mjs
 

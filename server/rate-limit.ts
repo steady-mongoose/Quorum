@@ -128,9 +128,14 @@ export async function consumeLimit(
       try {
         await pruneRateLimits(db, now, rule);
       } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error && typeof error.code === "string"
+            ? error.code
+            : null;
         console.error(
           JSON.stringify({
             event: "rate-limit-prune-failed",
+            code,
             message: error instanceof Error ? error.message : "unknown",
           }),
         );

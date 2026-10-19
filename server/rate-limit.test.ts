@@ -133,7 +133,11 @@ test("a prune failure is logged and the request still finishes", async () => {
   };
   const flaky = {
     query: async (text: string, params?: unknown[]) => {
-      if (text.includes("ctid")) throw new Error("lock timeout");
+      if (text.includes("ctid")) {
+        const failure = new Error("lock timeout");
+        Object.assign(failure, { code: "55P03" });
+        throw failure;
+      }
       return db.query(text, params);
     },
     transaction: db.transaction.bind(db),
@@ -145,8 +149,10 @@ test("a prune failure is logged and the request still finishes", async () => {
       last = await consumeLimit(flaky, "signup:ip:203.0.113.70", ATTEMPT_LIMIT, 3_000_000);
     }
     assert.equal(last.allowed, false);
-    assert.match(errors.join("\n"), /rate-limit-prune-failed/);
-    assert.match(errors.join("\n"), /lock timeout/);
+    const logged = errors.join("\n");
+    assert.match(logged, /rate-limit-prune-failed/);
+    assert.match(logged, /"code":"55P03"/);
+    assert.match(logged, /lock timeout/);
   } finally {
     console.error = original;
     await close();
