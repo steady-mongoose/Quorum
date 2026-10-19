@@ -22,7 +22,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
-import { pendingMigrations } from "./migration-plan.mjs";
+import {
+  applyMediaWorkerPassword,
+  isNoTransaction,
+  pendingMigrations,
+  sqlStatements,
+} from "./migration-plan.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -56,13 +61,34 @@ async function main() {
 
     let count = 0;
     for (const { name } of pendingMigrations(entries, applied)) {
-      const text = await readFile(join(migrationsDir, name), "utf8");
+      const text = applyMediaWorkerPassword(
+        await readFile(join(migrationsDir, name), "utf8"),
+        process.env.MEDIA_WORKER_DB_PASSWORD,
+      );
       try {
-        await client.query("BEGIN");
-        // pg's simple-query protocol runs a whole multi-statement file at once.
-        await client.query(text);
-        await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
-        await client.query("COMMIT");
+        if (isNoTransaction(text)) {
+          // CREATE ROLE cannot run inside a transaction block. Each statement
+          // is its own implicit transaction. A role that already exists is
+          // left in place so a retry can finish the grants.
+          for (const statement of sqlStatements(text)) {
+            try {
+              await client.query(statement);
+            } catch (error) {
+              const createRole = /^\s*(?:--[^\n]*\n\s*)*create\s+role\s+/i.test(statement);
+              if (createRole && error?.code === "42710") continue;
+              throw error;
+            }
+          }
+          await client.query("BEGIN");
+          await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+          await client.query("COMMIT");
+        } else {
+          await client.query("BEGIN");
+          // pg's simple-query protocol runs a whole multi-statement file at once.
+          await client.query(text);
+          await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+          await client.query("COMMIT");
+        }
       } catch (err) {
         console.error(`[migrate] error applying ${name}`);
         try {

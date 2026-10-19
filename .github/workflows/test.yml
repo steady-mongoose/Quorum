@@ -56,3 +56,13 @@ jobs:
           if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
+
+  media-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Process a picture and a video in the media profile
+        run: chmod +x scripts/media-compose-smoke.sh && ./scripts/media-compose-smoke.sh

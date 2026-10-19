@@ -10,7 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
+import {
+  applyMediaWorkerPassword,
+  isMigrationFile,
+  isNoTransaction,
+  isSkipEmbedded,
+  migrationName,
+  pendingMigrations,
+  sqlStatements,
+} from "./migration-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const AUTH_MIGRATION = "0001_auth.sql";
@@ -60,7 +68,13 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
   const migrationsDir = join(projectRoot(), "migrations");
   assert.deepEqual(
     pendingMigrations(readdirSync(migrationsDir), []).map((item) => item.name),
-    ["0001_auth.sql", "0002_closed_test.sql", "0003_rate_limit.sql", "0004_media.sql"],
+    [
+      "0001_auth.sql",
+      "0002_closed_test.sql",
+      "0003_rate_limit.sql",
+      "0004_media.sql",
+      "0005_media_worker_role.sql",
+    ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
@@ -90,4 +104,27 @@ test("the copy check reads both files and catches an edit", () => {
   writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\n");
   const drifted = authSchemaCopy(root);
   assert.notEqual(drifted.copy, drifted.source);
+});
+
+test("the media worker role is owner-approved and limited to the media tables", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0005_media_worker_role.sql"), "utf8");
+  assert.equal(sql.includes("The owner must approve this file"), true);
+  assert.equal(isNoTransaction(sql), true);
+  assert.equal(isSkipEmbedded(sql), true);
+  assert.equal(sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), true);
+  assert.match(sql, /create role media_worker/i);
+  assert.match(sql, /nosuperuser/i);
+  assert.match(
+    sql,
+    /grant select, update, delete on table media_object, media_job to media_worker/i,
+  );
+  assert.equal(sql.toLowerCase().includes('on table "user"'), false);
+  assert.equal(sql.toLowerCase().includes("on table room"), false);
+  const applied = applyMediaWorkerPassword(sql, "mediaworkerpass1");
+  assert.equal(applied.includes("@@MEDIA_WORKER_DB_PASSWORD@@"), false);
+  assert.equal(applied.includes("mediaworkerpass"), true);
+  assert.throws(() => applyMediaWorkerPassword(sql, "short"), /owner's approval/);
+  const statements = sqlStatements(applied);
+  assert.equal(statements.length, 3);
+  assert.match(statements[0], /create role media_worker/i);
 });

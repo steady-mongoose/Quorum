@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, and `migrations/0004_media.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. `0004_media.sql` is not approved by being added.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, and `migrations/0005_media_worker_role.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. `0004_media.sql` and `0005_media_worker_role.sql` are not approved by being added.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -136,7 +136,7 @@ aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_
   --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql` and `migrations/0004_media.sql`.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, and `migrations/0005_media_worker_role.sql`. Set `MEDIA_WORKER_DB_PASSWORD` before that apply. It is the password for the media worker's database login, 16 or more letters and digits.
 
 ## Pictures and video
 
@@ -144,13 +144,15 @@ Uploads stay off until `MEDIA_S3_ENDPOINT`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_
 
 Video stays off unless `MEDIA_VIDEO=on`. The charter keeps video off until the $250 band is boring.
 
-After you approve `migrations/0004_media.sql` and the credentials, the media worker is a separate compose profile. `docker compose up` does not start it.
+After you approve `migrations/0004_media.sql`, `migrations/0005_media_worker_role.sql`, and the credentials, the media worker is a separate compose profile. `docker compose up` does not start it.
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile media up -d media-worker
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile media up -d
 ```
 
-The worker re-encodes every room picture and video. It does not serve the original bytes. ffmpeg is pinned to Debian bookworm `7:5.1.9-0+deb12u1` and runs with no network namespace, a CPU cap, and a memory cap. The worker container runs as `node`, is limited to 512 MB and one CPU, and is not on the `avouch` network. It reaches Postgres through a socket file, so it has no network route to Postgres, Caddy, or the API. Its only network is outbound, for object storage.
+The worker re-encodes every room picture and video. It does not serve the original bytes. ffmpeg is pinned to Debian bookworm `7:5.1.9-0+deb12u1` and runs in `media-sandbox`, a container with no network, a CPU cap, and a memory cap. The worker does not call `unshare`. Docker's default seccomp profile would block that once privileges are dropped, and a failed sandbox refuses to start instead of blaming a missing ffmpeg. The worker signs in to Postgres as `media_worker`, which can use only the media tables. It reaches Postgres through a socket file. Its network has no default route. A proxy on that network dials the storage host from `MEDIA_S3_HOST` and no other destination. Set `MEDIA_S3_HOST` to the hostname of `MEDIA_S3_ENDPOINT`.
+
+The worker container runs as `node` and is limited to 512 MB and one CPU. It loads only its database URL, the storage settings, and the sandbox directory. The process limit of 64 only matters if jobs ever run in parallel. Today the worker handles one file at a time.
 
 A room upload is accepted only when the room exists, the member has stood in that room, and the post exists. An invite that names a room records that membership. A signed-in member of another room cannot read the file.
 

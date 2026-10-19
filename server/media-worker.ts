@@ -1,9 +1,13 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createPool, pgDb } from "./db.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { PENDING_MS } from "../src/lib/media/limits.ts";
 import { createFfmpegTools } from "./media/ffmpeg.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { redactSecrets } from "./media/redact.ts";
+import { assertSandboxReady, createSandboxRunner, SANDBOX_UNAVAILABLE } from "./media/sandbox.ts";
+import { applyWorkerEnv } from "./media/worker-env.ts";
 import {
   expireStaleUploads,
   recoverStuckJobs,
@@ -20,6 +24,7 @@ function sleep(ms: number): Promise<void> {
  * start unless object-storage credentials are set.
  */
 export async function main(): Promise<void> {
+  applyWorkerEnv(process.env);
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     console.error("Set DATABASE_URL before starting the media worker.");
@@ -35,9 +40,22 @@ export async function main(): Promise<void> {
     console.log("Picture and video storage is not set up. The worker is not running.");
     process.exit(0);
   }
+  const sandboxDir = process.env.MEDIA_SANDBOX_DIR?.trim();
+  if (!sandboxDir) {
+    console.error(SANDBOX_UNAVAILABLE);
+    process.exit(1);
+  }
+  const runner = createSandboxRunner(sandboxDir);
+  const tools = createFfmpegTools(runner);
+  try {
+    await assertSandboxReady(runner);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : SANDBOX_UNAVAILABLE);
+    process.exit(1);
+  }
   const pool = createPool(databaseUrl);
   const db = pgDb(pool);
-  const deps = { db, store, tools: createFfmpegTools(), now: () => new Date() };
+  const deps = { db, store, tools, now: () => new Date() };
   console.log(JSON.stringify({ event: "media-worker", video: config.video }));
   try {
     await recoverStuckJobs(deps);
@@ -49,8 +67,15 @@ export async function main(): Promise<void> {
       );
       process.exit(1);
     }
+    if (code === "28000" || code === "28P01") {
+      console.error(
+        "The media worker could not sign in to Postgres. Approve migrations/0005_media_worker_role.sql and set MEDIA_WORKER_DB_PASSWORD.",
+      );
+      process.exit(1);
+    }
     throw error;
   }
+  await writeFile(join(sandboxDir, "worker-ready"), "ok\n");
   for (;;) {
     const outcome = await runOneMediaJob(deps);
     await expireStaleUploads(deps, PENDING_MS);

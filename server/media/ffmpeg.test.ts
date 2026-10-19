@@ -3,10 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { crc32, deflateSync } from "node:zlib";
 import {
   FFMPEG_AS_BYTES,
+  imageDemuxer,
   imageFileArgs,
-  isolatedCommand,
+  limitedCommand,
   probeArgs,
   spawnCommand,
   thumbArgs,
@@ -33,15 +35,23 @@ function png(width: number, height: number): Uint8Array {
 }
 
 test("ffmpeg commands force a local format and drop chapters and side streams", () => {
-  const image = imageFileArgs("in.png", "out.jpg", "png");
+  assert.equal(imageDemuxer("image/png"), "png_pipe");
+  assert.equal(imageDemuxer("image/webp"), "webp_pipe");
+  assert.equal(imageDemuxer("image/jpeg"), "mjpeg");
+  assert.equal(imageDemuxer("image/gif"), "gif");
+  const image = imageFileArgs("in.png", "out.jpg", "png_pipe");
   assert.equal(image.includes("-protocol_whitelist"), true);
   assert.equal(image[image.indexOf("-protocol_whitelist") + 1], "file");
-  assert.equal(image[image.indexOf("-f") + 1], "png");
+  assert.equal(image[image.indexOf("-f") + 1], "png_pipe");
+  assert.equal(image[image.indexOf("-threads") + 1], "1");
+  assert.equal(image[image.indexOf("-update") + 1], "1");
   assert.equal(image[image.indexOf("-max_pixels") + 1], "50000000");
   assert.equal(image[image.indexOf("-fs") + 1], "67108864");
   assert.equal(image.includes("-map_metadata"), true);
-  assert.ok(thumbArgs("in.png", "thumb.jpg", "png").includes("-frames:v"));
+  assert.ok(thumbArgs("in.png", "thumb.jpg", "png_pipe").includes("-frames:v"));
   const video = videoFileArgs("in.mp4", "out.mp4", "mp4");
+  assert.equal(video.includes("-update"), false);
+  assert.equal(video[video.indexOf("-threads") + 1], "1");
   assert.deepEqual(video.filter((arg) => arg === "-map" || arg.startsWith("0:")).slice(0, 4), [
     "-map",
     "0:v:0",
@@ -55,15 +65,18 @@ test("ffmpeg commands force a local format and drop chapters and side streams", 
   assert.equal(video[video.indexOf("-max_pixels") + 1], "50000000");
   assert.equal(video[video.indexOf("-fs") + 1], "67108864");
   assert.equal(video.includes("-map_metadata"), true);
-  assert.equal(probeArgs("in.mp4", "mp4").includes("-protocol_whitelist"), true);
+  const probe = probeArgs("in.mp4", "mp4");
+  assert.equal(probe.includes("-protocol_whitelist"), true);
+  assert.equal(probe[probe.indexOf("-threads") + 1], "1");
 });
 
-test("ffmpeg runs with no network and a memory cap", () => {
-  const wrapped = isolatedCommand("ffmpeg", ["-version"]);
-  assert.equal(wrapped.command, "unshare");
-  assert.equal(wrapped.args.includes("--net"), true);
-  assert.equal(wrapped.args.includes("--map-root-user"), true);
+test("ffmpeg is capped without unshare, which Docker seccomp would block", () => {
+  const wrapped = limitedCommand("ffmpeg", ["-version"]);
+  assert.equal(wrapped.command, "prlimit");
+  assert.equal(wrapped.args.includes("unshare"), false);
+  assert.equal(wrapped.args.includes("--net"), false);
   assert.ok(wrapped.args.some((arg) => arg === `--as=${FFMPEG_AS_BYTES}`));
+  assert.equal(wrapped.args.includes("--nproc=32"), true);
   assert.equal(wrapped.args.at(-2), "ffmpeg");
   assert.equal(wrapped.args.at(-1), "-version");
 });
@@ -153,7 +166,7 @@ test("a video over 60 seconds is refused after probing", async () => {
       return {
         code: 0,
         stdout: JSON.stringify({
-          streams: [{ codec_type: "video", codec_name: "h264" }],
+          streams: [{ codec_type: "video", codec_name: "h264", width: 64, height: 64 }],
           format: { duration: "90" },
         }),
         stderr: "",
@@ -166,6 +179,55 @@ test("a video over 60 seconds is refused after probing", async () => {
     (error) => {
       assert.ok(error instanceof MediaReject);
       assert.match(error.message, /60 seconds/);
+      return true;
+    },
+  );
+});
+
+test("a video whose frame is too large is refused before decoding", async () => {
+  const ffmpegArgs: string[][] = [];
+  const tools = createFfmpegTools(async (command, args) => {
+    if (command === "ffmpeg") ffmpegArgs.push(args);
+    if (args[0] === "-version") return { code: 0, stdout: "ffmpeg", stderr: "" };
+    if (command === "ffprobe") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          streams: [{ codec_type: "video", codec_name: "h264", width: 8000, height: 8000 }],
+          format: { duration: "1" },
+        }),
+        stderr: "",
+      };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  await assert.rejects(
+    () => tools.processVideo(ftyp()),
+    (error) => {
+      assert.ok(error instanceof MediaReject);
+      assert.match(error.message, /too large/);
+      return true;
+    },
+  );
+  assert.deepEqual(
+    ffmpegArgs.map((args) => args[0]),
+    ["-version"],
+  );
+});
+
+test("a sandbox that is down is not reported as a missing ffmpeg", async () => {
+  const tools = createFfmpegTools(async () => ({
+    code: 1,
+    stdout: "",
+    stderr: "unshare: Operation not permitted",
+    sandboxDown: true,
+  }));
+  await assert.rejects(
+    () => tools.processVideo(ftyp()),
+    (error) => {
+      assert.ok(error instanceof MediaReject);
+      assert.match(error.message, /sandbox is unavailable/);
+      assert.equal(error.message.includes("needs ffmpeg"), false);
       return true;
     },
   );
@@ -293,6 +355,58 @@ test("a transcode drops chapters, data, and subtitles", async () => {
     const original = new Uint8Array(await readFile(tagged));
     assert.equal(bytes.byteLength > 0, true);
     assert.equal(Buffer.from(bytes).equals(Buffer.from(original)), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([name, data])) >>> 0);
+  return Buffer.concat([length, name, data, checksum]);
+}
+
+function realPng(): Buffer {
+  const width = 8;
+  const height = 8;
+  const stride = width * 3 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) raw[y * stride + 1 + x * 3] = 255;
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+test("a png is re-encoded with the pipe demuxer", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "avouch-png-"));
+  try {
+    const input = join(dir, "in.png");
+    const output = join(dir, "out.jpg");
+    await writeFile(input, realPng());
+    const demuxer = imageDemuxer("image/png");
+    assert.equal(demuxer, "png_pipe");
+    const encoded = await spawnCommand(
+      "ffmpeg",
+      imageFileArgs(input, output, demuxer ?? "png_pipe"),
+      20_000,
+    );
+    assert.equal(encoded.code, 0, encoded.stderr);
+    const jpeg = await readFile(output);
+    assert.equal(jpeg[0], 0xff);
+    assert.equal(jpeg[1], 0xd8);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
