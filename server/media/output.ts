@@ -107,8 +107,10 @@ function locationText(text: string): boolean {
 }
 
 /**
- * The worker reads the bytes ffmpeg wrote. It does not trust the sandbox's
- * ffprobe JSON. Size, JPEG markers, and dimensions come from the file.
+ * Permanent worker invariant. The sandbox writes result.json and the output
+ * file, so a successful sandbox result is not evidence the bytes are safe.
+ * processImage and processVideo read the file and call this before anything
+ * is stored. Size, JPEG markers, and dimensions come from those bytes.
  */
 export function assertKeptJpeg(
   bytes: Uint8Array,

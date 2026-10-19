@@ -94,12 +94,20 @@ services:
   # Docker's default seccomp profile blocks it once SYS_ADMIN is dropped.
   # The worker claims one job and waits until that job finishes. pids_limit
   # is per user, so it only holds while one job runs at a time.
-  # Root prepares the volumes, then exits. The sandbox and the worker drop
-  # every capability, so they cannot chown a new volume themselves.
+  # Root prepares the volumes, then exits. It has no network and a read-only
+  # root, and the only capabilities it keeps are CHOWN and FOWNER. The sandbox
+  # and the worker drop every capability, so they cannot chown a new volume.
   media-init:
     profiles: ["media"]
     image: node:22-bookworm-slim
     user: "0:0"
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
     entrypoint: ["sh", "-c"]
     command:
       - "mkdir -p /jobs/samples /control && chown 1000:1000 /jobs /jobs/samples /control && chmod 755 /jobs /jobs/samples /control"

@@ -401,6 +401,9 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         if (thumbRun.code !== 0) throw new Error("ffmpeg could not make a thumbnail.");
         file = new Uint8Array(await readFile(filePath));
         thumb = new Uint8Array(await readFile(thumbPath));
+        // Permanent invariant. The sandbox can write result.json, and a zero
+        // exit is not evidence the bytes are safe. These checks read the file
+        // that will be stored. Do not skip them if the result format grows.
         assertKeptJpeg(file, IMAGE_BYTES);
         assertKeptJpeg(thumb, IMAGE_BYTES);
       });
@@ -438,6 +441,8 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         if (poster.code !== 0) throw new Error("ffmpeg could not make a thumbnail.");
         file = new Uint8Array(await readFile(filePath));
         thumb = new Uint8Array(await readFile(thumbPath));
+        // Same invariant as pictures. The stored duration comes from the MP4
+        // bytes, not from the sandbox probe.
         const checked = assertKeptMp4(file, VIDEO_BYTES);
         durationMs = checked.durationMs;
         assertKeptJpeg(thumb, IMAGE_BYTES);

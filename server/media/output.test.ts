@@ -142,7 +142,7 @@ test("a kept MP4 is one video track with no location metadata", () => {
   );
 });
 
-test("the worker checks output bytes instead of trusting the sandbox probe", async () => {
+test("a sandbox success cannot bypass the output re-check", async () => {
   const tools = createFfmpegTools(async (command, args) => {
     if (args.includes("-version")) return { code: 0, stdout: "ffmpeg", stderr: "" };
     const output = args.at(-1) ?? "";
@@ -189,4 +189,43 @@ test("the worker checks output bytes instead of trusting the sandbox probe", asy
       return true;
     },
   );
+
+  const gps = movie(
+    concat(box("ilst", toolBox("\xa9too", "Lavf59.27.100")), box("free", ascii("GPSLatitude"))),
+  );
+  const tagged = createFfmpegTools(async (command, args) => {
+    if (args.includes("-version")) return { code: 0, stdout: "ffmpeg", stderr: "" };
+    const output = args.at(-1) ?? "";
+    if (command === "ffprobe") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          streams: [{ codec_type: "video", codec_name: "h264", width: 64, height: 64 }],
+          format: { duration: "1" },
+        }),
+        stderr: "",
+      };
+    }
+    await writeFile(output, output.endsWith(".mp4") ? gps : jpeg());
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  await assert.rejects(() => tagged.processVideo(header), /location/);
+
+  const dirtyThumb = createFfmpegTools(async (command, args) => {
+    if (args.includes("-version")) return { code: 0, stdout: "ffmpeg", stderr: "" };
+    const output = args.at(-1) ?? "";
+    if (command === "ffprobe") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          streams: [{ codec_type: "video", codec_name: "h264", width: 64, height: 64 }],
+          format: { duration: "1" },
+        }),
+        stderr: "",
+      };
+    }
+    await writeFile(output, output.endsWith(".mp4") ? keptMovie() : jpeg({ app1: true }));
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  await assert.rejects(() => dirtyThumb.processVideo(header), /location/);
 });
