@@ -73,7 +73,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0002_closed_test.sql",
       "0003_rate_limit.sql",
       "0004_media.sql",
-      "0005_media_worker_role.sql",
+      "0007_media_worker_role.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -107,7 +107,7 @@ test("the copy check reads both files and catches an edit", () => {
 });
 
 test("the media worker role is owner-approved and limited to the media tables", () => {
-  const sql = readFileSync(join(projectRoot(), "migrations/0005_media_worker_role.sql"), "utf8");
+  const sql = readFileSync(join(projectRoot(), "migrations/0007_media_worker_role.sql"), "utf8");
   assert.equal(sql.includes("The owner must approve this file"), true);
   assert.equal(isNoTransaction(sql), true);
   assert.equal(isSkipEmbedded(sql), true);

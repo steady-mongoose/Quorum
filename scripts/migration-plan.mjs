@@ -88,7 +88,7 @@ export function applyMediaWorkerPassword(sql, password) {
   if (!sql.includes("@@MEDIA_WORKER_DB_PASSWORD@@")) return sql;
   if (!password || !/^[A-Za-z0-9]{16,128}$/.test(password)) {
     throw new Error(
-      "Set MEDIA_WORKER_DB_PASSWORD to 16 or more letters and digits before applying migrations/0005_media_worker_role.sql. That file needs the owner's approval.",
+      "Set MEDIA_WORKER_DB_PASSWORD to 16 or more letters and digits before applying migrations/0007_media_worker_role.sql. That file needs the owner's approval.",
     );
   }
   return sql.replaceAll("@@MEDIA_WORKER_DB_PASSWORD@@", password);

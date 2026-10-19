@@ -84,7 +84,7 @@ services:
         ipv4_address: 172.28.19.10
 
   # Not started by `docker compose up`. Run only after the owner approves the SQL
-  # in migrations/0004_media.sql and migrations/0005_media_worker_role.sql:
+  # in migrations/0004_media.sql and migrations/0007_media_worker_role.sql:
   #   docker compose --profile media up -d
   # ffmpeg runs in media-sandbox, which has no network. unshare is not used:
   # Docker's default seccomp profile blocks it once SYS_ADMIN is dropped.

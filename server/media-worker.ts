@@ -69,7 +69,7 @@ export async function main(): Promise<void> {
     }
     if (code === "28000" || code === "28P01") {
       console.error(
-        "The media worker could not sign in to Postgres. Approve migrations/0005_media_worker_role.sql and set MEDIA_WORKER_DB_PASSWORD.",
+        "The media worker could not sign in to Postgres. Approve migrations/0007_media_worker_role.sql and set MEDIA_WORKER_DB_PASSWORD.",
       );
       process.exit(1);
     }
