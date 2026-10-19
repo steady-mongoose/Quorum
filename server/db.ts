@@ -5,6 +5,12 @@ export type Db = {
   transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
 };
 
+export function isUniqueViolation(error: unknown): boolean {
+  if (error && typeof error === "object" && "code" in error && error.code === "23505") return true;
+  const message = error instanceof Error ? error.message : "";
+  return /duplicate key|unique constraint/i.test(message);
+}
+
 export function createPool(databaseUrl: string): pg.Pool {
   return new pg.Pool({ connectionString: databaseUrl, max: 10 });
 }

@@ -7,11 +7,31 @@ const LOCAL_ORIGINS = [
 
 const SITE_ORIGINS = ["https://avouchsocial.com", "https://www.avouchsocial.com"];
 
-/** Browser origins allowed to call the API with cookies. */
-export function parseOrigins(value: string | undefined): string[] {
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Browser origins allowed to call the API with cookies.
+ * Loopback origins are added only outside production, and a production
+ * WEB_ORIGINS list cannot put them back.
+ */
+export function parseOrigins(
+  value: string | undefined,
+  options?: { production?: boolean },
+): string[] {
+  const production = options?.production === true;
   const fromEnv = (value ?? "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  return [...new Set([...fromEnv, ...SITE_ORIGINS, ...LOCAL_ORIGINS])];
+  const origins = production
+    ? [...fromEnv, ...SITE_ORIGINS]
+    : [...fromEnv, ...SITE_ORIGINS, ...LOCAL_ORIGINS];
+  return [...new Set(origins.filter((origin) => (production ? !isLoopbackOrigin(origin) : true)))];
 }

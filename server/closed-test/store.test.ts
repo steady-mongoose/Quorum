@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import type { Db } from "../db.ts";
-import { hashInviteCode } from "./rules.ts";
-import { mintInvite, redeemInvite, seatFoundingAdmin, type CreateUser } from "./store.ts";
+import { GENERIC_SIGNUP_ERROR, hashInviteCode } from "./rules.ts";
+import {
+  mintInvite,
+  redeemInvite,
+  seatFoundingAdmin,
+  type CreateAccount,
+  type CreateUser,
+  type SignIn,
+} from "./store.ts";
 import { openTestDb } from "./test-db.ts";
 
 function fakeUsers(db: Db): CreateUser {
@@ -17,6 +24,21 @@ function fakeUsers(db: Db): CreateUser {
     return { ok: true, user: { id, name: input.name, email: input.email } };
   };
 }
+
+const createAccount: CreateAccount = async (tx, input) => {
+  const id = randomUUID();
+  await tx.query(
+    `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+     values ($1, $2, $3, true, now(), now())`,
+    [id, input.name, input.email],
+  );
+  return { id };
+};
+
+const signIn: SignIn = async (input) => ({
+  ok: true,
+  user: { id: input.userId, name: input.name, email: input.email },
+});
 
 const headers = new Headers();
 
@@ -106,7 +128,8 @@ test("a single-use code logs who invited whom and cannot be reused", async () =>
         code: minted.value.code,
         headers,
       },
-      fakeUsers(db),
+      createAccount,
+      signIn,
       now,
     );
     assert.equal(first.ok, true);
@@ -119,7 +142,8 @@ test("a single-use code logs who invited whom and cannot be reused", async () =>
         code: minted.value.code,
         headers,
       },
-      fakeUsers(db),
+      createAccount,
+      signIn,
       now,
     );
     assert.equal(second.ok, false);
@@ -162,7 +186,8 @@ test("a limited code stops at its max uses", async () => {
           code: minted.value.code,
           headers,
         },
-        fakeUsers(db),
+        createAccount,
+      signIn,
         now,
       );
       assert.equal(result.ok, true, name);
@@ -176,7 +201,8 @@ test("a limited code stops at its max uses", async () => {
         code: minted.value.code,
         headers,
       },
-      fakeUsers(db),
+      createAccount,
+      signIn,
       now,
     );
     assert.equal(third.ok, false);
@@ -211,8 +237,9 @@ test("an expired code is refused and does not create a user", async () => {
       },
       async () => {
         created += 1;
-        return { ok: true, user: { id: "nope", name: "Maria", email: "maria@example.com" } };
+        return { id: "nope" };
       },
+      signIn,
       new Date("2026-10-19T00:00:00Z"),
     );
     assert.equal(result.ok, false);
@@ -246,10 +273,17 @@ test("a failed account create gives the code back", async () => {
         code: minted.value.code,
         headers,
       },
-      async () => ({ ok: false, status: 400, message: "That email already has an account." }),
+      async () => {
+        throw new Error("That email already has an account.");
+      },
+      signIn,
       now,
     );
     assert.equal(failed.ok, false);
+    if (!failed.ok) {
+      assert.equal(failed.error, GENERIC_SIGNUP_ERROR);
+      assert.equal(failed.error.includes("email"), false);
+    }
     const uses = await db.query<{ uses: number }>(`select uses from invite_code`);
     assert.equal(Number(uses[0]?.uses), 0);
     const again = await redeemInvite(
@@ -261,10 +295,53 @@ test("a failed account create gives the code back", async () => {
         code: minted.value.code,
         headers,
       },
-      fakeUsers(db),
+      createAccount,
+      signIn,
       now,
     );
     assert.equal(again.ok, true);
+  } finally {
+    await close();
+  }
+});
+
+test("a failed member grant rolls back the account and the invite claim", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const seated = await seat(db);
+    assert.equal(seated.ok, true);
+    if (!seated.ok) return;
+    const now = new Date("2026-10-19T12:00:00Z");
+    const minted = await mintInvite(
+      db,
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      now,
+    );
+    assert.equal(minted.ok, true);
+    if (!minted.ok) return;
+    const failed = await redeemInvite(
+      db,
+      {
+        name: "Maria",
+        email: "maria@example.com",
+        password: "correct-horse",
+        code: minted.value.code,
+        headers,
+      },
+      async (tx, input) => {
+        const account = await createAccount(tx, input);
+        throw new Error(`grant failed after ${account.id}`);
+      },
+      signIn,
+      now,
+    );
+    assert.equal(failed.ok, false);
+    if (!failed.ok) assert.equal(failed.error, GENERIC_SIGNUP_ERROR);
+    assert.equal((await db.query(`select id from "user"`)).length, 1);
+    assert.equal((await db.query(`select id from invite_redemption`)).length, 0);
+    assert.equal((await db.query(`select id from access_log where name = 'Maria'`)).length, 0);
+    const uses = await db.query<{ uses: number }>(`select uses from invite_code`);
+    assert.equal(Number(uses[0]?.uses), 0);
   } finally {
     await close();
   }

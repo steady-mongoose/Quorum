@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * Which nightly dumps are old enough to delete.
- * Names look like `avouch-20261019T031500Z.dump`.
+ * Names look like `avouch-20261019T031500Z.dump.enc` (or the older `.dump`).
  * @param {Iterable<string>} names
  * @param {number} nowMs
  * @param {number} retentionDays
@@ -12,7 +12,7 @@ export function dumpsToDelete(names, nowMs, retentionDays) {
     throw new Error("BACKUP_RETENTION_DAYS must be at least 1.");
   }
   const cutoff = nowMs - retentionDays * 24 * 60 * 60 * 1000;
-  const pattern = /^avouch-(\d{8})T(\d{6})Z\.dump$/;
+  const pattern = /^avouch-(\d{8})T(\d{6})Z\.dump(?:\.enc)?$/;
   /** @type {string[]} */
   const stale = [];
   for (const name of names) {

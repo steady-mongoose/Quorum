@@ -27,7 +27,19 @@ export function createClosedAuth(options: {
       minPasswordLength: 8,
       maxPasswordLength: 128,
     },
-    rateLimit: { enabled: false },
+    // Database rows are shared by every process on the box. Memory would
+    // reset on restart and would not be shared. Sign-in is tighter than
+    // the default window. The app also limits /api/signup and /api/invites.
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      window: 60,
+      max: 30,
+      customRules: {
+        "/sign-in/*": { window: 600, max: 5 },
+        "/sign-up/*": { window: 600, max: 3 },
+      },
+    },
     telemetry: { enabled: false },
     databaseHooks: {
       user: {
@@ -41,6 +53,10 @@ export function createClosedAuth(options: {
     advanced: {
       useSecureCookies: secure,
       defaultCookieAttributes: { sameSite: "lax", secure, path: "/" },
+      ipAddress: {
+        // host.ts sets this from the socket, or from Caddy when the peer is trusted.
+        ipAddressHeaders: ["x-avouch-client-ip"],
+      },
     },
   });
 }

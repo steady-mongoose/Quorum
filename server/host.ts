@@ -1,16 +1,28 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createAccountFactory, readSessionUser } from "./accounts.ts";
+import { createCredentialAccount, createSignIn, readSessionUser } from "./accounts.ts";
 import { createClosedAuth } from "./auth.ts";
-import { readHostConfig } from "./config.ts";
+import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
 import { createApp } from "./http.ts";
+import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
-async function toRequest(req: IncomingMessage): Promise<Request> {
-  const host = req.headers.host ?? "127.0.0.1";
-  const proto =
-    String(req.headers["x-forwarded-proto"] ?? "http")
-      .split(",")[0]
-      ?.trim() || "http";
+function headerValue(req: IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name];
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+async function toRequest(req: IncomingMessage, config: HostConfig): Promise<Request> {
+  const target = resolveIncoming({
+    remoteAddress: req.socket.remoteAddress,
+    trustedProxies: config.trustedProxies,
+    forwardedProto: headerValue(req, "x-forwarded-proto"),
+    forwardedHost: headerValue(req, "x-forwarded-host"),
+    forwardedFor: headerValue(req, "x-forwarded-for"),
+    hostHeader: headerValue(req, "host"),
+    baseURL: config.baseURL,
+    path: req.url ?? "/",
+  });
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
     if (value === undefined) continue;
@@ -20,13 +32,20 @@ async function toRequest(req: IncomingMessage): Promise<Request> {
       headers.set(key, value);
     }
   }
+  headers.delete(CLIENT_IP_HEADER);
+  if (!target.trusted) {
+    headers.delete("x-forwarded-proto");
+    headers.delete("x-forwarded-host");
+    headers.delete("x-forwarded-for");
+  }
+  headers.set(CLIENT_IP_HEADER, target.clientIp);
   const method = req.method ?? "GET";
   const chunks: Buffer[] = [];
   if (method !== "GET" && method !== "HEAD") {
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
-  return new Request(`${proto}://${host}${req.url ?? "/"}`, { method, headers, body });
+  return new Request(target.url, { method, headers, body });
 }
 
 async function send(res: ServerResponse, response: Response): Promise<void> {
@@ -55,13 +74,14 @@ export function startHost(): void {
     db: pgDb(pool),
     origins: config.origins,
     now: () => new Date(),
-    createUser: createAccountFactory(auth, config.baseURL, "invite"),
+    createAccount: createCredentialAccount(),
+    signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
   });
   const server = createServer(async (req, res) => {
     try {
-      await send(res, await app(await toRequest(req)));
+      await send(res, await app(await toRequest(req, config)));
     } catch (error) {
       console.error(
         JSON.stringify({

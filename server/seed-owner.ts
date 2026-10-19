@@ -3,6 +3,7 @@ import { createClosedAuth } from "./auth.ts";
 import { readHostConfig } from "./config.ts";
 import { seatFoundingAdmin } from "./closed-test/store.ts";
 import { createPool, pgDb } from "./db.ts";
+import { clearOwnerPasswordFile } from "./env-file.ts";
 
 /**
  * Seats Josh once. Refuses to run a second time.
@@ -34,6 +35,12 @@ export async function seedOwner(): Promise<number> {
       return 1;
     }
     console.log("Seated Josh once as founding admin and council chair.");
+    const envFile = process.env.ENV_FILE;
+    if (envFile && clearOwnerPasswordFile(envFile)) {
+      console.log(`Removed BOOTSTRAP_OWNER_PASSWORD from ${envFile}.`);
+    } else {
+      console.log("Remove BOOTSTRAP_OWNER_PASSWORD from deploy/.env, then restart the API.");
+    }
     return 0;
   } finally {
     await pool.end();

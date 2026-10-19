@@ -38,9 +38,40 @@ export function normalizeInviteCode(code: string): string {
   return code.trim().toUpperCase().replace(/[\s-]/g, "");
 }
 
+export const GENERIC_SIGNUP_ERROR = "Could not create the account.";
+
+const CODE_LENGTH = 8;
+/** Largest multiple of the alphabet that fits in a byte. Bytes at or above this are discarded. */
+const UNBIASED_LIMIT = Math.floor(256 / ALPHABET.length) * ALPHABET.length;
+
+/**
+ * Builds a code from raw bytes, skipping values that would make some
+ * characters more likely than others. Throws when the buffer runs out.
+ */
+export function inviteCodeFromBytes(bytes: Uint8Array, length = CODE_LENGTH): string {
+  let out = "";
+  for (const byte of bytes) {
+    if (byte >= UNBIASED_LIMIT) continue;
+    out += ALPHABET[byte % ALPHABET.length];
+    if (out.length === length) return out;
+  }
+  throw new Error("Not enough unbiased bytes for an invite code.");
+}
+
 export function generateInviteCode(): string {
-  const bytes = randomBytes(8);
-  return [...bytes].map((byte) => ALPHABET[byte % ALPHABET.length]).join("");
+  let pending = new Uint8Array(0);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const more = randomBytes(16);
+    const merged = new Uint8Array(pending.length + more.length);
+    merged.set(pending);
+    merged.set(more, pending.length);
+    try {
+      return inviteCodeFromBytes(merged);
+    } catch {
+      pending = merged;
+    }
+  }
+  throw new Error("Could not draw an invite code.");
 }
 
 export function hashInviteCode(code: string): string {

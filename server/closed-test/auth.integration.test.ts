@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pgliteDialect } from "../../src/lib/auth/pglite-dialect.ts";
-import { createAccountFactory, readSessionUser } from "../accounts.ts";
+import { createAccountFactory, createCredentialAccount, createSignIn, readSessionUser } from "../accounts.ts";
 import { createClosedAuth } from "../auth.ts";
 import { seatFoundingAdmin } from "./store.ts";
 import { openTestDb } from "./test-db.ts";
@@ -46,7 +46,8 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
       db,
       origins: [origin],
       now: () => new Date("2026-10-19T12:00:00Z"),
-      createUser: createAccountFactory(auth, baseURL, "invite"),
+      createAccount: createCredentialAccount(),
+      signIn: createSignIn(auth, baseURL),
       readSession: (requestHeaders) => readSessionUser(auth, requestHeaders),
       forwardAuth: (request) => auth.handler(request),
     });

@@ -38,7 +38,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
    sudo apt-get update
    sudo apt-get install -y ca-certificates curl
    # Docker's own apt repository, from docs.docker.com. Then:
-   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin gnupg
    sudo ufw default deny incoming
    sudo ufw default allow outgoing
    sudo ufw allow 22/tcp
@@ -67,13 +67,13 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
    The command is safe to repeat. Each file runs once and is recorded in `_migrations`.
 
-8. Seat Josh once:
+8. Seat Josh once, from the host:
 
    ```bash
-   docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api npm run seed:owner
+   ./scripts/seed-owner.sh
    ```
 
-   `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. Set `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` in `deploy/.env` first. A second run prints that the founding admin is already seated and exits 1.
+   `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. Set `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` in `deploy/.env` first. A second run prints that the founding admin is already seated and exits 1. After a successful seat, the script clears `BOOTSTRAP_OWNER_PASSWORD` in `deploy/.env` and recreates the API process so the password is not left in memory. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
 
 9. Check health:
 
@@ -87,21 +87,37 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## Nightly backup
 
-On the host:
+The dump is encrypted with gpg on the box and copied off the database disk. Nothing is sent to a paid storage service.
 
 ```bash
-sudo mkdir -p /var/backups/avouch
-sudo chmod 700 /var/backups/avouch
+sudo mkdir -p /var/backups/avouch /etc/avouch
+sudo chmod 700 /var/backups/avouch /etc/avouch
+openssl rand -base64 32 | sudo tee /etc/avouch/backup.key >/dev/null
+sudo chmod 600 /etc/avouch/backup.key
+```
+
+Point `BACKUP_OFFBOX_DIR` at another disk, a drive you mounted, or an scp target such as `backup@192.0.2.10:/var/backups/avouch`. A directory on the same disk as `BACKUP_DIR` is refused. Keep a copy of `/etc/avouch/backup.key` with that off-box copy. Without the key, the dump cannot be restored.
+
+```bash
 sudo crontab -e
 ```
 
 ```
-15 3 * * * cd /opt/avouch && BACKUP_DIR=/var/backups/avouch BACKUP_RETENTION_DAYS=14 ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
+15 3 * * * cd /opt/avouch && BACKUP_DIR=/var/backups/avouch BACKUP_OFFBOX_DIR=/mnt/backup/avouch BACKUP_KEY_FILE=/etc/avouch/backup.key BACKUP_RETENTION_DAYS=14 ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
 
-The script runs `pg_dump` inside the Postgres container and keeps 14 days of dumps on the VPS disk. It does not upload them. OVH's included disk backup is a separate copy of the whole machine; the dump is the one you can restore into a new Postgres. Copy a dump onto a disk you hold if you want a copy that is not on this VPS. Do not send it to AWS, Google, Azure, or Apple.
+The script keeps 14 days of ciphertext. OVH's included disk backup is a separate copy of the whole machine. Do not send dumps to AWS, Google, Azure, or Apple.
 
-Restore steps are in the header of `scripts/backup-postgres.sh`. Stop the API, restore into the database, start the API, then curl `/api/health`.
+Restore, after stopping the API:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop api
+BACKUP_KEY_FILE=/etc/avouch/backup.key ./scripts/restore-postgres.sh /mnt/backup/avouch/avouch-STAMP.dump.enc
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
+curl -fsS https://api.avouchsocial.com/api/health
+```
+
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`.
 
 ## What this box does not do
 

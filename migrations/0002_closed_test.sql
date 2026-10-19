@@ -21,15 +21,21 @@ create table if not exists invite_code (
   created_at timestamptz not null default now()
 );
 
+create index if not exists invite_code_created_by_idx on invite_code (created_by);
+
 create table if not exists invite_redemption (
   id text primary key,
-  invite_id text not null references invite_code (id),
+  -- SET NULL keeps the names in the log when the code row or the inviter is removed.
+  invite_id text references invite_code (id) on delete set null,
   invited_user_id text not null unique references "user" ("id") on delete cascade,
-  invited_by_user_id text not null references "user" ("id"),
+  invited_by_user_id text references "user" ("id") on delete set null,
   invited_name text not null,
   invited_by_name text not null,
   redeemed_at timestamptz not null default now()
 );
+
+create index if not exists invite_redemption_inviter_idx
+  on invite_redemption (invited_by_user_id, redeemed_at);
 
 create table if not exists member_role (
   user_id text primary key references "user" ("id") on delete cascade,
@@ -56,6 +62,6 @@ create index if not exists access_log_user_idx on access_log (user_id, role, at)
 
 create table if not exists bootstrap_seat (
   id text primary key check (id = 'founding'),
-  user_id text not null unique references "user" ("id"),
+  user_id text not null unique references "user" ("id") on delete restrict,
   seated_at timestamptz not null default now()
 );

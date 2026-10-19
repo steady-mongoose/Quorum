@@ -8,9 +8,9 @@
  *
  * The owner must approve every new file under migrations/ before this runs
  * against a real database. The API process does not call this on startup.
- * `npm run build` still invokes it when DATABASE_URL is set, which is the
- * existing scaffold behavior. Leave DATABASE_URL unset in the Cloudflare
- * frontend build.
+ * `npm run build` does not call it either. Run `npm run db:migrate`, or the
+ * compose migrate profile, only after that approval. Leave DATABASE_URL unset
+ * in the Cloudflare frontend build.
  *
  * The read is non-recursive, so the opt-in auth schema under migrations/auth/
  * is not applied to an app that never asked for sign-in.

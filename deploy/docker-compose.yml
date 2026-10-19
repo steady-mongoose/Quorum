@@ -16,6 +16,8 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    networks:
+      - avouch
 
   api:
     build:
@@ -25,6 +27,11 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}
       PORT: "8787"
+      # Caddy's address on the avouch network. Forwarded headers from any other peer are ignored.
+      TRUSTED_PROXIES: 172.28.19.10
+      ENV_FILE: /app/deploy/.env
+    volumes:
+      - ./.env:/app/deploy/.env
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +50,8 @@ services:
       retries: 10
       start_period: 20s
     restart: unless-stopped
+    networks:
+      - avouch
 
   caddy:
     image: caddy:2.10
@@ -60,6 +69,9 @@ services:
       api:
         condition: service_started
     restart: unless-stopped
+    networks:
+      avouch:
+        ipv4_address: 172.28.19.10
 
   # Not started by `docker compose up`. Run only after the owner approves the SQL:
   #   docker compose --profile migrate run --rm migrate
@@ -76,6 +88,14 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+    networks:
+      - avouch
+
+networks:
+  avouch:
+    ipam:
+      config:
+        - subnet: 172.28.19.0/24
 
 volumes:
   pgdata:

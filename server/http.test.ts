@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp, type AppDeps } from "./http.ts";
-import { mintInvite, seatFoundingAdmin } from "./closed-test/store.ts";
+import { GENERIC_SIGNUP_ERROR } from "./closed-test/rules.ts";
+import { mintInvite, seatFoundingAdmin, type CreateAccount, type SignIn } from "./closed-test/store.ts";
+import { CLIENT_IP_HEADER } from "./proxy.ts";
+import { SIGNUP_LIMIT } from "./rate-limit.ts";
 import { openTestDb } from "./closed-test/test-db.ts";
 import type { Db } from "./db.ts";
 import { randomUUID } from "node:crypto";
@@ -13,15 +16,19 @@ function app(db: Db, extra: Partial<AppDeps> = {}) {
     db,
     origins,
     now: () => new Date("2026-10-19T12:00:00Z"),
-    createUser: async (input) => {
+    createAccount: (async (tx, input) => {
       const id = randomUUID();
-      await db.query(
+      await tx.query(
         `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
          values ($1, $2, $3, true, now(), now())`,
         [id, input.name, input.email],
       );
-      return { ok: true, user: { id, name: input.name, email: input.email } };
-    },
+      return { id };
+    }) satisfies CreateAccount,
+    signIn: (async (input) => ({
+      ok: true,
+      user: { id: input.userId, name: input.name, email: input.email },
+    })) satisfies SignIn,
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
@@ -176,6 +183,96 @@ test("sign-in is forwarded and a stranger origin is not echoed", async () => {
     assert.equal(forwarded, true);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("access-control-allow-origin"), null);
+  } finally {
+    await close();
+  }
+});
+
+test("signup errors do not say whether the email is registered", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const seated = await seatFoundingAdmin(
+      db,
+      { envName: "Josh", email: "josh@example.com", password: "correct-horse", headers: new Headers() },
+      async (input) => {
+        const id = randomUUID();
+        await db.query(
+          `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+           values ($1, $2, $3, true, now(), now())`,
+          [id, input.name, input.email],
+        );
+        return { ok: true, user: { id, name: input.name, email: input.email } };
+      },
+    );
+    assert.equal(seated.ok, true);
+    if (!seated.ok) return;
+    const minted = await mintInvite(
+      db,
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      new Date("2026-10-19T12:00:00Z"),
+    );
+    assert.equal(minted.ok, true);
+    if (!minted.ok) return;
+    const handler = app(db, {
+      createAccount: async () => {
+        throw new Error("User already exists. Use another email. maria@example.com");
+      },
+    });
+    const response = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.9" },
+        body: JSON.stringify({
+          name: "Maria",
+          email: "maria@example.com",
+          password: "correct-horse",
+          inviteCode: minted.value.code,
+        }),
+      }),
+    );
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as { error?: string };
+    assert.equal(body.error, GENERIC_SIGNUP_ERROR);
+    assert.equal(JSON.stringify(body).includes("maria@example.com"), false);
+    assert.equal(JSON.stringify(body).includes("already"), false);
+    const uses = await db.query<{ uses: number }>(`select uses from invite_code`);
+    assert.equal(Number(uses[0]?.uses), 0);
+  } finally {
+    await close();
+  }
+});
+
+test("signup is limited per client address", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const body = JSON.stringify({ name: "A", email: "a@example.com", password: "short" });
+    for (let n = 0; n < SIGNUP_LIMIT.max; n += 1) {
+      const response = await handler(
+        new Request("http://127.0.0.1:8787/api/signup", {
+          method: "POST",
+          headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.10" },
+          body,
+        }),
+      );
+      assert.equal(response.status, 400);
+    }
+    const blocked = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.10" },
+        body,
+      }),
+    );
+    assert.equal(blocked.status, 429);
+    const other = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json", [CLIENT_IP_HEADER]: "203.0.113.11" },
+        body,
+      }),
+    );
+    assert.equal(other.status, 400);
   } finally {
     await close();
   }

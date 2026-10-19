@@ -4,6 +4,7 @@ import { runAccountCreate, assertAccountCreateAllowed } from "./account-create.t
 import {
   founderNameFromEnv,
   hashInviteCode,
+  inviteCodeFromBytes,
   inviteBlock,
   isLiveGrant,
   isOpenSignupPath,
@@ -21,6 +22,27 @@ test("founder env accepts Josh, 1, and true, and refuses a blank or another name
   assert.equal(founderNameFromEnv("0"), "");
   assert.equal(founderNameFromEnv("false"), "");
   assert.equal(founderNameFromEnv("Tom"), "Tom");
+});
+
+test("invite codes skip biased bytes and stay inside the alphabet", () => {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const counts = new Map<string, number>();
+  let accepted = 0;
+  for (let byte = 0; byte < 256; byte += 1) {
+    try {
+      const code = inviteCodeFromBytes(Uint8Array.of(byte), 1);
+      accepted += 1;
+      counts.set(code, (counts.get(code) ?? 0) + 1);
+    } catch {
+      // Bytes at or above the unbiased limit cannot start a code on their own.
+    }
+  }
+  assert.equal(accepted, Math.floor(256 / alphabet.length) * alphabet.length);
+  assert.equal(counts.size, alphabet.length);
+  for (const count of counts.values()) assert.equal(count, 8);
+  const code = inviteCodeFromBytes(Uint8Array.of(255, 248, 0, 31, 1, 2, 3, 4, 5, 6));
+  assert.equal(code.length, 8);
+  assert.match(code, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]+$/);
 });
 
 test("invite codes normalize and hash without keeping the original", () => {

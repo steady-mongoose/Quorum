@@ -1,0 +1,48 @@
+# Node 22 is required for --experimental-strip-types.
+# The two suites are separate steps so a script-suite failure cannot skip
+# the app and server tests. The job fails if either suite fails.
+
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - the-board
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Template script tests
+        id: scripts
+        continue-on-error: true
+        run: node scripts/run-tests.mjs scripts
+
+      - name: App and server tests
+        id: app
+        if: always()
+        run: node scripts/run-tests.mjs app
+
+      - name: Report suite results
+        if: always()
+        run: |
+          echo "script tests: ${{ steps.scripts.outcome }}"
+          echo "app tests: ${{ steps.app.outcome }}"
+          echo "The template script suite already fails on the base branch when .grok is absent. It no longer skips the app suite."
+          if [ "${{ steps.app.outcome }}" != "success" ]; then
+            exit 1
+          fi

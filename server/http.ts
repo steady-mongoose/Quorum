@@ -1,6 +1,14 @@
 import type { Db } from "./db.ts";
+import { CLIENT_IP_HEADER } from "./proxy.ts";
+import { consumeLimit, INVITE_LIMIT, SIGN_IN_LIMIT, SIGNUP_LIMIT } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
-import { listInviteLog, mintInvite, redeemInvite, type CreateUser } from "./closed-test/store.ts";
+import {
+  listInviteLog,
+  mintInvite,
+  redeemInvite,
+  type CreateAccount,
+  type SignIn,
+} from "./closed-test/store.ts";
 
 export type SessionUser = { id: string; name: string; email: string };
 
@@ -8,7 +16,8 @@ export type AppDeps = {
   db: Db;
   origins: string[];
   now: () => Date;
-  createUser: CreateUser;
+  createAccount: CreateAccount;
+  signIn: SignIn;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   forwardAuth: (request: Request) => Promise<Response>;
 };
@@ -68,6 +77,19 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function clientIp(request: Request): string {
+  const value = request.headers.get(CLIENT_IP_HEADER)?.trim();
+  return value || "local";
+}
+
+function tooMany(retryAfter: number): Response {
+  return json(
+    429,
+    { error: "Too many attempts. Wait and try again." },
+    new Headers({ "retry-after": String(retryAfter) }),
+  );
+}
+
 export function createApp(deps: AppDeps): (request: Request) => Promise<Response> {
   return async (request) => {
     const url = new URL(request.url);
@@ -118,11 +140,18 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     });
   }
 
+  if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
+    const limit = await consumeLimit(deps.db, `sign-in:${clientIp(request)}`, SIGN_IN_LIMIT, Date.now());
+    if (!limit.allowed) return tooMany(limit.retryAfter);
+  }
+
   if (url.pathname.startsWith("/api/auth/")) {
     return deps.forwardAuth(request);
   }
 
   if (url.pathname === "/api/signup" && request.method === "POST") {
+    const limit = await consumeLimit(deps.db, `signup:${clientIp(request)}`, SIGNUP_LIMIT, Date.now());
+    if (!limit.allowed) return tooMany(limit.retryAfter);
     const body = await readJson(request);
     const result = await redeemInvite(
       deps.db,
@@ -133,7 +162,8 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
         code: stringField(body, "inviteCode"),
         headers: request.headers,
       },
-      deps.createUser,
+      deps.createAccount,
+      deps.signIn,
       deps.now(),
     );
     if (!result.ok) return json(result.status, { error: result.error });
@@ -148,6 +178,8 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   }
 
   if (url.pathname === "/api/invites" && request.method === "POST") {
+    const limit = await consumeLimit(deps.db, `invite:${clientIp(request)}`, INVITE_LIMIT, Date.now());
+    if (!limit.allowed) return tooMany(limit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     const body = await readJson(request);

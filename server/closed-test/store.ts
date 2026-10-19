@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { Db } from "../db.ts";
+import { isUniqueViolation, type Db } from "../db.ts";
 import {
   FOUNDING_ADMIN,
   FOUNDING_ADMIN_NOTE,
   FOUNDING_MEMBER_NOTE,
+  GENERIC_SIGNUP_ERROR,
   MEMBER_NOTE,
   founderNameFromEnv,
   generateInviteCode,
@@ -27,6 +28,20 @@ export type CreatedUser = {
 };
 
 export type CreateUser = (input: {
+  name: string;
+  email: string;
+  password: string;
+  headers: Headers;
+}) => Promise<{ ok: true; user: CreatedUser } | { ok: false; status: number; message: string }>;
+
+/** Inserts the user and credential row on the caller's transaction. */
+export type CreateAccount = (
+  tx: Db,
+  input: { name: string; email: string; password: string },
+) => Promise<{ id: string }>;
+
+export type SignIn = (input: {
+  userId: string;
   name: string;
   email: string;
   password: string;
@@ -77,10 +92,6 @@ export async function isAdmin(db: Db, userId: string): Promise<boolean> {
   return liveRole(db, userId, "admin");
 }
 
-async function releaseInvite(db: Db, inviteId: string): Promise<void> {
-  await db.query(`update invite_code set uses = uses - 1 where id = $1 and uses > 0`, [inviteId]);
-}
-
 export async function mintInvite(
   db: Db,
   input: {
@@ -114,10 +125,34 @@ export async function mintInvite(
   };
 }
 
+async function explainBlockedCode(db: Db, code: string, now: Date): Promise<Err> {
+  const existing = await db.query<InviteRecord>(
+    `select id, uses, max_uses, expires_at, created_by, room_id
+     from invite_code where code_hash = $1`,
+    [hashInviteCode(code)],
+  );
+  const row = existing[0];
+  return fail(
+    400,
+    inviteBlock(
+      row
+        ? { uses: Number(row.uses), maxUses: Number(row.max_uses), expiresAt: row.expires_at }
+        : null,
+      now,
+    ) ?? "That code is not valid.",
+  );
+}
+
+/**
+ * Claims the invite, creates the account, and writes the member grant in one
+ * transaction. A failure rolls all three back. The session cookie is opened
+ * after commit.
+ */
 export async function redeemInvite(
   db: Db,
   input: { name: string; email: string; password: string; code: string; headers: Headers },
-  createUser: CreateUser,
+  createAccount: CreateAccount,
+  signIn: SignIn,
   now: Date,
 ): Promise<Result<{ user: CreatedUser }>> {
   const name = input.name.trim();
@@ -128,89 +163,75 @@ export async function redeemInvite(
   if (!validPassword(input.password)) return fail(400, "Use a password of 8 to 128 characters.");
   if (!code) return fail(400, "Enter the invite code.");
 
-  const reserved = await db.transaction(async (tx) => {
-    const rows = await tx.query<InviteRecord>(
-      `update invite_code
-       set uses = uses + 1
-       where code_hash = $1 and uses < max_uses and expires_at > $2
-       returning id, uses, max_uses, expires_at, created_by, room_id`,
-      [hashInviteCode(code), now],
-    );
-    return rows[0] ?? null;
-  });
-
-  if (!reserved) {
-    const existing = await db.query<InviteRecord>(
-      `select id, uses, max_uses, expires_at, created_by, room_id
-       from invite_code where code_hash = $1`,
-      [hashInviteCode(code)],
-    );
-    const row = existing[0];
-    return fail(
-      400,
-      inviteBlock(
-        row
-          ? { uses: Number(row.uses), maxUses: Number(row.max_uses), expiresAt: row.expires_at }
-          : null,
-        now,
-      ) ?? "That code is not valid.",
-    );
-  }
-
-  const inviter = await db.query<{ name: string }>(`select name from "user" where id = $1`, [
-    reserved.created_by,
-  ]);
-  const invitedByName = inviter[0]?.name ?? "unknown";
-  const created = await createUser({
-    name,
-    email,
-    password: input.password,
-    headers: input.headers,
-  });
-  if (!created.ok) {
-    await releaseInvite(db, reserved.id);
-    return fail(created.status, created.message);
-  }
-
+  let reservedId = "";
+  let invitedBy = "";
+  let userId = "";
   try {
-    await db.transaction(async (tx) => {
+    const saved = await db.transaction(async (tx) => {
+      const rows = await tx.query<InviteRecord>(
+        `update invite_code
+         set uses = uses + 1
+         where code_hash = $1 and uses < max_uses and expires_at > $2
+         returning id, uses, max_uses, expires_at, created_by, room_id`,
+        [hashInviteCode(code), now],
+      );
+      const reserved = rows[0];
+      if (!reserved) return null;
+      const inviter = await tx.query<{ name: string }>(`select name from "user" where id = $1`, [
+        reserved.created_by,
+      ]);
+      const invitedByName = inviter[0]?.name ?? "unknown";
+      const account = await createAccount(tx, { name, email, password: input.password });
       await tx.query(
         `insert into invite_redemption
          (id, invite_id, invited_user_id, invited_by_user_id, invited_name, invited_by_name)
          values ($1, $2, $3, $4, $5, $6)`,
-        [randomUUID(), reserved.id, created.user.id, reserved.created_by, name, invitedByName],
+        [randomUUID(), reserved.id, account.id, reserved.created_by, name, invitedByName],
       );
       await tx.query(
         `insert into access_log
          (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
          values ($1, $2, $3, 'member', $4, 'grant', $5, '', $5, $6)`,
-        [randomUUID(), created.user.id, name, reserved.room_id, invitedByName, MEMBER_NOTE],
+        [randomUUID(), account.id, name, reserved.room_id, invitedByName, MEMBER_NOTE],
       );
+      return { inviteId: reserved.id, invitedBy: reserved.created_by, userId: account.id };
     });
+    if (!saved) return explainBlockedCode(db, code, now);
+    reservedId = saved.inviteId;
+    invitedBy = saved.invitedBy;
+    userId = saved.userId;
   } catch (error) {
     console.error(
       JSON.stringify({
-        event: "invite-log-failed",
-        inviteId: reserved.id,
-        invitedUserId: created.user.id,
-        message: error instanceof Error ? error.message : "unknown",
+        event: "signup-rolled-back",
+        code: isUniqueViolation(error) ? "unique" : "failed",
       }),
     );
-    return fail(
-      500,
-      "The account was created, but the invite log did not save. Do not use the code again. Tell the owner.",
-    );
+    return fail(400, GENERIC_SIGNUP_ERROR);
   }
 
+  const signedIn = await signIn({
+    userId,
+    name,
+    email,
+    password: input.password,
+    headers: input.headers,
+  });
   console.log(
     JSON.stringify({
       event: "invite-redeemed",
-      inviteId: reserved.id,
-      invitedUserId: created.user.id,
-      invitedByUserId: reserved.created_by,
+      inviteId: reservedId,
+      invitedUserId: userId,
+      invitedByUserId: invitedBy,
     }),
   );
-  return { ok: true, value: { user: created.user } };
+  if (!signedIn.ok) {
+    return {
+      ok: true,
+      value: { user: { id: userId, name, email } },
+    };
+  }
+  return { ok: true, value: { user: signedIn.user } };
 }
 
 export async function listInviteLog(
