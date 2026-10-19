@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql` and `migrations/0002_closed_test.sql` in the pull request. Merging is not that approval. Do not apply them before you say so.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, and `migrations/0003_rate_limit.sql` in the pull request. Merging is not that approval. Do not apply them before you say so.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -38,7 +38,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
    sudo apt-get update
    sudo apt-get install -y ca-certificates curl
    # Docker's own apt repository, from docs.docker.com. Then:
-   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin gnupg
+   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin age
    sudo ufw default deny incoming
    sudo ufw default allow outgoing
    sudo ufw allow 22/tcp
@@ -85,36 +85,55 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 10. Build the static site with `VITE_API_BASE_URL=https://api.avouchsocial.com` (no trailing slash). Until that variable is set, or when the API does not answer, the site stays in demo mode.
 
+## Limits
+
+Better Auth stores its limiter in the `rateLimit` table, so every API process shares it. Sign-in is 5 attempts a minute per client address. The API applies that same cap, per address and per email, to sign-in, `/api/signup`, and `/api/invites`. A further attempt while the window is closed doubles the wait, up to 16 minutes. The response is HTTP 429 with `Retry-After`.
+
+Caddy applies the same 5-per-minute cap per client address to those POST routes. Its image is built from `deploy/Dockerfile.caddy` because the stock Caddy image has no rate-limit module. The module sets `Retry-After`, and the Caddyfile error route returns the same JSON 429.
+
+The request URL is always `BETTER_AUTH_URL`. `X-Forwarded-For` is used for the client address only when the TCP peer is Caddy (`172.28.19.10`). Localhost browser origins are added only when `NODE_ENV` is not `production`. The API image sets `NODE_ENV=production`.
+
 ## Nightly backup
 
-The dump is encrypted with gpg on the box and copied off the database disk. Nothing is sent to a paid storage service.
+The dump is encrypted with [age](https://github.com/FiloSottile/age) to a public key. The private identity never sits on the server. Generate it on a machine you control:
 
 ```bash
-sudo mkdir -p /var/backups/avouch /etc/avouch
-sudo chmod 700 /var/backups/avouch /etc/avouch
-openssl rand -base64 32 | sudo tee /etc/avouch/backup.key >/dev/null
-sudo chmod 600 /etc/avouch/backup.key
+age-keygen -o avouch-backup-identity.txt
 ```
 
-Point `BACKUP_OFFBOX_DIR` at another disk, a drive you mounted, or an scp target such as `backup@192.0.2.10:/var/backups/avouch`. A directory on the same disk as `BACKUP_DIR` is refused. Keep a copy of `/etc/avouch/backup.key` with that off-box copy. Without the key, the dump cannot be restored.
+The file's comment line is `public key: age1...`. Put that `age1...` value in `BACKUP_AGE_RECIPIENT`. Keep `avouch-backup-identity.txt` with you. Without it, a dump cannot be restored.
+
+Local ciphertext stays in `BACKUP_DIR` for `BACKUP_RETENTION_DAYS` (14). The script deletes older local files.
+
+A copy can go to S3-compatible storage: Cloudflare R2, or S3 with object lock. Leave `BACKUP_S3_BUCKET`, `BACKUP_S3_ENDPOINT`, `BACKUP_S3_ACCESS_KEY_ID`, and `BACKUP_S3_SECRET_ACCESS_KEY` blank until you approve the bucket. A paid bucket is not turned on by this repository. When all four are set, the script uploads with `aws s3api put-object`. Install the AWS CLI on the box at that point (`sudo apt-get install -y awscli`). `BACKUP_S3_OBJECT_LOCK` is `COMPLIANCE` or `GOVERNANCE` (or `off`). The retain-until date is the same 14 days. The script does not delete remote objects.
 
 ```bash
+sudo mkdir -p /var/backups/avouch
+sudo chmod 700 /var/backups/avouch
 sudo crontab -e
 ```
 
 ```
-15 3 * * * cd /opt/avouch && BACKUP_DIR=/var/backups/avouch BACKUP_OFFBOX_DIR=/mnt/backup/avouch BACKUP_KEY_FILE=/etc/avouch/backup.key BACKUP_RETENTION_DAYS=14 ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
+15 3 * * * cd /opt/avouch && set -a && . ./deploy/.env && set +a && ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
 
-The script keeps 14 days of ciphertext. OVH's included disk backup is a separate copy of the whole machine. Do not send dumps to AWS, Google, Azure, or Apple.
+`deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
-Restore, after stopping the API:
+Restore, after stopping the API. Copy the identity onto the box only for this command, then remove it:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop api
-BACKUP_KEY_FILE=/etc/avouch/backup.key ./scripts/restore-postgres.sh /mnt/backup/avouch/avouch-STAMP.dump.enc
+AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh /var/backups/avouch/avouch-STAMP.dump.age
+rm -f /tmp/avouch-backup-identity.txt
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health
+```
+
+If the copy you need is only in the bucket:
+
+```bash
+aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_REGION:-auto}" \
+  --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
 `migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`.

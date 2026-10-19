@@ -16,10 +16,7 @@ async function toRequest(req: IncomingMessage, config: HostConfig): Promise<Requ
   const target = resolveIncoming({
     remoteAddress: req.socket.remoteAddress,
     trustedProxies: config.trustedProxies,
-    forwardedProto: headerValue(req, "x-forwarded-proto"),
-    forwardedHost: headerValue(req, "x-forwarded-host"),
     forwardedFor: headerValue(req, "x-forwarded-for"),
-    hostHeader: headerValue(req, "host"),
     baseURL: config.baseURL,
     path: req.url ?? "/",
   });
@@ -33,11 +30,9 @@ async function toRequest(req: IncomingMessage, config: HostConfig): Promise<Requ
     }
   }
   headers.delete(CLIENT_IP_HEADER);
-  if (!target.trusted) {
-    headers.delete("x-forwarded-proto");
-    headers.delete("x-forwarded-host");
-    headers.delete("x-forwarded-for");
-  }
+  headers.delete("x-forwarded-proto");
+  headers.delete("x-forwarded-host");
+  headers.delete("x-forwarded-for");
   headers.set(CLIENT_IP_HEADER, target.clientIp);
   const method = req.method ?? "GET";
   const chunks: Buffer[] = [];

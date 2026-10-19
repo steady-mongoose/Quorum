@@ -1,6 +1,7 @@
 # Node 22 is required for --experimental-strip-types.
-# The two suites are separate steps so a script-suite failure cannot skip
-# the app and server tests. The job fails if either suite fails.
+# The template script suite stays continue-on-error so a missing .grok
+# checkout cannot skip the app tests. The backup drill is its own step
+# and does fail the job. age is required to encrypt and restore the drill dump.
 
 name: Test
 
@@ -27,6 +28,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Install age
+        run: sudo apt-get update && sudo apt-get install -y age
+
       - name: Template script tests
         id: scripts
         continue-on-error: true
@@ -37,12 +41,18 @@ jobs:
         if: always()
         run: node scripts/run-tests.mjs app
 
+      - name: Backup restore drill
+        id: backup
+        if: always()
+        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs
+
       - name: Report suite results
         if: always()
         run: |
           echo "script tests: ${{ steps.scripts.outcome }}"
           echo "app tests: ${{ steps.app.outcome }}"
+          echo "backup drill: ${{ steps.backup.outcome }}"
           echo "The template script suite already fails on the base branch when .grok is absent. It no longer skips the app suite."
-          if [ "${{ steps.app.outcome }}" != "success" ]; then
+          if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
