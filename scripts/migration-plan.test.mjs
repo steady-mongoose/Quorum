@@ -73,6 +73,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0002_closed_test.sql",
       "0003_rate_limit.sql",
       "0004_media.sql",
+      "0005_rate_limit_index.sql",
       "0007_media_worker_role.sql",
     ],
   );

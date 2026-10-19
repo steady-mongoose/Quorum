@@ -15,6 +15,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: avouch
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: avouch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U avouch -d avouch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -28,8 +42,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Install age
-        run: sudo apt-get update && sudo apt-get install -y age ffmpeg
+      - name: Install age, psql, and ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y age postgresql-client ffmpeg
 
       - name: Template script tests
         id: scripts
@@ -44,7 +58,10 @@ jobs:
       - name: Backup restore drill
         id: backup
         if: always()
-        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs
+        env:
+          CLEAR_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch_test
+          CLEAR_POSTGRES_REQUIRED: "1"
+        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs scripts/clear-email-limit.test.mjs
 
       - name: Report suite results
         if: always()
@@ -56,6 +73,16 @@ jobs:
           if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
+
+  caddy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build the pinned Caddy image
+        run: docker build -f deploy/Dockerfile.caddy deploy
 
   media-sandbox:
     runs-on: ubuntu-latest

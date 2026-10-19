@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, and `migrations/0007_media_worker_role.sql` in the pull request. Merging is not that approval. Do not apply them before you say so. `0004_media.sql` and `0007_media_worker_role.sql` are not approved by being added.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, and `migrations/0007_media_worker_role.sql` in the pull request. Merging is not that approval. `0005` adds an index on `rateLimit.lastRequest`. `0004` and `0007` add media storage and the media worker login. Each still needs your OK before it is applied. Do not apply them before you say so.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
@@ -89,7 +89,24 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 Better Auth stores its limiter in the `rateLimit` table, so every API process shares it. Sign-in is 5 attempts a minute per client address. The API applies that same cap, per address and per email, to sign-in, `/api/signup`, and `/api/invites`. A further attempt while the window is closed doubles the wait, up to 16 minutes. The response is HTTP 429 with `Retry-After`.
 
-Caddy applies the same 5-per-minute cap per client address to those POST routes. Its image is built from `deploy/Dockerfile.caddy` because the stock Caddy image has no rate-limit module. The module sets `Retry-After`, and the Caddyfile error route returns the same JSON 429.
+Plus tags share a lock on every domain. Dots share a lock only for `gmail.com` and `googlemail.com`, which count as one domain: `first.last+tag@googlemail.com` and `firstlast@gmail.com`. `first.last@corp.com` and `firstlast@corp.com` stay separate. A value that is too long or not an address is refused and is not stored as a key. IPv6 is one bucket per /64, in the API and in Caddy, including bracketed addresses and IPv4-mapped forms (`::FFFF:1.2.3.4` and `::ffff:cb00:7108`).
+
+Expired rows (last request older than 16 minutes, which is as long as a lock can last) are deleted in batches of 500. That delete runs on every 20th limited write in a process, not on every write. It uses the `lastRequest` index from `migrations/0005_rate_limit_index.sql`. That migration needs your approval before it is applied. Until then the delete still works, and it scans the table.
+
+Five failures from anywhere lock a known email for a minute, and further tries stretch that to 16 minutes. That is the tradeoff for a shared email cap. To clear it before the wait ends:
+
+```bash
+./scripts/clear-email-limit.sh 'person@example.com'
+```
+
+The script deletes the sign-in, signup, and invite rows for the normalized address. It does not delete the account. It runs `node --experimental-strip-types`, so the host needs Node 22.6 or newer. The API image is Node 22. On an older host, derive the key in the container and delete those keys yourself:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T api \
+  node --experimental-strip-types server/clear-email-limit.ts 'person@example.com'
+```
+
+Caddy applies the same 5-per-minute cap per client address, with IPv6 grouped by /64, in front of those POST routes. Its image is built from `deploy/Dockerfile.caddy` (Caddy 2.10.2 by digest, rate-limit module pinned to commit `5625512`). The module sets `Retry-After` to the seconds until that 1-minute window allows another try. The error route does not replace that header. When the API returns 429, Caddy forwards the API's `Retry-After`, which can be up to 16 minutes.
 
 The request URL is always `BETTER_AUTH_URL`. `X-Forwarded-For` is used for the client address only when the TCP peer is Caddy (`172.28.19.10`). Localhost browser origins are added only when `NODE_ENV` is not `production`. The API image sets `NODE_ENV=production`.
 
@@ -119,6 +136,8 @@ sudo crontab -e
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
+Set `BACKUP_HEALTHCHECK_URL` to a monitor's success URL if a nightly run should ping. Leave it blank and nothing is pinged. A successful run pings that URL. A failed run pings the same URL with `/fail` appended (Healthchecks.io). If the value already ends in `/fail`, that URL is the failure ping and the success ping is the URL with `/fail` removed. The script does not print the URL, and it does not put the URL on curl's command line.
+
 Restore, after stopping the API. Copy the identity onto the box only for this command, then remove it:
 
 ```bash
@@ -136,7 +155,7 @@ aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_
   --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
 ```
 
-`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, and `migrations/0007_media_worker_role.sql`. Set `MEDIA_WORKER_DB_PASSWORD` before that apply. It is the password for the media worker's database login, 16 or more letters and digits.
+`migrations/0001_auth.sql` is a verbatim copy of the scaffold file, so that file still mentions Neon and Vercel. Those comments do not describe this box. Apply SQL only with the migrate profile after you approve the files, including `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, and `migrations/0007_media_worker_role.sql`. Set `MEDIA_WORKER_DB_PASSWORD` before that apply. It is the password for the media worker's database login, 16 or more letters and digits.
 
 ## Pictures and video
 

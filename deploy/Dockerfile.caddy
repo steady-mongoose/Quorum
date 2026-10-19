@@ -1,7 +1,8 @@
-# Stock caddy:2.10 has no rate_limit handler. This image adds it.
-# Built on the VPS with `docker compose up --build`. CI does not build it.
-FROM caddy:2.10-builder AS builder
-RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+# Pinned so a rebuild does not follow a floating tag or module HEAD.
+# caddy 2.10.2 multi-arch index. The module commit is the one that adds
+# ipv6_prefix and declares caddy v2.10.0. CI builds this image.
+FROM caddy:2.10.2-builder@sha256:01668408cc26e2e00c9d067c30cb43b2ba14ad1f2808beda55503cb2a31f59dc AS builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db
 
-FROM caddy:2.10
+FROM caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

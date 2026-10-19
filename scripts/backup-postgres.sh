@@ -15,6 +15,56 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+PLAIN=""
+
+# BACKUP_HEALTHCHECK_URL is the success ping (a dead-man's switch). A failed
+# run pings the same URL with /fail appended, unless the value already ends
+# in /fail. Unset means no ping. The URL is written to curl's config on stdin
+# so it is not a process argument, and it is not printed. A ping failure does
+# not replace the backup's exit code.
+ping_healthcheck() {
+  target="$1"
+  if [ -z "$target" ]; then
+    return 0
+  fi
+  printf '%s\n' \
+    "silent" \
+    "show-error" \
+    "fail" \
+    "max-time = 10" \
+    "output = \"/dev/null\"" \
+    "url = \"${target}\"" \
+    | curl --config - || true
+}
+
+on_exit() {
+  status="$?"
+  if [ -n "$PLAIN" ]; then
+    rm -f "$PLAIN"
+  fi
+  url="${BACKUP_HEALTHCHECK_URL:-}"
+  url="${url%/}"
+  if [ -n "$url" ]; then
+    case "$url" in
+      */fail)
+        success="${url%/fail}"
+        fail="$url"
+        ;;
+      *)
+        success="$url"
+        fail="${url}/fail"
+        ;;
+    esac
+    if [ "$status" -eq 0 ]; then
+      ping_healthcheck "$success"
+    else
+      ping_healthcheck "$fail"
+    fi
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/avouch}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_MODE="${BACKUP_MODE:-docker}"
@@ -43,7 +93,6 @@ chmod 700 "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PLAIN="$BACKUP_DIR/avouch-$STAMP.dump.partial"
 OUT="$BACKUP_DIR/avouch-$STAMP.dump.age"
-trap 'rm -f "$PLAIN"' EXIT
 
 if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
