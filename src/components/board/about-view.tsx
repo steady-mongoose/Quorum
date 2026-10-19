@@ -1,5 +1,6 @@
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ServerInvite } from "@/components/board/server-invite";
+import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
@@ -20,7 +21,7 @@ const HOW = [
   },
   {
     title: "Who can see you",
-    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted.",
+    text: DM_ABOUT_NOTICE,
   },
   {
     title: "Posting",

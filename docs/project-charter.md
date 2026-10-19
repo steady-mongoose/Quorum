@@ -81,7 +81,7 @@ These are settled so they are not reopened on the weekly call.
 - No feed algorithm, no reshare, no quote-post, no like counts, no badges, no streaks, no per-person scores. The front page is the week, not a feed.
 - The host writes up each meeting: how it went, who came, one person mentioned at most, the next date. No headcount.
 - A business is listed only when two members post that it did work for them.
-- People who have been to the same meeting can message each other and see each other's profile. Nobody else can. Messages are two names only, plain text, not encrypted, deleted after 30 days.
+- People who have been to the same meeting can message each other and see each other's profile. Nobody else can. Messages are two names only, plain text, deleted after 30 days. When a member is signed in, the text is encrypted on the device before it is sent. The server stores ciphertext and public keys. This revises the earlier "not encrypted" line. The Google Doc is still the copy the team is editing.
 - Hard removal only for threats, pornography, and CSAM. Everything else stays up. Stewards mark for the missing reason, never the side, and every mark is logged in the room. Stewards are appointed by the founder, never self-appointed.
 - One mark on every screen, set by the owner (An Appeal to Heaven). Church rooms are kept separate: Reformed Baptist (1689), Reformed Presbyterian (Westminster), Latin Mass, Greek Orthodox.
 - Sponsorship buys one labeled card per room and nothing else. Memberships are the revenue that survives a vendor leaving.

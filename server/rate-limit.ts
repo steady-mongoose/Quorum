@@ -7,6 +7,10 @@ export const SIGNUP_LIMIT = ATTEMPT_LIMIT;
 export const SIGN_IN_LIMIT = ATTEMPT_LIMIT;
 export const INVITE_LIMIT = ATTEMPT_LIMIT;
 
+/** Private messages, separate from the sign-in attempt cap. */
+export const DM_SEND_LIMIT = { windowMs: 10 * 60 * 1000, max: 30 };
+export const DM_BUNDLE_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
+
 export type LimitRule = { windowMs: number; max: number };
 
 const BACKOFF_CAP = 4;

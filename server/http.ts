@@ -1,4 +1,5 @@
 import type { Db } from "./db.ts";
+import { handleDm } from "./dm/routes.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
 import { ATTEMPT_LIMIT, consumeLimit } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
@@ -271,6 +272,11 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  if (url.pathname.startsWith("/api/dm")) {
+    const response = await handleDm(deps, request, url);
+    if (response) return response;
   }
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
