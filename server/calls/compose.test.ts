@@ -36,6 +36,10 @@ test("coturn is a calls profile that docker compose up does not start", () => {
   assert.match(script, /no-loopback-peers/);
   assert.match(script, /denied-peer-ip=10\.0\.0\.0-10\.255\.255\.255/);
   assert.match(script, /denied-peer-ip=172\.16\.0\.0-172\.31\.255\.255/);
+  assert.match(script, /denied-peer-ip=\$\{public\}/);
+  assert.match(script, /denied-peer-ip=fc00::\/7/);
+  assert.match(script, /denied-peer-ip=fe80::\/10/);
+  assert.match(script, /denied-peer-ip=::ffff:0:0\/96/);
   assert.match(script, /static-auth-secret=/);
   assert.equal(script.includes("recording"), false);
   const syntax = spawnSync("sh", ["-n", join(root, "deploy/coturn.sh")]);

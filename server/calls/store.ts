@@ -1,7 +1,9 @@
 export const MAX_PEERS = 6;
 export const PEER_TTL_MS = 45_000;
 export const SIGNAL_TTL_MS = 60_000;
-export const MAX_SIGNALS = 200;
+/** Pending signals one sender may hold. Older ones from that sender are dropped. */
+export const MAX_SIGNALS_PER_SENDER = 40;
+export const MAX_SIGNALS = MAX_PEERS * MAX_SIGNALS_PER_SENDER;
 export const SIGNAL_LIMIT = 120;
 export const SIGNAL_WINDOW_MS = 10_000;
 
@@ -98,7 +100,8 @@ function normalizePayload(kind: SignalKind, payload: unknown): Record<string, un
 }
 
 /**
- * One process holds the live calls. Nothing is written to the database and
+ * One process holds the live calls. A second API process would split the
+ * room and the six-person cap. Nothing is written to the database and
  * nothing is recorded. A restart drops the call, which is the point.
  */
 export function createCallStore() {
@@ -136,6 +139,24 @@ export function createCallStore() {
     return peers;
   }
 
+  function dropPeer(roomId: string, userId: string): boolean {
+    const room = rooms.get(roomId);
+    if (!room?.peers.has(userId)) return false;
+    room.peers.delete(userId);
+    room.signals = room.signals.filter((signal) => signal.from !== userId && signal.to !== userId);
+    if (room.peers.size === 0) rooms.delete(roomId);
+    return true;
+  }
+
+  function trimSender(room: RoomState, from: string): void {
+    let kept = 0;
+    for (let i = room.signals.length - 1; i >= 0; i -= 1) {
+      if (room.signals[i]?.from !== from) continue;
+      kept += 1;
+      if (kept > MAX_SIGNALS_PER_SENDER) room.signals.splice(i, 1);
+    }
+  }
+
   return {
     join(roomId: string, user: { id: string; name: string }, at: number): JoinResult {
       const room = roomFor(roomId);
@@ -163,13 +184,19 @@ export function createCallStore() {
     },
 
     leave(roomId: string, userId: string): void {
-      const room = rooms.get(roomId);
-      if (!room) return;
-      room.peers.delete(userId);
-      room.signals = room.signals.filter(
-        (signal) => signal.from !== userId && signal.to !== userId,
-      );
-      if (room.peers.size === 0) rooms.delete(roomId);
+      dropPeer(roomId, userId);
+    },
+
+    /**
+     * Drop this person from every room on this process. `evictCallMember`
+     * is what a remove or ban calls. The slot is gone before the next poll.
+     */
+    evict(userId: string): number {
+      let dropped = 0;
+      for (const roomId of [...rooms.keys()]) {
+        if (dropPeer(roomId, userId)) dropped += 1;
+      }
+      return dropped;
     },
 
     signal(roomId: string, from: string, input: unknown, at: number): SignalResult {
@@ -216,7 +243,10 @@ export function createCallStore() {
       };
       room.nextId += 1;
       room.signals.push(signal);
-      if (room.signals.length > MAX_SIGNALS) room.signals.shift();
+      trimSender(room, from);
+      if (room.signals.length > MAX_SIGNALS) {
+        room.signals.splice(0, room.signals.length - MAX_SIGNALS);
+      }
       return { ok: true };
     },
 

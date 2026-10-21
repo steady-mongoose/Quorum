@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 import { iceServersForMember, publicCallsStatus, readCallsConfig } from "./config.ts";
-import { mintTurnCredential } from "./turn.ts";
+import { mintTurnCredential, turnExpirySeconds } from "./turn.ts";
 
 const secret = "a".repeat(40);
 const now = Date.parse("2026-10-21T12:00:00Z");
@@ -55,6 +55,7 @@ test("a member receives a coturn password and the public status does not", () =>
   });
   assert.equal(config.enabled, true);
   if (!config.enabled) return;
+  assert.equal(config.turnTtlSeconds, 60 * 60);
   const status = JSON.stringify(publicCallsStatus(config));
   assert.equal(status.includes(secret), false);
   assert.equal(status.includes("turn.example.com"), false);
@@ -66,7 +67,14 @@ test("a member receives a coturn password and the public status does not", () =>
   const minted = mintTurnCredential(secret, "user-1", now, config.turnTtlSeconds);
   assert.equal(turn.username, minted.username);
   assert.equal(turn.credential, minted.credential);
-  assert.equal(turn.username, `${Math.floor(now / 1000) + config.turnTtlSeconds}:user-1`);
+  const expiry = turnExpirySeconds(now, config.turnTtlSeconds);
+  assert.equal(turn.username, `${expiry}:user-1`);
+  const life = expiry - Math.floor(now / 1000);
+  assert.ok(life >= 45 * 60 && life <= 60 * 60);
+  const sameSlot = iceServersForMember(config, "user-1", now + 10 * 60 * 1000);
+  assert.equal(sameSlot[1]?.username, turn.username);
+  const nextSlot = iceServersForMember(config, "user-1", now + 15 * 60 * 1000);
+  assert.notEqual(nextSlot[1]?.username, turn.username);
   assert.equal(
     turn.credential,
     createHmac("sha1", secret).update(minted.username).digest("base64"),

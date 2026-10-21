@@ -52,7 +52,7 @@ export function readCallsConfig(env: NodeJS.ProcessEnv = process.env): CallsConf
     const parsed = parseIceUrl(url);
     if (!parsed || !parsed.relay) return { enabled: false, reason: "forbidden-ice" };
   }
-  return { enabled: true, stunUrls, turnUrls, turnSecret, turnTtlSeconds: 4 * 60 * 60 };
+  return { enabled: true, stunUrls, turnUrls, turnSecret, turnTtlSeconds: 60 * 60 };
 }
 
 /** Safe to send to anyone. No addresses and no secret. */

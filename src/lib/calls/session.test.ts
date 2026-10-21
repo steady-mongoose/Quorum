@@ -145,6 +145,50 @@ test("the larger id offers, the smaller id answers, and neither records", async 
   bob.close();
 });
 
+test("a peer who disappears from the roster is disconnected", async () => {
+  const connections: FakeConnection[] = [];
+  const seen: string[][] = [];
+  const session = new RoomCallSession({
+    roomId: "shop",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onPeers: (peers) => {
+      seen.push(peers.map((peer) => peer.id));
+    },
+    request: async (path) => {
+      if (path.includes("?")) {
+        return {
+          status: 200,
+          body: {
+            peers: [{ id: "cara", name: "Cara", generation: 1 }],
+            signals: [],
+            cursor: 1,
+            record: false,
+          },
+        };
+      }
+      return { status: 200, body: { ok: true, record: false } };
+    },
+    createConnection: () => {
+      const connection = new FakeConnection();
+      connections.push(connection);
+      return connection;
+    },
+  });
+  await session.syncPeers([
+    { id: "bob", name: "Bob", generation: 1 },
+    { id: "cara", name: "Cara", generation: 1 },
+  ]);
+  assert.equal(connections.length, 2);
+  await session.pollOnce();
+  assert.equal(connections[0]?.connectionState, "closed");
+  assert.equal(connections[1]?.connectionState, "new");
+  assert.deepEqual(seen.at(-1), ["cara"]);
+  session.close();
+});
+
 test("the call page and the relay do not record or use a vendor STUN server", () => {
   const files = [
     "src/lib/calls/session.ts",

@@ -1,4 +1,5 @@
 import type { Db } from "../db.ts";
+import { CALLS_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { iceServersForMember, publicCallsStatus, type CallsConfig } from "./config.ts";
 import { roomCallMember } from "./membership.ts";
 import { callDisplayName, type CallStore } from "./store.ts";
@@ -70,11 +71,32 @@ export async function handleCalls(
   }
   if (!session) return json(401, { error: "Sign in first.", record: false });
 
+  const counted =
+    (action === "/join" && request.method === "POST") ||
+    (action === "/leave" && request.method === "POST") ||
+    (action === "" && request.method === "GET");
+  if (counted) {
+    const hit = await consumeLimit(
+      db,
+      `calls:user:${session.id}`,
+      CALLS_LIMIT,
+      runtime.now().getTime(),
+    );
+    if (!hit.allowed) {
+      return json(
+        429,
+        { error: "Too many attempts. Wait and try again.", record: false },
+        new Headers({ "retry-after": String(hit.retryAfter) }),
+      );
+    }
+  }
+
   const member = await roomCallMember(db, session.id, roomId);
   if (member === "bad-room") return json(404, { error: "Not found.", record: false });
   if (member === "unavailable")
     return json(503, { error: "Calls are not available.", record: false });
   if (member === "outsider") {
+    runtime.store.leave(roomId, session.id);
     return json(403, { error: "You have not stood in that room.", record: false });
   }
 
@@ -124,6 +146,7 @@ export async function handleCalls(
           kind: signal.kind,
           payload: signal.payload,
         })),
+        iceServers: iceServersForMember(runtime.config, session.id, at),
         cursor: polled.cursor,
         record: false,
       });

@@ -4,6 +4,7 @@ import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { readCallsConfig } from "./config.ts";
+import { CALLS_LIMIT } from "../rate-limit.ts";
 import { createCallStore } from "./store.ts";
 
 const secret = "b".repeat(40);
@@ -165,7 +166,12 @@ test("only a signed-in member can join, and an admin who has not stood there can
       call("/api/calls/rooms/county/join", { method: "POST", user: "ada", body: {} }),
     );
     assert.equal(otherRoom.status, 403);
-    assert.ok(seen.queries.every((sql) => sql.trim().toLowerCase().startsWith("select")));
+    const roomWrites = seen.queries.filter((sql) => {
+      const lower = sql.toLowerCase();
+      if (lower.includes("ratelimit")) return false;
+      return !lower.trim().startsWith("select");
+    });
+    assert.deepEqual(roomWrites, []);
     assert.equal(
       seen.queries.some((sql) => sql.includes("room_member")),
       true,
@@ -255,6 +261,80 @@ test("members exchange one offer, and someone outside the room cannot read it", 
       call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", body: {} }),
     );
     assert.equal(unavailable.status, 503);
+  } finally {
+    await close();
+  }
+});
+
+test("a removed member is dropped from the call on the next request", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const app = handler(db, {
+      config: enabledConfig(),
+      store: createCallStore(),
+      now: () => new Date("2026-10-21T12:00:00Z"),
+    });
+    await user(db, "ada");
+    await user(db, "bob");
+    await stand(db, "ada", "shop");
+    await stand(db, "bob", "shop");
+    await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),
+    );
+    await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "bob", name: "Bob", body: {} }),
+    );
+    await db.query(`delete from room_member where user_id = $1`, ["ada"]);
+    const removed = await app(call("/api/calls/rooms/shop?since=0", { user: "ada" }));
+    assert.equal(removed.status, 403);
+    const bob = await app(call("/api/calls/rooms/shop?since=0", { user: "bob" }));
+    const body = (await bob.json()) as { peers: { id: string }[]; record: boolean };
+    assert.equal(body.record, false);
+    assert.equal(
+      body.peers.some((peer) => peer.id === "ada"),
+      false,
+    );
+    const again = await app(
+      call("/api/calls/rooms/shop/signal", {
+        method: "POST",
+        user: "ada",
+        body: { to: "bob", kind: "ice", payload: { candidate: "candidate:1" } },
+      }),
+    );
+    assert.equal(again.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("join, leave, and poll are limited per member", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const app = handler(db, {
+      config: enabledConfig(),
+      store: createCallStore(),
+      now: () => new Date("2026-10-21T12:00:00Z"),
+    });
+    await user(db, "ada");
+    await stand(db, "ada", "shop");
+    const joined = await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),
+    );
+    assert.equal(joined.status, 200);
+    for (let i = 1; i < CALLS_LIMIT.max; i += 1) {
+      const polled = await app(call("/api/calls/rooms/shop?since=0", { user: "ada" }));
+      assert.equal(polled.status, 200);
+    }
+    const blocked = await app(call("/api/calls/rooms/shop?since=0", { user: "ada" }));
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers.get("retry-after"), "10");
+    const body = (await blocked.json()) as { error: string; record: boolean };
+    assert.equal(body.record, false);
+    assert.match(body.error, /Too many attempts/);
+    const left = await app(
+      call("/api/calls/rooms/shop/leave", { method: "POST", user: "ada", body: {} }),
+    );
+    assert.equal(left.status, 429);
   } finally {
     await close();
   }

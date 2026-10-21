@@ -5,6 +5,7 @@ import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
 import { createApp } from "./http.ts";
 import { readCallsConfig } from "./calls/config.ts";
+import { bindCallEviction } from "./calls/evict.ts";
 import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
@@ -79,6 +80,8 @@ export function startHost(): void {
     }),
   );
   const callsConfig = readCallsConfig();
+  const callStore = createCallStore();
+  bindCallEviction(callStore);
   console.log(
     JSON.stringify({
       event: "room-calls",
@@ -97,7 +100,7 @@ export function startHost(): void {
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
     media: { config: mediaConfig, store: storeFromConfig(mediaConfig), now },
-    calls: { config: callsConfig, store: createCallStore(), now },
+    calls: { config: callsConfig, store: callStore, now },
   });
   const server = createServer(async (req, res) => {
     try {

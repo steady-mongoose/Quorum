@@ -30,6 +30,7 @@ export interface CallPeerConnection {
   setLocalDescription(description?: { type: string; sdp?: string }): Promise<void>;
   setRemoteDescription(description: { type: string; sdp?: string }): Promise<void>;
   addIceCandidate(candidate: IceCandidate): Promise<void>;
+  setConfiguration?: (config: { iceServers: CallIceServer[] }) => void;
   getSenders?: () => Array<{
     track: { kind: string } | null;
     getParameters: () => { encodings?: Array<{ maxBitrate?: number; maxFramerate?: number }> };
@@ -199,6 +200,7 @@ export class RoomCallSession {
         this.fail("The call server sent something this page will not use.");
         return;
       }
+      if (parsed.iceServers) this.applyIce(parsed.iceServers);
       await this.syncPeers(parsed.peers);
       for (const signal of parsed.signals) await this.acceptSignal(signal);
       this.cursor = parsed.cursor;
@@ -382,6 +384,7 @@ export class RoomCallSession {
       body: {},
     });
     if (this.badRecording(response.body)) return;
+    if (response.status === 429) return;
     if (response.status === 401 || response.status === 403) {
       this.fail("You have not stood in that room.");
       return;
@@ -392,8 +395,30 @@ export class RoomCallSession {
       return;
     }
     this.cursor = parsed.cursor;
-    this.iceServers = parsed.iceServers;
+    this.applyIce(parsed.iceServers);
     await this.syncPeers(parsed.peers);
+  }
+
+  private credentialExpiry(servers: CallIceServer[]): number {
+    let expiry = 0;
+    for (const server of servers) {
+      const stamp = Number(server.username?.split(":")[0]);
+      if (Number.isFinite(stamp)) expiry = Math.max(expiry, stamp);
+    }
+    return expiry;
+  }
+
+  /** New peers use the latest servers. An open connection is updated once its password is inside the last 15 minutes. */
+  private applyIce(next: CallIceServer[]): void {
+    const currentExpiry = this.credentialExpiry(this.iceServers);
+    const nextExpiry = this.credentialExpiry(next);
+    this.iceServers = next;
+    const nowSec = Date.now() / 1000;
+    if (nextExpiry <= currentExpiry) return;
+    if (currentExpiry > 0 && currentExpiry - nowSec > 15 * 60) return;
+    for (const slot of this.slots.values()) {
+      slot.pc.setConfiguration?.({ iceServers: next });
+    }
   }
 
   private badRecording(body: unknown): boolean {

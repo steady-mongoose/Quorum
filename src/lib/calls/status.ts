@@ -93,23 +93,35 @@ export function parseCallJoin(body: unknown): {
     return null;
   }
   const peers = peerRows(record.peers);
-  if (!peers || !Array.isArray(record.iceServers)) return null;
-  const iceServers: CallIceServer[] = [];
-  for (const item of record.iceServers) {
+  const servers = iceServers(record.iceServers);
+  if (!peers || !servers) return null;
+  return { selfId: record.selfId, peers, iceServers: servers, cursor: record.cursor };
+}
+
+function iceServers(value: unknown): CallIceServer[] | null {
+  if (!Array.isArray(value)) return null;
+  const servers: CallIceServer[] = [];
+  for (const item of value) {
     const server = iceServer(item);
     if (!server) return null;
-    iceServers.push(server);
+    servers.push(server);
   }
-  return { selfId: record.selfId, peers, iceServers, cursor: record.cursor };
+  return servers;
 }
 
 export function parseCallPoll(body: unknown): {
   peers: CallPeerRow[];
   signals: CallWire[];
   cursor: number;
+  iceServers?: CallIceServer[];
 } | null {
   if (refusesRecording(body) || !body || typeof body !== "object") return null;
-  const record = body as { peers?: unknown; signals?: unknown; cursor?: unknown };
+  const record = body as {
+    peers?: unknown;
+    signals?: unknown;
+    cursor?: unknown;
+    iceServers?: unknown;
+  };
   if (typeof record.cursor !== "number" || !Number.isInteger(record.cursor) || record.cursor < 0) {
     return null;
   }
@@ -129,5 +141,8 @@ export function parseCallPoll(body: unknown): {
       payload: row.payload as Record<string, unknown>,
     });
   }
-  return { peers, signals, cursor: record.cursor };
+  if (record.iceServers === undefined) return { peers, signals, cursor: record.cursor };
+  const servers = iceServers(record.iceServers);
+  if (!servers) return null;
+  return { peers, signals, cursor: record.cursor, iceServers: servers };
 }

@@ -35,7 +35,8 @@ services:
       dockerfile: deploy/Dockerfile
       target: app
     # CALLS stays off until CALLS=on is set in deploy/.env. docker compose up
-    # does not start the calls profile.
+    # does not start the calls profile. Room calls live in this one process.
+    # Do not run a second api replica.
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-avouch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-avouch}

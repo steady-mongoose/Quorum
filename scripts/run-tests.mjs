@@ -40,6 +40,7 @@ const appTests = [
   "server/media/egress.test.ts",
   "server/calls/config.test.ts",
   "server/calls/store.test.ts",
+  "server/calls/evict.test.ts",
   "server/calls/http.test.ts",
   "server/calls/compose.test.ts",
   "src/lib/calls/ice.test.ts",

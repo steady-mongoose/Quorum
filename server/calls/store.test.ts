@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_PEERS, PEER_TTL_MS, SIGNAL_LIMIT, callDisplayName, createCallStore } from "./store.ts";
+import {
+  MAX_PEERS,
+  MAX_SIGNALS_PER_SENDER,
+  PEER_TTL_MS,
+  SIGNAL_LIMIT,
+  callDisplayName,
+  createCallStore,
+} from "./store.ts";
 
 const sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n";
 
@@ -147,4 +154,60 @@ test("the signal rate has a ceiling, and a recording is not a signal", () => {
   );
   assert.equal(recorded.ok, false);
   if (!recorded.ok) assert.equal(recorded.status, 400);
+});
+
+test("one sender cannot push another person's signal out of the room", () => {
+  const store = createCallStore();
+  store.join("shop", { id: "ada", name: "Ada" }, 0);
+  store.join("shop", { id: "bob", name: "Bob" }, 0);
+  assert.equal(
+    store.signal("shop", "bob", { to: "ada", kind: "offer", payload: { type: "offer", sdp } }, 1)
+      .ok,
+    true,
+  );
+  for (let i = 0; i < MAX_SIGNALS_PER_SENDER + 5; i += 1) {
+    const sent = store.signal(
+      "shop",
+      "ada",
+      { to: "bob", kind: "ice", payload: { candidate: `candidate:${i}` } },
+      10,
+    );
+    assert.equal(sent.ok, true);
+  }
+  const bob = store.poll("shop", "bob", 0, 20);
+  assert.equal(bob.ok, true);
+  if (!bob.ok) return;
+  assert.equal(bob.signals.length, MAX_SIGNALS_PER_SENDER);
+  assert.equal(bob.signals[0]?.payload.candidate, "candidate:5");
+  const ada = store.poll("shop", "ada", 0, 20);
+  assert.equal(ada.ok, true);
+  if (ada.ok) assert.equal(ada.signals[0]?.kind, "offer");
+});
+
+test("evict drops a person from every room immediately", () => {
+  const store = createCallStore();
+  store.join("shop", { id: "ada", name: "Ada" }, 0);
+  store.join("shop", { id: "bob", name: "Bob" }, 0);
+  store.join("county", { id: "ada", name: "Ada" }, 0);
+  store.join("county", { id: "cara", name: "Cara" }, 0);
+  store.signal("shop", "ada", { to: "bob", kind: "offer", payload: { type: "offer", sdp } }, 1);
+  assert.equal(store.evict("ada"), 2);
+  const shop = store.poll("shop", "bob", 0, 2);
+  assert.equal(shop.ok, true);
+  if (shop.ok) {
+    assert.equal(
+      shop.peers.some((peer) => peer.id === "ada"),
+      false,
+    );
+    assert.equal(shop.signals.length, 0);
+  }
+  const county = store.poll("county", "cara", 0, 2);
+  assert.equal(county.ok, true);
+  if (county.ok)
+    assert.equal(
+      county.peers.some((peer) => peer.id === "ada"),
+      false,
+    );
+  assert.equal(store.poll("shop", "ada", 0, 2).ok, false);
+  assert.equal(store.evict("ada"), 0);
 });
