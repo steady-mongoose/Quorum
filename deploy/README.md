@@ -29,7 +29,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## One-time steps for the owner
 
-1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, `migrations/0007_media_worker_role.sql`, and `migrations/0008_board.sql` in the pull request. Merging is not that approval. `0005` adds an index on `rateLimit.lastRequest`. `0004` and `0007` add media storage and the media worker login. `0008` adds room text, posts, steward marks, hard removals, and bans. `0006` is reserved. Each still needs your OK before it is applied. Do not apply them before you say so.
+1. Approve `migrations/0001_auth.sql`, `migrations/0002_closed_test.sql`, `migrations/0003_rate_limit.sql`, `migrations/0004_media.sql`, `migrations/0005_rate_limit_index.sql`, `migrations/0007_media_worker_role.sql`, `migrations/0008_board.sql`, and `migrations/0011_places.sql` in the pull request. Merging is not that approval. `0005` adds an index on `rateLimit.lastRequest`. `0004` and `0007` add media storage and the media worker login. `0008` adds room text, posts, steward marks, hard removals, and bans. **0011** is migration 0011: towns, ZIP codes, congregations, room requests, and council approvals. It is not applied. `0006` is reserved. `0009` and `0010` are unused. Each still needs your OK before it is applied. Do not apply them before you say so.
 2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:

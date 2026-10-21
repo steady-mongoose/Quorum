@@ -51,7 +51,7 @@ test("the seeded rooms match the board, and a member sees another member's post"
       `select id, name, takes from room order by sort_order asc`,
     );
     assert.deepEqual(
-      rooms.map((room) => room.id),
+      rooms.map((room) => room.id).slice(0, 10),
       [
         "county",
         "question",
@@ -67,6 +67,14 @@ test("the seeded rooms match the board, and a member sees another member's post"
     );
     assert.equal(rooms[0]?.name, "The County");
     assert.equal(rooms[9]?.name, "Dispatch");
+    assert.equal(
+      rooms.some((room) => room.id === "rv-town"),
+      true,
+    );
+    assert.equal(
+      rooms.some((room) => room.id === "region-hillsborough"),
+      true,
+    );
 
     const stranger = randomUUID();
     await user(db, stranger, "Stranger", "stranger@example.com");
@@ -256,7 +264,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
   }
 });
 
-test("room creation is admin only, and steward grants and revocations are logged", async () => {
+test("room creation is admin only, and a one-step steward appointment is refused", async () => {
   const { db, close } = await openTestDb();
   try {
     const maria = randomUUID();
@@ -308,25 +316,14 @@ test("room creation is admin only, and steward grants and revocations are logged
       note: "Appointed by the founder.",
       now,
     });
-    assert.equal(appointed.ok, true);
-    const revoked = await setSteward(db, {
-      userId: josh,
-      name: "Josh",
-      email: "Maria@Example.com",
-      action: "revoke",
-      note: "The appointment is withdrawn.",
-      now: new Date(now.getTime() + 1000),
-    });
-    assert.equal(revoked.ok, true);
-    const log = await db.query<{ action: string; role: string; note: string }>(
-      `select action, role, note from access_log where user_id = $1 and role = 'steward' order by at asc`,
+    assert.equal(appointed.ok, false);
+    if (appointed.ok) return;
+    assert.match(appointed.error, /inviter/);
+    const log = await db.query<{ action: string }>(
+      `select action from access_log where user_id = $1 and role = 'steward'`,
       [maria],
     );
-    assert.deepEqual(
-      log.map((row) => row.action),
-      ["grant", "revoke"],
-    );
-    assert.equal(log[0]?.note, "Appointed by the founder.");
+    assert.equal(log.length, 0);
     const after = await listBoard(db, maria, now);
     assert.equal(after.ok, true);
     if (!after.ok) return;

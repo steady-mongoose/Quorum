@@ -20,6 +20,45 @@ async function liveRole(db: Db, userId: string, role: AccessRow["role"]): Promis
   );
 }
 
+/**
+ * Steward grants are per room. The newest row for that room decides.
+ * A live grant in any room, including a blank room from an older appointment,
+ * makes the member a steward for marks and removals.
+ */
+export async function stewardRoomIds(db: Db, userId: string): Promise<string[]> {
+  const rows = await db.query<{
+    id: string;
+    room_id: string;
+    action: "grant" | "revoke";
+    at: Date | string;
+  }>(`select id, room_id, action, at from access_log where user_id = $1 and role = 'steward'`, [
+    userId,
+  ]);
+  const latest = new Map<string, { id: string; action: "grant" | "revoke"; at: number }>();
+  for (const row of rows) {
+    const at = new Date(row.at).getTime();
+    const prev = latest.get(row.room_id);
+    if (!prev || at > prev.at || (at === prev.at && row.id > prev.id)) {
+      latest.set(row.room_id, { id: row.id, action: row.action, at });
+    }
+  }
+  return [...latest.entries()].filter(([, row]) => row.action === "grant").map(([roomId]) => roomId);
+}
+
+export async function councilFlags(
+  db: Db,
+  userId: string,
+): Promise<{ council: boolean; chair: boolean }> {
+  const rows = await db.query<{ is_council: boolean; is_council_chair: boolean }>(
+    `select is_council, is_council_chair from member_role where user_id = $1`,
+    [userId],
+  );
+  return {
+    council: Boolean(rows[0]?.is_council),
+    chair: Boolean(rows[0]?.is_council_chair),
+  };
+}
+
 export type BoardActor = {
   member: boolean;
   steward: boolean;
@@ -46,7 +85,7 @@ export async function actorRole(db: Db, userId: string): Promise<BoardActor> {
   const owner = await isOwner(db, userId);
   const admin = owner || (await isAdmin(db, userId));
   const member = admin || (await liveRole(db, userId, "member"));
-  const steward = admin || (await liveRole(db, userId, "steward"));
+  const steward = admin || (await stewardRoomIds(db, userId)).length > 0;
   return { member, steward, admin, owner };
 }
 

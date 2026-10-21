@@ -49,6 +49,7 @@ import {
   type MeetingCard,
   type Post,
 } from "@/lib/board/model";
+import { checklistFor } from "@/lib/board/council";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -261,6 +262,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const bans = useBoard((state) => state.bans);
   const rooms = useBoard((state) => state.rooms);
   const file = useBoard((state) => state.file);
+  const remote = useBoard((state) => state.remote);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
   const meta = roomById(room, rooms);
@@ -297,6 +299,15 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     [current, me, steward, posts, cards, removals, bans, rooms],
   );
 
+  const subjectChoices: { value: Draft["subject"]; label: string }[] = [
+    { value: "", label: "No subject" },
+  ];
+  if (meta.cardKinds.includes("candidate")) {
+    subjectChoices.push({ value: "candidate", label: "Candidate" });
+  }
+  if (meta.cardKinds.includes("trade")) {
+    subjectChoices.push({ value: "business", label: "Business" });
+  }
   const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
   const reset = () => {
     setDraft(blankDraft(room));
@@ -379,6 +390,28 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               value={current.tradeId}
               onChange={(tradeId) => patch({ tradeId })}
             />
+          ) : null}
+          {remote && subjectChoices.length > 1 ? (
+            <fieldset className="flex flex-col gap-2 text-sm text-muted">
+              <legend>Subject, if the council may label this</legend>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Subject">
+                {subjectChoices.map((choice) => (
+                  <label
+                    key={choice.value || "none"}
+                    className={pill(current.subject === choice.value, "cursor-pointer")}
+                  >
+                    <input
+                      type="radio"
+                      className="sr-only"
+                      name="subject"
+                      checked={current.subject === choice.value}
+                      onChange={() => patch({ subject: choice.value })}
+                    />
+                    {choice.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           ) : null}
           <label className="flex flex-col gap-2 text-sm text-muted">
             {type.claimLabel}
@@ -556,6 +589,13 @@ const PostCard = memo(function PostCard({
   const mark = useBoard((state) => state.mark);
   const remove = useBoard((state) => state.remove);
   const openDm = useBoard((state) => state.openDm);
+  const remote = useBoard((state) => state.remote);
+  const councilMember = useBoard((state) => state.council);
+  const admin = useBoard((state) => state.admin);
+  const setCouncil = useBoard((state) => state.setCouncil);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [councilReason, setCouncilReason] = useState("");
+  const [councilError, setCouncilError] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -586,7 +626,80 @@ const PostCard = memo(function PostCard({
             {MARK_LABEL[post.mark]}
           </span>
         ) : null}
+        {post.council ? (
+          <span className="rounded-sm border border-signal px-2 py-1 text-signal">
+            {post.council.label}
+          </span>
+        ) : null}
       </div>
+      {post.council ? (
+        <div className="mt-2">
+          <p className="text-sm text-muted">{post.council.reason}</p>
+          <ul className="mt-1 list-disc pl-5 text-sm text-muted">
+            {post.council.checklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          {remote && admin ? (
+            <button
+              type="button"
+              className={cn(btnQuiet, "mt-2 px-0")}
+              onClick={() => {
+                void setCouncil(post.id, { action: "revoke", reason: "", checklist: [] }).then(
+                  (result) => {
+                    if (!result.ok) setCouncilError(result.error ?? "That approval was not saved.");
+                  },
+                );
+              }}
+            >
+              Revoke council approval
+            </button>
+          ) : null}
+        </div>
+      ) : remote && councilMember && post.subject && !post.parentId ? (
+        <form
+          className="mt-3 flex flex-col gap-2 border-t border-line pt-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void setCouncil(post.id, {
+              action: "approve",
+              reason: councilReason,
+              checklist: checks,
+            }).then((result) => {
+              setCouncilError(result.ok ? "" : (result.error ?? "That approval was not saved."));
+            });
+          }}
+        >
+          <p className="text-xs tracking-widest text-muted uppercase">Council review</p>
+          {checklistFor(post.subject).map((item) => (
+            <label key={item} className="flex items-start gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={checks.includes(item)}
+                onChange={() =>
+                  setChecks((current) =>
+                    current.includes(item) ? current.filter((row) => row !== item) : [...current, item],
+                  )
+                }
+              />
+              {item}
+            </label>
+          ))}
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            One sentence
+            <input
+              className={fieldClass}
+              value={councilReason}
+              onChange={(event) => setCouncilReason(event.target.value)}
+            />
+          </label>
+          <button type="submit" className={btnSignal}>
+            Council-approved
+          </button>
+        </form>
+      ) : null}
+      {councilError ? <p className="mt-2 text-sm text-muted">{councilError}</p> : null}
 
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">

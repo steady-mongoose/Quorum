@@ -16,6 +16,7 @@ import {
   witnessesByTrade,
   type MeetingCard,
 } from "@/lib/board/model";
+import { HomePanel } from "@/components/board/home-view";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -35,6 +36,8 @@ export function WeekView() {
   const needs = useMemo(() => needsFor(cards), [cards]);
 
   return (
+    <div className="flex flex-col gap-10">
+      <HomePanel />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-2">
@@ -80,6 +83,7 @@ export function WeekView() {
           </section>
         ) : null}
       </aside>
+    </div>
     </div>
   );
 }
