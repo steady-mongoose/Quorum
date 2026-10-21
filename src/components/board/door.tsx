@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { AccountDoor } from "@/components/board/account-door";
+import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
 import { APP_NAME, ROOMS, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -41,6 +42,11 @@ export function Door() {
   const [outcome, setOutcome] = useState<string | null>(null);
   const live = server.mode === "live";
 
+  useEffect(() => {
+    const fromUrl = codeFromSearch(window.location.search);
+    if (fromUrl) setCode(fromUrl);
+  }, []);
+
   return (
     <div className="grid gap-10 py-6 lg:min-h-[70vh] lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-center lg:gap-16 lg:py-10">
       <div className="flex max-w-3xl flex-col gap-8">
@@ -80,7 +86,7 @@ export function Door() {
         </section>
       </div>
 
-      <div className="flex flex-col gap-6 lg:sticky lg:top-28">
+      <div className="order-first flex flex-col gap-6 lg:sticky lg:top-28 lg:order-none">
         {live ? <AccountDoor /> : null}
         {server.mode === "demo" && server.configured ? (
           <p className="text-sm text-muted">

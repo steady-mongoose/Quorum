@@ -25,7 +25,7 @@ export const Route = createRootRoute({
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: APP_NAME },
       { name: "twitter:description", content: DESCRIPTION },
-      { name: "theme-color", content: "#0e0e0c" },
+      { name: "theme-color", content: "#0f1a14" },
     ],
     links: [
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
