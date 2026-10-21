@@ -1,6 +1,7 @@
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
+import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
 import { listChat, removeChatMessage, sendChat, type ChatResult } from "./store.ts";
 
 type SessionUser = { id: string; name: string; email: string };
@@ -108,6 +109,7 @@ export async function handleRoomChat(
   try {
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
+    if (!(await roomChatReady(deps.db))) return json(503, { error: CHAT_UNAVAILABLE });
     const kind = request.method === "GET" ? "read" : "write";
     const blocked = await limit(deps.db, request, session.id, kind);
     if (blocked) return blocked;

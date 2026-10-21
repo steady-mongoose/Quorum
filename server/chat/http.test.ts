@@ -4,6 +4,7 @@ import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
+import { CHAT_UNAVAILABLE } from "./ready.ts";
 
 const now = new Date("2026-10-21T15:00:00Z");
 
@@ -150,6 +151,45 @@ test("two members poll the room in time order, and a ban or removal stops the ne
     const barredBody = (await barred.json()) as { error?: string; ban?: { reason?: string } };
     assert.equal(barredBody.error, "banned");
     assert.equal(barredBody.ban?.reason, "porn");
+  } finally {
+    await close();
+  }
+});
+
+test("a missing chat table leaves the board up and says chat is not available", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await member(db, maria, "Maria", "maria-early@example.com", "shop");
+    await db.query(`drop table room_chat_removal, room_chat_message cascade`);
+    const handler = app(db);
+    const headers = { "x-user-id": maria, "x-user-name": "Maria" };
+    const board = await handler(new Request("http://127.0.0.1:8787/api/board", { headers }));
+    assert.equal(board.status, 200);
+    const read = await handler(
+      new Request("http://127.0.0.1:8787/api/rooms/shop/chat", { headers }),
+    );
+    assert.equal(read.status, 503);
+    const readBody = (await read.json()) as { error?: string };
+    assert.equal(readBody.error, CHAT_UNAVAILABLE);
+    const sent = await handler(
+      new Request("http://127.0.0.1:8787/api/rooms/shop/chat", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ text: "The bench is clear." }),
+      }),
+    );
+    assert.equal(sent.status, 503);
+    const sentBody = (await sent.json()) as { error?: string };
+    assert.equal(sentBody.error, CHAT_UNAVAILABLE);
+    const removed = await handler(
+      new Request("http://127.0.0.1:8787/api/rooms/shop/chat/line-1/remove", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ reason: "threat" }),
+      }),
+    );
+    assert.equal(removed.status, 503);
   } finally {
     await close();
   }

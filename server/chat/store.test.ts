@@ -8,6 +8,7 @@ import { bindCallEviction } from "../calls/evict.ts";
 import { createCallStore } from "../calls/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
+import { CHAT_UNAVAILABLE } from "./ready.ts";
 import { listChat, removeChatMessage, sendChat } from "./store.ts";
 
 const now = new Date("2026-10-21T15:00:00Z");
@@ -56,6 +57,9 @@ test("migration 0013 is the room transcript and leaves the 1:1 mailbox alone", (
   assert.match(sql, /room_chat_message/);
   assert.match(sql, /room_chat_removal/);
   assert.match(sql, /0006 is reserved/);
+  assert.match(sql, /function anonymize_room_chat_user/);
+  assert.match(sql, /trigger anonymize_room_chat_user/);
+  assert.equal(/function anonymize_board_user/.test(sql), false);
   assert.equal(/create table[^;]*\bdm_/i.test(sql), false);
   for (const banned of ["like", "likes", "reaction", "score", "reshare", "rank"]) {
     assert.equal(sql.toLowerCase().includes(banned), false, banned);
@@ -587,6 +591,88 @@ test("deleting an account keeps the line and drops the name", async () => {
       `select author_user_id from room_chat_message where room_id = 'shop'`,
     );
     assert.equal(row[0]?.author_user_id, null);
+    const functions = await db.query<{ proname: string; def: string }>(
+      `select p.proname, pg_get_functiondef(p.oid) as def
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.proname in ('anonymize_board_user', 'anonymize_room_chat_user')`,
+    );
+    assert.deepEqual(functions.map((row) => row.proname).sort(), [
+      "anonymize_board_user",
+      "anonymize_room_chat_user",
+    ]);
+    const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
+    assert.equal(boardFn?.def.includes("room_chat"), false);
+    const triggers = await db.query<{ tgname: string }>(
+      `select tgname from pg_trigger
+       where tgrelid = '"user"'::regclass and not tgisinternal
+         and tgname in ('anonymize_board_user', 'anonymize_room_chat_user')`,
+    );
+    assert.deepEqual(triggers.map((row) => row.tgname).sort(), [
+      "anonymize_board_user",
+      "anonymize_room_chat_user",
+    ]);
+  } finally {
+    await close();
+  }
+});
+
+test("the board still loads when the chat tables are missing", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-early@example.com");
+    await user(db, tom, "Tom", "tom-early@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    await stand(db, maria, "shop");
+    await stand(db, tom, "shop");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    await db.query(`drop table room_chat_removal, room_chat_message cascade`);
+    const board = await listBoard(db, tom, now);
+    assert.equal(board.ok, true);
+    if (!board.ok) return;
+    assert.equal(
+      board.value.posts.some((post) => post.id === posted.value.id),
+      true,
+    );
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    assert.equal(removed.value.ban.strikes, 1);
+    const chat = await listChat(db, { userId: tom, roomId: "shop", now });
+    assert.equal(chat.ok, false);
+    if (chat.ok) return;
+    assert.equal(chat.status, 503);
+    assert.equal(chat.error, CHAT_UNAVAILABLE);
+    const sent = await sendChat(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      text: "The bench is clear.",
+      now,
+    });
+    assert.equal(sent.ok, false);
+    if (sent.ok) return;
+    assert.equal(sent.status, 503);
+    assert.equal(sent.error, CHAT_UNAVAILABLE);
   } finally {
     await close();
   }

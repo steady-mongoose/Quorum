@@ -5,6 +5,7 @@ import { actorRole, moderationStop, type BoardActor } from "../board/access.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
+import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
 
 const HARD = new Set(["threat", "porn", "csam"]);
 const PAGE = 50;
@@ -109,6 +110,11 @@ export function chatText(value: string): { ok: true; text: string } | { ok: fals
   return { ok: true, text };
 }
 
+async function chatAvailable(db: Db): Promise<Err | null> {
+  if (await roomChatReady(db)) return null;
+  return fail(503, CHAT_UNAVAILABLE);
+}
+
 export async function listChat(
   db: Db,
   input: {
@@ -119,6 +125,8 @@ export async function listChat(
     before?: number | null;
   },
 ): Promise<ChatResult<ChatPage>> {
+  const unavailable = await chatAvailable(db);
+  if (unavailable) return unavailable;
   const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
   if (!gate.ok) return gate;
   const after = input.after ?? null;
@@ -185,6 +193,8 @@ export async function sendChat(
   db: Db,
   input: { userId: string; name: string; roomId: string; text: string; now: Date },
 ): Promise<ChatResult<ChatMessage>> {
+  const unavailable = await chatAvailable(db);
+  if (unavailable) return unavailable;
   const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
   if (!gate.ok) return gate;
   const body = chatText(input.text);
@@ -222,6 +232,8 @@ export async function removeChatMessage(
     now: Date;
   },
 ): Promise<ChatResult<{ removal: RemovalEntry; ban: BanEntry | null }>> {
+  const unavailable = await chatAvailable(db);
+  if (unavailable) return unavailable;
   const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
   if (!gate.ok) return gate;
   if (!gate.value.steward) return fail(403, "Only a steward can remove a message.");

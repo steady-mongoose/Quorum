@@ -4,6 +4,7 @@ import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
+import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, moderationStop } from "./access.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
@@ -399,13 +400,18 @@ export async function listBoard(
     created_at: Date | string;
     room_chat: boolean;
   }>(
-    `select id, post_id, author_name, reason, created_at, false as room_chat
-     from board_removal
-     union all
-     select id, message_id, author_name, reason, created_at, true as room_chat
-     from room_chat_removal
-     order by created_at desc
-     limit 500`,
+    (await roomChatReady(db))
+      ? `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         union all
+         select id, message_id, author_name, reason, created_at, true as room_chat
+         from room_chat_removal
+         order by created_at desc
+         limit 500`
+      : `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         order by created_at desc
+         limit 500`,
   );
   const banRows = await db.query<{
     id: string;
@@ -483,10 +489,11 @@ export async function writeBan(
     `select id from board_removal where author_user_id = $1`,
     [input.userId],
   );
-  const chatRemovals = await tx.query<{ id: string }>(
-    `select id from room_chat_removal where author_user_id = $1`,
-    [input.userId],
-  );
+  const chatRemovals = (await roomChatReady(tx))
+    ? await tx.query<{ id: string }>(`select id from room_chat_removal where author_user_id = $1`, [
+        input.userId,
+      ])
+    : [];
   const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
   const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
   const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;

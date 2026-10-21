@@ -47,33 +47,20 @@ create table if not exists room_chat_removal (
 create index if not exists room_chat_removal_author_idx
   on room_chat_removal (author_user_id, created_at desc);
 
--- Deleting an account keeps the moderation record and drops the name.
--- This replaces the function from 0008 and keeps every update that function had.
-create or replace function anonymize_board_user() returns trigger
+create index if not exists room_chat_removal_message_idx
+  on room_chat_removal (message_id);
+
+create index if not exists room_chat_removal_room_idx
+  on room_chat_removal (room_id, created_at desc);
+
+-- Deleting an account keeps the chat line and drops the name.
+-- This function is only for these two tables. It does not replace
+-- anonymize_board_user from 0008, so a later migration's own trigger
+-- stays in place when this file is applied.
+create or replace function anonymize_room_chat_user() returns trigger
 language plpgsql
 as $$
 begin
-  update board_post
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_removal
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_removal
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_ban
-    set user_id = null, name = 'Removed member'
-    where user_id = old.id;
-  update board_ban
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
   update room_chat_message
     set author_user_id = null, author_name = 'Removed member'
     where author_user_id = old.id;
@@ -86,3 +73,8 @@ begin
   return old;
 end;
 $$;
+
+drop trigger if exists anonymize_room_chat_user on "user";
+create trigger anonymize_room_chat_user
+  before delete on "user"
+  for each row execute function anonymize_room_chat_user();
