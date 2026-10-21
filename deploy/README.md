@@ -81,9 +81,40 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
    curl -fsS https://api.avouchsocial.com/api/health
    ```
 
-   Expect `{"ok":true}`.
+   Expect `{"ok":true}`. The health path is `/api/health`.
 
 10. Build the static site with `VITE_API_BASE_URL=https://api.avouchsocial.com` (no trailing slash). Until that variable is set, or when the API does not answer, the site stays in demo mode.
+
+## DNS fallback plan
+
+Cloudflare is the primary DNS for `avouchsocial.com`. The spare domain `avouchsocial.org` is registered at Porkbun. Porkbun DNS is the fallback. Hurricane Electric (`dns.he.net`, free) is a second option. The VPS is `140.82.61.209`.
+
+Prepare now, before anything breaks:
+
+- At Porkbun, create A records for `api.avouchsocial.org`, `avouchsocial.org`, and `www.avouchsocial.org` pointing at `140.82.61.209`, TTL 600.
+- Keep `api.avouchsocial.com` at Cloudflare TTL auto. Leave that record DNS only. Do not proxy it.
+- Keep a Cloudflare zone export in the project Drive.
+- Leave the `.org` names out of `WEB_ORIGINS` until the fallback is actually in use.
+
+If Cloudflare drops us, the `.org` records already point at the VPS. In `deploy/.env` set `API_HOST=api.avouchsocial.org` and `BETTER_AUTH_URL=https://api.avouchsocial.org`, and add `https://avouchsocial.org` and `https://www.avouchsocial.org` to `WEB_ORIGINS`. Then reload the API and Caddy:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d caddy api
+```
+
+Rebuild the frontend with `VITE_API_BASE_URL=https://api.avouchsocial.org` and serve it from the VPS through a Caddy `file_server`. That static block is not in `deploy/Caddyfile` yet. It is on the backlog in `BACKLOG.md`. Check the API:
+
+```bash
+curl -fsS https://api.avouchsocial.org/api/health
+```
+
+Expect `{"ok":true}`. Members will need to sign in again because sessions are per-domain.
+
+A domain registered at Cloudflare Registrar cannot use outside nameservers. A transfer is locked for 60 days after registration, until about Dec 13, 2026. The `.com` name stays on Cloudflare until that lock ends. The `.org` name is the path that works before then.
+
+TTLs are 300 seconds in normal operation, and 60 to 300 seconds before a planned move. The spare `.org` records created now use TTL 600. `api.avouchsocial.com` stays at TTL auto.
+
+The open items (Porkbun records, an optional Hurricane Electric zone, a monthly zone export, the Caddy static block, and a failover drill) are the checklist in `BACKLOG.md`.
 
 ## Limits
 
@@ -133,6 +164,8 @@ sudo crontab -e
 ```
 15 3 * * * cd /opt/avouch && set -a && . ./deploy/.env && set +a && ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
+
+The nightly backup runs at 3:15 UTC from root's crontab (`sudo crontab -e` on the VPS). `15 3 * * *` is 3:15 when the host clock is UTC.
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
