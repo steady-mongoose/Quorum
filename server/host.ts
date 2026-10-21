@@ -4,6 +4,8 @@ import { createClosedAuth } from "./auth.ts";
 import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
 import { createApp } from "./http.ts";
+import { readCallsConfig } from "./calls/config.ts";
+import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
@@ -76,6 +78,16 @@ export function startHost(): void {
       video: mediaConfig.enabled && mediaConfig.video,
     }),
   );
+  const callsConfig = readCallsConfig();
+  console.log(
+    JSON.stringify({
+      event: "room-calls",
+      enabled: callsConfig.enabled,
+      stun: callsConfig.enabled && callsConfig.stunUrls.length > 0,
+      turn: callsConfig.enabled && callsConfig.turnUrls.length > 0,
+      reason: callsConfig.enabled ? undefined : callsConfig.reason,
+    }),
+  );
   const app = createApp({
     db: pgDb(pool),
     origins: config.origins,
@@ -85,6 +97,7 @@ export function startHost(): void {
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
     media: { config: mediaConfig, store: storeFromConfig(mediaConfig), now },
+    calls: { config: callsConfig, store: createCallStore(), now },
   });
   const server = createServer(async (req, res) => {
     try {

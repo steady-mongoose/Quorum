@@ -1,5 +1,8 @@
 import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
+import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
+import { readCallsConfig } from "./calls/config.ts";
+import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
@@ -25,6 +28,8 @@ export type AppDeps = {
   forwardAuth: (request: Request) => Promise<Response>;
   /** Omitted in tests that do not exercise pictures. Storage stays off. */
   media?: MediaRuntime;
+  /** Omitted in tests that do not exercise room calls. Calls stay off. */
+  calls?: CallsRuntime;
 };
 
 class HttpError extends Error {
@@ -136,10 +141,15 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
     store: null,
     now: deps.now,
   };
+  const calls: CallsRuntime = deps.calls ?? {
+    config: readCallsConfig({}),
+    store: createCallStore(),
+    now: deps.now,
+  };
   return async (request) => {
     const url = new URL(request.url);
     try {
-      const response = await route(deps, media, request, url);
+      const response = await route(deps, media, calls, request, url);
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -162,6 +172,7 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
 async function route(
   deps: AppDeps,
   media: MediaRuntime,
+  calls: CallsRuntime,
   request: Request,
   url: URL,
 ): Promise<Response> {
@@ -312,6 +323,13 @@ async function route(
     );
     if (!recorded.ok) return json(recorded.status, { error: recorded.error });
     return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
+  }
+
+  if (url.pathname.startsWith("/api/calls")) {
+    const openStatus = url.pathname === "/api/calls/status" && request.method === "GET";
+    const session =
+      openStatus || !calls.config.enabled ? null : await deps.readSession(request.headers);
+    return handleCalls(calls, deps.db, request, url, session);
   }
 
   if (url.pathname.startsWith("/api/media/")) {

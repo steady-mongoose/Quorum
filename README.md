@@ -71,6 +71,8 @@ Status: the screens still run in the browser. A closed test can point them at `h
 
 Pictures and short video upload straight to S3-compatible storage with a presigned link that locks the size. That stays off until the storage credentials are set, and video stays off until `MEDIA_VIDEO=on`. A worker re-encodes the file, strips location data, and makes a thumbnail. Only a member of that room can see it, through a short-lived signed link. A picture in a message is encrypted on the device; that step waits on the messaging work described in `src/lib/media/e2e.ts`. There is still no feed algorithm, reshare, like, or score.
 
+A room can also hold a live group call. That is separate from stored video, and it stays hidden until `CALLS=on` on the API. The browsers talk to each other. The API only passes the offer, the answer, and the network candidates, and only to people who have stood in that room. The call is not recorded. A TURN relay, if you run one, is the optional `calls` profile in `deploy/docker-compose.yml`. `docker compose up` does not start it. See `deploy/README.md`.
+
 ---
 
 # Quorum

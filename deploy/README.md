@@ -223,6 +223,33 @@ Deleting a member tombstones pictures that member sent. A sweep in the worker de
 
 Pictures in a direct message are ciphertext. The server stores a wrapped key and does not read the bytes. The messaging change has to encrypt on the device. See `src/lib/media/e2e.ts`.
 
+## Room calls
+
+Live calls stay off until `CALLS=on` in `deploy/.env`. Restart the API after changing it. The site does not need a rebuild. Until then, `/api/calls/status` answers `{ "enabled": false, "record": false }` and the room page has no call button. Every other calls path answers 404.
+
+This is not stored video. `MEDIA_VIDEO` still governs uploaded clips. A call is WebRTC between the browsers. The API keeps the offer, the answer, and the ICE candidates in memory for the people currently in that room. It checks the session, then `room_member`. Someone who has not stood in the room is refused. An admin who is not a member of that room is refused. Nothing is written to Postgres for the call, so there is no new migration. A restart drops the call. There is no recording route, and the page leaves if a response ever says the call is recorded.
+
+Six people can be in one room's call. The mesh is browser to browser. Set `CALLS_STUN_URLS` and `CALLS_TURN_URLS` only when you want a relay you run yourself. Do not point them at Google, Cloudflare, AWS, Azure, Apple, or LiveKit Cloud. A TURN URL without `CALLS_TURN_SECRET`, or a secret without a URL, keeps calls off. The secret is 32 or more letters and digits (`openssl rand -hex 32`). The API mints a password that expires four hours later. The status path does not receive that password.
+
+The relay is coturn, and only if you start the calls profile. `docker compose up` does not start it. LiveKit is not in the compose file: a media server can record, and these calls are not recorded. Coturn forwards packets. It has no recording switch.
+
+```bash
+# deploy/.env
+# CALLS=on
+# CALLS_STUN_URLS=stun:140.82.61.209:3478
+# CALLS_TURN_URLS=turn:140.82.61.209:3478?transport=udp
+# CALLS_TURN_SECRET=
+# CALLS_TURN_EXTERNAL_IP=140.82.61.209
+# CALLS_TURN_REALM=avouchsocial.com
+
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build api
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile calls up -d coturn
+```
+
+Coturn uses the host network and binds UDP and TCP 3478, plus UDP 49160 through 49260 for the relay. Open those in ufw only when you turn the profile on. It refuses to relay into private addresses, including the compose network, and it will not start without the secret and the public address. The credential is checked by coturn. It is not a standing password.
+
+Calls work without coturn when the browsers can reach each other directly. Most people behind home routers cannot. Leave the TURN lines blank until the profile is up. Calls stay on, and the browsers use host candidates only.
+
 ## What this box does not do
 
-It does not serve the static site. It does not run a feed, likes, reshares, or scores. Signup without an invite code is refused. The interface strings are English.
+It does not serve the static site. It does not run a feed, likes, reshares, or scores. It does not record room calls. Signup without an invite code is refused. The interface strings are English.
