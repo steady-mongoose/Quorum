@@ -1,7 +1,10 @@
 import type { Db } from "../db.ts";
+import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 
-export type AccessResult = { ok: true } | { ok: false; status: 400 | 403 | 404; error: string };
+export type AccessResult =
+  | { ok: true }
+  | { ok: false; status: 400 | 403 | 404; error: string; ban?: OpenBan };
 
 async function isAdmin(db: Db, userId: string): Promise<boolean> {
   const rows = await db.query<{ is_admin: boolean }>(
@@ -17,15 +20,28 @@ export async function roomExists(db: Db, roomId: string): Promise<boolean> {
   return Boolean(rows[0]);
 }
 
-/** A member of this room, or the founding admin. */
-export async function memberOfRoom(db: Db, userId: string, roomId: string): Promise<boolean> {
-  if (!(await roomExists(db, roomId))) return false;
-  if (await isAdmin(db, userId)) return true;
+/**
+ * A member of this room, or the founding admin. An open ban refuses the
+ * room even when the membership row is still there. An admin is not exempt.
+ */
+export async function memberOfRoom(
+  db: Db,
+  userId: string,
+  roomId: string,
+  now: Date,
+): Promise<AccessResult> {
+  if (!(await roomExists(db, roomId))) {
+    return { ok: false, status: 404, error: "That room is not here." };
+  }
+  const ban = await openBanOrNone(db, userId, now);
+  if (ban) return { ok: false, status: 403, error: "banned", ban };
+  if (await isAdmin(db, userId)) return { ok: true };
   const rows = await db.query<{ user_id: string }>(
     `select user_id from room_member where room_id = $1 and user_id = $2`,
     [roomId, userId],
   );
-  return Boolean(rows[0]);
+  if (!rows[0]) return { ok: false, status: 403, error: "You have not stood in that room." };
+  return { ok: true };
 }
 
 /**
@@ -37,6 +53,7 @@ export async function registerRoomPost(
   userId: string,
   roomId: string,
   postId: string,
+  now: Date,
 ): Promise<AccessResult> {
   if (!ROOM_ID.test(roomId) || !(await roomExists(db, roomId))) {
     return { ok: false, status: 400, error: "Choose a room." };
@@ -44,8 +61,11 @@ export async function registerRoomPost(
   if (!OBJECT_ID.test(postId)) {
     return { ok: false, status: 400, error: "Choose the post this picture belongs to." };
   }
-  if (!(await memberOfRoom(db, userId, roomId))) {
-    return { ok: false, status: 403, error: "You have not stood in that room." };
+  const stood = await memberOfRoom(db, userId, roomId, now);
+  if (!stood.ok) {
+    if (stood.error === "banned") return stood;
+    if (stood.status === 404) return { ok: false, status: 400, error: "Choose a room." };
+    return stood;
   }
   const existing = await db.query<{ room_id: string; author_user_id: string }>(
     `select room_id, author_user_id from room_post where id = $1`,
@@ -72,10 +92,14 @@ export async function canAttachToPost(
   userId: string,
   roomId: string,
   postId: string,
+  now: Date,
 ): Promise<AccessResult> {
   if (!(await roomExists(db, roomId))) return { ok: false, status: 400, error: "Choose a room." };
-  if (!(await memberOfRoom(db, userId, roomId))) {
-    return { ok: false, status: 403, error: "You have not stood in that room." };
+  const stood = await memberOfRoom(db, userId, roomId, now);
+  if (!stood.ok) {
+    if (stood.error === "banned") return stood;
+    if (stood.status === 404) return { ok: false, status: 400, error: "Choose a room." };
+    return stood;
   }
   const rows = await db.query<{ id: string }>(
     `select id from room_post where id = $1 and room_id = $2 and author_user_id = $3`,

@@ -2,15 +2,25 @@ import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
 import {
+  correctZip,
+  decideRoom,
+  grantAccess,
+  joinRoom,
+  listHome,
+  requestRoom,
+  savePlace,
+  setCouncil,
+} from "./places-store.ts";
+import {
   banMember,
   closeAsked,
   createRoom,
   listBoard,
   markPost,
+  openBan,
   removePost,
   replyToPost,
   revisePost,
-  setSteward,
   type Result,
 } from "./store.ts";
 
@@ -107,18 +117,34 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function stringList(body: Record<string, unknown>, key: string): string[] {
+  const value = body[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 export async function handleBoard(
   deps: BoardDeps,
   request: Request,
   url: URL,
 ): Promise<Response | null> {
   const postAction =
-    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove)$/.exec(url.pathname);
+    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|council)$/.exec(
+      url.pathname,
+    );
+  const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
+  const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const matched =
     (url.pathname === "/api/board" && request.method === "GET") ||
+    (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
+    (url.pathname === "/api/place" && request.method === "POST") ||
+    (url.pathname === "/api/room-requests" && request.method === "POST") ||
+    (url.pathname === "/api/zips" && request.method === "POST") ||
     (url.pathname === "/api/access" && request.method === "POST") ||
     (url.pathname === "/api/bans" && request.method === "POST") ||
+    Boolean(roomJoin && (request.method === "POST" || request.method === "DELETE")) ||
+    Boolean(decide && request.method === "POST") ||
     Boolean(postAction && request.method === "POST");
   if (!matched) return null;
 
@@ -145,6 +171,24 @@ export async function handleBoard(
       );
     }
 
+    if (url.pathname === "/api/home") {
+      const ban = await openBan(deps.db, session.id, now);
+      if (ban) return json(403, { error: "banned", ban });
+      return fromResult(200, await listHome(deps.db, session.id, now));
+    }
+
+    if (roomJoin && request.method === "DELETE") {
+      return fromResult(
+        200,
+        await joinRoom(deps.db, {
+          userId: session.id,
+          roomId: roomJoin[1] ?? "",
+          now,
+          leave: true,
+        }),
+      );
+    }
+
     const body = await readJson(request);
 
     if (url.pathname === "/api/rooms") {
@@ -158,13 +202,79 @@ export async function handleBoard(
       return fromResult(201, created);
     }
 
+    if (url.pathname === "/api/place") {
+      return fromResult(
+        200,
+        await savePlace(deps.db, {
+          userId: session.id,
+          zip: stringField(body, "zip"),
+          congregationId: stringField(body, "congregationId"),
+          now,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/room-requests") {
+      return fromResult(
+        201,
+        await requestRoom(deps.db, {
+          userId: session.id,
+          kind: stringField(body, "kind"),
+          name: stringField(body, "name"),
+          state: stringField(body, "state"),
+          now,
+        }),
+      );
+    }
+
+    if (decide) {
+      return fromResult(
+        200,
+        await decideRoom(deps.db, {
+          userId: session.id,
+          requestId: decide[1] ?? "",
+          decision: stringField(body, "decision"),
+          note: stringField(body, "note"),
+          now,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/zips") {
+      return fromResult(
+        201,
+        await correctZip(deps.db, {
+          userId: session.id,
+          zip: stringField(body, "zip"),
+          name: stringField(body, "name"),
+          state: stringField(body, "state"),
+          clear: body.clear === true,
+          now,
+        }),
+      );
+    }
+
+    if (roomJoin) {
+      return fromResult(
+        200,
+        await joinRoom(deps.db, {
+          userId: session.id,
+          roomId: roomJoin[1] ?? "",
+          now,
+          leave: roomJoin[2] === "leave",
+        }),
+      );
+    }
+
     if (url.pathname === "/api/access") {
-      const changed = await setSteward(deps.db, {
+      const changed = await grantAccess(deps.db, {
         userId: session.id,
-        name: session.name,
-        email: stringField(body, "email"),
         action: stringField(body, "action"),
-        note: stringField(body, "note"),
+        email: stringField(body, "email"),
+        roomId: stringField(body, "roomId"),
+        inviterEmail: stringField(body, "inviterEmail"),
+        stewardEmail: stringField(body, "stewardEmail"),
+        role: stringField(body, "role"),
         now,
       });
       return fromResult(200, changed);
@@ -211,6 +321,17 @@ export async function handleBoard(
     }
     if (action === "close") {
       return fromResult(200, await closeAsked(deps.db, { userId: session.id, postId, now }));
+    }
+    if (action === "council") {
+      const result = await setCouncil(deps.db, {
+        userId: session.id,
+        postId,
+        action: stringField(body, "action"),
+        reason: stringField(body, "reason"),
+        checklist: stringList(body, "checklist"),
+        now,
+      });
+      return fromResult(200, result);
     }
     if (action === "mark") {
       return fromResult(

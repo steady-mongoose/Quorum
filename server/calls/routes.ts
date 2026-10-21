@@ -91,11 +91,15 @@ export async function handleCalls(
     }
   }
 
-  const member = await roomCallMember(db, session.id, roomId);
-  if (member === "bad-room") return json(404, { error: "Not found.", record: false });
-  if (member === "unavailable")
+  const member = await roomCallMember(db, session.id, roomId, runtime.now());
+  if (member.kind === "bad-room") return json(404, { error: "Not found.", record: false });
+  if (member.kind === "unavailable")
     return json(503, { error: "Calls are not available.", record: false });
-  if (member === "outsider") {
+  if (member.kind === "banned") {
+    runtime.store.evict(session.id);
+    return json(403, { error: "banned", ban: member.ban, record: false });
+  }
+  if (member.kind === "outsider") {
     runtime.store.leave(roomId, session.id);
     return json(403, { error: "You have not stood in that room.", record: false });
   }
