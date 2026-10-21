@@ -11,6 +11,7 @@ import {
   listBoard,
   markPost,
   removePost,
+  replyToPost,
   revisePost,
   setSteward,
 } from "./store.ts";
@@ -442,6 +443,73 @@ test("a barred member cannot revise or close, and a revision keeps the mark", as
     assert.equal(blockedClose.ok, false);
     if (blockedClose.ok) return;
     assert.equal(blockedClose.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("a reply follows the room's posting rules", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const notice = await createPost(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "dispatch",
+      body: {
+        type: "saw",
+        claim: "One lane closed on Bloomingdale at Lithia Pinecrest.",
+        reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound.",
+        on: "2026-10-19",
+        attested: true,
+      },
+      now,
+    });
+    assert.equal(notice.ok, true);
+    if (!notice.ok) return;
+    const memberReply = await replyToPost(db, {
+      userId: maria,
+      name: "Maria",
+      postId: notice.value.id,
+      claim: "I saw the same crew on the way home.",
+      now,
+    });
+    assert.equal(memberReply.ok, false);
+    if (memberReply.ok) return;
+    assert.equal(memberReply.status, 403);
+    assert.equal(memberReply.error, "Only a steward can post that.");
+    const stewardReply = await replyToPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: notice.value.id,
+      claim: "The lane opened again before five.",
+      now,
+    });
+    assert.equal(stewardReply.ok, true);
+
+    const shop = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(shop.ok, true);
+    if (!shop.ok) return;
+    const shopReply = await replyToPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shop.value.id,
+      claim: "They cut cleanly. I tried one.",
+      now,
+    });
+    assert.equal(shopReply.ok, true);
   } finally {
     await close();
   }

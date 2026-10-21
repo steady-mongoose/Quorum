@@ -537,6 +537,17 @@ export async function replyToPost(
   }>(`select id, room_id, type, parent_id, removed from board_post where id = $1`, [input.postId]);
   const parent = parents[0];
   if (!parent || parent.removed || parent.parent_id) return fail(404, "That post is not here.");
+  const room = await roomById(db, parent.room_id);
+  if (!room) return fail(404, "That post is not here.");
+  const allowed = actor.steward ? [...room.takes, ...room.stewardTakes] : room.takes;
+  if (!allowed.includes(parent.type)) {
+    return fail(
+      403,
+      room.stewardTakes.includes(parent.type) || room.takes.length === 0
+        ? "Only a steward can post that."
+        : `${room.name} does not take that kind of post.`,
+    );
+  }
   const id = randomUUID();
   const author = input.name.trim() || "Member";
   const inserted = await db.query<PostRow>(
