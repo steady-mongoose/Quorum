@@ -131,6 +131,39 @@ type BoardState = {
   setOpenThread: (id: string | null) => void;
   loadSample: () => void;
   clearBoard: () => void;
+  /**
+   * Wipes the local board after the person confirms, stays on This week,
+   * and keeps a one-step undo. A remote board is left alone.
+   */
+  clearLocalBoard: () => void;
+  undoClearBoard: () => void;
+  /** In-memory undo of the last confirmed clear. Not persisted. */
+  undoClear: BoardUndo | null;
+  /** Keeps a cleared sample inside the app on a live server. Not persisted. */
+  localEntry: boolean;
+};
+
+type BoardUndo = {
+  sample: boolean;
+  sampleVersion: number;
+  me: string;
+  profile: Profile;
+  steward: boolean;
+  member: boolean;
+  founded: boolean;
+  posts: Post[];
+  cards: MeetingCard[];
+  invites: Invite[];
+  markLog: MarkRow[];
+  bans: BanRow[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  removals: RemovalRow[];
+  rooms: Room[];
+  room: RoomId;
+  section: Section;
+  viewing: string | null;
+  openThread: string | null;
 };
 
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
@@ -142,6 +175,69 @@ function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
 
 function addName(list: string[], name: string): string[] {
   return list.includes(name) ? list : [...list, name];
+}
+
+function emptyLocalBoard(remote: boolean, rooms: Room[]) {
+  return {
+    sample: false,
+    posts: [] as Post[],
+    cards: SEED_CARDS,
+    invites: [] as Invite[],
+    markLog: [] as MarkRow[],
+    bans: [] as BanRow[],
+    threads: [] as DmThread[],
+    messages: [] as DmMessage[],
+    removals: [] as RemovalRow[],
+    openThread: null,
+    viewing: null,
+    rooms: remote ? rooms : ROOMS,
+  };
+}
+
+function snapshotBoard(state: {
+  sample: boolean;
+  sampleVersion: number;
+  me: string;
+  profile: Profile;
+  steward: boolean;
+  member: boolean;
+  founded: boolean;
+  posts: Post[];
+  cards: MeetingCard[];
+  invites: Invite[];
+  markLog: MarkRow[];
+  bans: BanRow[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  removals: RemovalRow[];
+  rooms: Room[];
+  room: RoomId;
+  section: Section;
+  viewing: string | null;
+  openThread: string | null;
+}): BoardUndo {
+  return structuredClone({
+    sample: state.sample,
+    sampleVersion: state.sampleVersion,
+    me: state.me,
+    profile: state.profile,
+    steward: state.steward,
+    member: state.member,
+    founded: state.founded,
+    posts: state.posts,
+    cards: state.cards,
+    invites: state.invites,
+    markLog: state.markLog,
+    bans: state.bans,
+    threads: state.threads,
+    messages: state.messages,
+    removals: state.removals,
+    rooms: state.rooms,
+    room: state.room,
+    section: state.section,
+    viewing: state.viewing,
+    openThread: state.openThread,
+  });
 }
 
 export const useBoard = create<BoardState>()(
@@ -246,6 +342,8 @@ export const useBoard = create<BoardState>()(
         messages: [],
         openThread: null,
         lineDismissedAt: 0,
+        undoClear: null,
+        localEntry: false,
         setSection: (section) => set({ section }),
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
@@ -615,12 +713,13 @@ export const useBoard = create<BoardState>()(
         },
         connectRemote: async () => {
           if (readDemoFlag()) return;
-          set({ remote: true, sample: false, boardError: "" });
+          set({ remote: true, sample: false, boardError: "", undoClear: null });
           const loaded = await (await getBoardClient()).load();
           if (!loaded.ok) {
             set({
               remote: true,
-              boardError: loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
+              boardError:
+                loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
               posts: [],
               markLog: [],
               removals: [],
@@ -693,6 +792,8 @@ export const useBoard = create<BoardState>()(
             removals: [],
             bans: [],
             roomPages: [],
+            undoClear: null,
+            localEntry: false,
           });
         },
         loadSample: () => {
@@ -717,20 +818,52 @@ export const useBoard = create<BoardState>()(
           });
         },
         clearBoard: () => {
+          const state = get();
+          setRoomCatalog(state.remote ? state.rooms : ROOMS);
+          set({
+            ...emptyLocalBoard(state.remote, state.rooms),
+            undoClear: null,
+          });
+        },
+        clearLocalBoard: () => {
+          const state = get();
+          if (state.remote) return;
+          const undo = snapshotBoard(state);
           setRoomCatalog(ROOMS);
           set({
-            sample: false,
-            posts: [],
-            cards: SEED_CARDS,
-            invites: [],
-            markLog: [],
-            bans: [],
-            threads: [],
-            messages: [],
-            removals: [],
-            openThread: null,
-            viewing: null,
-            rooms: get().remote ? get().rooms : ROOMS,
+            ...emptyLocalBoard(false, state.rooms),
+            undoClear: undo,
+            localEntry: true,
+            section: "week",
+          });
+        },
+        undoClearBoard: () => {
+          const undo = get().undoClear;
+          if (!undo || get().remote) return;
+          setRoomCatalog(undo.rooms);
+          set({
+            sample: undo.sample,
+            sampleVersion: undo.sampleVersion,
+            me: undo.me,
+            profile: undo.profile,
+            steward: undo.steward,
+            member: undo.member,
+            founded: undo.founded,
+            posts: undo.posts,
+            cards: undo.cards,
+            invites: undo.invites,
+            markLog: undo.markLog,
+            bans: undo.bans,
+            threads: undo.threads,
+            messages: undo.messages,
+            removals: undo.removals,
+            rooms: undo.rooms,
+            room: undo.room,
+            section: undo.section,
+            viewing: undo.viewing,
+            openThread: undo.openThread,
+            undoClear: null,
+            localEntry: true,
           });
         },
       };

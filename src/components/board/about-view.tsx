@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { cn } from "@/lib/cn";
 import { APP_NAME, POST_TYPES, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
@@ -53,8 +55,10 @@ export function AboutView() {
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
   const remote = useBoard((state) => state.remote);
+  const sample = useBoard((state) => state.sample);
   const loadSample = useBoard((state) => state.loadSample);
-  const clearBoard = useBoard((state) => state.clearBoard);
+  const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
+  const [confirmClear, setConfirmClear] = useState(false);
   const createRoom = useBoard((state) => state.createRoom);
   const appointSteward = useBoard((state) => state.appointSteward);
 
@@ -148,13 +152,29 @@ export function AboutView() {
         ) : (
           <>
             <div className="mt-6 flex flex-wrap gap-2">
-              <button type="button" className={btnSignal} onClick={loadSample}>
+              <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={loadSample}>
                 Load the sample week
               </button>
-              <button type="button" className={btnGhost} onClick={clearBoard}>
+              <button
+                type="button"
+                className={cn(btnGhost, "min-h-[44px]")}
+                onClick={() => setConfirmClear(true)}
+              >
                 Clear the board
               </button>
             </div>
+            <ConfirmDialog
+              open={confirmClear}
+              title={sample ? "Clear the sample week?" : "Clear the board?"}
+              description="Everything here will be removed."
+              confirmLabel="Clear it"
+              cancelLabel="Keep it"
+              onConfirm={() => {
+                setConfirmClear(false);
+                clearLocalBoard();
+              }}
+              onCancel={() => setConfirmClear(false)}
+            />
             <p className="mt-2 max-w-prose text-sm text-muted">
               The sample is six invented people and a week of meetings, for trying the app. It
               replaces whatever is here, and you become "Josh."

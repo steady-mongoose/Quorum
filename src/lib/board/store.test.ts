@@ -2,7 +2,7 @@ import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { blankDraft, todayIso, type Post } from "./model.ts";
+import { blankDraft, todayIso, weekFor, type Post } from "./model.ts";
 import { useBoard } from "./store.ts";
 
 function draft() {
@@ -29,6 +29,8 @@ function reset() {
     markLog: [],
     bans: [],
     boardError: "",
+    undoClear: null,
+    localEntry: false,
   });
 }
 
@@ -127,13 +129,51 @@ test("a live board writes through the API client", async () => {
   assert.equal(useBoard.getState().posts[0]?.removed, false);
 });
 
+test("a confirmed clear stays on an empty week and undo puts the board back", () => {
+  reset();
+  useBoard.getState().loadSample();
+  const before = useBoard.getState();
+  const posts = before.posts.length;
+  const name = before.me;
+  assert.ok(posts > 0);
+  useBoard.getState().clearLocalBoard();
+  const cleared = useBoard.getState();
+  assert.equal(cleared.sample, false);
+  assert.equal(cleared.localEntry, true);
+  assert.equal(cleared.section, "week");
+  assert.equal(cleared.posts.length, 0);
+  assert.equal(weekFor(cleared.cards, new Map(), todayIso()).length, 0);
+  assert.equal(cleared.undoClear?.me, name);
+  assert.equal(cleared.undoClear?.posts.length, posts);
+  useBoard.getState().undoClearBoard();
+  const restored = useBoard.getState();
+  assert.equal(restored.sample, true);
+  assert.equal(restored.me, name);
+  assert.equal(restored.posts.length, posts);
+  assert.equal(restored.undoClear, null);
+  assert.equal(restored.localEntry, true);
+});
+
+test("a silent clear and a remote board do not offer undo", () => {
+  reset();
+  useBoard.getState().loadSample();
+  useBoard.getState().clearBoard();
+  assert.equal(useBoard.getState().undoClear, null);
+  assert.equal(useBoard.getState().sample, false);
+  useBoard.getState().loadSample();
+  const posts = useBoard.getState().posts.length;
+  useBoard.setState({ remote: true });
+  useBoard.getState().clearLocalBoard();
+  assert.equal(useBoard.getState().remote, true);
+  assert.equal(useBoard.getState().posts.length, posts);
+  assert.equal(useBoard.getState().undoClear, null);
+});
+
 test("a revision keeps a steward mark", async () => {
   reset();
   await useBoard.getState().file(draft());
   const id = useBoard.getState().posts[0]?.id ?? "";
-  await useBoard
-    .getState()
-    .mark(id, "sloppy", "The notice does not say where that came from.");
+  await useBoard.getState().mark(id, "sloppy", "The notice does not say where that came from.");
   await useBoard.getState().revise(id, {
     claim: "Sharpened the chisels and put them back.",
     reason: "Tom checked them on Thursday.",

@@ -28,6 +28,7 @@ export function WeekView() {
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
+  const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
   const needs = useMemo(() => needsFor(cards), [cards]);
@@ -43,7 +44,9 @@ export function WeekView() {
           ) : null}
           {week.length === 0 ? (
             <p className="max-w-2xl text-base text-muted">
-              A card lands here when it has a date inside seven days.{" "}
+              {justCleared
+                ? "The board is cleared, and nothing is on the calendar. "
+                : "A card lands here when it has a date inside seven days. "}
               <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
                 Look in the rooms
               </button>{" "}

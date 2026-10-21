@@ -1,4 +1,5 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type KeyboardEvent } from "react";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
 import {
@@ -29,9 +30,13 @@ import {
   blankDraft,
   cardSummary,
   composerCheck,
+  composerErrorId,
+  composerSubmitsOnEnter,
+  draftHasWriting,
   formatDate,
   formatWhen,
   needsFor,
+  postButtonLabel,
   readingLine,
   repliesByParent,
   roomById,
@@ -43,6 +48,7 @@ import {
   typesFor,
   witnessesByTrade,
   type Check,
+  type ComposerField,
   type Draft,
   type HardRule,
   type Mark,
@@ -221,25 +227,44 @@ export function RoomView() {
   );
 }
 
+function FieldError({ id, messages }: { id: string; messages: string[] }) {
+  if (messages.length === 0) return null;
+  return (
+    <p id={id} role="alert" className="text-sm text-[#f0b4a4]">
+      {messages.join(" ")}
+    </p>
+  );
+}
+
+function describedBy(field: ComposerField, messages: string[]): string | undefined {
+  return messages.length > 0 ? composerErrorId(field) : undefined;
+}
+
 function CardSelect({
   label,
   cards,
   empty,
   value,
   onChange,
+  errorId,
+  error,
 }: {
   label: string;
   cards: MeetingCard[];
   empty?: string;
   value: string;
   onChange: (id: string) => void;
+  errorId: string;
+  error: string[];
 }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       {label}
       <select
-        className={cn(fieldClass, "min-h-11")}
+        className={cn(fieldClass, "min-h-[44px]")}
         value={value}
+        aria-invalid={error.length > 0 ? true : undefined}
+        aria-describedby={error.length > 0 ? errorId : undefined}
         onChange={(event) => onChange(event.target.value)}
       >
         {empty !== undefined ? <option value="">{empty}</option> : null}
@@ -249,6 +274,7 @@ function CardSelect({
           </option>
         ))}
       </select>
+      <FieldError id={errorId} messages={error} />
     </label>
   );
 }
@@ -263,6 +289,8 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const file = useBoard((state) => state.file);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
+  const [attempted, setAttempted] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const meta = roomById(room, rooms);
   const current = draft.room === room ? draft : blankDraft(room);
   const type = current.type ? typeMeta(current.type) : null;
@@ -297,16 +325,48 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     [current, me, steward, posts, cards, removals, bans, rooms],
   );
 
-  const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
+  const patch = (next: Partial<Draft>) => {
+    setDraft({ ...current, ...next });
+    setResult(null);
+  };
   const reset = () => {
     setDraft(blankDraft(room));
     setResult(null);
+    setAttempted(false);
+    setConfirmClear(false);
   };
   const send = () => {
+    setAttempted(true);
+    if (!check.ok) {
+      setResult(null);
+      return;
+    }
     void file(current).then((outcome) => {
       if (outcome.ok) reset();
       else setResult(outcome);
     });
+  };
+  const askClear = () => {
+    if (draftHasWriting(current)) setConfirmClear(true);
+    else reset();
+  };
+  const visible = result && !result.ok ? result : attempted && !check.ok ? check : null;
+  const messages = (field: ComposerField) => visible?.fields?.[field] ?? [];
+  const formMessages = [
+    ...messages("form"),
+    ...(result && !result.ok && !result.fields ? result.stops : []),
+  ];
+  const onClaimKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      composerSubmitsOnEnter(
+        event.key,
+        { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey },
+        true,
+      )
+    ) {
+      event.preventDefault();
+      send();
+    }
   };
   const toggleCame = (name: string) => {
     const came = current.came.includes(name)
@@ -315,207 +375,274 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     patch({ came, named: came.includes(current.named) ? current.named : "" });
   };
 
+  const typeErrors = messages("type");
+  const claimErrors = messages("claim");
+  const reasonErrors = messages("reason");
+  const dateErrors = messages("on");
+  const nextErrors = messages("next");
+  const cardErrors = messages("card");
+  const tradeErrors = messages("trade");
+  const namedErrors = messages("named");
+  const pageErrors = messages("pages");
+  const attestErrors = messages("attest");
+
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <p className="text-sm font-semibold text-fg">Post something</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Kind of post">
-        {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
-          const noCard = item.cardPick === "own" && ownCards.length === 0;
-          const active = current.type === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              disabled={noCard}
-              onClick={() =>
-                patch({
-                  type: item.id,
-                  cardId: item.cardPick === "own" ? ownCards[0].id : "",
-                  came: [],
-                  named: "",
-                })
-              }
-              className={cn(
-                "flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
-                active ? "border-signal bg-raised" : "border-line bg-bg",
-              )}
-            >
-              <span className="text-sm font-semibold text-fg">{item.label}</span>
-              <span className="text-xs text-muted">
-                {noCard ? "For hosts. You do not host a meeting in this room." : item.what}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {type ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <p className="text-sm text-muted">{type.what}</p>
-          {type.cardPick === "own" ? (
-            <CardSelect
-              label="The card this closes"
-              cards={ownCards}
-              value={current.cardId}
-              onChange={(cardId) => patch({ cardId, came: [], named: "" })}
-            />
-          ) : null}
-          {type.cardPick === "optional" && roomCards.length > 0 ? (
-            <CardSelect
-              label="Card, if any"
-              cards={roomCards}
-              empty="No card"
-              value={current.cardId}
-              onChange={(cardId) => patch({ cardId })}
-            />
-          ) : null}
-          {type.tradePick && trades.length > 0 ? (
-            <CardSelect
-              label="Who did the work"
-              cards={trades}
-              empty="No one"
-              value={current.tradeId}
-              onChange={(tradeId) => patch({ tradeId })}
-            />
-          ) : null}
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            {type.claimLabel}
-            <textarea
-              className={cn(fieldClass, "min-h-24")}
-              value={current.claim}
-              onChange={(event) => patch({ claim: event.target.value })}
-            />
-          </label>
-          {type.reasonLabel ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              {type.reasonLabel}
-              <input
-                className={fieldClass}
-                value={current.reason}
-                onChange={(event) => patch({ reason: event.target.value })}
-              />
-            </label>
-          ) : null}
-          {type.dateLabel ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              {type.dateLabel}
-              <input
-                type="date"
-                className={cn(fieldClass, "max-w-xs")}
-                value={current.on}
-                onChange={(event) => patch({ on: event.target.value })}
-              />
-            </label>
-          ) : null}
-          {type.closes ? (
-            <>
-              <fieldset className="flex flex-col gap-2 text-sm text-muted">
-                <legend>Roll call. Who came, from those who said they would.</legend>
-                {closing && closing.going.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {closing.going.map((name) => (
-                      <label
-                        key={name}
-                        className={pill(current.came.includes(name), "cursor-pointer")}
-                      >
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={current.came.includes(name)}
-                          onChange={() => toggleCame(name)}
-                        />
-                        {name}
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <span>Nobody said they would come. Say how it went and set the next date.</span>
+      <form
+        className="flex flex-col gap-3"
+        aria-describedby={describedBy("form", formMessages)}
+        onSubmit={(event) => {
+          event.preventDefault();
+          send();
+        }}
+      >
+        <p className="text-sm font-semibold text-fg">Post something</p>
+        <div
+          className="grid gap-2 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label="Kind of post"
+          aria-invalid={typeErrors.length > 0 ? true : undefined}
+          aria-describedby={describedBy("type", typeErrors)}
+        >
+          {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
+            const noCard = item.cardPick === "own" && ownCards.length === 0;
+            const active = current.type === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={noCard}
+                onClick={() =>
+                  patch({
+                    type: item.id,
+                    cardId: item.cardPick === "own" ? ownCards[0].id : "",
+                    came: [],
+                    named: "",
+                  })
+                }
+                className={cn(
+                  "flex min-h-[44px] flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
+                  active ? "border-signal bg-raised" : "border-line bg-bg",
                 )}
-              </fieldset>
-              {current.came.length > 0 ? (
-                <label className="flex flex-col gap-2 text-sm text-muted">
-                  Name one person, if someone earned it
-                  <select
-                    className={cn(fieldClass, "min-h-11 max-w-xs")}
-                    value={current.named}
-                    onChange={(event) => patch({ named: event.target.value })}
-                  >
-                    <option value="">No one this time</option>
-                    {current.came.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+              >
+                <span className="text-sm font-semibold text-fg">{item.label}</span>
+                <span className="text-xs text-muted">
+                  {noCard ? "For hosts. You do not host a meeting in this room." : item.what}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <FieldError id={composerErrorId("type")} messages={typeErrors} />
+
+        {type ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted">{type.what}</p>
+            {type.cardPick === "own" ? (
+              <CardSelect
+                label="The card this closes"
+                cards={ownCards}
+                value={current.cardId}
+                errorId={composerErrorId("card")}
+                error={cardErrors}
+                onChange={(cardId) => patch({ cardId, came: [], named: "" })}
+              />
+            ) : null}
+            {type.cardPick === "optional" && roomCards.length > 0 ? (
+              <CardSelect
+                label="Card, if any"
+                cards={roomCards}
+                empty="No card"
+                value={current.cardId}
+                errorId={composerErrorId("card")}
+                error={cardErrors}
+                onChange={(cardId) => patch({ cardId })}
+              />
+            ) : null}
+            {type.tradePick && trades.length > 0 ? (
+              <CardSelect
+                label="Who did the work"
+                cards={trades}
+                empty="No one"
+                value={current.tradeId}
+                errorId={composerErrorId("trade")}
+                error={tradeErrors}
+                onChange={(tradeId) => patch({ tradeId })}
+              />
+            ) : null}
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              {type.claimLabel}
+              <textarea
+                className={cn(fieldClass, "min-h-24")}
+                value={current.claim}
+                aria-invalid={claimErrors.length > 0 ? true : undefined}
+                aria-describedby={describedBy("claim", claimErrors)}
+                onChange={(event) => patch({ claim: event.target.value })}
+                onKeyDown={onClaimKeyDown}
+              />
+              <FieldError id={composerErrorId("claim")} messages={claimErrors} />
+            </label>
+            {type.reasonLabel ? (
               <label className="flex flex-col gap-2 text-sm text-muted">
-                Next date, if there is one
+                {type.reasonLabel}
+                <input
+                  className={fieldClass}
+                  value={current.reason}
+                  aria-invalid={reasonErrors.length > 0 ? true : undefined}
+                  aria-describedby={describedBy("reason", reasonErrors)}
+                  onChange={(event) => patch({ reason: event.target.value })}
+                />
+                <FieldError id={composerErrorId("reason")} messages={reasonErrors} />
+              </label>
+            ) : null}
+            {type.dateLabel ? (
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                {type.dateLabel}
                 <input
                   type="date"
                   className={cn(fieldClass, "max-w-xs")}
-                  value={current.next}
-                  onChange={(event) => patch({ next: event.target.value })}
+                  value={current.on}
+                  aria-invalid={dateErrors.length > 0 ? true : undefined}
+                  aria-describedby={describedBy("on", dateErrors)}
+                  onChange={(event) => patch({ on: event.target.value })}
                 />
+                <FieldError id={composerErrorId("on")} messages={dateErrors} />
               </label>
-              {closing?.book ? (
+            ) : null}
+            {type.closes ? (
+              <>
+                <fieldset className="flex flex-col gap-2 text-sm text-muted">
+                  <legend>Roll call. Who came, from those who said they would.</legend>
+                  {closing && closing.going.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {closing.going.map((name) => (
+                        <label
+                          key={name}
+                          className={pill(current.came.includes(name), "cursor-pointer")}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={current.came.includes(name)}
+                            onChange={() => toggleCame(name)}
+                          />
+                          {name}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>Nobody said they would come. Say how it went and set the next date.</span>
+                  )}
+                </fieldset>
+                {current.came.length > 0 ? (
+                  <label className="flex flex-col gap-2 text-sm text-muted">
+                    Name one person, if someone earned it
+                    <select
+                      className={cn(fieldClass, "min-h-[44px] max-w-xs")}
+                      value={current.named}
+                      aria-invalid={namedErrors.length > 0 ? true : undefined}
+                      aria-describedby={describedBy("named", namedErrors)}
+                      onChange={(event) => patch({ named: event.target.value })}
+                    >
+                      <option value="">No one this time</option>
+                      {current.came.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldError id={composerErrorId("named")} messages={namedErrors} />
+                  </label>
+                ) : null}
                 <label className="flex flex-col gap-2 text-sm text-muted">
-                  What to have read by then ({closing.book})
+                  Next date, if there is one
                   <input
-                    className={fieldClass}
-                    placeholder="chapters 5 and 6"
-                    value={current.pages}
-                    onChange={(event) => patch({ pages: event.target.value })}
+                    type="date"
+                    className={cn(fieldClass, "max-w-xs")}
+                    value={current.next}
+                    aria-invalid={nextErrors.length > 0 ? true : undefined}
+                    aria-describedby={describedBy("next", nextErrors)}
+                    onChange={(event) => patch({ next: event.target.value })}
                   />
+                  <FieldError id={composerErrorId("next")} messages={nextErrors} />
                 </label>
-              ) : null}
-            </>
-          ) : null}
-          {type.attest ? (
-            <label className="flex items-start gap-3 text-sm text-muted">
-              <input
-                type="checkbox"
-                className="mt-1 size-5"
-                checked={current.attested}
-                onChange={(event) => patch({ attested: event.target.checked })}
-              />
-              No child's face. No home address. No private person named who was not acting in
-              public.
-            </label>
-          ) : null}
-          <AttachPicture
-            roomId={room}
-            postId={current.postId}
-            media={current.media}
-            onAttached={({ postId, media }) => patch({ postId, media: [media] })}
-            onClear={() => patch({ media: [], postId: "" })}
-          />
-          {result && !result.ok ? (
-            <ul className="flex flex-col gap-1 text-sm text-signal">
-              {result.stops.map((stop) => (
-                <li key={stop}>{stop}</li>
-              ))}
-            </ul>
-          ) : null}
-          {check.notes.length > 0 ? (
-            <ul className="flex flex-col gap-1 text-sm text-muted">
-              {check.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="flex gap-2">
-            <button type="button" className={btnSignal} onClick={send}>
-              File {type.label}
-            </button>
-            <button type="button" className={btnQuiet} onClick={reset}>
-              Clear
-            </button>
+                {closing?.book ? (
+                  <label className="flex flex-col gap-2 text-sm text-muted">
+                    What to have read by then ({closing.book})
+                    <input
+                      className={fieldClass}
+                      placeholder="chapters 5 and 6"
+                      value={current.pages}
+                      aria-invalid={pageErrors.length > 0 ? true : undefined}
+                      aria-describedby={describedBy("pages", pageErrors)}
+                      onChange={(event) => patch({ pages: event.target.value })}
+                    />
+                    <FieldError id={composerErrorId("pages")} messages={pageErrors} />
+                  </label>
+                ) : null}
+              </>
+            ) : null}
+            {type.attest ? (
+              <div className="flex flex-col gap-2">
+                <label className="flex min-h-[44px] items-center gap-3 text-sm text-muted">
+                  <input
+                    type="checkbox"
+                    className="size-5"
+                    checked={current.attested}
+                    aria-invalid={attestErrors.length > 0 ? true : undefined}
+                    aria-describedby={describedBy("attest", attestErrors)}
+                    onChange={(event) => patch({ attested: event.target.checked })}
+                  />
+                  No child's face. No home address. No private person named who was not acting in
+                  public.
+                </label>
+                <FieldError id={composerErrorId("attest")} messages={attestErrors} />
+              </div>
+            ) : null}
+            <AttachPicture
+              roomId={room}
+              postId={current.postId}
+              media={current.media}
+              onAttached={({ postId, media }) => patch({ postId, media: [media] })}
+              onClear={() => patch({ media: [], postId: "" })}
+            />
+            <FieldError id={composerErrorId("form")} messages={formMessages} />
+            {check.notes.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm text-muted">
+                {check.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="submit" className={cn(btnSignal, "min-h-[44px]")}>
+                {postButtonLabel(type.id)}
+              </button>
+              <button
+                type="button"
+                className={cn(btnQuiet, "ml-auto min-h-[44px]")}
+                onClick={askClear}
+              >
+                Clear
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </form>
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear this draft?"
+        description="What you wrote will be erased."
+        confirmLabel="Clear it"
+        cancelLabel="Keep it"
+        onConfirm={() => {
+          setConfirmClear(false);
+          reset();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </section>
   );
 }
