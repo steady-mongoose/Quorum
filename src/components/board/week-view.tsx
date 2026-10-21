@@ -1,11 +1,9 @@
 import { useMemo } from "react";
 import { btnGhost, btnSignal, Kicker, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { dayHeading } from "@/lib/board/week-days";
 import {
-  WEEKDAYS,
-  addDays,
   authorName,
-  parseIsoDate,
   cardSummary,
   formatDate,
   needsFor,
@@ -60,7 +58,7 @@ export function WeekView() {
         {week.map((day) => (
           <section key={day.iso} className="flex flex-col gap-3">
             <h2 className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
-              <span className="font-display text-2xl text-fg">{day.iso === today ? "Today" : day.iso === addDays(today, 1) ? "Tomorrow" : WEEKDAYS[parseIsoDate(day.iso)?.getDay() ?? 0]}</span>
+              <span className="font-display text-2xl text-fg">{dayHeading(day.iso, today)}</span>
               <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">{formatDate(day.iso)}</span>
             </h2>
             <div className="grid gap-3 xl:grid-cols-2">

@@ -260,11 +260,9 @@ async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
   return toRoom(row);
 }
 
-export async function openBan(
-  db: Db,
-  userId: string,
-  now: Date,
-): Promise<{ until: number; strikes: number; reason: BanEntry["reason"] } | null> {
+export type OpenBan = { until: number; strikes: number; reason: BanEntry["reason"] };
+
+export async function openBan(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
   const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
     `select strikes, until_at, reason from board_ban where user_id = $1 order by created_at desc limit 1`,
     [userId],
@@ -276,6 +274,21 @@ export async function openBan(
   const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
   if (strikes < 2 && until <= now.getTime()) return null;
   return { until, strikes, reason };
+}
+
+/**
+ * The ban, or none when the board tables are not in this database yet.
+ * A missing `board_ban` is not a ban. Any other failure still throws.
+ */
+export async function openBanOrNone(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
+  try {
+    return await openBan(db, userId, now);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "42P01") return null;
+    throw error;
+  }
 }
 
 function names(value: unknown): string[] {
@@ -356,6 +369,7 @@ async function pagePosts(
   };
 }
 
+/** A post or a reply records that this member stood in that one room. A read does not. */
 async function standInRoom(db: Db, userId: string, roomId: string): Promise<void> {
   await db.query(
     `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
@@ -388,7 +402,6 @@ export async function listBoard(
      from room where name <> '' order by sort_order asc, name asc`,
   );
   const rooms = roomRows.map(toRoom);
-  for (const room of rooms) await standInRoom(db, userId, room.id);
   const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
