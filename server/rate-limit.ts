@@ -12,6 +12,8 @@ export const UPLOAD_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
 export const BOARD_WRITE_LIMIT = { windowMs: 60_000, max: 30 };
 /** Reading the board. Separate from writes so a refresh cannot lock posting. */
 export const BOARD_READ_LIMIT = { windowMs: 60_000, max: 120 };
+/** Join, leave, and poll. Sixty in ten seconds per signed-in member. */
+export const CALLS_LIMIT = { windowMs: 10_000, max: 60 };
 
 export type LimitRule = { windowMs: number; max: number };
 

@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
+import { RoomCall } from "@/components/board/room-call";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -144,6 +145,7 @@ export function RoomView() {
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
