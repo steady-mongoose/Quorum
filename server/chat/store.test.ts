@@ -29,12 +29,18 @@ async function user(db: Db, id: string, name: string, email: string) {
   );
 }
 
-async function grant(db: Db, userId: string, name: string, role: "member" | "steward" | "admin") {
+async function grant(
+  db: Db,
+  userId: string,
+  name: string,
+  role: "member" | "steward" | "admin",
+  roomId = "",
+) {
   await db.query(
     `insert into access_log
      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
-     values ($1, $2, $3, $4, '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $5)`,
-    [randomUUID(), userId, name, role, now],
+     values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.', $6)`,
+    [randomUUID(), userId, name, role, roomId, now],
   );
 }
 
@@ -296,7 +302,7 @@ test("a steward hard removal hides the line, bars the account, and shares the st
     await seatOwner(db, owner, "Josh", "josh@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     for (const id of [maria, tom, owner]) await stand(db, id, "shop");
 
     const english = await sendChat(db, {
@@ -463,7 +469,7 @@ test("a chat removal and a later post removal are the second strike, in either o
     await user(db, tom, "Tom", "tom@example.com");
     await grant(db, ruth, "Ruth", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "county");
     await stand(db, ruth, "county");
     await stand(db, tom, "county");
     const line = await sendChat(db, {
@@ -525,7 +531,7 @@ test("removing a room line drops that member from every live call", async () => 
     await user(db, ruth, "Ruth", "ruth-call@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     await grant(db, ruth, "Ruth", "member");
     for (const id of [maria, tom, ruth]) {
       await stand(db, id, "shop");
@@ -558,6 +564,95 @@ test("removing a room line drops that member from every live call", async () => 
     assert.equal(calls.poll("shop", ruth, 0, at + 1).ok, true);
   } finally {
     bindCallEviction(createCallStore());
+    await close();
+  }
+});
+
+test("a roomless steward grant cannot remove a line, and a steward acts only in that room", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-room@example.com");
+    await user(db, tom, "Tom", "tom-room@example.com");
+    await user(db, josh, "Josh", "josh-room@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "admin");
+    await grant(db, tom, "Tom", "steward", "");
+    await stand(db, maria, "shop");
+    await stand(db, tom, "shop");
+    await stand(db, josh, "shop");
+    await stand(db, tom, "county");
+    const line = await sendChat(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      text: "The spare blade is in the drawer.",
+      now,
+    });
+    assert.equal(line.ok, true);
+    if (!line.ok) return;
+    const second = await sendChat(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      text: "The oil is on the top shelf.",
+      now: new Date(now.getTime() + 1_000),
+    });
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    const blank = await removeChatMessage(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      messageId: line.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(blank.ok, false);
+    if (blank.ok) return;
+    assert.equal(blank.error, "Only a steward can remove a message.");
+
+    await grant(db, tom, "Tom", "steward", "county");
+    const otherRoom = await removeChatMessage(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      messageId: line.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(otherRoom.ok, false);
+    if (otherRoom.ok) return;
+    assert.equal(otherRoom.error, "A steward can remove a message only in a room they steward.");
+    const board = await listBoard(db, tom, now);
+    assert.equal(board.ok, true);
+    if (!board.ok) return;
+    assert.deepEqual(board.value.me.stewardRooms, ["county"]);
+
+    await grant(db, tom, "Tom", "steward", "shop");
+    const removed = await removeChatMessage(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      messageId: line.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    const byAdmin = await removeChatMessage(db, {
+      userId: josh,
+      name: "Josh",
+      roomId: "shop",
+      messageId: second.value.id,
+      reason: "porn",
+      now: new Date(now.getTime() + 2_000),
+    });
+    assert.equal(byAdmin.ok, true);
+  } finally {
     await close();
   }
 });
@@ -627,7 +722,7 @@ test("the board still loads when the chat tables are missing", async () => {
     await user(db, tom, "Tom", "tom-early@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     await stand(db, maria, "shop");
     await stand(db, tom, "shop");
     const posted = await createPost(db, {

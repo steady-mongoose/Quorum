@@ -7,6 +7,8 @@ export type BoardMe = {
   admin: boolean;
   council: boolean;
   councilChair: boolean;
+  /** Rooms with a live steward grant. An admin is not listed here. */
+  stewardRooms: string[];
   ban: { until: number; strikes: number; reason: HardRule } | null;
 };
 

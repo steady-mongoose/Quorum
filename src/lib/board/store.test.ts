@@ -176,6 +176,7 @@ test("a live board keeps the server home order", async () => {
       admin: false,
       council: true,
       councilChair: false,
+      stewardRooms: [],
       ban: null,
     },
     rooms: [],

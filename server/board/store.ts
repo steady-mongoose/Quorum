@@ -94,6 +94,8 @@ export type BoardPayload = {
     admin: boolean;
     council: boolean;
     councilChair: boolean;
+    /** Rooms with a live steward grant. An admin is not listed here. */
+    stewardRooms: string[];
     ban: { until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null;
   };
   rooms: BoardRoom[];
@@ -486,6 +488,7 @@ export async function listBoard(
         admin: actor.admin,
         council: flags.council,
         councilChair: flags.chair,
+        stewardRooms: actor.stewardRooms,
         ban: null,
       },
       rooms,

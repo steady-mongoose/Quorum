@@ -250,6 +250,9 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
       admin: who.admin === true,
       council: who.council === true,
       councilChair: who.councilChair === true,
+      stewardRooms: Array.isArray(who.stewardRooms)
+        ? who.stewardRooms.filter((item): item is string => typeof item === "string" && item !== "")
+        : [],
       ban,
     },
     rooms,

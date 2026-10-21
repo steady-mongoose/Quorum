@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
-import { actorRole, moderationStop, type BoardActor } from "../board/access.ts";
+import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
@@ -236,7 +236,14 @@ export async function removeChatMessage(
   if (unavailable) return unavailable;
   const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
   if (!gate.ok) return gate;
-  if (!gate.value.steward) return fail(403, "Only a steward can remove a message.");
+  if (!stewardsRoom(gate.value, input.roomId)) {
+    return fail(
+      403,
+      gate.value.stewardRooms.length > 0
+        ? "A steward can remove a message only in a room they steward."
+        : "Only a steward can remove a message.",
+    );
+  }
   if (!HARD.has(input.reason)) {
     return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
   }

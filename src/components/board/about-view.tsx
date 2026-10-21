@@ -27,7 +27,7 @@ const HOW = [
   },
   {
     title: "Room chat",
-    text: "Each room has a chat for people who have stood in that room. Lines stay in time order. A removed or barred member loses access on the next check. The lines are plain text.",
+    text: "Each room has a chat for people who have stood in that room. Lines stay in time order. A removed or barred member loses access on the next check. A steward can remove a line only in a room they steward. The lines are plain text.",
   },
   {
     title: "Posting",

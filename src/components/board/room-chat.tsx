@@ -15,6 +15,15 @@ import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+/** A membership refusal closes the transcript. A steward refusal leaves it up. */
+function lostRoom(error: string): boolean {
+  return (
+    error === "banned" ||
+    error === "You are not in this room." ||
+    error === "Only a member can read this room."
+  );
+}
+
 function mergeChat(
   current: RoomChatMessage[],
   incoming: RoomChatMessage[],
@@ -34,7 +43,9 @@ function mergeChat(
 /** One transcript per room. The server checks membership on every poll and every send. */
 export function RoomChat({ roomId }: { roomId: string }) {
   const remote = useBoard((state) => state.remote);
-  const steward = useBoard((state) => state.steward);
+  const admin = useBoard((state) => state.admin);
+  const stewardRooms = useBoard((state) => state.stewardRooms);
+  const canRemove = admin || stewardRooms.includes(roomId);
   const me = useBoard((state) => state.me.trim());
   const [messages, setMessages] = useState<RoomChatMessage[]>([]);
   const [older, setOlder] = useState<number | null>(null);
@@ -158,7 +169,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
             <p className="mt-1 text-xs text-muted">
               {message.author} · <When at={message.at} format={formatWhen} />
             </p>
-            {steward ? (
+            {canRemove ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {removing === message.id ? (
                   <>
@@ -171,7 +182,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
                           void removeRoomChat(roomId, message.id, rule).then((result) => {
                             if (!result.ok) {
                               setNote(result.error);
-                              if (result.status === 403) {
+                              if (lostRoom(result.error)) {
                                 setMessages([]);
                                 setOlder(null);
                                 setBlocked(true);
