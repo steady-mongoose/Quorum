@@ -155,7 +155,53 @@ type BoardState = {
   setOpenThread: (id: string | null) => void;
   loadSample: () => void;
   clearBoard: () => void;
+  /**
+   * Wipes the local board after the person confirms, stays on This week,
+   * and keeps a one-step undo. A remote board is left alone.
+   */
+  clearLocalBoard: () => void;
+  undoClearBoard: () => void;
+  /** One-step undo of the last confirmed clear. Persisted until it expires. */
+  undoClear: BoardUndo | null;
+  /** Keeps a cleared sample inside the app on a live server. Not persisted. */
+  localEntry: boolean;
 };
+
+/** The undo bar hides itself. The snapshot stays until `UNDO_TTL_MS`. */
+export const UNDO_BAR_MS = 10_000;
+/** A reload inside this window can still put the cleared board back. */
+export const UNDO_TTL_MS = 10 * 60 * 1000;
+
+type BoardUndo = {
+  at: number;
+  sample: boolean;
+  sampleVersion: number;
+  me: string;
+  profile: Profile;
+  steward: boolean;
+  member: boolean;
+  founded: boolean;
+  posts: Post[];
+  cards: MeetingCard[];
+  invites: Invite[];
+  markLog: MarkRow[];
+  bans: BanRow[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  removals: RemovalRow[];
+  rooms: Room[];
+  room: RoomId;
+  section: Section;
+  viewing: string | null;
+  openThread: string | null;
+};
+
+export function undoSnapshotLive(
+  undo: BoardUndo | null | undefined,
+  now = Date.now(),
+): undo is BoardUndo {
+  return !!undo && typeof undo.at === "number" && now - undo.at < UNDO_TTL_MS;
+}
 
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
 
@@ -166,6 +212,70 @@ function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
 
 function addName(list: string[], name: string): string[] {
   return list.includes(name) ? list : [...list, name];
+}
+
+function emptyLocalBoard(remote: boolean, rooms: Room[]) {
+  return {
+    sample: false,
+    posts: [] as Post[],
+    cards: SEED_CARDS,
+    invites: [] as Invite[],
+    markLog: [] as MarkRow[],
+    bans: [] as BanRow[],
+    threads: [] as DmThread[],
+    messages: [] as DmMessage[],
+    removals: [] as RemovalRow[],
+    openThread: null,
+    viewing: null,
+    rooms: remote ? rooms : ROOMS,
+  };
+}
+
+function snapshotBoard(state: {
+  sample: boolean;
+  sampleVersion: number;
+  me: string;
+  profile: Profile;
+  steward: boolean;
+  member: boolean;
+  founded: boolean;
+  posts: Post[];
+  cards: MeetingCard[];
+  invites: Invite[];
+  markLog: MarkRow[];
+  bans: BanRow[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  removals: RemovalRow[];
+  rooms: Room[];
+  room: RoomId;
+  section: Section;
+  viewing: string | null;
+  openThread: string | null;
+}): BoardUndo {
+  return structuredClone({
+    at: Date.now(),
+    sample: state.sample,
+    sampleVersion: state.sampleVersion,
+    me: state.me,
+    profile: state.profile,
+    steward: state.steward,
+    member: state.member,
+    founded: state.founded,
+    posts: state.posts,
+    cards: state.cards,
+    invites: state.invites,
+    markLog: state.markLog,
+    bans: state.bans,
+    threads: state.threads,
+    messages: state.messages,
+    removals: state.removals,
+    rooms: state.rooms,
+    room: state.room,
+    section: state.section,
+    viewing: state.viewing,
+    openThread: state.openThread,
+  });
 }
 
 export const useBoard = create<BoardState>()(
@@ -243,6 +353,7 @@ export const useBoard = create<BoardState>()(
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
+      let posting = false;
 
       const applySnapshot = (board: BoardSnapshot) => {
         const rooms = board.rooms.length > 0 ? board.rooms : ROOMS;
@@ -314,6 +425,8 @@ export const useBoard = create<BoardState>()(
         messages: [],
         openThread: null,
         lineDismissedAt: 0,
+        undoClear: null,
+        localEntry: false,
         setSection: (section) => set({ section }),
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
@@ -321,16 +434,42 @@ export const useBoard = create<BoardState>()(
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: async (draft) => {
+          if (posting) return { ok: false, stops: [], notes: [] };
           const { posts, cards } = get();
           const check = checkNow(draft);
           if (!check.ok || !draft.type) return check;
-          if (get().remote) {
-            const saved = await (await getBoardClient()).createPost(draft);
-            if (!saved.ok)
-              return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
+          posting = true;
+          try {
+            if (get().remote) {
+              const saved = await (await getBoardClient()).createPost(draft);
+              if (!saved.ok)
+                return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
+              if (draft.type === "hosted") {
+                const card = cards.find((item) => item.id === draft.cardId);
+                if (card) {
+                  hosted(card, {
+                    happened: true,
+                    next: draft.next,
+                    line: draft.claim.trim(),
+                    on: draft.on,
+                    came: draft.came,
+                    named: draft.named,
+                    pages: draft.pages,
+                    post: saved.post,
+                  });
+                } else {
+                  set({
+                    posts: [saved.post, ...get().posts.filter((item) => item.id !== saved.post.id)],
+                  });
+                }
+              } else {
+                set({ posts: [saved.post, ...posts.filter((item) => item.id !== saved.post.id)] });
+              }
+              return check;
+            }
             if (draft.type === "hosted") {
               const card = cards.find((item) => item.id === draft.cardId);
-              if (card) {
+              if (card)
                 hosted(card, {
                   happened: true,
                   next: draft.next,
@@ -339,48 +478,33 @@ export const useBoard = create<BoardState>()(
                   came: draft.came,
                   named: draft.named,
                   pages: draft.pages,
-                  post: saved.post,
+                  postId: draft.postId,
+                  media: draft.media.slice(0, 1),
                 });
-              } else {
-                set({
-                  posts: [saved.post, ...get().posts.filter((item) => item.id !== saved.post.id)],
-                });
-              }
-            } else {
-              set({ posts: [saved.post, ...posts.filter((item) => item.id !== saved.post.id)] });
+              return check;
             }
+            const post = newPost({
+              room: draft.room,
+              type: draft.type,
+              claim: draft.claim.trim(),
+              reason: draft.reason.trim(),
+              on: draft.on,
+              author: me(),
+              media: draft.media.slice(0, 1),
+              ...(draft.postId ? { id: draft.postId } : {}),
+              ...(draft.cardId ? { cardId: draft.cardId } : {}),
+              ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
+            });
+            set({ posts: [post, ...posts] });
             return check;
+          } finally {
+            // The flag stays set through the rest of this turn, so a second
+            // click in the same turn cannot file another post. It drops before
+            // the next turn, once this one has settled.
+            queueMicrotask(() => {
+              posting = false;
+            });
           }
-          if (draft.type === "hosted") {
-            const card = cards.find((item) => item.id === draft.cardId);
-            if (card)
-              hosted(card, {
-                happened: true,
-                next: draft.next,
-                line: draft.claim.trim(),
-                on: draft.on,
-                came: draft.came,
-                named: draft.named,
-                pages: draft.pages,
-                postId: draft.postId,
-                media: draft.media.slice(0, 1),
-              });
-            return check;
-          }
-          const post = newPost({
-            room: draft.room,
-            type: draft.type,
-            claim: draft.claim.trim(),
-            reason: draft.reason.trim(),
-            on: draft.on,
-            author: me(),
-            media: draft.media.slice(0, 1),
-            ...(draft.postId ? { id: draft.postId } : {}),
-            ...(draft.cardId ? { cardId: draft.cardId } : {}),
-            ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
-          });
-          set({ posts: [post, ...posts] });
-          return check;
         },
         fileDeskContact: async (input) => {
           const post = deskDid({ ...input, author: me() });
@@ -691,12 +815,13 @@ export const useBoard = create<BoardState>()(
         setCouncil: (id, input) => placeCall((client) => client.setCouncil(id, input), true),
         connectRemote: async () => {
           if (readDemoFlag()) return;
-          set({ remote: true, sample: false, boardError: "" });
+          set({ remote: true, sample: false, boardError: "", undoClear: null });
           const loaded = await (await getBoardClient()).load();
           if (!loaded.ok) {
             set({
               remote: true,
-              boardError: loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
+              boardError:
+                loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
               posts: [],
               markLog: [],
               removals: [],
@@ -761,6 +886,8 @@ export const useBoard = create<BoardState>()(
             removals: [],
             bans: [],
             roomPages: [],
+            undoClear: null,
+            localEntry: false,
           });
         },
         loadSample: () => {
@@ -788,20 +915,52 @@ export const useBoard = create<BoardState>()(
           });
         },
         clearBoard: () => {
+          const state = get();
+          setRoomCatalog(state.remote ? state.rooms : ROOMS);
+          set({
+            ...emptyLocalBoard(state.remote, state.rooms),
+            undoClear: null,
+          });
+        },
+        clearLocalBoard: () => {
+          const state = get();
+          if (state.remote) return;
+          const undo = snapshotBoard(state);
           setRoomCatalog(ROOMS);
           set({
-            sample: false,
-            posts: [],
-            cards: SEED_CARDS,
-            invites: [],
-            markLog: [],
-            bans: [],
-            threads: [],
-            messages: [],
-            removals: [],
-            openThread: null,
-            viewing: null,
-            rooms: get().remote ? get().rooms : ROOMS,
+            ...emptyLocalBoard(false, state.rooms),
+            undoClear: undo,
+            localEntry: true,
+            section: "week",
+          });
+        },
+        undoClearBoard: () => {
+          const undo = get().undoClear;
+          if (!undo || get().remote) return;
+          setRoomCatalog(undo.rooms);
+          set({
+            sample: undo.sample,
+            sampleVersion: undo.sampleVersion,
+            me: undo.me,
+            profile: undo.profile,
+            steward: undo.steward,
+            member: undo.member,
+            founded: undo.founded,
+            posts: undo.posts,
+            cards: undo.cards,
+            invites: undo.invites,
+            markLog: undo.markLog,
+            bans: undo.bans,
+            threads: undo.threads,
+            messages: undo.messages,
+            removals: undo.removals,
+            rooms: undo.rooms,
+            room: undo.room,
+            section: undo.section,
+            viewing: undo.viewing,
+            openThread: undo.openThread,
+            undoClear: null,
+            localEntry: true,
           });
         },
       };
@@ -827,6 +986,7 @@ export const useBoard = create<BoardState>()(
         markLog: state.remote ? [] : state.markLog,
         threads: state.threads,
         messages: state.messages,
+        undoClear: state.remote ? null : state.undoClear,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
       migrate: (persisted, version) => {
@@ -856,10 +1016,16 @@ export const useBoard = create<BoardState>()(
             sampleVersion: SAMPLE_VERSION,
             member: true,
             steward: true,
+            undoClear: null,
             messages: pruneMessages(fresh.messages, Date.now()),
           };
         }
-        return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };
+        return {
+          ...current,
+          ...saved,
+          undoClear: undoSnapshotLive(saved.undoClear) ? saved.undoClear : null,
+          messages: pruneMessages(saved.messages ?? [], Date.now()),
+        };
       },
     },
   ),
