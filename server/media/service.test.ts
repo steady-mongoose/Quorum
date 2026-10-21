@@ -297,3 +297,58 @@ test("a room picture requires membership and the post, and another room cannot r
     await close();
   }
 });
+
+test("a barred member cannot read a room picture or start a room video", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const josh = randomUUID();
+    const maria = randomUUID();
+    await user(db, josh, "josh@example.com");
+    await user(db, maria, "maria@example.com");
+    await stand(db, josh, "shop", "post-ban");
+    await db.query(
+      `insert into room_member (room_id, user_id) values ('shop', $1) on conflict do nothing`,
+      [maria],
+    );
+    await db.query(`insert into member_role (user_id, is_admin) values ($1, true)`, [josh]);
+    const media = deps(db);
+    const prepared = await prepareUpload(media, josh, {
+      kind: "image",
+      contentType: "image/jpeg",
+      byteSize: 4,
+      scope: "room",
+      roomId: "shop",
+      postId: "post-ban",
+    });
+    assert.equal(prepared.ok, true);
+    if (!prepared.ok) return;
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, $2, 'Josh', 'threat', 'Tom', 1, $3, $4)`,
+      [randomUUID(), josh, new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), now],
+    );
+    const reading = await readForMember(media, josh, prepared.body.id);
+    assert.equal(reading.ok, false);
+    if (reading.ok) return;
+    assert.equal(reading.status, 403);
+    assert.equal(reading.error, "banned");
+    assert.equal(reading.ban?.reason, "threat");
+    const video = await prepareUpload(media, josh, {
+      kind: "video",
+      contentType: "video/mp4",
+      byteSize: 8,
+      durationMs: 1000,
+      scope: "room",
+      roomId: "shop",
+      postId: "post-ban",
+    });
+    assert.equal(video.ok, false);
+    if (video.ok) return;
+    assert.equal(video.status, 403);
+    assert.equal(video.error, "banned");
+    const still = await readForMember(media, maria, prepared.body.id);
+    assert.equal(still.ok, true);
+  } finally {
+    await close();
+  }
+});

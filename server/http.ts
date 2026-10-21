@@ -343,8 +343,14 @@ async function route(
       session.id,
       roomPost[1] ?? "",
       stringField(body, "id"),
+      deps.now(),
     );
-    if (!recorded.ok) return json(recorded.status, { error: recorded.error });
+    if (!recorded.ok) {
+      return json(
+        recorded.status,
+        recorded.ban ? { error: recorded.error, ban: recorded.ban } : { error: recorded.error },
+      );
+    }
     return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
   }
 

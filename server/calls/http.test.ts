@@ -339,3 +339,54 @@ test("join, leave, and poll are limited per member", async () => {
     await close();
   }
 });
+
+test("a barred member cannot join a call, even with a membership row", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const app = handler(db, {
+      config: enabledConfig(),
+      store: createCallStore(),
+      now: () => new Date("2026-10-21T12:00:00Z"),
+    });
+    await user(db, "ada");
+    await user(db, "bob");
+    await stand(db, "ada", "shop");
+    await stand(db, "bob", "shop");
+    const joined = await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),
+    );
+    assert.equal(joined.status, 200);
+    await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "bob", name: "Bob", body: {} }),
+    );
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, 'ada', 'Ada', 'threat', 'Tom', 1, $2, $3)`,
+      [
+        "ban-ada",
+        new Date("2026-11-20T12:00:00Z"),
+        new Date("2026-10-21T12:00:00Z"),
+      ],
+    );
+    const again = await app(
+      call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),
+    );
+    assert.equal(again.status, 403);
+    const body = (await again.json()) as {
+      error?: string;
+      record?: boolean;
+      ban?: { reason?: string };
+    };
+    assert.equal(body.error, "banned");
+    assert.equal(body.record, false);
+    assert.equal(body.ban?.reason, "threat");
+    const bob = await app(call("/api/calls/rooms/shop?since=0", { user: "bob" }));
+    const roster = (await bob.json()) as { peers: { id: string }[] };
+    assert.equal(
+      roster.peers.some((peer) => peer.id === "ada"),
+      false,
+    );
+  } finally {
+    await close();
+  }
+});
