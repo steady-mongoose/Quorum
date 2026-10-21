@@ -53,9 +53,12 @@ const appTests = [
   "src/lib/board/text.test.ts",
   "src/lib/board/api.test.ts",
   "src/lib/board/store.test.ts",
+  "src/lib/board/chat.test.ts",
   "server/board/order.test.ts",
   "server/board/store.test.ts",
   "server/board/http.test.ts",
+  "server/chat/store.test.ts",
+  "server/chat/http.test.ts",
 ];
 
 const suites = [

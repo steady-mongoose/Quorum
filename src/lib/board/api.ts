@@ -171,6 +171,7 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         author: row.author,
         reason: row.reason as RemovalRow["reason"],
         at: row.at,
+        ...(row.roomChat === true ? { roomChat: true } : {}),
       });
     }
   }

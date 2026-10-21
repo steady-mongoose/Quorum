@@ -156,6 +156,8 @@ export type RemovalRow = {
   author: string;
   reason: HardRule;
   at: number;
+  /** A room chat line. A post leaves this off. */
+  roomChat?: boolean;
 };
 export type BanRow = {
   id: string;

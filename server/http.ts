@@ -5,6 +5,7 @@ import { readCallsConfig } from "./calls/config.ts";
 import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
+import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
@@ -346,6 +347,9 @@ async function route(
     if (!recorded.ok) return json(recorded.status, { error: recorded.error });
     return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
   }
+
+  const chat = await handleRoomChat(deps, request, url);
+  if (chat) return chat;
 
   const board = await handleBoard(deps, request, url);
   if (board) return board;

@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
+import { RoomChat } from "@/components/board/room-chat";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -65,7 +66,9 @@ export function RoomView() {
   const rooms = useBoard((state) => state.rooms);
   const boardError = useBoard((state) => state.boardError);
   const remote = useBoard((state) => state.remote);
-  const older = useBoard((state) => state.roomPages.find((page) => page.room === room)?.next ?? null);
+  const older = useBoard(
+    (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
+  );
   const loadOlder = useBoard((state) => state.loadOlder);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
@@ -146,6 +149,7 @@ export function RoomView() {
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <RoomCall roomId={room} />
+        <RoomChat roomId={room} />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
