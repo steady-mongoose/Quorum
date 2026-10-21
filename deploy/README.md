@@ -95,7 +95,7 @@ Cloudflare is the primary DNS for `avouchsocial.com`. The spare domain `avouchso
 Prepare now, before anything breaks:
 
 - At Porkbun, create A records for `api.avouchsocial.org`, `avouchsocial.org`, and `www.avouchsocial.org` pointing at `140.82.61.209`, TTL 600.
-- Keep `api.avouchsocial.com` at Cloudflare TTL auto. Leave that record DNS only. Do not proxy it.
+- Keep `api.avouchsocial.com` at Cloudflare TTL auto, which is 300 seconds. Leave that record DNS only. Do not proxy it.
 - Keep a Cloudflare zone export in the project Drive.
 - Leave the `.org` names out of `WEB_ORIGINS` until the fallback is actually in use.
 
@@ -115,7 +115,7 @@ Expect `{"ok":true}`. Members will need to sign in again because sessions are pe
 
 A domain registered at Cloudflare Registrar cannot use outside nameservers. A transfer is locked for 60 days after registration, until about Dec 13, 2026. The `.com` name stays on Cloudflare until that lock ends. The `.org` name is the path that works before then.
 
-TTLs are 300 seconds in normal operation, and 60 to 300 seconds before a planned move. The spare `.org` records created now use TTL 600. `api.avouchsocial.com` stays at TTL auto.
+TTLs are 300 seconds in normal operation, and 60 to 300 seconds before a planned move. The spare `.org` records created now use TTL 600. `api.avouchsocial.com` stays at TTL auto, which is 300 seconds.
 
 The open items (Porkbun records, an optional Hurricane Electric zone, a monthly zone export, the Caddy static block, and a failover drill) are the checklist in `BACKLOG.md`.
 
@@ -168,7 +168,7 @@ sudo crontab -e
 15 3 * * * cd /opt/avouch && set -a && . ./deploy/.env && set +a && ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
 
-The nightly backup runs at 3:15 UTC from root's crontab (`sudo crontab -e` on the VPS). `15 3 * * *` is 3:15 when the host clock is UTC.
+That line runs at 3:15 UTC.
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
