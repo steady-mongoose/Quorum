@@ -41,4 +41,11 @@ test("Caddy limits the closed-test POSTs and is built with the rate limit module
   const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
   assert.match(compose, /dockerfile: Dockerfile\.caddy/);
   assert.equal(compose.includes("image: caddy:2.10"), false);
+  const apiDockerfile = readFileSync(join(root, "deploy/Dockerfile"), "utf8");
+  const appStage = apiDockerfile.slice(0, apiDockerfile.indexOf("FROM app AS media"));
+  assert.match(appStage, /COPY src\/lib \.\/src\/lib/);
+  assert.equal(appStage.includes("COPY src/lib/media"), false);
+  const workflow = readFileSync(join(root, ".github/workflows/test.yml"), "utf8");
+  assert.match(workflow, /api-image:/);
+  assert.match(workflow, /scripts\/api-image-smoke\.sh/);
 });
