@@ -3,7 +3,7 @@ import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
-import { actorRole } from "./access.ts";
+import { actorRole, moderationStop } from "./access.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
 
@@ -741,6 +741,9 @@ export async function removePost(
   ]);
   const post = existing[0];
   if (!post || post.removed) return fail(404, "That post is not here.");
+  const target = await actorRole(db, post.author_user_id);
+  const blocked = moderationStop(actor, target);
+  if (blocked) return fail(403, blocked);
   const by = input.name.trim() || "Steward";
   const removalId = randomUUID();
   try {
@@ -811,6 +814,8 @@ export async function banMember(
   if (!person) return fail(404, "No member has that email.");
   const target = await actorRole(db, person.id);
   if (!target.member) return fail(400, "That person is not a member.");
+  const blocked = moderationStop(actor, target);
+  if (blocked) return fail(403, blocked);
   const ban = await writeBan(db, {
     userId: person.id,
     name: person.name,

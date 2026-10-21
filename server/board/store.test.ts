@@ -353,3 +353,124 @@ test("room creation is admin only, and steward grants and revocations are logged
     await close();
   }
 });
+
+async function seatOwner(db: Db, id: string, name: string, email: string) {
+  await user(db, id, name, email);
+  await db.query(
+    `insert into member_role (user_id, is_admin, is_council, is_council_chair) values ($1, true, true, true)`,
+    [id],
+  );
+  await db.query(`insert into bootstrap_seat (id, user_id) values ('founding', $1)`, [id]);
+}
+
+test("a steward cannot bar the owner, an admin, or another steward", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const owner = randomUUID();
+    const admin = randomUUID();
+    const steward = randomUUID();
+    const peer = randomUUID();
+    await seatOwner(db, owner, "Josh", "josh@example.com");
+    await user(db, admin, "Ada", "ada@example.com");
+    await user(db, steward, "Tom", "tom@example.com");
+    await user(db, peer, "Ruth", "ruth@example.com");
+    await grant(db, admin, "Ada", "member");
+    await grant(db, admin, "Ada", "admin");
+    await grant(db, steward, "Tom", "member");
+    await grant(db, steward, "Tom", "steward");
+    await grant(db, peer, "Ruth", "member");
+    await grant(db, peer, "Ruth", "steward");
+
+    const againstOwner = await banMember(db, {
+      userId: admin,
+      name: "Ada",
+      email: "josh@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(againstOwner.ok, false);
+    if (againstOwner.ok) return;
+    assert.equal(againstOwner.status, 403);
+    assert.equal(againstOwner.error, "The owner cannot be barred.");
+
+    const stewardOnAdmin = await banMember(db, {
+      userId: steward,
+      name: "Tom",
+      email: "ada@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(stewardOnAdmin.ok, false);
+    if (stewardOnAdmin.ok) return;
+    assert.equal(stewardOnAdmin.error, "A steward cannot bar an admin.");
+
+    const ownerPost = await createPost(db, {
+      userId: owner,
+      name: "Josh",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(ownerPost.ok, true);
+    if (!ownerPost.ok) return;
+    const removedOwner = await removePost(db, {
+      userId: steward,
+      name: "Tom",
+      postId: ownerPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removedOwner.ok, false);
+    if (removedOwner.ok) return;
+    assert.equal(removedOwner.error, "The owner cannot be barred.");
+
+    const peerPost = await createPost(db, {
+      userId: peer,
+      name: "Ruth",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(peerPost.ok, true);
+    if (!peerPost.ok) return;
+    const removedPeer = await removePost(db, {
+      userId: steward,
+      name: "Tom",
+      postId: peerPost.value.id,
+      reason: "porn",
+      now,
+    });
+    assert.equal(removedPeer.ok, false);
+    if (removedPeer.ok) return;
+    assert.equal(removedPeer.error, "A steward cannot bar another steward.");
+
+    const adminPost = await createPost(db, {
+      userId: admin,
+      name: "Ada",
+      roomId: "shop",
+      body: did,
+      now: new Date(now.getTime() + 1000),
+    });
+    assert.equal(adminPost.ok, true);
+    if (!adminPost.ok) return;
+    const ownerRemovesAdmin = await removePost(db, {
+      userId: owner,
+      name: "Josh",
+      postId: adminPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(ownerRemovesAdmin.ok, true);
+
+    const adminRemovesSteward = await removePost(db, {
+      userId: admin,
+      name: "Ada",
+      postId: peerPost.value.id,
+      reason: "csam",
+      now,
+    });
+    assert.equal(adminRemovesSteward.ok, true);
+  } finally {
+    await close();
+  }
+});
