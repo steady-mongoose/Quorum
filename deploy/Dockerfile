@@ -13,7 +13,10 @@ RUN npm ci --omit=dev
 
 COPY server ./server
 COPY migrations ./migrations
-COPY src/lib/media ./src/lib/media
+# The process loads shared rules from src/lib: media, calls, the board, and
+# auth. Copy the tree. One folder is not enough, and a missing file exits
+# before the process can listen.
+COPY src/lib ./src/lib
 COPY scripts/migrate.mjs scripts/migration-plan.mjs scripts/media-worker-password.mjs ./scripts/
 
 ENV NODE_ENV=production

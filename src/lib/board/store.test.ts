@@ -1,9 +1,36 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { setBoardClient, type BoardClient } from "./client.ts";
+import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
+import type { HomePayload } from "./home.ts";
 import { blankDraft, todayIso, weekFor, type Post } from "./model.ts";
 import { UNDO_TTL_MS, useBoard } from "./store.ts";
+
+const idle = async () => ({ ok: false as const, error: "unused" });
+
+function client(over: Partial<BoardClient> = {}): BoardClient {
+  return {
+    load: idle,
+    createPost: async () => ({ ok: false, error: "unused" }),
+    reply: idle,
+    revise: idle,
+    closeAsked: idle,
+    mark: idle,
+    remove: idle,
+    createRoom: idle,
+    appointSteward: idle,
+    loadHome: idle,
+    savePlace: idle,
+    joinRoom: idle,
+    leaveRoom: idle,
+    requestRoom: idle,
+    decideRoom: async () => ({ ok: false, error: "unused" }),
+    correctZip: idle,
+    changeAccess: idle,
+    setCouncil: async () => ({ ok: false, error: "unused" }),
+    ...over,
+  };
+}
 
 function draft() {
   return {
@@ -111,17 +138,11 @@ test("a live board writes through the API client", async () => {
     removed: false,
     media: [],
   };
-  setBoardClient({
-    load: async () => ({ ok: false, error: "unused" }),
-    createPost: async () => ({ ok: true, post: serverPost }),
-    reply: async () => ({ ok: false, error: "unused" }),
-    revise: async () => ({ ok: false, error: "unused" }),
-    closeAsked: async () => ({ ok: false, error: "unused" }),
-    mark: async () => ({ ok: false, error: "unused" }),
-    remove: async () => ({ ok: false, error: "unused" }),
-    createRoom: async () => ({ ok: false, error: "unused" }),
-    appointSteward: async () => ({ ok: false, error: "unused" }),
-  });
+  setBoardClient(
+    client({
+      createPost: async () => ({ ok: true, post: serverPost }),
+    }),
+  );
   useBoard.setState({ remote: true });
   const check = await useBoard.getState().file(draft());
   assert.equal(check.ok, true);
@@ -250,20 +271,14 @@ test("a second file does not post while the first is still sending", async () =>
     removed: false,
     media: [],
   };
-  setBoardClient({
-    load: async () => ({ ok: false, error: "unused" }),
-    createPost: () => {
-      calls += 1;
-      return gate;
-    },
-    reply: async () => ({ ok: false, error: "unused" }),
-    revise: async () => ({ ok: false, error: "unused" }),
-    closeAsked: async () => ({ ok: false, error: "unused" }),
-    mark: async () => ({ ok: false, error: "unused" }),
-    remove: async () => ({ ok: false, error: "unused" }),
-    createRoom: async () => ({ ok: false, error: "unused" }),
-    appointSteward: async () => ({ ok: false, error: "unused" }),
-  });
+  setBoardClient(
+    client({
+      createPost: () => {
+        calls += 1;
+        return gate;
+      },
+    }),
+  );
   useBoard.setState({ remote: true, posts: [] });
   const first = useBoard.getState().file(draft());
   const second = await useBoard.getState().file(draft());
@@ -290,6 +305,59 @@ test("a silent clear and a remote board do not offer undo", () => {
   assert.equal(useBoard.getState().remote, true);
   assert.equal(useBoard.getState().posts.length, posts);
   assert.equal(useBoard.getState().undoClear, null);
+});
+
+test("a live board keeps the server home order", async () => {
+  reset();
+  const home: HomePayload = {
+    zip: "33578",
+    congregationId: "grace",
+    congregations: [],
+    sections: [
+      {
+        tier: "joined",
+        label: "What you've joined",
+        rooms: [{ id: "shop", name: "The Shop" }],
+      },
+      {
+        tier: "region",
+        label: "Farther out",
+        rooms: [{ id: "region-hillsborough", name: "Hillsborough" }],
+      },
+    ],
+    requests: [],
+    accessLog: [],
+  };
+  const board: BoardSnapshot = {
+    me: {
+      member: true,
+      steward: false,
+      admin: false,
+      council: true,
+      councilChair: false,
+      ban: null,
+    },
+    rooms: [],
+    posts: [],
+    marks: [],
+    removals: [],
+    bans: [],
+    pages: [],
+  };
+  setBoardClient(
+    client({
+      load: async () => ({ ok: true, board }),
+      loadHome: async () => ({ ok: true, home }),
+    }),
+  );
+  delete process.env.VITE_DEMO;
+  await useBoard.getState().connectRemote();
+  assert.deepEqual(
+    useBoard.getState().home?.sections.map((section) => section.tier),
+    ["joined", "region"],
+  );
+  assert.equal(useBoard.getState().council, true);
+  assert.equal(useBoard.getState().home?.sections[0]?.label, "What you've joined");
 });
 
 test("a revision keeps a steward mark", async () => {

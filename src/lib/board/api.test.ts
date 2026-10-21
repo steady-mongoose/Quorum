@@ -97,7 +97,15 @@ test("room order is newest first, and a mark does not move a post", () => {
   const ordered = sortRoom(
     [
       Object.assign({}, sloppy, { likes: 1000 }),
-      Object.assign({}, older, { score: 5 }),
+      Object.assign({}, older, {
+        score: 5,
+        council: {
+          label: "Council-approved",
+          reason: "Named the office.",
+          checklist: ["The post names the candidate and the office."],
+          approvalId: "c1",
+        },
+      }),
       newest,
       hosted,
     ],
@@ -107,6 +115,7 @@ test("room order is newest first, and a mark does not move a post", () => {
     ordered.map((post) => post.id),
     ["sloppy", "new", "hosted", "old"],
   );
+  assert.equal(ordered[3]?.council?.label, "Council-approved");
   assert.equal(
     ordered.some((post) => post.removed),
     false,

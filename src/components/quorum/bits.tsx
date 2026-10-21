@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 /** The tab, pill and radio look used by every switcher in the app. */
 export function pill(active: boolean, extra?: string) {
   return cn(
-    "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold disabled:opacity-40",
+    "inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold disabled:opacity-40",
     active ? "bg-signal text-signal-ink" : "border border-line bg-surface text-muted",
     extra,
   );
@@ -44,7 +44,7 @@ export function IconNav<T extends string>({
 }
 
 export const btn =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-transform duration-150 ease-out active:scale-95 disabled:opacity-50";
+  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-transform duration-150 ease-out active:scale-95 disabled:opacity-50";
 
 export const btnSignal = cn(btn, "bg-signal text-signal-ink");
 export const btnGhost = cn(btn, "border border-line bg-surface text-fg");

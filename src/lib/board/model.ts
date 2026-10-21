@@ -95,6 +95,15 @@ export type Post = {
   campaignId?: string;
   cardId?: string;
   tradeId?: string;
+  /** Candidate or business. The council can label one of these, once. */
+  subject?: "candidate" | "business";
+  /** A one-time label. It does not move the post. */
+  council?: {
+    label: "Council-approved";
+    reason: string;
+    checklist: string[];
+    approvalId: string;
+  } | null;
   /** One picture or video, kept with the post. Older posts omit this. */
   media?: SharedMedia[];
 };
@@ -114,6 +123,12 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Host paused the series. It does not fill the week. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
   lastFour: boolean[];
   /** Names who have been, the lister first. Two names list a card. */
   wentBy: string[];
@@ -538,6 +553,7 @@ export type Draft = {
   /** Set when a picture is uploaded, so the post id matches the stored object. */
   postId: string;
   media: SharedMedia[];
+  subject: "" | "candidate" | "business";
 };
 
 export function blankDraft(room: RoomId): Draft {
@@ -556,6 +572,7 @@ export function blankDraft(room: RoomId): Draft {
     tradeId: "",
     postId: "",
     media: [],
+    subject: "",
   };
 }
 
@@ -900,7 +917,14 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter((card) => meetingDates(card.time, card.next, today).includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses));
+    const dated = cards.filter((card) => {
+      const occurs = meetingDates(card.time, card.next, today, {
+        paused: card.paused,
+        cancelled: card.cancelled,
+        until: card.until,
+      });
+      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+    });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;
