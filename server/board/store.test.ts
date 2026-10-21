@@ -448,6 +448,51 @@ test("a barred member cannot revise or close, and a revision keeps the mark", as
   }
 });
 
+test("only a steward sees ban and removal logs", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const dale = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, dale, "Dale", "dale@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, dale, "Dale", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    const steward = await listBoard(db, tom, now);
+    const member = await listBoard(db, dale, now);
+    assert.equal(steward.ok, true);
+    assert.equal(member.ok, true);
+    if (!steward.ok || !member.ok) return;
+    assert.equal(steward.value.removals[0]?.reason, "threat");
+    assert.equal(steward.value.bans[0]?.author, "Maria");
+    assert.deepEqual(member.value.removals, []);
+    assert.deepEqual(member.value.bans, []);
+    assert.equal(member.value.me.ban, null);
+  } finally {
+    await close();
+  }
+});
+
 test("a reply follows the room's posting rules", async () => {
   const { db, close } = await openTestDb();
   try {

@@ -342,21 +342,25 @@ export async function listBoard(db: Db, userId: string, now: Date): Promise<Resu
         reason: row.reason,
         at: atMs(row.created_at),
       })),
-      removals: removalRows.map((row) => ({
-        id: row.id,
-        postId: row.post_id,
-        author: row.author_name,
-        reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
-        at: atMs(row.created_at),
-      })),
-      bans: banRows.map((row) => ({
-        id: row.id,
-        author: row.name,
-        reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
-        until: atMs(row.until_at),
-        strikes: Number(row.strikes),
-        at: atMs(row.created_at),
-      })),
+      removals: actor.steward
+        ? removalRows.map((row) => ({
+            id: row.id,
+            postId: row.post_id,
+            author: row.author_name,
+            reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+            at: atMs(row.created_at),
+          }))
+        : [],
+      bans: actor.steward
+        ? banRows.map((row) => ({
+            id: row.id,
+            author: row.name,
+            reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+            until: atMs(row.until_at),
+            strikes: Number(row.strikes),
+            at: atMs(row.created_at),
+          }))
+        : [],
     },
   };
 }
