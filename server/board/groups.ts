@@ -1,15 +1,17 @@
 // Theme groups beside the town rooms. A member asks from a room they have
 // joined. A steward of that room approves, and the requester becomes an
 // admin. Each group can have more than one admin. Admins mark and remove
-// only that group's posts, under the same rules as the board. Stewards hear
-// appeals. Posts are newest first. English only. No counts.
+// only that group's posts, under the same rules as the board. A steward of
+// that group, or a steward of the room it was approved from, hears appeals.
+// A steward grant with no room does not count. Posts are newest first.
+// English only. No counts.
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/text.ts";
-import { actorRole, moderationStop, type BoardActor } from "./access.ts";
+import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
 import { sentenceOrStop } from "./check.ts";
 import { openBan, type Result } from "./store.ts";
 
@@ -223,29 +225,64 @@ async function groupExists(db: Db, groupId: string): Promise<boolean> {
   return Boolean(rows[0]);
 }
 
-/** A global steward grant covers every room. A room grant covers that room. An admin covers every room. */
-async function stewardOfRoom(db: Db, userId: string, roomId: string): Promise<boolean> {
-  const actor = await actorRole(db, userId);
+async function isGroupSteward(db: Db, groupId: string, userId: string): Promise<boolean> {
+  const rows = await db.query<{ user_id: string }>(
+    `select user_id from theme_group_steward where group_id = $1 and user_id = $2`,
+    [groupId, userId],
+  );
+  return Boolean(rows[0]);
+}
+
+async function approvedRoomIds(db: Db, groupId: string): Promise<string[]> {
+  const rows = await db.query<{ room_id: string }>(
+    `select distinct room_id from theme_group_request
+     where group_id = $1 and status = 'approved' and room_id <> ''`,
+    [groupId],
+  );
+  return rows.map((row) => row.room_id);
+}
+
+/**
+ * A steward row on this group, or a steward grant for a room this group was
+ * approved from. An admin covers every group. A grant with no room does not.
+ */
+async function stewardOfGroup(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  groupId: string,
+): Promise<boolean> {
   if (actor.admin) return true;
-  const rows = await db.query<{
-    id: string;
-    action: "grant" | "revoke";
-    room_id: string;
-    at: Date | string;
-  }>(`select id, action, room_id, at from access_log where user_id = $1 and role = 'steward'`, [
-    userId,
-  ]);
-  const latest = new Map<string, { id: string; action: string; at: number }>();
-  for (const row of rows) {
-    const key = row.room_id ?? "";
-    const at = atMs(row.at);
-    const prev = latest.get(key);
-    if (!prev || at > prev.at || (at === prev.at && row.id > prev.id)) {
-      latest.set(key, { id: row.id, action: row.action, at });
-    }
-  }
-  if (latest.get("")?.action === "grant") return true;
-  return latest.get(roomId)?.action === "grant";
+  if (await isGroupSteward(db, groupId, userId)) return true;
+  const rooms = await approvedRoomIds(db, groupId);
+  return rooms.some((roomId) => stewardsRoom(actor, roomId));
+}
+
+/** Group admin, group steward, or steward of a room this group was approved from. */
+async function moderatesGroup(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  groupId: string,
+): Promise<boolean> {
+  if (await isGroupAdmin(db, groupId, userId)) return true;
+  return stewardOfGroup(db, actor, userId, groupId);
+}
+
+async function stewardedGroupIds(db: Db, userId: string): Promise<string[]> {
+  const rows = await db.query<{ group_id: string }>(
+    `select group_id from theme_group_steward where user_id = $1`,
+    [userId],
+  );
+  return rows.map((row) => row.group_id);
+}
+
+function inClause(params: unknown[], ids: string[]): string {
+  const marks = ids.map((id) => {
+    params.push(id);
+    return `$${params.length}`;
+  });
+  return marks.join(", ");
 }
 
 async function writeLog(
@@ -401,6 +438,7 @@ export async function listGroup(
           postIds,
         );
   const admin = await isGroupAdmin(db, groupId, userId);
+  const seesRemovals = admin || (await stewardOfGroup(db, gated.actor, userId, groupId));
   const removalRows = await db.query<{
     id: string;
     post_id: string;
@@ -416,10 +454,9 @@ export async function listGroup(
      limit 100`,
     [groupId],
   );
-  const visibleRemovals =
-    admin || gated.actor.steward
-      ? removalRows
-      : removalRows.filter((row) => row.author_user_id === userId);
+  const visibleRemovals = seesRemovals
+    ? removalRows
+    : removalRows.filter((row) => row.author_user_id === userId);
   const header = await db.query<{ id: string; name: string; about: string }>(
     `select id, name, about from theme_group where id = $1`,
     [groupId],
@@ -591,9 +628,10 @@ export async function setGroupAdmin(
   if (input.action !== "grant" && input.action !== "revoke")
     return fail(400, "Grant or revoke the admin role.");
   const admin = await isGroupAdmin(db, input.groupId, input.userId);
+  const steward = await stewardOfGroup(db, gated.actor, input.userId, input.groupId);
   if (input.action === "revoke") {
-    if (!gated.actor.steward) return fail(403, "Only a steward can revoke a group admin.");
-  } else if (!admin && !gated.actor.steward) {
+    if (!steward) return fail(403, "Only a steward can revoke a group admin.");
+  } else if (!admin && !steward) {
     return fail(403, "Only a group admin or a steward can appoint an admin.");
   }
   const email = input.email.trim().toLowerCase();
@@ -771,7 +809,7 @@ export async function decideGroupRequest(
   );
   const request = rows[0];
   if (!request || request.status !== "open") return fail(404, "That request is not open.");
-  if (!(await stewardOfRoom(db, input.userId, request.room_id)))
+  if (!stewardsRoom(gated.actor, request.room_id))
     return fail(403, "A steward of that room decides a group.");
   if (request.by_user_id === input.userId) return fail(403, "Someone else decides a group.");
   if (input.decision === "approved" && request.by_user_id) {
@@ -851,6 +889,18 @@ export async function listGroupRequests(
 ): Promise<Result<{ requests: GroupRequest[] }>> {
   const gated = await gate(db, userId, now);
   if (!gated.ok) return gated;
+  const params: unknown[] = [];
+  let where = "";
+  if (!gated.actor.admin) {
+    params.push(userId);
+    const clauses = [`by_user_id = $1`];
+    const groupIds = await stewardedGroupIds(db, userId);
+    if (groupIds.length > 0) clauses.push(`group_id in (${inClause(params, groupIds)})`);
+    if (gated.actor.stewardRooms.length > 0) {
+      clauses.push(`room_id in (${inClause(params, gated.actor.stewardRooms)})`);
+    }
+    where = `where ${clauses.join(" or ")}`;
+  }
   const rows = await db.query<{
     id: string;
     group_id: string;
@@ -862,17 +912,12 @@ export async function listGroupRequests(
     note: string;
     created_at: Date | string;
   }>(
-    gated.actor.steward
-      ? `select id, group_id, name, about, by_name, room_id, status, note, created_at
-         from theme_group_request
-         order by created_at desc, id desc
-         limit 100`
-      : `select id, group_id, name, about, by_name, room_id, status, note, created_at
-         from theme_group_request
-         where by_user_id = $1
-         order by created_at desc, id desc
-         limit 100`,
-    gated.actor.steward ? [] : [userId],
+    `select id, group_id, name, about, by_name, room_id, status, note, created_at
+     from theme_group_request
+     ${where}
+     order by created_at desc, id desc
+     limit 100`,
+    params,
   );
   return {
     ok: true,
@@ -915,8 +960,8 @@ export async function markGroupPost(
     return fail(400, "A mark is sloppy or unsupported.");
   const post = await loadPost(db, input.postId);
   if (!post || post.removed) return fail(404, "That post is not here.");
-  if (!(await isGroupAdmin(db, post.group_id, input.userId)))
-    return fail(403, "Only a group admin can mark a post.");
+  if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
+    return fail(403, "Only a group admin or a steward of that group can mark a post.");
   const id = randomUUID();
   const who = input.name.trim() || "Admin";
   let saved: PostRow;
@@ -991,11 +1036,15 @@ export async function removeGroupPost(
   const reason = input.reason as GroupRemoval["reason"];
   const post = await loadPost(db, input.postId);
   if (!post || post.removed) return fail(404, "That post is not here.");
-  if (!(await isGroupAdmin(db, post.group_id, input.userId)))
-    return fail(403, "Only a group admin can remove a post.");
+  if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
+    return fail(403, "Only a group admin or a steward of that group can remove a post.");
   if (post.author_user_id) {
     const target = await actorRole(db, post.author_user_id);
-    const blocked = moderationStop(gated.actor, target);
+    const groupSteward = await isGroupSteward(db, post.group_id, post.author_user_id);
+    const blocked = moderationStop(gated.actor, {
+      ...target,
+      steward: target.steward || groupSteward,
+    });
     if (blocked) return fail(403, blocked);
   }
   const who = input.name.trim() || "Admin";
@@ -1119,7 +1168,6 @@ export async function decideGroupAppeal(
 ): Promise<Result<{ appeal: GroupAppeal; post: GroupPost & { removed: boolean } }>> {
   const gated = await gate(db, input.userId, input.now);
   if (!gated.ok) return gated;
-  if (!gated.actor.steward) return fail(403, "Only a steward can decide an appeal.");
   if (!OBJECT_ID.test(input.appealId)) return fail(404, "That appeal is not open.");
   if (input.decision !== "upheld" && input.decision !== "lifted")
     return fail(400, "Uphold or lift the appeal.");
@@ -1139,6 +1187,8 @@ export async function decideGroupAppeal(
   );
   const appeal = rows[0];
   if (!appeal || appeal.status !== "open") return fail(404, "That appeal is not open.");
+  if (!(await stewardOfGroup(db, gated.actor, input.userId, appeal.group_id)))
+    return fail(403, "Only a steward can decide an appeal.");
   if (appeal.by_user_id === input.userId)
     return fail(403, "A steward does not decide their own appeal.");
   const post = await loadPost(db, appeal.post_id);
@@ -1210,7 +1260,26 @@ export async function listGroupAppeals(
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can do that.");
   const ban = await openBan(db, userId, now);
-  const stewardView = actor.steward && !ban;
+  const params: unknown[] = [];
+  let where = "";
+  if (ban || !actor.admin) {
+    params.push(userId);
+    const clauses = [`by_user_id = $1`];
+    if (!ban) {
+      const groupIds = new Set(await stewardedGroupIds(db, userId));
+      if (actor.stewardRooms.length > 0) {
+        const roomParams: unknown[] = [];
+        const linked = await db.query<{ group_id: string }>(
+          `select distinct group_id from theme_group_request
+           where status = 'approved' and room_id in (${inClause(roomParams, actor.stewardRooms)})`,
+          roomParams,
+        );
+        for (const row of linked) groupIds.add(row.group_id);
+      }
+      if (groupIds.size > 0) clauses.push(`group_id in (${inClause(params, [...groupIds])})`);
+    }
+    where = `where ${clauses.join(" or ")}`;
+  }
   const rows = await db.query<{
     id: string;
     post_id: string;
@@ -1222,17 +1291,12 @@ export async function listGroupAppeals(
     created_at: Date | string;
     decided_at: Date | string | null;
   }>(
-    stewardView
-      ? `select id, post_id, group_id, by_name, body, status, decided_by_name, created_at, decided_at
-         from theme_group_appeal
-         order by created_at desc, id desc
-         limit 200`
-      : `select id, post_id, group_id, by_name, body, status, decided_by_name, created_at, decided_at
-         from theme_group_appeal
-         where by_user_id = $1
-         order by created_at desc, id desc
-         limit 200`,
-    stewardView ? [] : [userId],
+    `select id, post_id, group_id, by_name, body, status, decided_by_name, created_at, decided_at
+     from theme_group_appeal
+     ${where}
+     order by created_at desc, id desc
+     limit 200`,
+    params,
   );
   return {
     ok: true,
@@ -1262,7 +1326,7 @@ export async function listGroupLog(
   if (!gated.ok) return gated;
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
   const admin = await isGroupAdmin(db, groupId, userId);
-  if (!admin && !gated.actor.steward)
+  if (!admin && !(await stewardOfGroup(db, gated.actor, userId, groupId)))
     return fail(403, "Only a group admin or a steward can read that log.");
   const rows = await db.query<{
     id: string;

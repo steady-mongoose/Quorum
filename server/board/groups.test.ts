@@ -55,6 +55,15 @@ async function stand(db: Db, roomId: string, userId: string) {
   await db.query(`insert into room_member (room_id, user_id) values ($1, $2)`, [roomId, userId]);
 }
 
+async function groupSteward(db: Db, groupId: string, userId: string, name: string) {
+  await db.query(
+    `insert into theme_group_steward
+     (group_id, user_id, granted_by_user_id, granted_by_name, created_at)
+     values ($1, $2, $2, $3, $4)`,
+    [groupId, userId, name, now],
+  );
+}
+
 test("migration 0012 seeds the five theme groups and has no counts", async () => {
   const sql = readFileSync(
     new URL("../../migrations/0012_theme_groups.sql", import.meta.url),
@@ -348,15 +357,17 @@ test("a steward of that room approves a group, and the requester becomes an admi
     });
     assert.equal(needle.ok, true);
     if (!needle.ok) return;
-    const global = await decideGroupRequest(db, {
+    const roomless = await decideGroupRequest(db, {
       userId: ada,
       name: "Ada",
       requestId: needle.value.id,
       decision: "approved",
-      note: "A global steward can decide this.",
+      note: "A grant with no room does not decide this.",
       now: later(8),
     });
-    assert.equal(global.ok, true);
+    assert.equal(roomless.ok, false);
+    if (roomless.ok) return;
+    assert.equal(roomless.status, 403);
 
     const mine = await listGroupRequests(db, ruth, now);
     assert.equal(mine.ok, true);
@@ -374,6 +385,12 @@ test("a steward of that room approves a group, and the requester becomes an admi
     assert.equal(log.ok, true);
     if (!log.ok) return;
     assert.deepEqual(log.value.entries.map((entry) => entry.action).sort(), ["approve", "request"]);
+    const roomLog = await listGroupLog(db, josh, "beekeeping", now);
+    assert.equal(roomLog.ok, true);
+    const otherRoom = await listGroupLog(db, tom, "beekeeping", now);
+    assert.equal(otherRoom.ok, false);
+    const blankLog = await listGroupLog(db, ada, "beekeeping", now);
+    assert.equal(blankLog.ok, false);
     const hidden = await listGroupLog(db, pete, "beekeeping", now);
     assert.equal(hidden.ok, false);
     if (hidden.ok) return;
@@ -388,11 +405,14 @@ test("group posts stay newest first, and a mark or a date does not move one", as
   try {
     const maria = randomUUID();
     const josh = randomUUID();
+    const ida = randomUUID();
     await user(db, maria, "Maria", "maria@example.com");
     await user(db, josh, "Josh", "josh@example.com");
+    await user(db, ida, "Ida", "ida@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, josh, "Josh", "member");
-    await grant(db, josh, "Josh", "steward", "");
+    await grant(db, ida, "Ida", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
     await stand(db, "shop", maria);
     const asked = await requestGroup(db, {
       userId: maria,
@@ -505,8 +525,8 @@ test("group posts stay newest first, and a mark or a date does not move one", as
     assert.equal(tieA.ok && tieB.ok, true);
 
     const marked = await markGroupPost(db, {
-      userId: josh,
-      name: "Josh",
+      userId: ida,
+      name: "Ida",
       postId: "post-old",
       mark: "sloppy",
       reason: "The note does not say which Saturday.",
@@ -514,12 +534,6 @@ test("group posts stay newest first, and a mark or a date does not move one", as
     });
     assert.equal(marked.ok, false);
 
-    await db.query(
-      `insert into theme_group_admin (group_id, user_id, granted_by_user_id, granted_by_name, created_at)
-       values ('beekeeping', $1, $1, 'Josh', $2)
-       on conflict do nothing`,
-      [josh, later(8)],
-    );
     const stewardMark = await markGroupPost(db, {
       userId: josh,
       name: "Josh",
@@ -602,7 +616,9 @@ test("each group admin moderates only that group, and the removal is logged", as
     ] as const) {
       await grant(db, id, name, "member");
     }
-    await grant(db, josh, "Josh", "steward", "");
+    await groupSteward(db, "carpentry", josh, "Josh");
+    await grant(db, pete, "Pete", "steward", "");
+    await grant(db, pete, "Pete", "steward", "shop");
     await db.query(
       `insert into member_role (user_id, is_admin, is_council, is_council_chair) values ($1, true, true, true)`,
       [owner],
@@ -618,6 +634,15 @@ test("each group admin moderates only that group, and the removal is logged", as
     await joinGroup(db, { userId: pete, name: "Pete", groupId: "carpentry", now: later(1) });
     await joinGroup(db, { userId: maria, name: "Maria", groupId: "gardening", now: later(1) });
 
+    const outside = await setGroupAdmin(db, {
+      userId: pete,
+      name: "Pete",
+      groupId: "carpentry",
+      email: "maria@example.com",
+      action: "grant",
+      now: later(2),
+    });
+    assert.equal(outside.ok, false);
     const appointed = await setGroupAdmin(db, {
       userId: josh,
       name: "Josh",
@@ -693,6 +718,28 @@ test("each group admin moderates only that group, and the removal is logged", as
       ).ok,
       false,
     );
+    assert.equal(
+      (
+        await markGroupPost(db, {
+          userId: josh,
+          name: "Josh",
+          postId: garden.value.id,
+          mark: "sloppy",
+          reason: "The note does not say which bed.",
+          now: later(6),
+        })
+      ).ok,
+      false,
+    );
+    const stewardMarked = await markGroupPost(db, {
+      userId: josh,
+      name: "Josh",
+      postId: memberPost.value.id,
+      mark: "unsupported",
+      reason: "A steward of this group can mark it.",
+      now: later(7),
+    });
+    assert.equal(stewardMarked.ok, true);
     const marked = await markGroupPost(db, {
       userId: luis,
       name: "Luis",
@@ -864,8 +911,13 @@ test("the author appeals to a steward, who can lift or uphold", async () => {
     await grant(db, maria, "Maria", "member");
     await grant(db, josh, "Josh", "member");
     await grant(db, ada, "Ada", "member");
-    await grant(db, josh, "Josh", "steward", "");
-    await grant(db, ada, "Ada", "steward", "");
+    const ned = randomUUID();
+    await user(db, ned, "Ned", "ned@example.com");
+    await grant(db, ned, "Ned", "member");
+    await grant(db, ned, "Ned", "steward", "");
+    await grant(db, ned, "Ned", "steward", "shop");
+    await groupSteward(db, "brewing", ada, "Ada");
+    await groupSteward(db, "brewing", josh, "Josh");
     await joinGroup(db, { userId: maria, name: "Maria", groupId: "brewing", now });
     await joinGroup(db, { userId: josh, name: "Josh", groupId: "brewing", now });
     await setGroupAdmin(db, {
@@ -949,6 +1001,14 @@ test("the author appeals to a steward, who can lift or uphold", async () => {
       now: later(8),
     });
     assert.equal(memberDecides.ok, false);
+    const otherRoom = await decideGroupAppeal(db, {
+      userId: ned,
+      name: "Ned",
+      appealId: appeal.value.id,
+      decision: "lifted",
+      now: later(8),
+    });
+    assert.equal(otherRoom.ok, false);
     const own = await decideGroupAppeal(db, {
       userId: josh,
       name: "Josh",
@@ -1110,7 +1170,7 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     assert.deepEqual(
       functions.map((row) => row.proname),
-      ["anonymize_board_user", "anonymize_theme_group_user"],
+      ["anonymize_board_user", "anonymize_places_user", "anonymize_theme_group_user"],
     );
     const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
     const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");
@@ -1164,6 +1224,12 @@ test("deleting an account clears that name from the group tables", async () => {
       now: later(3),
     });
     assert.equal(appointed.ok, true);
+    await db.query(
+      `insert into theme_group_steward
+       (group_id, user_id, granted_by_user_id, granted_by_name, created_at)
+       values ('beekeeping', $1, $2, 'Maria', $3)`,
+      [josh, maria, now],
+    );
     const posted = await createGroupPost(db, {
       userId: luis,
       name: "Luis",
@@ -1259,6 +1325,14 @@ test("deleting an account clears that name from the group tables", async () => {
       [luis],
     );
     assert.equal(admins[0]?.granted_by_name, "Removed member");
+    const stewards = await db.query<{
+      granted_by_name: string;
+      granted_by_user_id: string | null;
+    }>(
+      `select granted_by_name, granted_by_user_id from theme_group_steward where group_id = 'beekeeping'`,
+    );
+    assert.equal(stewards[0]?.granted_by_name, "Removed member");
+    assert.equal(stewards[0]?.granted_by_user_id, null);
     const actors = await db.query<{ actor_name: string }>(
       `select actor_name from theme_group_log where group_id = 'beekeeping'`,
     );

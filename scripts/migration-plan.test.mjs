@@ -113,6 +113,7 @@ test("0012 anonymizes group names on its own trigger", () => {
     "theme_group_request",
     "theme_group_appeal",
     "theme_group_admin",
+    "theme_group_steward",
     "theme_group_log",
   ]) {
     assert.match(body, new RegExp(`update ${table}\\b`, "i"), table);

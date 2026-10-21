@@ -14,6 +14,9 @@
 -- It does not move it. Members appeal to stewards. Every action is logged.
 -- Posts are newest first. Nothing here is a like, a reshare, a score, or a rank.
 -- Account bars stay on board_ban. A group admin does not bar the account.
+-- A steward of this group, or a steward of the room the group was approved
+-- from, hears appeals and can appoint or revoke admins. A steward grant
+-- with no room does not count.
 
 create table if not exists theme_group (
   id text primary key,
@@ -59,6 +62,17 @@ create table if not exists theme_group_member (
 );
 
 create table if not exists theme_group_admin (
+  group_id text not null references theme_group (id) on delete cascade,
+  user_id text not null references "user" (id) on delete cascade,
+  granted_by_user_id text references "user" (id) on delete set null,
+  granted_by_name text not null,
+  created_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
+-- Steward of this group. Separate from a room steward grant in access_log.
+-- A blank room id on that log is not a group steward.
+create table if not exists theme_group_steward (
   group_id text not null references theme_group (id) on delete cascade,
   user_id text not null references "user" (id) on delete cascade,
   granted_by_user_id text references "user" (id) on delete set null,
@@ -223,6 +237,9 @@ begin
     set decided_by_user_id = null, decided_by_name = 'Removed member'
     where decided_by_user_id = old.id;
   update theme_group_admin
+    set granted_by_user_id = null, granted_by_name = 'Removed member'
+    where granted_by_user_id = old.id;
+  update theme_group_steward
     set granted_by_user_id = null, granted_by_name = 'Removed member'
     where granted_by_user_id = old.id;
   update theme_group_log
