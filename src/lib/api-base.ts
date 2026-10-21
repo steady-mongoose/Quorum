@@ -21,15 +21,20 @@ export function resolveApiUrl(path: string, base: string | undefined | null): st
   return `${trimmed}${normalized}`;
 }
 
+function readVite(name: string): string | undefined {
+  const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  const value = env?.[name];
+  return typeof value === "string" ? value : undefined;
+}
+
 /** Configured API origin, without a trailing slash. Empty when unset. */
 export function apiBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL;
-  return typeof raw === "string" ? raw.trim().replace(/\/+$/, "") : "";
+  return (readVite("VITE_API_BASE_URL") ?? "").trim().replace(/\/+$/, "");
 }
 
 /** Absolute or same-origin URL for an API path such as `/api/auth/get-session`. */
 export function apiUrl(path: string): string {
-  return resolveApiUrl(path, import.meta.env.VITE_API_BASE_URL as string | undefined);
+  return resolveApiUrl(path, readVite("VITE_API_BASE_URL"));
 }
 
 /** JSON 503 used when the API cannot be reached or answered with HTML. */

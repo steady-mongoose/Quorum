@@ -41,6 +41,12 @@ const appTests = [
   "src/lib/media/bounds.test.ts",
   "src/lib/media/e2e.test.ts",
   "src/lib/media/upload.test.ts",
+  "src/lib/board/text.test.ts",
+  "src/lib/board/api.test.ts",
+  "src/lib/board/store.test.ts",
+  "server/board/order.test.ts",
+  "server/board/store.test.ts",
+  "server/board/http.test.ts",
 ];
 
 const suites = [

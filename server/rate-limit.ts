@@ -8,6 +8,10 @@ export const SIGN_IN_LIMIT = ATTEMPT_LIMIT;
 export const INVITE_LIMIT = ATTEMPT_LIMIT;
 /** Per member and per address. A picture is a direct upload, so this stays tight. */
 export const UPLOAD_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
+/** Posts, marks, removals, bans, room creation, and role changes. */
+export const BOARD_WRITE_LIMIT = { windowMs: 60_000, max: 30 };
+/** Reading the board. Separate from writes so a refresh cannot lock posting. */
+export const BOARD_READ_LIMIT = { windowMs: 60_000, max: 120 };
 
 export type LimitRule = { windowMs: number; max: number };
 
@@ -120,7 +124,8 @@ export async function consumeLimit(
   now: number,
   attempt = 0,
 ): Promise<{ allowed: boolean; retryAfter: number }> {
-  if (!Number.isFinite(rule.max) || rule.max < 1) throw new Error("Rate limit max must be at least 1.");
+  if (!Number.isFinite(rule.max) || rule.max < 1)
+    throw new Error("Rate limit max must be at least 1.");
   if (!Number.isFinite(rule.windowMs) || rule.windowMs < 1000) {
     throw new Error("Rate limit window must be at least 1 second.");
   }
@@ -176,7 +181,8 @@ export async function consumeLimit(
       return { allowed: false, retryAfter };
     });
   } catch (error) {
-    if (attempt < 1 && isUniqueViolation(error)) return consumeLimit(db, key, rule, now, attempt + 1);
+    if (attempt < 1 && isUniqueViolation(error))
+      return consumeLimit(db, key, rule, now, attempt + 1);
     throw error;
   }
 }

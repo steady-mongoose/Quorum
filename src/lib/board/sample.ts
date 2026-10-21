@@ -15,7 +15,7 @@ import {
   type Post,
   type Profile,
   type RoomId,
-} from "@/lib/board/model";
+} from "./model.ts";
 
 function card(id: string, room: RoomId, name: string, place: string, time: string, extra: Partial<MeetingCard> = {}): MeetingCard {
   return newCard({ id, room, kind: "meeting", name, place, time, host: "", ...extra });
@@ -161,7 +161,7 @@ export function sampleBoard(): SampleBoard {
     p({ id: "p19", room: "dispatch", type: "saw", author: "Maria", at: ago(0, -1), on: iso(0), claim: "2 lanes closed on Bloomingdale at Lithia Pinecrest, crew on the median.", reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound" }),
   ];
 
-  const markLog: MarkRow[] = [{ id: "m1", room: "shop", postId: "p8", author: "Maria", by: "Tom", mark: "unsupported", at: ago(0, -18) }];
+  const markLog: MarkRow[] = [{ id: "m1", room: "shop", postId: "p8", author: "Maria", by: "Tom", mark: "unsupported", reason: "The notice does not say where that came from.", at: ago(0, -18) }];
 
   const t1 = threadIdFor("Josh", "Dale");
   const t2 = threadIdFor("Josh", "Tom");

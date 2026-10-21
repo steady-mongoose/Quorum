@@ -69,8 +69,9 @@ function BoardShell() {
     if (state.sample) state.clearBoard();
     const next = useBoard.getState();
     if (next.me !== name || !next.member || next.sample) {
-      useBoard.setState({ member: true, me: name, steward: false, sample: false });
+      useBoard.setState({ member: true, me: name, sample: false });
     }
+    void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
   return (
@@ -98,7 +99,7 @@ function BoardShell() {
               className="self-start text-sm text-signal underline"
               onClick={() => {
                 void server.signOut().then(() => {
-                  useBoard.setState({ member: false });
+                  useBoard.getState().disconnectRemote();
                 });
               }}
             >
