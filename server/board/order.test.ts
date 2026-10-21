@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { orderPosts } from "./order.ts";
 
-test("posts sort by the fixed tier, then newest, never by a score", () => {
+test("posts sort newest first, and a mark does not move one", () => {
   const ordered = orderPosts([
     { id: "sloppy", mark: "sloppy", type: "did", closed: false, cardId: "", at: 50, likes: 100 },
     { id: "old", mark: null, type: "did", closed: false, cardId: "", at: 1, score: 9 },
@@ -12,6 +12,6 @@ test("posts sort by the fixed tier, then newest, never by a score", () => {
   ]);
   assert.deepEqual(
     ordered.map((post) => post.id),
-    ["hosted", "new", "old", "noted", "sloppy"],
+    ["sloppy", "noted", "new", "hosted", "old"],
   );
 });

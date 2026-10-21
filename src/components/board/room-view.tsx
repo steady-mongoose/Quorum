@@ -569,7 +569,7 @@ const PostCard = memo(function PostCard({
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark === "sloppy" && "opacity-60")}>
+    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">

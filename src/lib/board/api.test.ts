@@ -56,7 +56,7 @@ test("the board payload drops likes, scores, and reshares", () => {
   assert.equal(board.me.member, true);
 });
 
-test("room order stays the fixed tier, newest first inside it", () => {
+test("room order is newest first, and a mark does not move a post", () => {
   const older = newPost({
     id: "old",
     room: "shop",
@@ -105,7 +105,7 @@ test("room order stays the fixed tier, newest first inside it", () => {
   );
   assert.deepEqual(
     ordered.map((post) => post.id),
-    ["hosted", "new", "old", "sloppy"],
+    ["sloppy", "new", "hosted", "old"],
   );
   assert.equal(
     ordered.some((post) => post.removed),

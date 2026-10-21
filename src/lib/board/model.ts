@@ -712,18 +712,10 @@ export function deskDid(input: DeskContact & { author: string }): Post {
 
 // --- Sort, shelf, week, cards -------------------------------------------------
 
-function tier(post: Post): number {
-  if (post.mark === "sloppy") return 5;
-  if (post.mark === "unsupported") return 4;
-  if (post.type === "noted" || (post.type === "asked" && post.closed)) return 3;
-  if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;
-  return 2;
-}
-
 export function sortRoom(posts: Post[], room: RoomId): Post[] {
   return posts
     .filter((post) => post.room === room && !post.parentId && !post.removed)
-    .sort((a, b) => tier(a) - tier(b) || b.at - a.at);
+    .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
 }
 
 export function repliesByParent(posts: Post[]): Map<string, Post[]> {

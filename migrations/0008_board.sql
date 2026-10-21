@@ -7,7 +7,7 @@
 --
 -- Rooms, posts, steward marks, hard removals, and bans. Members read the same
 -- rows. Marks stay on the post; they do not hide it. Nothing here is a like,
--- a reshare, a score, or a rank. Post order is a fixed tier, then time.
+-- a reshare, a score, or a rank. Posts are newest first. A mark does not move one.
 
 alter table room
   add column if not exists name text not null default '',

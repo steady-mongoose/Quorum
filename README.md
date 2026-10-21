@@ -65,7 +65,7 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
 
-**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_ or _unsupported_ (they sort down, they do not disappear) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
+**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_ or _unsupported_ (the post dims, and it stays in time order) and hard-remove only threats, pornography, and CSAM, which carries a 30-day filing ban and a removal log. Every mark is logged in the room for everyone to read.
 
 Status: the screens still run in the browser when `VITE_DEMO=1`, or when `/api/health` does not answer. A closed test can point them at `https://api.avouchsocial.com` with `VITE_API_BASE_URL`. An empty `VITE_API_BASE_URL` means same-origin `/api`, not the demo. Signup on that API is invite-code only. The box itself is described in `deploy/README.md`. Do not apply `migrations/` until the owner approves those files.
 
