@@ -141,26 +141,23 @@ export type Occurrence = {
   until?: string;
 };
 
-const HELD = /\b(?:paused|cancell?ed)\b/i;
-
-function held(time: string, next: string, occurrence: Occurrence = {}): boolean {
-  if (occurrence.paused || occurrence.cancelled) return true;
-  return HELD.test(`${time} ${next}`);
+function held(occurrence: Occurrence = {}): boolean {
+  return Boolean(occurrence.paused || occurrence.cancelled);
 }
 
 function meetsOn(time: string, next: string, iso: string, occurrence: Occurrence = {}): boolean {
   const date = localDate(iso);
   if (!date) return false;
-  if (held(time, next, occurrence)) return false;
+  if (held(occurrence)) return false;
   const until = occurrence.until ? localCalendarIso(occurrence.until) : null;
   if (until && iso > until) return false;
   const rule = ruleFor(time);
   if (rule.kind === "weekly") {
     if (date.getDay() !== rule.weekday) return false;
-    // `next` is the next real meeting. A later next (a pause, a cancellation,
-    // or the far side of term) is not an occurrence of this day.
+    // A missing next means the series still meets every week. A later next
+    // (the far side of term, or a date that has not arrived) is not this day.
     const anchor = localCalendarIso(next);
-    if (!anchor || anchor > iso) return false;
+    if (anchor && anchor > iso) return false;
     return true;
   }
   if (rule.kind === "every-other") {

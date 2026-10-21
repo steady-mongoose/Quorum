@@ -38,7 +38,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 6;
+export const SAMPLE_VERSION = 7;
 
 export type SampleBoard = {
   me: string;
@@ -68,7 +68,7 @@ export function sampleBoard(): SampleBoard {
     card("s-framing", "shop", "Framing apprentice night", "Tom's shop, Riverview", "Thursdays 6:30 p.m.", { host: "Tom", next: onWeekday(4), lastFour: [true, true, false, true], wentBy: ["Tom", "Josh", "Dale", "Luis"], going: ["Josh", "Dale", "Luis"], firstTimer: true }),
     card("s-ham", "shop", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", { host: "Dale", next: iso(5), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh"], going: ["Josh"], firstTimer: true }),
     card("s-question", "question", "Should the county cap new subdivisions?", "Brandon Brewing, back room", "Second Tuesday 7 p.m.", { host: "Maria", next: iso(9), lastFour: [true, true], wentBy: ["Maria", "Josh", "Tom"], going: ["Josh"], firstTimer: true }),
-    card("s-coop", "coop", "Riverview classical co-op, Tuesday chapter", "[CHURCH HALL], Riverview", "Tuesdays 9 a.m., term time", { host: "Ruth", next: onWeekday(2), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], going: ["Maria"], firstTimer: true }),
+    card("s-coop", "coop", "Riverview classical co-op, Tuesday chapter", "Riverview church hall", "Tuesdays 9 a.m., term time", { host: "Ruth", next: onWeekday(2), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], going: ["Maria"], firstTimer: true }),
     card("s-hearing", "county", "County hearing: Lithia Pinecrest widening", "County Center, 601 E Kennedy, 2nd floor", "9 a.m.", { host: "Maria", next: iso(13), lastFour: [true], wentBy: ["Maria", "Josh"] }),
     card("s-stoics", "shelf", "Tampa Stoics", "Back room, Brandon hall", "Second and fourth Wednesday, 7 p.m.", { host: "Luis", next: iso(6), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Dale", "Maria"], going: ["Josh", "Maria"], firstTimer: true, book: "Meditations, Marcus Aurelius", pages: "book five" }),
     card("s-lamb", "shop", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),

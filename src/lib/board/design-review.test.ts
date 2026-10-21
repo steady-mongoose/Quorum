@@ -99,17 +99,28 @@ test("a weekly meeting is placed only on a date it actually occurs", () => {
   const term = "Tuesdays 9 a.m., term time";
   assert.deepEqual(meetingDates(term, "2026-11-03", "2026-10-21"), []);
   assert.deepEqual(meetingDates(term, "2026-10-27", "2026-10-21"), ["2026-10-27"]);
-  assert.deepEqual(meetingDates(term, "", "2026-10-21"), []);
+  assert.deepEqual(meetingDates(term, "", "2026-10-21"), ["2026-10-27"]);
+  assert.deepEqual(meetingDates("Saturdays 7 a.m.", "", "2026-10-21"), ["2026-10-24"]);
+  assert.deepEqual(meetingDates("Saturdays 7 a.m.", "", "2026-10-31"), ["2026-10-31"]);
+  assert.deepEqual(meetingDates("Saturdays 7 a.m.", "", "2026-11-01"), ["2026-11-07"]);
   assert.deepEqual(meetingDates("Saturdays 7 a.m.", "2026-11-01", "2026-10-31"), []);
   assert.deepEqual(meetingDates("Saturdays 7 a.m.", "2026-10-22", "2026-10-21"), ["2026-10-24"]);
+  assert.deepEqual(
+    meetingDates("Saturdays, never cancelled for rain", "2026-10-24", "2026-10-21"),
+    ["2026-10-24"],
+  );
 });
 
 test("paused, cancelled, and ended series do not fill later weekdays", () => {
   const time = "Tuesdays 9 a.m.";
-  assert.deepEqual(meetingDates("Tuesdays 9 a.m., paused", "2026-10-27", "2026-10-21"), []);
-  assert.deepEqual(meetingDates("Tuesdays 9 a.m. Cancelled.", "2026-10-27", "2026-10-21"), []);
-  assert.deepEqual(meetingDates(time, "paused", "2026-10-21"), []);
-  assert.deepEqual(meetingDates(time, "cancelled", "2026-10-21"), []);
+  assert.deepEqual(meetingDates("Tuesdays 9 a.m., paused", "2026-10-27", "2026-10-21"), [
+    "2026-10-27",
+  ]);
+  assert.deepEqual(meetingDates("Tuesdays 9 a.m. Cancelled.", "2026-10-27", "2026-10-21"), [
+    "2026-10-27",
+  ]);
+  assert.deepEqual(meetingDates(time, "paused", "2026-10-21"), ["2026-10-27"]);
+  assert.deepEqual(meetingDates(time, "cancelled", "2026-10-21"), ["2026-10-27"]);
   assert.deepEqual(meetingDates(time, "2026-10-27", "2026-10-21", { paused: true }), []);
   assert.deepEqual(meetingDates(time, "2026-10-27", "2026-10-21", { cancelled: true }), []);
   assert.deepEqual(meetingDates(time, "2026-10-20", "2026-10-21", { until: "2026-10-20" }), []);
@@ -224,4 +235,12 @@ test("the week, the door, and the fields use the review's markup", () => {
   assert.match(find, /inline-flex min-h-\[44px\] cursor-pointer items-center gap-2/);
   assert.match(bits, /border-line-strong/);
   assert.match(bits, /focus-visible:border-fg/);
+  const rooms = source("../../components/board/room-view.tsx");
+  assert.match(rooms, /inline-flex min-h-\[44px\] items-center font-semibold text-fg hover:underline/);
+  assert.match(
+    rooms,
+    /inline-flex min-h-\[44px\] items-center gap-2 self-end[\s\S]*className="size-5"/,
+  );
+  assert.equal(source("./sample.ts").includes("[CHURCH HALL]"), false);
+  assert.match(source("./sample.ts"), /Riverview church hall/);
 });
