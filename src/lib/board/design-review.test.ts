@@ -11,6 +11,26 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+function channel(value: number): number {
+  const s = value / 255;
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
+/** WCAG contrast ratio of two hex colours. */
+function contrast(foreground: string, background: string): number {
+  const lum = (hex: string) => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    return (
+      0.2126 * channel((n >> 16) & 255) +
+      0.7152 * channel((n >> 8) & 255) +
+      0.0722 * channel(n & 255)
+    );
+  };
+  const lighter = Math.max(lum(foreground), lum(background));
+  const darker = Math.min(lum(foreground), lum(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function weekday(iso: string): number {
   const local = localCalendarIso(iso);
   assert.ok(local, iso);
@@ -124,7 +144,10 @@ test("the live green and cream are the colour tokens, and the amber theme is gon
   for (const [name, value] of Object.entries(tokens)) {
     assert.match(css, new RegExp(`${name}:\\s*${value}`), name);
   }
-  assert.match(css, /--color-line-strong:\s*#6b6357/);
+  assert.match(css, /--color-line-strong:\s*#857c6f/);
+  assert.ok(contrast("#857c6f", "#1e3025") >= 3);
+  const load = source("../../components/quorum/load-view.tsx");
+  assert.match(load, /<select className="[^"]*border-line-strong[^"]*bg-raised/);
   assert.equal(css.includes("#e6a23c"), false);
   assert.equal(css.includes("#0e0e0c"), false);
   assert.deepEqual(
