@@ -56,6 +56,8 @@ const appTests = [
   "server/board/order.test.ts",
   "server/board/store.test.ts",
   "server/board/http.test.ts",
+  "server/board/groups.test.ts",
+  "server/board/groups-http.test.ts",
 ];
 
 const suites = [
