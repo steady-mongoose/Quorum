@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { entryFromSearch, INVITE_CODE_ERROR, inviteCodeError } from "./invite-entry.ts";
+import { entryFromSearch, INVITE_CODE_ERROR, INVITE_INVALID, inviteCodeError } from "./invite-entry.ts";
 import { THEMES, themeById, OWNER_THEME } from "./themes.ts";
 import { dayHeading, localCalendarIso, meetingDates, shiftLocalDate } from "./week-days.ts";
 
@@ -48,11 +48,11 @@ test("the zone under test is New York, where the clock falls back and springs fo
 test("a Saturdays card lands only on Saturday, including across a DST change", () => {
   const time = "Saturdays 7 a.m. Squat, press, deadlift. Coffee after.";
   const cases = [
-    { today: "2026-10-21", next: "2026-10-22", expect: ["2026-10-24"] },
-    { today: "2026-10-31", next: "2026-11-01", expect: ["2026-10-31"] },
-    { today: "2026-11-01", next: "2026-11-01", expect: ["2026-11-07"] },
-    { today: "2026-03-06", next: "2026-03-08", expect: ["2026-03-07"] },
-    { today: "2026-03-08", next: "2026-03-08", expect: ["2026-03-14"] },
+    { today: "2026-10-21", next: "2026-10-24", expect: ["2026-10-24"] },
+    { today: "2026-10-31", next: "2026-10-31", expect: ["2026-10-31"] },
+    { today: "2026-11-01", next: "2026-11-07", expect: ["2026-11-07"] },
+    { today: "2026-03-06", next: "2026-03-07", expect: ["2026-03-07"] },
+    { today: "2026-03-08", next: "2026-03-14", expect: ["2026-03-14"] },
   ];
   for (const item of cases) {
     const dates = meetingDates(time, item.next, item.today);
@@ -95,6 +95,29 @@ test("a stored instant is read as a local calendar date, not as UTC midnight", (
   assert.equal(new Date("2026-11-07T00:00:00.000Z").getDay(), 5);
 });
 
+test("a weekly meeting is placed only on a date it actually occurs", () => {
+  const term = "Tuesdays 9 a.m., term time";
+  assert.deepEqual(meetingDates(term, "2026-11-03", "2026-10-21"), []);
+  assert.deepEqual(meetingDates(term, "2026-10-27", "2026-10-21"), ["2026-10-27"]);
+  assert.deepEqual(meetingDates(term, "", "2026-10-21"), []);
+  assert.deepEqual(meetingDates("Saturdays 7 a.m.", "2026-11-01", "2026-10-31"), []);
+  assert.deepEqual(meetingDates("Saturdays 7 a.m.", "2026-10-22", "2026-10-21"), ["2026-10-24"]);
+});
+
+test("paused, cancelled, and ended series do not fill later weekdays", () => {
+  const time = "Tuesdays 9 a.m.";
+  assert.deepEqual(meetingDates("Tuesdays 9 a.m., paused", "2026-10-27", "2026-10-21"), []);
+  assert.deepEqual(meetingDates("Tuesdays 9 a.m. Cancelled.", "2026-10-27", "2026-10-21"), []);
+  assert.deepEqual(meetingDates(time, "paused", "2026-10-21"), []);
+  assert.deepEqual(meetingDates(time, "cancelled", "2026-10-21"), []);
+  assert.deepEqual(meetingDates(time, "2026-10-27", "2026-10-21", { paused: true }), []);
+  assert.deepEqual(meetingDates(time, "2026-10-27", "2026-10-21", { cancelled: true }), []);
+  assert.deepEqual(meetingDates(time, "2026-10-20", "2026-10-21", { until: "2026-10-20" }), []);
+  assert.deepEqual(meetingDates(time, "2026-10-20", "2026-10-21", { until: "2026-10-27" }), [
+    "2026-10-27",
+  ]);
+});
+
 test("ordinal and every-other rules stay on the weekday they name", () => {
   assert.deepEqual(meetingDates("Second Tuesday 7 p.m.", "", "2026-10-08"), ["2026-10-13"]);
   assert.deepEqual(meetingDates("Second Tuesday 7 p.m.", "", "2026-10-21"), []);
@@ -110,13 +133,19 @@ test("ordinal and every-other rules stay on the weekday they name", () => {
   assert.equal(weekday("2026-10-28"), 3);
 });
 
-test("an empty or refused invite code names the field error", () => {
+test("an empty code or an invite_invalid refusal names the field error", () => {
   assert.equal(inviteCodeError("  "), INVITE_CODE_ERROR);
-  assert.equal(inviteCodeError("ABCD", "That code is not valid."), INVITE_CODE_ERROR);
-  assert.equal(inviteCodeError("ABCD", "That code has been used up."), INVITE_CODE_ERROR);
-  assert.equal(inviteCodeError("ABCD", "Enter the invite code."), INVITE_CODE_ERROR);
-  assert.equal(inviteCodeError("ABCD", "Enter your name."), null);
+  assert.equal(inviteCodeError("ABCD", { code: INVITE_INVALID }), INVITE_CODE_ERROR);
+  assert.equal(
+    inviteCodeError("ABCD", { code: INVITE_INVALID, message: "That code is not valid." }),
+    INVITE_CODE_ERROR,
+  );
+  assert.equal(inviteCodeError("ABCD", { code: "name_invalid" }), null);
+  assert.equal(inviteCodeError("ABCD", { message: "That code is not valid." }), null);
+  assert.equal(inviteCodeError("ABCD", { message: "Unicode in your name isn't allowed" }), null);
+  assert.equal(inviteCodeError("ABCD", { message: "Check the zip code." }), null);
   assert.equal(inviteCodeError("ABCD"), null);
+  assert.equal(INVITE_INVALID, "invite_invalid");
   assert.match(INVITE_CODE_ERROR, /one meeting/);
 });
 
@@ -170,17 +199,29 @@ test("the week, the door, and the fields use the review's markup", () => {
   const bits = source("../../components/quorum/bits.tsx");
   assert.match(week, /dayHeading\(day\.iso, today\)/);
   assert.match(model, /shiftLocalDate\(iso, days\)/);
-  assert.match(model, /meetingDates\(card\.time, card\.next, today\)/);
-  assert.match(door, /order-first/);
-  assert.match(door, /lg:order-none/);
+  assert.match(model, /meetingDates\(card\.time, card\.next, today/);
+  const formAt = door.indexOf("<AccountDoor");
+  const pitchAt = door.indexOf("Someone brought you here");
+  assert.ok(formAt > 0 && formAt < pitchAt);
+  assert.match(door, /lg:order-last/);
+  assert.equal(door.includes("order-first"), false);
   assert.match(door, /codeFromSearch\(window\.location\.search\)/);
   assert.match(account, /entryFromSearch\(window\.location\.search\)/);
   assert.match(account, /role="alert"/);
-  assert.match(account, /aria-live="polite"/);
+  assert.equal(account.includes("aria-live"), false);
+  const inputAt = account.indexOf('id="invite-code"');
+  const labelClose = account.indexOf("</label>", inputAt);
+  const alertAt = account.indexOf('role="alert"');
+  assert.ok(inputAt > 0 && labelClose > inputAt && alertAt > labelClose);
   assert.match(account, /text-\[#f0b4a4\]/);
   assert.match(account, /aria-invalid=\{codeError \? true : undefined\}/);
   assert.match(account, /aria-describedby=\{codeError \? INVITE_CODE_ERROR_ID : undefined\}/);
   assert.match(account, /inline-flex min-h-\[44px\] items-center/);
+  assert.match(bits, /export const btn =\n {2}"inline-flex min-h-\[44px\]/);
+  assert.match(bits, /inline-flex min-h-\[44px\] shrink-0 items-center/);
+  assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
+  const find = source("../../components/board/find-view.tsx");
+  assert.match(find, /inline-flex min-h-\[44px\] cursor-pointer items-center gap-2/);
   assert.match(bits, /border-line-strong/);
   assert.match(bits, /focus-visible:border-fg/);
 });

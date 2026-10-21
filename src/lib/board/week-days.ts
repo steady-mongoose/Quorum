@@ -132,11 +132,37 @@ function ruleFor(time: string): Rule {
   return { kind: "dated" };
 }
 
-function meetsOn(time: string, next: string, iso: string): boolean {
+export type Occurrence = {
+  /** The host paused the series. It is not on the calendar. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
+};
+
+const HELD = /\b(?:paused|cancell?ed)\b/i;
+
+function held(time: string, next: string, occurrence: Occurrence = {}): boolean {
+  if (occurrence.paused || occurrence.cancelled) return true;
+  return HELD.test(`${time} ${next}`);
+}
+
+function meetsOn(time: string, next: string, iso: string, occurrence: Occurrence = {}): boolean {
   const date = localDate(iso);
   if (!date) return false;
+  if (held(time, next, occurrence)) return false;
+  const until = occurrence.until ? localCalendarIso(occurrence.until) : null;
+  if (until && iso > until) return false;
   const rule = ruleFor(time);
-  if (rule.kind === "weekly") return date.getDay() === rule.weekday;
+  if (rule.kind === "weekly") {
+    if (date.getDay() !== rule.weekday) return false;
+    // `next` is the next real meeting. A later next (a pause, a cancellation,
+    // or the far side of term) is not an occurrence of this day.
+    const anchor = localCalendarIso(next);
+    if (!anchor || anchor > iso) return false;
+    return true;
+  }
   if (rule.kind === "every-other") {
     if (date.getDay() !== rule.weekday) return false;
     const anchor = localCalendarIso(next);
@@ -152,12 +178,17 @@ function meetsOn(time: string, next: string, iso: string): boolean {
   return localCalendarIso(next) === iso;
 }
 
-/** Local dates in the next seven days on which this meeting falls. */
-export function meetingDates(time: string, next: string, today: string): string[] {
+/** Local dates in the next seven days on which this meeting actually falls. */
+export function meetingDates(
+  time: string,
+  next: string,
+  today: string,
+  occurrence: Occurrence = {},
+): string[] {
   const dates: string[] = [];
   for (let i = 0; i < 7; i++) {
     const iso = shiftLocalDate(today, i);
-    if (meetsOn(time, next, iso)) dates.push(iso);
+    if (meetsOn(time, next, iso, occurrence)) dates.push(iso);
   }
   return dates;
 }

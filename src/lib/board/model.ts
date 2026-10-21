@@ -114,6 +114,12 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Host paused the series. It does not fill the week. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
   lastFour: boolean[];
   /** Names who have been, the lister first. Two names list a card. */
   wentBy: string[];
@@ -790,7 +796,14 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter((card) => meetingDates(card.time, card.next, today).includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses));
+    const dated = cards.filter((card) => {
+      const occurs = meetingDates(card.time, card.next, today, {
+        paused: card.paused,
+        cancelled: card.cancelled,
+        until: card.until,
+      });
+      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+    });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;

@@ -259,7 +259,12 @@ async function route(
       deps.signIn,
       deps.now(),
     );
-    if (!result.ok) return json(result.status, { error: result.error });
+    if (!result.ok) {
+      return json(
+        result.status,
+        result.code ? { error: result.error, code: result.code } : { error: result.error },
+      );
+    }
     if (result.value.user.response) return result.value.user.response;
     return json(200, {
       user: {

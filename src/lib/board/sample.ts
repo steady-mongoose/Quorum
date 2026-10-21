@@ -2,6 +2,7 @@
 // group around Brandon and Riverview. Every name in the week is invented.
 
 import {
+  addDays,
   DAY,
   HOUR,
   newCard,
@@ -37,7 +38,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 5;
+export const SAMPLE_VERSION = 6;
 
 export type SampleBoard = {
   me: string;
@@ -52,19 +53,28 @@ export type SampleBoard = {
 export function sampleBoard(): SampleBoard {
   const now = Date.now();
   const iso = (days: number) => todayIso(new Date(now + days * DAY));
+  const today = todayIso(new Date(now));
+  const onWeekday = (weekday: number) => {
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(today, i);
+      const [year, month, day] = date.split("-").map(Number);
+      if (new Date(year, month - 1, day).getDay() === weekday) return date;
+    }
+    return today;
+  };
   const ago = (days: number, hours = 0) => now - days * DAY + hours * HOUR;
 
   const cards: MeetingCard[] = [
-    card("s-framing", "shop", "Framing apprentice night", "Tom's shop, Riverview", "Thursdays 6:30 p.m.", { host: "Tom", next: iso(2), lastFour: [true, true, false, true], wentBy: ["Tom", "Josh", "Dale", "Luis"], going: ["Josh", "Dale", "Luis"], firstTimer: true }),
+    card("s-framing", "shop", "Framing apprentice night", "Tom's shop, Riverview", "Thursdays 6:30 p.m.", { host: "Tom", next: onWeekday(4), lastFour: [true, true, false, true], wentBy: ["Tom", "Josh", "Dale", "Luis"], going: ["Josh", "Dale", "Luis"], firstTimer: true }),
     card("s-ham", "shop", "Tampa Amateur Radio Club", "7801 N 22nd St, Tampa", "First Monday 7:30 p.m. Tuesday net 147.105 at 8 p.m.", { host: "Dale", next: iso(5), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh"], going: ["Josh"], firstTimer: true }),
     card("s-question", "question", "Should the county cap new subdivisions?", "Brandon Brewing, back room", "Second Tuesday 7 p.m.", { host: "Maria", next: iso(9), lastFour: [true, true], wentBy: ["Maria", "Josh", "Tom"], going: ["Josh"], firstTimer: true }),
-    card("s-coop", "coop", "Riverview classical co-op, Tuesday chapter", "[CHURCH HALL], Riverview", "Tuesdays 9 a.m., term time", { host: "Ruth", next: iso(4), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], going: ["Maria"], firstTimer: true }),
+    card("s-coop", "coop", "Riverview classical co-op, Tuesday chapter", "[CHURCH HALL], Riverview", "Tuesdays 9 a.m., term time", { host: "Ruth", next: onWeekday(2), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"], going: ["Maria"], firstTimer: true }),
     card("s-hearing", "county", "County hearing: Lithia Pinecrest widening", "County Center, 601 E Kennedy, 2nd floor", "9 a.m.", { host: "Maria", next: iso(13), lastFour: [true], wentBy: ["Maria", "Josh"] }),
     card("s-stoics", "shelf", "Tampa Stoics", "Back room, Brandon hall", "Second and fourth Wednesday, 7 p.m.", { host: "Luis", next: iso(6), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Dale", "Maria"], going: ["Josh", "Maria"], firstTimer: true, book: "Meditations, Marcus Aurelius", pages: "book five" }),
     card("s-lamb", "shop", "Lamb Electric", "Valrico", "Electrical, residential", { kind: "trade", host: "Luis" }),
     card("s-bakery", "shop", "Ruth's sourdough", "Brandon", "Bread, by the loaf, Saturdays", { kind: "trade", host: "Ruth" }),
-    card("s-baptist", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon", "Sunday school 9:00, worship 10:30", { host: "Dale", next: iso(3), lastFour: [true, true, true], wentBy: ["Dale", "Tom", "Josh"], going: ["Josh"], firstTimer: true }),
-    card("s-baptist-lunch", "baptist", "Lunch after church", "The Hendersons' back yard, Valrico", "Sunday 12:30, after the service", { host: "Tom", next: iso(3), lastFour: [true, true], wentBy: ["Tom", "Dale", "Josh"], going: ["Josh", "Dale"] }),
+    card("s-baptist", "baptist", "Grace Bible Church of Brandon", "1010 E Brandon Blvd, Brandon", "Sunday school 9:00, worship 10:30", { host: "Dale", next: onWeekday(0), lastFour: [true, true, true], wentBy: ["Dale", "Tom", "Josh"], going: ["Josh"], firstTimer: true }),
+    card("s-baptist-lunch", "baptist", "Lunch after church", "The Hendersons' back yard, Valrico", "Sunday 12:30, after the service", { host: "Tom", next: onWeekday(0), lastFour: [true, true], wentBy: ["Tom", "Dale", "Josh"], going: ["Josh", "Dale"] }),
     card("s-baptist-need", "baptist", "The Carters, after surgery", "Leave it in the cooler on the porch; Dale has the address", "Dinners this week", {
       kind: "need",
       host: "Dale",
@@ -74,19 +84,19 @@ export function sampleBoard(): SampleBoard {
         { day: "Friday", by: "" },
       ],
     }),
-    card("s-presby", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Sunday 9:30 and 11", { host: "Ruth", next: iso(3), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"] }),
+    card("s-presby", "presbyterian", "Redeemer Presbyterian", "Boyette Road, Riverview", "Sunday 9:30 and 11", { host: "Ruth", next: onWeekday(0), lastFour: [true, true, true], wentBy: ["Ruth", "Maria"] }),
     // The Shop: hands and hobbies
     card("s-brew", "shop", "Homebrew night", "Luis's garage, Valrico", "First Saturday, 2 p.m. Bring a growler.", { host: "Luis", next: iso(8), lastFour: [true, true, true], wentBy: ["Luis", "Josh", "Tom", "Pete"], going: ["Josh", "Pete"], firstTimer: true }),
     card("s-whiskey", "shop", "Whiskey tasting, bourbon vs rye", "Brandon Brewing, back room", "Last Friday of the month, 8 p.m. $10 covers the pours.", { host: "Tom", next: iso(11), lastFour: [true, true], wentBy: ["Tom", "Dale", "Luis"], going: ["Dale"] }),
-    card("s-lifts", "shop", "Saturday lifts, garage gym", "Dale's garage, Riverview", "Saturdays 7 a.m. Squat, press, deadlift. Coffee after.", { host: "Dale", next: iso(1), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh", "Pete"], going: ["Josh", "Pete"], firstTimer: true }),
+    card("s-lifts", "shop", "Saturday lifts, garage gym", "Dale's garage, Riverview", "Saturdays 7 a.m. Squat, press, deadlift. Coffee after.", { host: "Dale", next: onWeekday(6), lastFour: [true, true, true, true], wentBy: ["Dale", "Josh", "Pete"], going: ["Josh", "Pete"], firstTimer: true }),
     // Literary Society: a second table
     card("s-federalist", "shelf", "The Federalist Papers, Tuesdays", "Tom's front room, Riverview", "Every other Tuesday, 7:30 p.m. Two papers a meeting.", { host: "Tom", next: iso(4), lastFour: [true, true, true], wentBy: ["Tom", "Josh", "Maria", "Pete"], going: ["Josh", "Maria"], book: "The Federalist Papers, Hamilton, Madison, Jay", pages: "Federalist 10 and 51" }),
     // Church rooms: the thinking parts
-    card("s-thomist", "latin", "Summa after the 11", "Parish library, Epiphany", "Sundays 12:45, after coffee. One question of the Summa a week.", { host: "Luis", next: iso(3), lastFour: [true, true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh"], book: "Summa Theologiae, Prima Pars, Aquinas", pages: "Question 2, the five ways" }),
-    card("s-catechism", "presbyterian", "Shorter Catechism class", "Redeemer, room 4", "Wednesdays 7 p.m. Q&A 1 through 107, one a week.", { host: "Ruth", next: iso(5), lastFour: [true, true, true, true], wentBy: ["Ruth", "Maria", "Tom"], going: ["Maria"], firstTimer: true }),
-    card("s-vespers", "orthodox", "Vespers and coffee hour", "St. John the Baptist, 2418 W Swann Ave", "Saturdays 5 p.m., coffee after.", { host: "Pete", next: iso(1), lastFour: [true, true], wentBy: ["Pete", "Luis"], going: ["Luis"], book: "For the Life of the World, Schmemann", pages: "chapter 2" }),
-    card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: iso(3), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
-    card("s-meal", "latin", "Meal after High Mass", "Parish hall", "Sunday 12:15, after the 11", { host: "Luis", next: iso(3), lastFour: [true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh", "Maria"] }),
+    card("s-thomist", "latin", "Summa after the 11", "Parish library, Epiphany", "Sundays 12:45, after coffee. One question of the Summa a week.", { host: "Luis", next: onWeekday(0), lastFour: [true, true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh"], book: "Summa Theologiae, Prima Pars, Aquinas", pages: "Question 2, the five ways" }),
+    card("s-catechism", "presbyterian", "Shorter Catechism class", "Redeemer, room 4", "Wednesdays 7 p.m. Q&A 1 through 107, one a week.", { host: "Ruth", next: onWeekday(3), lastFour: [true, true, true, true], wentBy: ["Ruth", "Maria", "Tom"], going: ["Maria"], firstTimer: true }),
+    card("s-vespers", "orthodox", "Vespers and coffee hour", "St. John the Baptist, 2418 W Swann Ave", "Saturdays 5 p.m., coffee after.", { host: "Pete", next: onWeekday(6), lastFour: [true, true], wentBy: ["Pete", "Luis"], going: ["Luis"], book: "For the Life of the World, Schmemann", pages: "chapter 2" }),
+    card("s-latin", "latin", "Epiphany of Our Lord Shrine", "2510 E Hanna Ave, Tampa", "Sunday Low Mass 7 and 9, High Mass 11", { host: "Institute of Christ the King", next: onWeekday(0), lastFour: [true, true, true, true], wentBy: ["Luis", "Maria"] }),
+    card("s-meal", "latin", "Meal after High Mass", "Parish hall", "Sunday 12:15, after the 11", { host: "Luis", next: onWeekday(0), lastFour: [true, true], wentBy: ["Luis", "Maria", "Josh"], going: ["Josh", "Maria"] }),
     card("s-need", "latin", "The Nelsons, new baby", "Leave it on the porch, Luis has the address", "Dinners this week", {
       kind: "need",
       host: "Luis",
