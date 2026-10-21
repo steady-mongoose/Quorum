@@ -1,16 +1,31 @@
 import { memo, useMemo, useState } from "react";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
-import { Check as CheckIcon, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When } from "@/components/quorum/bits";
+import {
+  Check as CheckIcon,
+  CornerDownRight,
+  Flag,
+  MessageSquare,
+  Pin,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  btnGhost,
+  btnQuiet,
+  btnSignal,
+  fieldClass,
+  Kicker,
+  pill,
+  When,
+} from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
   MARK_LABEL,
   POST_TYPES,
-  ROOMS,
   RULE_LABEL,
   authorName,
-  banFor,
+  activeBan,
   blankDraft,
   cardSummary,
   composerCheck,
@@ -46,18 +61,30 @@ export function RoomView() {
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
+  const bans = useBoard((state) => state.bans);
+  const rooms = useBoard((state) => state.rooms);
+  const boardError = useBoard((state) => state.boardError);
+  const remote = useBoard((state) => state.remote);
+  const older = useBoard((state) => state.roomPages.find((page) => page.room === room)?.next ?? null);
+  const loadOlder = useBoard((state) => state.loadOlder);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
-  const meta = roomById(room);
+  const meta = roomById(room, rooms);
   const today = todayIso();
 
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
-  const shelf = useMemo(() => shelfFor(room, cards, witnessesByTrade(posts, cards), today), [room, cards, posts, today]);
-  const needs = useMemo(() => (meta.parish ? needsFor(cards, room) : []), [cards, room, meta.parish]);
-  const ban = banFor(me, removals, Date.now());
+  const shelf = useMemo(
+    () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
+    [room, cards, posts, today],
+  );
+  const needs = useMemo(
+    () => (meta.parish ? needsFor(cards, room) : []),
+    [cards, room, meta.parish],
+  );
+  const ban = activeBan(me, removals, Date.now(), bans);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
 
@@ -67,7 +94,13 @@ export function RoomView() {
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate event" : meta.cardNoun === "Debate" ? "This month's question" : meta.cardNoun === "Reading" ? "This month's book" : "Coming up"}
+            {card.kind === "candidate"
+              ? "Candidate event"
+              : meta.cardNoun === "Debate"
+                ? "This month's question"
+                : meta.cardNoun === "Reading"
+                  ? "This month's book"
+                  : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
           <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
@@ -77,7 +110,9 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
+          {card.going.length > 0 ? (
+            <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
+          ) : null}
         </article>
       ))}
 
@@ -89,9 +124,18 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <nav className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible" aria-label="Rooms">
-        {ROOMS.map((item) => (
-          <button key={item.id} type="button" aria-current={item.id === room ? "page" : undefined} onClick={() => setRoom(item.id)} className={pill(item.id === room)}>
+      <nav
+        className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        aria-label="Rooms"
+      >
+        {rooms.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={item.id === room ? "page" : undefined}
+            onClick={() => setRoom(item.id)}
+            className={pill(item.id === room)}
+          >
             {item.name}
           </button>
         ))}
@@ -108,9 +152,12 @@ export function RoomView() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
+          {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
-              {ban.strikes >= 2 ? "This account is closed. Second hard removal." : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
+              {ban.strikes >= 2
+                ? "This account is closed. Second hard removal."
+                : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
             </p>
           ) : canFile ? (
             <Composer me={me} steward={steward} />
@@ -120,29 +167,50 @@ export function RoomView() {
 
           {steward && feed.length > 0 ? (
             <label className="flex items-center gap-2 self-end text-xs text-muted">
-              <input type="checkbox" className="size-4" checked={tools} onChange={(event) => setTools(event.target.checked)} />
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={tools}
+                onChange={(event) => setTools(event.target.checked)}
+              />
               Show steward tools on posts
             </label>
           ) : null}
           <section className="flex flex-col divide-y divide-line">
             {feed.map((post) => (
-          <PostCard
-            key={post.id}
-            post={post}
-            replies={replies.get(post.id) ?? []}
-            card={post.cardId ? cardById.get(post.cardId) : undefined}
-            trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
-            mine={post.author === me}
-            canMessage={peers.has(post.author)}
-            steward={steward && tools}
-          />
-        ))}
-            <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing posted here yet." : "That is everything."}</p>
+              <PostCard
+                key={post.id}
+                post={post}
+                replies={replies.get(post.id) ?? []}
+                card={post.cardId ? cardById.get(post.cardId) : undefined}
+                trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
+                mine={post.author === me}
+                canMessage={peers.has(post.author)}
+                steward={steward && tools}
+              />
+            ))}
+            {remote && older ? (
+              <button
+                type="button"
+                className="py-6 text-left text-sm text-signal underline"
+                onClick={() => void loadOlder(room)}
+              >
+                Older posts
+              </button>
+            ) : (
+              <p className="py-6 text-sm text-muted">
+                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+              </p>
+            )}
           </section>
         </div>
 
         <aside className="hidden flex-col gap-4 lg:sticky lg:top-28 lg:flex lg:self-start">
-          {shelf.length === 0 && needs.length === 0 ? <p className="text-sm text-muted">Nothing coming up in this room inside two weeks.</p> : shelfBlock}
+          {shelf.length === 0 && needs.length === 0 ? (
+            <p className="text-sm text-muted">Nothing coming up in this room inside two weeks.</p>
+          ) : (
+            shelfBlock
+          )}
           <MarkLog />
         </aside>
       </div>
@@ -153,11 +221,27 @@ export function RoomView() {
   );
 }
 
-function CardSelect({ label, cards, empty, value, onChange }: { label: string; cards: MeetingCard[]; empty?: string; value: string; onChange: (id: string) => void }) {
+function CardSelect({
+  label,
+  cards,
+  empty,
+  value,
+  onChange,
+}: {
+  label: string;
+  cards: MeetingCard[];
+  empty?: string;
+  value: string;
+  onChange: (id: string) => void;
+}) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       {label}
-      <select className={cn(fieldClass, "min-h-11")} value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        className={cn(fieldClass, "min-h-11")}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
         {empty !== undefined ? <option value="">{empty}</option> : null}
         {cards.map((card) => (
           <option key={card.id} value={card.id}>
@@ -174,19 +258,44 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
+  const bans = useBoard((state) => state.bans);
+  const rooms = useBoard((state) => state.rooms);
   const file = useBoard((state) => state.file);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
-  const meta = roomById(room);
+  const meta = roomById(room, rooms);
   const current = draft.room === room ? draft : blankDraft(room);
   const type = current.type ? typeMeta(current.type) : null;
   const allowed = typesFor(meta, steward);
 
-  const roomCards = useMemo(() => cards.filter((card) => card.room === room && (card.kind === "meeting" || card.kind === "candidate")), [cards, room]);
+  const roomCards = useMemo(
+    () =>
+      cards.filter(
+        (card) => card.room === room && (card.kind === "meeting" || card.kind === "candidate"),
+      ),
+    [cards, room],
+  );
   const ownCards = useMemo(() => roomCards.filter((card) => card.host === me), [roomCards, me]);
-  const trades = useMemo(() => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me), [cards, room, me]);
-  const closing = current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
-  const check = useMemo(() => composerCheck(current, { author: me, steward, posts, cards, removals, now: Date.now() }), [current, me, steward, posts, cards, removals]);
+  const trades = useMemo(
+    () => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me),
+    [cards, room, me],
+  );
+  const closing =
+    current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
+  const check = useMemo(
+    () =>
+      composerCheck(current, {
+        author: me,
+        steward,
+        posts,
+        cards,
+        removals,
+        bans,
+        rooms,
+        now: Date.now(),
+      }),
+    [current, me, steward, posts, cards, removals, bans, rooms],
+  );
 
   const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
   const reset = () => {
@@ -194,12 +303,15 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setResult(null);
   };
   const send = () => {
-    const outcome = file(current);
-    if (outcome.ok) reset();
-    else setResult(outcome);
+    void file(current).then((outcome) => {
+      if (outcome.ok) reset();
+      else setResult(outcome);
+    });
   };
   const toggleCame = (name: string) => {
-    const came = current.came.includes(name) ? current.came.filter((n) => n !== name) : [...current.came, name];
+    const came = current.came.includes(name)
+      ? current.came.filter((n) => n !== name)
+      : [...current.came, name];
     patch({ came, named: came.includes(current.named) ? current.named : "" });
   };
 
@@ -217,14 +329,23 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               role="radio"
               aria-checked={active}
               disabled={noCard}
-              onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "", came: [], named: "" })}
+              onClick={() =>
+                patch({
+                  type: item.id,
+                  cardId: item.cardPick === "own" ? ownCards[0].id : "",
+                  came: [],
+                  named: "",
+                })
+              }
               className={cn(
                 "flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
                 active ? "border-signal bg-raised" : "border-line bg-bg",
               )}
             >
               <span className="text-sm font-semibold text-fg">{item.label}</span>
-              <span className="text-xs text-muted">{noCard ? "For hosts. You do not host a meeting in this room." : item.what}</span>
+              <span className="text-xs text-muted">
+                {noCard ? "For hosts. You do not host a meeting in this room." : item.what}
+              </span>
             </button>
           );
         })}
@@ -233,23 +354,59 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
       {type ? (
         <div className="mt-4 flex flex-col gap-3">
           <p className="text-sm text-muted">{type.what}</p>
-          {type.cardPick === "own" ? <CardSelect label="The card this closes" cards={ownCards} value={current.cardId} onChange={(cardId) => patch({ cardId, came: [], named: "" })} /> : null}
-          {type.cardPick === "optional" && roomCards.length > 0 ? <CardSelect label="Card, if any" cards={roomCards} empty="No card" value={current.cardId} onChange={(cardId) => patch({ cardId })} /> : null}
-          {type.tradePick && trades.length > 0 ? <CardSelect label="Who did the work" cards={trades} empty="No one" value={current.tradeId} onChange={(tradeId) => patch({ tradeId })} /> : null}
+          {type.cardPick === "own" ? (
+            <CardSelect
+              label="The card this closes"
+              cards={ownCards}
+              value={current.cardId}
+              onChange={(cardId) => patch({ cardId, came: [], named: "" })}
+            />
+          ) : null}
+          {type.cardPick === "optional" && roomCards.length > 0 ? (
+            <CardSelect
+              label="Card, if any"
+              cards={roomCards}
+              empty="No card"
+              value={current.cardId}
+              onChange={(cardId) => patch({ cardId })}
+            />
+          ) : null}
+          {type.tradePick && trades.length > 0 ? (
+            <CardSelect
+              label="Who did the work"
+              cards={trades}
+              empty="No one"
+              value={current.tradeId}
+              onChange={(tradeId) => patch({ tradeId })}
+            />
+          ) : null}
           <label className="flex flex-col gap-2 text-sm text-muted">
             {type.claimLabel}
-            <textarea className={cn(fieldClass, "min-h-24")} value={current.claim} onChange={(event) => patch({ claim: event.target.value })} />
+            <textarea
+              className={cn(fieldClass, "min-h-24")}
+              value={current.claim}
+              onChange={(event) => patch({ claim: event.target.value })}
+            />
           </label>
           {type.reasonLabel ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
               {type.reasonLabel}
-              <input className={fieldClass} value={current.reason} onChange={(event) => patch({ reason: event.target.value })} />
+              <input
+                className={fieldClass}
+                value={current.reason}
+                onChange={(event) => patch({ reason: event.target.value })}
+              />
             </label>
           ) : null}
           {type.dateLabel ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
               {type.dateLabel}
-              <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.on} onChange={(event) => patch({ on: event.target.value })} />
+              <input
+                type="date"
+                className={cn(fieldClass, "max-w-xs")}
+                value={current.on}
+                onChange={(event) => patch({ on: event.target.value })}
+              />
             </label>
           ) : null}
           {type.closes ? (
@@ -259,8 +416,16 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                 {closing && closing.going.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {closing.going.map((name) => (
-                      <label key={name} className={pill(current.came.includes(name), "cursor-pointer")}>
-                        <input type="checkbox" className="sr-only" checked={current.came.includes(name)} onChange={() => toggleCame(name)} />
+                      <label
+                        key={name}
+                        className={pill(current.came.includes(name), "cursor-pointer")}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={current.came.includes(name)}
+                          onChange={() => toggleCame(name)}
+                        />
                         {name}
                       </label>
                     ))}
@@ -272,7 +437,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               {current.came.length > 0 ? (
                 <label className="flex flex-col gap-2 text-sm text-muted">
                   Name one person, if someone earned it
-                  <select className={cn(fieldClass, "min-h-11 max-w-xs")} value={current.named} onChange={(event) => patch({ named: event.target.value })}>
+                  <select
+                    className={cn(fieldClass, "min-h-11 max-w-xs")}
+                    value={current.named}
+                    onChange={(event) => patch({ named: event.target.value })}
+                  >
                     <option value="">No one this time</option>
                     {current.came.map((name) => (
                       <option key={name} value={name}>
@@ -284,20 +453,36 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               ) : null}
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Next date, if there is one
-                <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
+                <input
+                  type="date"
+                  className={cn(fieldClass, "max-w-xs")}
+                  value={current.next}
+                  onChange={(event) => patch({ next: event.target.value })}
+                />
               </label>
               {closing?.book ? (
                 <label className="flex flex-col gap-2 text-sm text-muted">
                   What to have read by then ({closing.book})
-                  <input className={fieldClass} placeholder="chapters 5 and 6" value={current.pages} onChange={(event) => patch({ pages: event.target.value })} />
+                  <input
+                    className={fieldClass}
+                    placeholder="chapters 5 and 6"
+                    value={current.pages}
+                    onChange={(event) => patch({ pages: event.target.value })}
+                  />
                 </label>
               ) : null}
             </>
           ) : null}
           {type.attest ? (
             <label className="flex items-start gap-3 text-sm text-muted">
-              <input type="checkbox" className="mt-1 size-5" checked={current.attested} onChange={(event) => patch({ attested: event.target.checked })} />
-              No child's face. No home address. No private person named who was not acting in public.
+              <input
+                type="checkbox"
+                className="mt-1 size-5"
+                checked={current.attested}
+                onChange={(event) => patch({ attested: event.target.checked })}
+              />
+              No child's face. No home address. No private person named who was not acting in
+              public.
             </label>
           ) : null}
           <AttachPicture
@@ -338,13 +523,33 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
 function Name({ name }: { name: string }) {
   const view = useBoard((state) => state.view);
   return (
-    <button type="button" className="font-semibold text-fg hover:underline" onClick={() => view(name)}>
+    <button
+      type="button"
+      className="font-semibold text-fg hover:underline"
+      onClick={() => view(name)}
+    >
       {name}
     </button>
   );
 }
 
-const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canMessage, steward }: { post: Post; replies: Post[]; card?: MeetingCard; trade?: MeetingCard; mine: boolean; canMessage: boolean; steward: boolean }) {
+const PostCard = memo(function PostCard({
+  post,
+  replies,
+  card,
+  trade,
+  mine,
+  canMessage,
+  steward,
+}: {
+  post: Post;
+  replies: Post[];
+  card?: MeetingCard;
+  trade?: MeetingCard;
+  mine: boolean;
+  canMessage: boolean;
+  steward: boolean;
+}) {
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
@@ -357,25 +562,46 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
   const [claim, setClaim] = useState(post.claim);
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
+  const [markDraft, setMarkDraft] = useState<{
+    mark: Mark | null;
+    reason: string;
+    error: string;
+  } | null>(null);
+  const [removeError, setRemoveError] = useState("");
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark === "sloppy" && "opacity-60")}>
+    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
-          <Name name={post.author} /> · {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
+          <Name name={post.author} /> ·{" "}
+          {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
         </span>
         {card ? <span className="text-signal">· {card.name}</span> : null}
         {trade ? <span className="text-muted">· work by {trade.name}</span> : null}
         {type.closable && post.closed ? <span className="text-muted">· answered</span> : null}
-        {post.mark ? <span className="rounded-sm border border-line px-2 py-1 text-muted">{MARK_LABEL[post.mark]}</span> : null}
+        {post.mark ? (
+          <span className="rounded-sm border border-line px-2 py-1 text-muted">
+            {MARK_LABEL[post.mark]}
+          </span>
+        ) : null}
       </div>
 
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">
-          <textarea className={cn(fieldClass, "min-h-20")} value={claim} onChange={(e) => setClaim(e.target.value)} />
-          {type.reasonLabel ? <input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} /> : null}
+          <textarea
+            className={cn(fieldClass, "min-h-20")}
+            value={claim}
+            onChange={(e) => setClaim(e.target.value)}
+          />
+          {type.reasonLabel ? (
+            <input
+              className={fieldClass}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          ) : null}
           <div className="flex gap-2">
             <button
               type="button"
@@ -426,7 +652,12 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
       <div className="mt-3 flex flex-wrap gap-2">
         {replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <input className={fieldClass} placeholder="A reply with a reason" value={replyText} onChange={(event) => setReplyText(event.target.value)} />
+            <input
+              className={fieldClass}
+              placeholder="A reply with a reason"
+              value={replyText}
+              onChange={(event) => setReplyText(event.target.value)}
+            />
             <button
               type="button"
               className={btnSignal}
@@ -438,7 +669,12 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
             >
               Reply
             </button>
-            <button type="button" className={btnQuiet} onClick={() => setReplying(false)} aria-label="Cancel reply">
+            <button
+              type="button"
+              className={btnQuiet}
+              onClick={() => setReplying(false)}
+              aria-label="Cancel reply"
+            >
               <X className="size-4" aria-hidden="true" />
             </button>
           </div>
@@ -449,13 +685,21 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
           </button>
         )}
         {canMessage ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => openDm(post.author)}>
+          <button
+            type="button"
+            className={cn(btnQuiet, "px-0")}
+            onClick={() => openDm(post.author)}
+          >
             <MessageSquare className="size-4" aria-hidden="true" />
             Message {post.author}
           </button>
         ) : null}
         {mine && type.closable && !post.closed ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => closeAsked(post.id)}>
+          <button
+            type="button"
+            className={cn(btnQuiet, "px-0")}
+            onClick={() => closeAsked(post.id)}
+          >
             <CheckIcon className="size-4" aria-hidden="true" />
             Answered
           </button>
@@ -468,31 +712,94 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
       </div>
 
       {steward ? (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-          <span className="self-center text-xs tracking-widest text-muted uppercase">Steward</span>
-          {MARKS.map((item) => (
-            <button key={item} type="button" className={btnQuiet} onClick={() => mark(post.id, post.mark === item ? null : item)}>
-              <Flag className="size-4" aria-hidden="true" />
-              {post.mark === item ? `Clear ${MARK_LABEL[item].toLowerCase()}` : MARK_LABEL[item]}
-            </button>
-          ))}
-          {removing ? (
-            <>
-              {RULES.map((rule) => (
-                <button key={rule} type="button" className={btnGhost} onClick={() => remove(post.id, rule)}>
-                  Remove: {RULE_LABEL[rule]}
-                </button>
-              ))}
-              <button type="button" className={btnQuiet} onClick={() => setRemoving(false)}>
-                Cancel
+        <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+          <div className="flex flex-wrap gap-2">
+            <span className="self-center text-xs tracking-widest text-muted uppercase">
+              Steward
+            </span>
+            {MARKS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={btnQuiet}
+                onClick={() =>
+                  setMarkDraft({ mark: post.mark === item ? null : item, reason: "", error: "" })
+                }
+              >
+                <Flag className="size-4" aria-hidden="true" />
+                {post.mark === item ? `Clear ${MARK_LABEL[item].toLowerCase()}` : MARK_LABEL[item]}
               </button>
-            </>
-          ) : (
-            <button type="button" className={btnQuiet} onClick={() => setRemoving(true)}>
-              <Trash2 className="size-4" aria-hidden="true" />
-              Remove post
-            </button>
-          )}
+            ))}
+            {removing ? (
+              <>
+                {RULES.map((rule) => (
+                  <button
+                    key={rule}
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => {
+                      void remove(post.id, rule).then((result) => {
+                        if (!result.ok)
+                          setRemoveError(result.error ?? "That post was not removed.");
+                      });
+                    }}
+                  >
+                    Remove: {RULE_LABEL[rule]}
+                  </button>
+                ))}
+                <button type="button" className={btnQuiet} onClick={() => setRemoving(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button type="button" className={btnQuiet} onClick={() => setRemoving(true)}>
+                <Trash2 className="size-4" aria-hidden="true" />
+                Remove post
+              </button>
+            )}
+          </div>
+          {markDraft ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              One sentence, why
+              <input
+                className={fieldClass}
+                value={markDraft.reason}
+                placeholder="The notice does not say where that came from."
+                onChange={(event) =>
+                  setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
+                }
+              />
+              {markDraft.error ? <span className="text-signal">{markDraft.error}</span> : null}
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSignal}
+                  onClick={() => {
+                    void mark(post.id, markDraft.mark, markDraft.reason).then((result) => {
+                      if (!result.ok)
+                        setMarkDraft({
+                          ...markDraft,
+                          error: result.error ?? "That mark was not saved.",
+                        });
+                      else setMarkDraft(null);
+                    });
+                  }}
+                >
+                  Save mark
+                </button>
+                <button type="button" className={btnQuiet} onClick={() => setMarkDraft(null)}>
+                  Cancel
+                </button>
+              </span>
+            </label>
+          ) : null}
+          {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {removing ? (
+            <p className="text-sm text-muted">
+              Removing a post bars the account. The reason stays in the log. A mark never hides a
+              post.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -506,11 +813,17 @@ function MarkLog() {
   if (rows.length === 0) return null;
   return (
     <section className="flex flex-col gap-2 border-t border-line pt-4">
-      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">Steward marks in this room</h2>
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+        Steward marks in this room
+      </h2>
       <ul className="flex flex-col gap-1 text-sm text-muted">
         {rows.map((row) => (
           <li key={row.id}>
-            {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} · <When at={row.at} format={formatWhen} />
+            {row.by}{" "}
+            {row.mark
+              ? `marked ${row.author}'s post ${row.mark}`
+              : `cleared a mark on ${row.author}'s post`}
+            {row.reason ? `: ${row.reason}` : ""} · <When at={row.at} format={formatWhen} />
           </li>
         ))}
       </ul>

@@ -6,14 +6,31 @@ function jsonResponse(status: number, body: unknown, type = "application/json"):
   return new Response(JSON.stringify(body), { status, headers: { "content-type": type } });
 }
 
-test("an unset API base stays in demo mode", async () => {
+test("an explicit demo flag does not call the API", async () => {
   let called = false;
-  const mode = await probeApiMode("  ", async () => {
-    called = true;
-    return jsonResponse(200, { ok: true });
-  });
+  const mode = await probeApiMode(
+    "https://api.avouchsocial.com",
+    async () => {
+      called = true;
+      return jsonResponse(200, { ok: true });
+    },
+    2500,
+    true,
+  );
   assert.equal(mode, "demo");
   assert.equal(called, false);
+});
+
+test("an empty base probes same-origin /api/health", async () => {
+  let url = "";
+  const live = await probeApiMode("  ", async (input) => {
+    url = String(input);
+    return jsonResponse(200, { ok: true });
+  });
+  assert.equal(live, "live");
+  assert.equal(url, "/api/health");
+  const missed = await probeApiMode("", async () => jsonResponse(503, { error: "api-unavailable" }));
+  assert.equal(missed, "demo");
 });
 
 test("a healthy API is live, and a 503 or HTML body stays in demo", async () => {

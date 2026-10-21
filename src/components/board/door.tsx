@@ -3,7 +3,7 @@ import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bit
 import { AccountDoor } from "@/components/board/account-door";
 import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
-import { APP_NAME, ROOMS, formatDate } from "@/lib/board/model";
+import { APP_NAME, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
 
@@ -37,6 +37,7 @@ export function Door() {
   const server = useServerSession();
   const redeemInvite = useBoard((state) => state.redeemInvite);
   const loadSample = useBoard((state) => state.loadSample);
+  const rooms = useBoard((state) => state.rooms);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -79,7 +80,8 @@ export function Door() {
         <section className="flex flex-col gap-2">
           <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">The rooms</h2>
           <p className="max-w-prose text-sm text-muted">
-            {ROOMS.filter((room) => room.id !== "dispatch")
+            {rooms
+              .filter((room) => room.id !== "dispatch")
               .map((room) => room.name)
               .join(" · ")}
           </p>

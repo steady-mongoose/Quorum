@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ServerInvite } from "@/components/board/server-invite";
-import { APP_NAME, POST_TYPES, ROOMS, RULE_LABEL, type HardRule } from "@/lib/board/model";
+import { APP_NAME, POST_TYPES, RULE_LABEL, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -40,7 +41,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Three things get a post removed and the poster barred for 30 days: threats of violence, pornography, child sexual abuse material. Everything else stays up. Stewards can mark a post as sloppy or unsupported, which moves it down but does not remove it, and every mark is listed in the room for all to see.",
+    text: "Three things get a post removed and the poster barred for 30 days: threats of violence, pornography, child sexual abuse material. Everything else stays up. Stewards can mark a post as sloppy or unsupported, with one sentence saying why. A mark moves it down and is listed in the room. It does not hide the post.",
   },
 ];
 
@@ -49,8 +50,13 @@ export function AboutView() {
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
   const removals = useBoard((state) => state.removals);
+  const rooms = useBoard((state) => state.rooms);
+  const admin = useBoard((state) => state.admin);
+  const remote = useBoard((state) => state.remote);
   const loadSample = useBoard((state) => state.loadSample);
   const clearBoard = useBoard((state) => state.clearBoard);
+  const createRoom = useBoard((state) => state.createRoom);
+  const appointSteward = useBoard((state) => state.appointSteward);
 
   return (
     <div className="flex flex-col gap-10">
@@ -87,7 +93,7 @@ export function AboutView() {
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl text-fg">The rooms</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
-          {ROOMS.map((room) => (
+          {rooms.map((room) => (
             <div key={room.id} className="contents">
               <dt className="font-semibold text-fg">{room.name}</dt>
               <dd className="max-w-prose text-muted">{room.what}</dd>
@@ -112,6 +118,10 @@ export function AboutView() {
         </p>
       </section>
 
+      {remote && admin ? (
+        <AdminTools createRoom={createRoom} appointSteward={appointSteward} />
+      ) : null}
+
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -130,18 +140,27 @@ export function AboutView() {
               : "Stewards are appointed by the founder."}
           </p>
         </div>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <button type="button" className={btnSignal} onClick={loadSample}>
-            Load the sample week
-          </button>
-          <button type="button" className={btnGhost} onClick={clearBoard}>
-            Clear the board
-          </button>
-        </div>
-        <p className="mt-2 max-w-prose text-sm text-muted">
-          The sample is six invented people and a week of meetings, for trying the app. It replaces
-          whatever is here, and you become "Josh."
-        </p>
+        {remote ? (
+          <p className="mt-6 max-w-prose text-sm text-muted">
+            Posts, marks, removals, and bans are on the server. The sample week stays in this
+            browser, and only when the server is not configured.
+          </p>
+        ) : (
+          <>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <button type="button" className={btnSignal} onClick={loadSample}>
+                Load the sample week
+              </button>
+              <button type="button" className={btnGhost} onClick={clearBoard}>
+                Clear the board
+              </button>
+            </div>
+            <p className="mt-2 max-w-prose text-sm text-muted">
+              The sample is six invented people and a week of meetings, for trying the app. It
+              replaces whatever is here, and you become "Josh."
+            </p>
+          </>
+        )}
       </section>
 
       {removals.length > 0 ? (
@@ -160,5 +179,130 @@ export function AboutView() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+function AdminTools({
+  createRoom,
+  appointSteward,
+}: {
+  createRoom: (input: {
+    id: string;
+    name: string;
+    what: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  appointSteward: (input: {
+    email: string;
+    action: "grant" | "revoke";
+    note: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+  const [what, setWhat] = useState("");
+  const [email, setEmail] = useState("");
+  const [note, setNote] = useState("");
+  const [message, setMessage] = useState("");
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <h2 className="text-2xl text-fg">Admin</h2>
+      <p className="max-w-prose text-sm text-muted">
+        Adding a room and appointing a steward are admin only. A grant or a revocation is written in
+        the access log, with the sentence you give.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Room id
+          <input
+            className={fieldClass}
+            value={id}
+            placeholder="woodshop"
+            onChange={(event) => setId(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Name
+          <input
+            className={fieldClass}
+            value={name}
+            placeholder="Woodshop"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
+          What it is for
+          <input
+            className={fieldClass}
+            value={what}
+            onChange={(event) => setWhat(event.target.value)}
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        className={btnSignal}
+        onClick={() => {
+          void createRoom({ id, name, what }).then((result) => {
+            setMessage(result.ok ? "The room is up." : (result.error ?? "The room was not added."));
+            if (result.ok) {
+              setId("");
+              setName("");
+              setWhat("");
+            }
+          });
+        }}
+      >
+        Add room
+      </button>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Member email
+          <input
+            className={fieldClass}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          One sentence
+          <input
+            className={fieldClass}
+            value={note}
+            placeholder="Appointed by the founder."
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={btnSignal}
+          onClick={() => {
+            void appointSteward({ email, action: "grant", note }).then((result) => {
+              setMessage(
+                result.ok ? "Steward granted." : (result.error ?? "That role was not changed."),
+              );
+            });
+          }}
+        >
+          Grant steward
+        </button>
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => {
+            void appointSteward({ email, action: "revoke", note }).then((result) => {
+              setMessage(
+                result.ok ? "Steward revoked." : (result.error ?? "That role was not changed."),
+              );
+            });
+          }}
+        >
+          Revoke steward
+        </button>
+      </div>
+      {message ? <p className="text-sm text-muted">{message}</p> : null}
+    </section>
   );
 }

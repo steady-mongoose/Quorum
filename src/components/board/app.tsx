@@ -51,6 +51,7 @@ function BoardShell() {
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
   const sample = useBoard((state) => state.sample);
+  const boardError = useBoard((state) => state.boardError);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
@@ -69,8 +70,9 @@ function BoardShell() {
     if (state.sample) state.clearBoard();
     const next = useBoard.getState();
     if (next.me !== name || !next.member || next.sample) {
-      useBoard.setState({ member: true, me: name, steward: false, sample: false });
+      useBoard.setState({ member: true, me: name, sample: false });
     }
+    void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
   return (
@@ -98,7 +100,7 @@ function BoardShell() {
               className="self-start text-sm text-signal underline"
               onClick={() => {
                 void server.signOut().then(() => {
-                  useBoard.setState({ member: false });
+                  useBoard.getState().disconnectRemote();
                 });
               }}
             >
@@ -107,6 +109,11 @@ function BoardShell() {
           ) : null}
         </div>
       </header>
+      {boardError ? (
+        <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
+          {boardError}
+        </p>
+      ) : null}
       {entered && sample ? (
         <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
           <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom,

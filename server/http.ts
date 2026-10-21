@@ -4,6 +4,8 @@ import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
 import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
+import { handleBoard, limitBoardWrite } from "./board/routes.ts";
+import { createPost, openBan } from "./board/store.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
@@ -307,6 +309,8 @@ async function route(
   if (url.pathname === "/api/invite-log" && request.method === "GET") {
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
+    const ban = await openBan(deps.db, session.id, deps.now());
+    if (ban) return json(403, { error: "banned", ban });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
@@ -315,15 +319,42 @@ async function route(
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     const body = await readJson(request);
+    if (typeof body.type === "string" && body.type.trim()) {
+      const limited = await limitBoardWrite(deps.db, request, session.id);
+      if (limited) return limited;
+      const filed = await createPost(deps.db, {
+        userId: session.id,
+        name: session.name,
+        roomId: roomPost[1] ?? "",
+        body,
+        now: deps.now(),
+      });
+      if (!filed.ok) {
+        return json(
+          filed.status,
+          filed.stops ? { error: filed.error, stops: filed.stops } : { error: filed.error },
+        );
+      }
+      return json(201, { post: filed.value });
+    }
     const recorded = await registerRoomPost(
       deps.db,
       session.id,
       roomPost[1] ?? "",
       stringField(body, "id"),
+      deps.now(),
     );
-    if (!recorded.ok) return json(recorded.status, { error: recorded.error });
+    if (!recorded.ok) {
+      return json(
+        recorded.status,
+        recorded.ban ? { error: recorded.error, ban: recorded.ban } : { error: recorded.error },
+      );
+    }
     return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
   }
+
+  const board = await handleBoard(deps, request, url);
+  if (board) return board;
 
   if (url.pathname.startsWith("/api/calls")) {
     const openStatus = url.pathname === "/api/calls/status" && request.method === "GET";
@@ -335,6 +366,10 @@ async function route(
   if (url.pathname.startsWith("/api/media/")) {
     const session =
       url.pathname === "/api/media/status" ? null : await deps.readSession(request.headers);
+    if (request.method === "GET" && session) {
+      const ban = await openBan(deps.db, session.id, deps.now());
+      if (ban) return json(403, { error: "banned", ban });
+    }
     return (
       (await handleMedia(media, deps.db, request, url, session, clientIp(request))) ??
       json(404, { error: "Not found." })
