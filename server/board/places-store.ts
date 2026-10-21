@@ -211,6 +211,7 @@ export async function grantAccess(
   },
 ): Promise<PlaceResult<{ action: "grant" | "revoke"; role: AccessRole }>> {
   const actor = await actorRole(db, input.userId);
+  if (await openBan(db, input.userId, input.now)) return fail(403, "banned");
   if (!actor.member) return fail(403, "Only a member can change access.");
   const actorPerson = await personById(db, input.userId);
   if (!actorPerson) return fail(403, "Only a member can change access.");

@@ -495,3 +495,112 @@ test("admins approve room requests, and home is nearest first", async () => {
     await close();
   }
 });
+
+test("a banned member cannot vouch anyone in", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const pat = randomUUID();
+    await user(db, maria, "Maria", "maria-ban@example.com");
+    await user(db, pat, "Pat", "pat@example.com");
+    await member(db, maria, "Maria", later(1));
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, $2, 'Maria', 'threat', 'Josh', 1, $3, $4)`,
+      [randomUUID(), maria, new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), later(2)],
+    );
+    const vouched = await grantAccess(db, {
+      userId: maria,
+      action: "grant-member",
+      email: "pat@example.com",
+      roomId: "shop",
+      inviterEmail: "",
+      stewardEmail: "",
+      role: "",
+      now: later(3),
+    });
+    assert.equal(vouched.ok, false);
+    if (vouched.ok) return;
+    assert.equal(vouched.status, 403);
+    assert.equal(vouched.error, "banned");
+    const log = await db.query<{ id: string }>(
+      `select id from access_log where user_id = $1`,
+      [pat],
+    );
+    assert.equal(log.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("deleting an account anonymizes council, room request, and ZIP rows", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await user(db, maria, "Maria", "maria-gone@example.com");
+    await member(db, maria, "Maria", later(1));
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: {
+        type: "did",
+        claim: "The hearing named the candidate and the office.",
+        reason: "The agenda is on the county site.",
+        on: "2026-10-18",
+        subject: "candidate",
+      },
+      now: later(2),
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const requestId = randomUUID();
+    await db.query(
+      `insert into room_request
+       (id, kind, name, state, by_user_id, by_name, status, decided_by_user_id, decided_by_name, note, at)
+       values ($1, 'town', 'Dover', 'FL', $2, 'Maria', 'refused', $2, 'Maria', 'Dover already has a notice.', $3)`,
+      [requestId, maria, later(3)],
+    );
+    await db.query(
+      `insert into zip_correction (id, zip, town_id, name, state, by_user_id, by_name, at)
+       values ($1, '33527', 'dover-fl', 'Dover', 'FL', $2, 'Maria', $3)`,
+      [randomUUID(), maria, later(4)],
+    );
+    await db.query(
+      `insert into council_approval (id, post_id, reason, checklist, by_user_id, by_name, action, at)
+       values ($1, $2, 'The post names the office.', $3, $4, 'Maria', 'approve', $5)`,
+      [randomUUID(), posted.value.id, ["The post names the candidate and the office."], maria, later(5)],
+    );
+    await db.query(`delete from "user" where id = $1`, [maria]);
+    const request = await db.query<{ by_name: string; decided_by_name: string; by_user_id: string | null }>(
+      `select by_name, decided_by_name, by_user_id from room_request where id = $1`,
+      [requestId],
+    );
+    assert.equal(request[0]?.by_name, "Removed member");
+    assert.equal(request[0]?.decided_by_name, "Removed member");
+    assert.equal(request[0]?.by_user_id, null);
+    const zip = await db.query<{ by_name: string; name: string }>(
+      `select by_name, name from zip_correction where zip = '33527'`,
+    );
+    assert.equal(zip[0]?.by_name, "Removed member");
+    assert.equal(zip[0]?.name, "Dover");
+    const approval = await db.query<{ by_name: string }>(
+      `select by_name from council_approval where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(approval[0]?.by_name, "Removed member");
+    const functions = await db.query<{ proname: string; prosrc: string }>(
+      `select proname, prosrc from pg_proc where proname in ('anonymize_board_user', 'anonymize_places_user')`,
+    );
+    const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
+    const placesFn = functions.find((row) => row.proname === "anonymize_places_user");
+    assert.ok(boardFn);
+    assert.ok(placesFn);
+    assert.equal(boardFn.prosrc.includes("council_approval"), false);
+    assert.equal(placesFn.prosrc.includes("council_approval"), true);
+    assert.equal(placesFn.prosrc.includes("room_request"), true);
+    assert.equal(placesFn.prosrc.includes("zip_correction"), true);
+  } finally {
+    await close();
+  }
+});

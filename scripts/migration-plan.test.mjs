@@ -90,6 +90,9 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.match(sql, /council_approval/);
   assert.match(sql, /checklist/);
   assert.match(sql, /access_log/);
+  assert.match(sql, /create or replace function anonymize_places_user/);
+  assert.match(sql, /create trigger anonymize_places_user/);
+  assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
   assert.equal(sql.includes("like_count"), false);
   assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);

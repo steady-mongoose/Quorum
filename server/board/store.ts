@@ -4,7 +4,7 @@ import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
-import { actorRole, councilFlags, moderationStop } from "./access.ts";
+import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
@@ -793,7 +793,6 @@ export async function markPost(
   input: { userId: string; name: string; postId: string; mark: unknown; reason: string; now: Date },
 ): Promise<Result<{ post: BoardPost; row: MarkEntry }>> {
   const actor = await actorRole(db, input.userId);
-  if (!actor.steward) return fail(403, "Only a steward can mark a post.");
   const sentence = sentenceOrStop(input.reason);
   if (!sentence.ok) return fail(400, sentence.error);
   const mark = input.mark === null || input.mark === "" ? null : input.mark;
@@ -808,6 +807,14 @@ export async function markPost(
   );
   const post = existing[0];
   if (!post) return fail(404, "That post is not here.");
+  if (!stewardsRoom(actor, post.room_id)) {
+    return fail(
+      403,
+      actor.stewardRooms.length > 0
+        ? "A steward can mark a post only in a room they steward."
+        : "Only a steward can mark a post.",
+    );
+  }
   const id = randomUUID();
   const by = input.name.trim() || "Steward";
   const saved = await db.transaction(async (tx) => {
@@ -861,20 +868,28 @@ export async function removePost(
   input: { userId: string; name: string; postId: string; reason: string; now: Date },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
-  if (!actor.steward) return fail(403, "Only a steward can remove a post.");
   if (!HARD.has(input.reason))
     return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
   const reason = input.reason as BanEntry["reason"];
   const existing = await db.query<{
     id: string;
+    room_id: string;
     author_user_id: string;
     author_name: string;
     removed: boolean;
-  }>(`select id, author_user_id, author_name, removed from board_post where id = $1`, [
+  }>(`select id, room_id, author_user_id, author_name, removed from board_post where id = $1`, [
     input.postId,
   ]);
   const post = existing[0];
   if (!post || post.removed) return fail(404, "That post is not here.");
+  if (!stewardsRoom(actor, post.room_id)) {
+    return fail(
+      403,
+      actor.stewardRooms.length > 0
+        ? "A steward can remove a post only in a room they steward."
+        : "Only a steward can remove a post.",
+    );
+  }
   const target = await actorRole(db, post.author_user_id);
   const blocked = moderationStop(actor, target);
   if (blocked) return fail(403, blocked);
@@ -935,7 +950,9 @@ export async function banMember(
   input: { userId: string; name: string; email: string; reason: string; now: Date },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
-  if (!actor.steward) return fail(403, "Only a steward can bar an account.");
+  if (!actor.admin && actor.stewardRooms.length === 0) {
+    return fail(403, "Only a steward can bar an account.");
+  }
   if (!HARD.has(input.reason))
     return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
   const reason = input.reason as BanEntry["reason"];
@@ -951,6 +968,15 @@ export async function banMember(
   if (!target.member) return fail(400, "That person is not a member.");
   const blocked = moderationStop(actor, target);
   if (blocked) return fail(403, blocked);
+  if (!actor.admin) {
+    const posted = await db.query<{ room_id: string }>(
+      `select distinct room_id from board_post where author_user_id = $1`,
+      [person.id],
+    );
+    if (!posted.some((row) => actor.stewardRooms.includes(row.room_id))) {
+      return fail(403, "A steward can bar a member only for a post in a room they steward.");
+    }
+  }
   const ban = await writeBan(db, {
     userId: person.id,
     name: person.name,

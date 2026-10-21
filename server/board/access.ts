@@ -22,8 +22,7 @@ async function liveRole(db: Db, userId: string, role: AccessRow["role"]): Promis
 
 /**
  * Steward grants are per room. The newest row for that room decides.
- * A live grant in any room, including a blank room from an older appointment,
- * makes the member a steward for marks and removals.
+ * A blank room id is an old appointment and does not confer a room.
  */
 export async function stewardRoomIds(db: Db, userId: string): Promise<string[]> {
   const rows = await db.query<{
@@ -42,7 +41,9 @@ export async function stewardRoomIds(db: Db, userId: string): Promise<string[]> 
       latest.set(row.room_id, { id: row.id, action: row.action, at });
     }
   }
-  return [...latest.entries()].filter(([, row]) => row.action === "grant").map(([roomId]) => roomId);
+  return [...latest.entries()]
+    .filter(([roomId, row]) => roomId.trim() !== "" && row.action === "grant")
+    .map(([roomId]) => roomId);
 }
 
 export async function councilFlags(
@@ -65,7 +66,14 @@ export type BoardActor = {
   admin: boolean;
   /** The founding seat. Admins cannot bar or remove this member. */
   owner: boolean;
+  /** Rooms where this person has a live steward grant. Admins are not listed here. */
+  stewardRooms: string[];
 };
+
+/** An admin may moderate every room. A steward may moderate only these rooms. */
+export function stewardsRoom(actor: BoardActor, roomId: string): boolean {
+  return actor.admin || actor.stewardRooms.includes(roomId);
+}
 
 async function isOwner(db: Db, userId: string): Promise<boolean> {
   const rows = await db.query<{ user_id: string }>(
@@ -77,7 +85,8 @@ async function isOwner(db: Db, userId: string): Promise<boolean> {
 
 /**
  * A live member grant, or the founding admin, can read and post.
- * A live steward grant, or an admin, can mark, remove, and ban.
+ * A steward can mark, remove, and bar only in a room they steward.
+ * An admin can mark, remove, and bar in every room.
  * Only an admin can add a room or grant and revoke the steward role.
  * The owner outranks an admin. An admin outranks a steward.
  */
@@ -85,8 +94,9 @@ export async function actorRole(db: Db, userId: string): Promise<BoardActor> {
   const owner = await isOwner(db, userId);
   const admin = owner || (await isAdmin(db, userId));
   const member = admin || (await liveRole(db, userId, "member"));
-  const steward = admin || (await stewardRoomIds(db, userId)).length > 0;
-  return { member, steward, admin, owner };
+  const stewardRooms = await stewardRoomIds(db, userId);
+  const steward = admin || stewardRooms.length > 0;
+  return { member, steward, admin, owner, stewardRooms };
 }
 
 /**

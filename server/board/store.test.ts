@@ -28,12 +28,18 @@ async function user(db: Db, id: string, name: string, email: string) {
   );
 }
 
-async function grant(db: Db, userId: string, name: string, role: "member" | "steward" | "admin") {
+async function grant(
+  db: Db,
+  userId: string,
+  name: string,
+  role: "member" | "steward" | "admin",
+  roomId = "",
+) {
   await db.query(
     `insert into access_log
      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
-     values ($1, $2, $3, $4, '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $5)`,
-    [randomUUID(), userId, name, role, now],
+     values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.', $6)`,
+    [randomUUID(), userId, name, role, roomId, now],
   );
 }
 
@@ -179,7 +185,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
     if (memberMark.ok) return;
     assert.equal(memberMark.status, 403);
 
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     const marked = await markPost(db, {
       userId: tom,
       name: "Tom",
@@ -241,6 +247,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
     });
     assert.equal(again.ok, true);
     if (!again.ok) return;
+    await grant(db, tom, "Tom", "steward", "county");
     const second = await removePost(db, {
       userId: tom,
       name: "Tom",
@@ -365,7 +372,7 @@ test("a barred member cannot revise or close, and a revision keeps the mark", as
     await user(db, tom, "Tom", "tom@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     const posted = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -459,7 +466,7 @@ test("only a steward sees ban and removal logs", async () => {
     await grant(db, maria, "Maria", "member");
     await grant(db, dale, "Dale", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     const posted = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -507,7 +514,7 @@ test("a reply follows the room's posting rules", async () => {
     await user(db, tom, "Tom", "tom@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "dispatch");
     const notice = await createPost(db, {
       userId: tom,
       name: "Tom",
@@ -601,7 +608,7 @@ test("seeds do not overwrite a named room, and deleting a member keeps the log",
     await user(db, tom, "Tom", "tom@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     const posted = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -730,9 +737,9 @@ test("a steward cannot bar the owner, an admin, or another steward", async () =>
     await grant(db, admin, "Ada", "member");
     await grant(db, admin, "Ada", "admin");
     await grant(db, steward, "Tom", "member");
-    await grant(db, steward, "Tom", "steward");
+    await grant(db, steward, "Tom", "steward", "shop");
     await grant(db, peer, "Ruth", "member");
-    await grant(db, peer, "Ruth", "steward");
+    await grant(db, peer, "Ruth", "steward", "shop");
 
     const againstOwner = await banMember(db, {
       userId: admin,
@@ -839,7 +846,7 @@ test("a ban and a removal drop that person from every live call", async () => {
     const owner = randomUUID();
     await user(db, steward, "Tom", "tom-call@example.com");
     await grant(db, steward, "Tom", "member");
-    await grant(db, steward, "Tom", "steward");
+    await grant(db, steward, "Tom", "steward", "shop");
     await user(db, member, "Maria", "maria-call@example.com");
     await grant(db, member, "Maria", "member");
     await user(db, other, "Ruth", "ruth-call@example.com");
@@ -884,6 +891,14 @@ test("a ban and a removal drop that person from every live call", async () => {
     assert.equal(calls.poll("county", member, 0, at + 1).ok, false);
     assert.equal(calls.poll("shop", other, 0, at + 1).ok, true);
 
+    const ruthPost = await createPost(db, {
+      userId: other,
+      name: "Ruth",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(ruthPost.ok, true);
     const banned = await banMember(db, {
       userId: steward,
       name: "Tom",
@@ -897,6 +912,108 @@ test("a ban and a removal drop that person from every live call", async () => {
     assert.equal(calls.poll("shop", owner, 0, at + 2).ok, true);
   } finally {
     bindCallEviction(createCallStore());
+    await close();
+  }
+});
+
+test("a steward of one room cannot mark, remove, or bar in another", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const dale = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-room@example.com");
+    await user(db, tom, "Tom", "tom-room@example.com");
+    await user(db, dale, "Dale", "dale-room@example.com");
+    await user(db, josh, "Josh", "josh-room@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, dale, "Dale", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "admin");
+    await grant(db, tom, "Tom", "steward", "");
+    const shopPost = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(shopPost.ok, true);
+    if (!shopPost.ok) return;
+    const blank = await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shopPost.value.id,
+      mark: "sloppy",
+      reason: "The proof does not say who was there.",
+      now,
+    });
+    assert.equal(blank.ok, false);
+    if (blank.ok) return;
+    assert.equal(blank.error, "Only a steward can mark a post.");
+
+    await grant(db, tom, "Tom", "steward", "shop");
+    const countyPost = await createPost(db, {
+      userId: dale,
+      name: "Dale",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(countyPost.ok, true);
+    if (!countyPost.ok) return;
+    const marked = await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: countyPost.value.id,
+      mark: "unsupported",
+      reason: "The notice does not say where that came from.",
+      now,
+    });
+    assert.equal(marked.ok, false);
+    if (marked.ok) return;
+    assert.equal(marked.error, "A steward can mark a post only in a room they steward.");
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: countyPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, false);
+    if (removed.ok) return;
+    assert.equal(removed.error, "A steward can remove a post only in a room they steward.");
+    const barred = await banMember(db, {
+      userId: tom,
+      name: "Tom",
+      email: "dale-room@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(barred.ok, false);
+    if (barred.ok) return;
+    assert.equal(barred.error, "A steward can bar a member only for a post in a room they steward.");
+
+    const shopMark = await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shopPost.value.id,
+      mark: "sloppy",
+      reason: "The proof does not say who was there.",
+      now,
+    });
+    assert.equal(shopMark.ok, true);
+    const adminRemoved = await removePost(db, {
+      userId: josh,
+      name: "Josh",
+      postId: countyPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(adminRemoved.ok, true);
+  } finally {
     await close();
   }
 });

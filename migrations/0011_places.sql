@@ -330,32 +330,15 @@ insert into room (
   )
 on conflict (id) do nothing;
 
--- Deleting an account keeps the log and drops the name.
-create or replace function anonymize_board_user() returns trigger
+-- Account deletion for the tables this migration adds. This is not
+-- anonymize_board_user. Migrations 0012 and 0013 replace that function, and
+-- the last one applied would otherwise drop these updates. The town a member
+-- corrected is stored on zip_correction, with the council approval and the
+-- room request.
+create or replace function anonymize_places_user() returns trigger
 language plpgsql
 as $$
 begin
-  update board_post
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_removal
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_removal
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_ban
-    set user_id = null, name = 'Removed member'
-    where user_id = old.id;
-  update board_ban
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
   update zip_correction
     set by_user_id = null, by_name = 'Removed member'
     where by_user_id = old.id;
@@ -371,3 +354,8 @@ begin
   return old;
 end;
 $$;
+
+drop trigger if exists anonymize_places_user on "user";
+create trigger anonymize_places_user
+  before delete on "user"
+  for each row execute function anonymize_places_user();
