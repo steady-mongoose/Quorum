@@ -167,10 +167,10 @@ export function RoomView() {
           )}
 
           {steward && feed.length > 0 ? (
-            <label className="flex items-center gap-2 self-end text-xs text-muted">
+            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-xs text-muted">
               <input
                 type="checkbox"
-                className="size-4"
+                className="size-5"
                 checked={tools}
                 onChange={(event) => setTools(event.target.checked)}
               />
@@ -558,7 +558,7 @@ function Name({ name }: { name: string }) {
   return (
     <button
       type="button"
-      className="font-semibold text-fg hover:underline"
+      className="inline-flex min-h-[44px] items-center font-semibold text-fg hover:underline"
       onClick={() => view(name)}
     >
       {name}

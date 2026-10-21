@@ -372,7 +372,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     <label
                       key={name}
                       className={cn(
-                        "inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-line px-3",
+                        "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3",
                         came.includes(name) && "bg-signal text-signal-ink",
                       )}
                     >

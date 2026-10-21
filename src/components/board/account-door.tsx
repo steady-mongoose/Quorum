@@ -47,7 +47,7 @@ export function AccountDoor() {
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
-            const aboutCode = mode === "sign-up" ? inviteCodeError(code, result.message) : null;
+            const aboutCode = mode === "sign-up" ? inviteCodeError(code, result) : null;
             if (aboutCode) setCodeError(aboutCode);
             else setOutcome(result.message);
           }
@@ -91,31 +91,28 @@ export function AccountDoor() {
         />
       </label>
       {mode === "sign-up" ? (
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Invite code
-          <input
-            id="invite-code"
-            className={cn(fieldClass, "font-mono tracking-widest uppercase")}
-            value={code}
-            onChange={(event) => {
-              setCode(event.target.value);
-              setCodeError(null);
-            }}
-            autoComplete="off"
-            aria-invalid={codeError ? true : undefined}
-            aria-describedby={codeError ? INVITE_CODE_ERROR_ID : undefined}
-          />
+        <>
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Invite code
+            <input
+              id="invite-code"
+              className={cn(fieldClass, "font-mono tracking-widest uppercase")}
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value);
+                setCodeError(null);
+              }}
+              autoComplete="off"
+              aria-invalid={codeError ? true : undefined}
+              aria-describedby={codeError ? INVITE_CODE_ERROR_ID : undefined}
+            />
+          </label>
           {codeError ? (
-            <p
-              id={INVITE_CODE_ERROR_ID}
-              role="alert"
-              aria-live="polite"
-              className="text-sm text-[#f0b4a4]"
-            >
+            <p id={INVITE_CODE_ERROR_ID} role="alert" className="text-sm text-[#f0b4a4]">
               {codeError}
             </p>
           ) : null}
-        </label>
+        </>
       ) : null}
       <button type="submit" className={cn(btnSignal, "self-start")} disabled={pending}>
         {mode === "sign-in" ? "Sign in" : "Create the account"}

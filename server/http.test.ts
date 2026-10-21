@@ -117,6 +117,40 @@ test("signup requires an invite, then a member can read who invited whom", async
       }),
     );
     assert.equal(missing.status, 400);
+    const missingBody = (await missing.json()) as { error?: string; code?: string };
+    assert.equal(missingBody.error, "Enter the invite code.");
+    assert.equal(missingBody.code, "invite_invalid");
+    const wrong = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Maria",
+          email: "maria@example.com",
+          password: "correct-horse",
+          inviteCode: "NOT-A-CODE",
+        }),
+      }),
+    );
+    assert.equal(wrong.status, 400);
+    const wrongBody = (await wrong.json()) as { error?: string; code?: string };
+    assert.equal(wrongBody.error, "That code is not valid.");
+    assert.equal(wrongBody.code, "invite_invalid");
+    const named = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "",
+          email: "maria@example.com",
+          password: "correct-horse",
+          inviteCode: "NOT-A-CODE",
+        }),
+      }),
+    );
+    const namedBody = (await named.json()) as { error?: string; code?: string };
+    assert.equal(namedBody.error, "Enter your name.");
+    assert.equal(namedBody.code, undefined);
 
     const minted = await mintInvite(
       db,
