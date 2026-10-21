@@ -188,32 +188,13 @@ create index if not exists theme_group_log_group_idx
   on theme_group_log (group_id, created_at desc, id desc);
 
 -- Deleting an account keeps the group record and drops the name.
--- The trigger created in 0008 calls this function.
-create or replace function anonymize_board_user() returns trigger
+-- This is its own function and trigger. It does not replace
+-- anonymize_board_user from 0008. A later migration that replaces that
+-- shared function must not take this cleanup with it.
+create or replace function anonymize_theme_group_user() returns trigger
 language plpgsql
 as $$
 begin
-  update board_post
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_mark
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_removal
-    set author_user_id = null, author_name = 'Removed member'
-    where author_user_id = old.id;
-  update board_removal
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
-  update board_ban
-    set user_id = null, name = 'Removed member'
-    where user_id = old.id;
-  update board_ban
-    set by_user_id = null, by_name = 'Removed member'
-    where by_user_id = old.id;
   update theme_group_post
     set author_user_id = null, author_name = 'Removed member'
     where author_user_id = old.id;
@@ -253,3 +234,8 @@ begin
   return old;
 end;
 $$;
+
+drop trigger if exists anonymize_theme_group_user on "user";
+create trigger anonymize_theme_group_user
+  before delete on "user"
+  for each row execute function anonymize_theme_group_user();

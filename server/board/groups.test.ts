@@ -1102,48 +1102,184 @@ test("the author appeals to a steward, who can lift or uphold", async () => {
   }
 });
 
-test("deleting a member keeps the group post and drops the name", async () => {
+test("deleting an account clears that name from the group tables", async () => {
   const { db, close } = await openTestDb();
   try {
+    const functions = await db.query<{ proname: string; prosrc: string }>(
+      `select proname, prosrc from pg_proc where proname like 'anonymize%' order by proname`,
+    );
+    assert.deepEqual(
+      functions.map((row) => row.proname),
+      ["anonymize_board_user", "anonymize_theme_group_user"],
+    );
+    const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
+    const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");
+    assert.equal(boardFn?.prosrc.includes("theme_group"), false);
+    assert.equal(groupFn?.prosrc.includes("board_post"), false);
+    assert.match(groupFn?.prosrc ?? "", /theme_group_post/);
+    const triggers = await db.query<{ tgname: string }>(
+      `select tgname from pg_trigger where tgrelid = '"user"'::regclass and not tgisinternal`,
+    );
+    const triggerNames = triggers.map((row) => row.tgname);
+    assert.equal(triggerNames.includes("anonymize_board_user"), true);
+    assert.equal(triggerNames.includes("anonymize_theme_group_user"), true);
+
     const maria = randomUUID();
     const josh = randomUUID();
+    const luis = randomUUID();
     await user(db, maria, "Maria", "maria@example.com");
     await user(db, josh, "Josh", "josh@example.com");
+    await user(db, luis, "Luis", "luis@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, josh, "Josh", "member");
-    await grant(db, josh, "Josh", "steward", "");
-    await joinGroup(db, { userId: maria, name: "Maria", groupId: "distilling", now });
-    await setGroupAdmin(db, {
-      userId: josh,
-      name: "Josh",
-      groupId: "distilling",
-      email: "maria@example.com",
-      action: "grant",
-      now: later(1),
-    });
-    const posted = await createGroupPost(db, {
+    await grant(db, luis, "Luis", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
+    await stand(db, "shop", maria);
+    const asked = await requestGroup(db, {
       userId: maria,
       name: "Maria",
-      groupId: "distilling",
-      body: "The barrel is labeled and set aside.",
+      roomId: "shop",
+      groupName: "Beekeeping",
+      about: "Hives and the first spring check.",
+      now,
+    });
+    assert.equal(asked.ok, true);
+    if (!asked.ok) return;
+    const approved = await decideGroupRequest(db, {
+      userId: josh,
+      name: "Josh",
+      requestId: asked.value.id,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(1),
+    });
+    assert.equal(approved.ok, true);
+    await joinGroup(db, { userId: luis, name: "Luis", groupId: "beekeeping", now: later(2) });
+    const appointed = await setGroupAdmin(db, {
+      userId: maria,
+      name: "Maria",
+      groupId: "beekeeping",
+      email: "luis@example.com",
+      action: "grant",
+      now: later(3),
+    });
+    assert.equal(appointed.ok, true);
+    const posted = await createGroupPost(db, {
+      userId: luis,
+      name: "Luis",
+      groupId: "beekeeping",
+      body: "The Saturday hive check is at the hall.",
       on: "",
-      now: later(2),
+      now: later(4),
     });
     assert.equal(posted.ok, true);
     if (!posted.ok) return;
+    const marked = await markGroupPost(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      mark: "sloppy",
+      reason: "The note does not say which hall.",
+      now: later(5),
+    });
+    assert.equal(marked.ok, true);
+    const removed = await removeGroupPost(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      reason: "threat",
+      now: later(6),
+    });
+    assert.equal(removed.ok, true);
+    const appeal = await appealGroupPost(db, {
+      userId: luis,
+      name: "Luis",
+      postId: posted.value.id,
+      text: "This note should stay up.",
+      now: later(7),
+    });
+    assert.equal(appeal.ok, true);
+    if (!appeal.ok) return;
+    const upheld = await decideGroupAppeal(db, {
+      userId: josh,
+      name: "Josh",
+      appealId: appeal.value.id,
+      decision: "upheld",
+      now: later(8),
+    });
+    assert.equal(upheld.ok, true);
+    await db.query(
+      `insert into board_post
+       (id, room_id, author_user_id, author_name, type, claim, reason, on_date, created_at)
+       values ($1, 'shop', $2, 'Maria', 'did', 'Sharpened the chisels in the shop.', 'Tom checked them on Thursday.', '2026-10-18', $3)`,
+      [randomUUID(), maria, now],
+    );
+
     await db.query(`delete from "user" where id = $1`, [maria]);
-    const row = await db.query<{ author_name: string; author_user_id: string | null }>(
+
+    const post = await db.query<{ author_name: string; author_user_id: string | null }>(
       `select author_name, author_user_id from theme_group_post where id = $1`,
       [posted.value.id],
     );
-    assert.equal(row[0]?.author_name, "Removed member");
-    assert.equal(row[0]?.author_user_id, null);
-    const log = await db.query<{ actor_name: string; actor_user_id: string | null }>(
-      `select actor_name, actor_user_id from theme_group_log
-       where group_id = 'distilling' and action = 'post'`,
+    assert.equal(post[0]?.author_name, "Luis");
+    assert.equal(post[0]?.author_user_id, luis);
+    const mark = await db.query<{
+      author_name: string;
+      by_name: string;
+      by_user_id: string | null;
+    }>(`select author_name, by_name, by_user_id from theme_group_mark where post_id = $1`, [
+      posted.value.id,
+    ]);
+    assert.equal(mark[0]?.author_name, "Luis");
+    assert.equal(mark[0]?.by_name, "Removed member");
+    assert.equal(mark[0]?.by_user_id, null);
+    const removal = await db.query<{ author_name: string; by_name: string }>(
+      `select author_name, by_name from theme_group_removal where post_id = $1`,
+      [posted.value.id],
     );
-    assert.equal(log[0]?.actor_name, "Removed member");
-    assert.equal(log[0]?.actor_user_id, null);
+    assert.equal(removal[0]?.author_name, "Luis");
+    assert.equal(removal[0]?.by_name, "Removed member");
+    const request = await db.query<{ by_name: string; decided_by_name: string }>(
+      `select by_name, decided_by_name from theme_group_request where id = $1`,
+      [asked.value.id],
+    );
+    assert.equal(request[0]?.by_name, "Removed member");
+    assert.equal(request[0]?.decided_by_name, "Josh");
+    const decided = await db.query<{ by_name: string; decided_by_name: string }>(
+      `select by_name, decided_by_name from theme_group_appeal where id = $1`,
+      [appeal.value.id],
+    );
+    assert.equal(decided[0]?.by_name, "Luis");
+    assert.equal(decided[0]?.decided_by_name, "Josh");
+    const admins = await db.query<{ user_id: string; granted_by_name: string }>(
+      `select user_id, granted_by_name from theme_group_admin where group_id = 'beekeeping'`,
+    );
+    assert.deepEqual(
+      admins.map((row) => row.user_id),
+      [luis],
+    );
+    assert.equal(admins[0]?.granted_by_name, "Removed member");
+    const actors = await db.query<{ actor_name: string }>(
+      `select actor_name from theme_group_log where group_id = 'beekeeping'`,
+    );
+    assert.equal(
+      actors.some((row) => row.actor_name === "Maria"),
+      false,
+    );
+    assert.equal(
+      actors.some((row) => row.actor_name === "Josh"),
+      true,
+    );
+    assert.equal(
+      actors.some((row) => row.actor_name === "Luis"),
+      true,
+    );
+    const board = await db.query<{ author_name: string; author_user_id: string | null }>(
+      `select author_name, author_user_id from board_post where author_name = 'Removed member' or author_user_id = $1`,
+      [maria],
+    );
+    assert.equal(board[0]?.author_name, "Removed member");
+    assert.equal(board[0]?.author_user_id, null);
   } finally {
     await close();
   }

@@ -82,6 +82,27 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
 
+test("0012 anonymizes group names on its own trigger", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0012_theme_groups.sql"), "utf8");
+  assert.equal(/create or replace function anonymize_board_user/i.test(sql), false);
+  assert.match(sql, /create or replace function anonymize_theme_group_user/i);
+  assert.match(sql, /create trigger anonymize_theme_group_user/i);
+  assert.match(sql, /execute function anonymize_theme_group_user/i);
+  const body = sql.slice(sql.toLowerCase().indexOf("function anonymize_theme_group_user"));
+  for (const table of [
+    "theme_group_post",
+    "theme_group_mark",
+    "theme_group_removal",
+    "theme_group_request",
+    "theme_group_appeal",
+    "theme_group_admin",
+    "theme_group_log",
+  ]) {
+    assert.match(body, new RegExp(`update ${table}\\b`, "i"), table);
+  }
+  assert.equal(/update board_/i.test(body), false);
+});
+
 test("this workspace's auth schema copy is byte-identical to its source", () => {
   // An edited copy diverges silently: basename keying skips it on a database
   // that already ran the original, and applies it on a fresh PGLite preview.
