@@ -168,7 +168,7 @@ sudo crontab -e
 15 3 * * * cd /opt/avouch && set -a && . ./deploy/.env && set +a && ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
 
-That line runs at 3:15 UTC.
+That line runs at 3:15 UTC with the host clock on UTC.
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
