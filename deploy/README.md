@@ -250,7 +250,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile calls up -d coturn
 ```
 
-Coturn uses the host network and binds UDP and TCP 3478, plus UDP 49160 through 49260 for the relay. Open those in ufw only when you turn the profile on. It refuses to relay to the box's own public address, into private IPv4, and into `fc00::/7`, `fe80::/10`, and `::ffff:0:0/96`. It will not start without the secret and the public address. The credential is checked by coturn. It is not a standing password. Join, leave, and poll are limited to 60 in 10 seconds per member, and Caddy applies the same window per client address to `/api/calls/*`.
+Coturn uses the host network and binds UDP and TCP 3478, plus UDP 49160 through 49260 for the relay. Open those in ufw only when you turn the profile on. It refuses to relay to the box's own public address, into private IPv4, and into `fc00::/7`, `fe80::/10`, and `::ffff:0:0/96`. It will not start without the secret and the public address. The credential is checked by coturn. It is not a standing password. Join, leave, and poll are limited to 60 in 10 seconds per member, and Caddy applies that same window per client address to those paths. A signal is limited to 120 in 10 seconds, in the API and at Caddy, on `/api/calls/rooms/<room>/signal`.
 
 Calls work without coturn when the browsers can reach each other directly. Most people behind home routers cannot. Leave the TURN lines blank until the profile is up. Calls stay on, and the browsers use host candidates only.
 

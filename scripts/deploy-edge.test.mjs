@@ -16,7 +16,11 @@ test("Caddy limits the closed-test POSTs and is built with the rate limit module
   assert.match(caddyfile, /ipv6_prefix 64/);
   assert.match(caddyfile, /zone calls/);
   assert.match(caddyfile, /path \/api\/calls\/\*/);
+  assert.match(caddyfile, /not path \/api\/calls\/rooms\/\*\/signal/);
+  assert.match(caddyfile, /zone call_signal/);
+  assert.match(caddyfile, /path \/api\/calls\/rooms\/\*\/signal/);
   assert.match(caddyfile, /events 60/);
+  assert.match(caddyfile, /events 120/);
   assert.match(caddyfile, /window 10s/);
   assert.match(caddyfile, /429/);
   assert.equal(caddyfile.includes('Retry-After "60"'), false);
