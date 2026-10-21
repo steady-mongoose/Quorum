@@ -46,6 +46,7 @@ const appTests = [
   "src/lib/board/store.test.ts",
   "server/board/order.test.ts",
   "server/board/store.test.ts",
+  "server/board/csam.test.ts",
   "server/board/http.test.ts",
 ];
 

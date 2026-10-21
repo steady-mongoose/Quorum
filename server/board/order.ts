@@ -10,6 +10,7 @@ export type OrderedPost = {
 
 function tier(post: OrderedPost): number {
   if (post.mark === "sloppy") return 5;
+  // out_of_scope stays in the type's tier. It is not hidden and it is not a score.
   if (post.mark === "unsupported") return 4;
   if (post.type === "noted" || (post.type === "asked" && post.closed)) return 3;
   if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;

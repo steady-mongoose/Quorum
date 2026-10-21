@@ -5,6 +5,8 @@ import {
   banMember,
   closeAsked,
   createRoom,
+  decideAppeal,
+  fileAppeal,
   listBoard,
   markPost,
   removePost,
@@ -112,13 +114,17 @@ export async function handleBoard(
   url: URL,
 ): Promise<Response | null> {
   const postAction =
-    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove)$/.exec(url.pathname);
+    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|appeal)$/.exec(
+      url.pathname,
+    );
+  const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const matched =
     (url.pathname === "/api/board" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
     (url.pathname === "/api/access" && request.method === "POST") ||
     (url.pathname === "/api/bans" && request.method === "POST") ||
-    Boolean(postAction && request.method === "POST");
+    Boolean(postAction && request.method === "POST") ||
+    Boolean(appealAction && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -169,6 +175,20 @@ export async function handleBoard(
       return fromResult(201, banned);
     }
 
+    if (appealAction) {
+      return fromResult(
+        200,
+        await decideAppeal(deps.db, {
+          userId: session.id,
+          name: session.name,
+          appealId: appealAction[1] ?? "",
+          decision: stringField(body, "decision"),
+          reason: stringField(body, "reason"),
+          now,
+        }),
+      );
+    }
+
     if (!postAction) return json(404, { error: "Not found." });
     const postId = postAction[1] ?? "";
     const action = postAction[2];
@@ -208,6 +228,19 @@ export async function handleBoard(
           name: session.name,
           postId,
           mark: body.mark === null ? null : body.mark,
+          reason: stringField(body, "reason"),
+          now,
+        }),
+      );
+    }
+    if (action === "appeal") {
+      return fromResult(
+        201,
+        await fileAppeal(deps.db, {
+          userId: session.id,
+          name: session.name,
+          postId,
+          kind: stringField(body, "kind"),
           reason: stringField(body, "reason"),
           now,
         }),

@@ -2,15 +2,38 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
-import { isEnglish } from "../../src/lib/board/text.ts";
+import {
+  isEnglish,
+  isHardRule,
+  isMarkValue,
+  type HardRuleValue,
+  type MarkValue,
+} from "../../src/lib/board/text.ts";
 import { actorRole } from "./access.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
+import {
+  CSAM_QUEUE_SQL,
+  HOLD_MS,
+  REDACTED_CLAIM,
+  purgeExpiredHolds,
+  reportFromRow,
+  sealHold,
+  type CsamReport,
+  type HeldBody,
+} from "./csam.ts";
 import { orderPosts } from "./order.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BAN_MS = 30 * DAY_MS;
 const CLOSED_MS = 100 * 365 * DAY_MS;
-const HARD = new Set(["threat", "porn", "csam"]);
+
+const RULE_ERROR =
+  "Name the rule: threat, pornography, child sexual abuse material, doxxing, or mocking God or Christ.";
+const MARK_ERROR = "A mark is sloppy, No legs, or out of scope.";
+
+function asRule(value: string): HardRuleValue {
+  return isHardRule(value) ? value : "threat";
+}
 
 export type BoardPost = {
   id: string;
@@ -26,7 +49,7 @@ export type BoardPost = {
   at: number;
   parentId: string | null;
   closed: boolean;
-  mark: "sloppy" | "unsupported" | null;
+  mark: MarkValue | null;
   removed: boolean;
   cardId?: string;
   tradeId?: string;
@@ -52,7 +75,7 @@ export type MarkEntry = {
   postId: string;
   author: string;
   by: string;
-  mark: "sloppy" | "unsupported" | null;
+  mark: MarkValue | null;
   reason: string;
   at: number;
 };
@@ -61,17 +84,32 @@ export type RemovalEntry = {
   id: string;
   postId: string;
   author: string;
-  reason: "threat" | "porn" | "csam";
+  reason: HardRuleValue;
   at: number;
 };
 
 export type BanEntry = {
   id: string;
   author: string;
-  reason: "threat" | "porn" | "csam";
+  reason: HardRuleValue;
   until: number;
   strikes: number;
   at: number;
+};
+
+export type AppealEntry = {
+  id: string;
+  room: string;
+  postId: string;
+  author: string;
+  kind: "mark" | "removal";
+  reason: string;
+  decision: "uphold" | "lift" | null;
+  decisionNote: string;
+  decidedBy: string;
+  at: number;
+  decidedAt: number | null;
+  rule: HardRuleValue | null;
 };
 
 export type BoardPayload = {
@@ -79,13 +117,15 @@ export type BoardPayload = {
     member: boolean;
     steward: boolean;
     admin: boolean;
-    ban: { until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null;
+    ban: { until: number; strikes: number; reason: HardRuleValue } | null;
   };
   rooms: BoardRoom[];
   posts: BoardPost[];
   marks: MarkEntry[];
   removals: RemovalEntry[];
   bans: BanEntry[];
+  appeals: AppealEntry[];
+  csamReports: CsamReport[];
 };
 
 type Ok<T> = { ok: true; value: T };
@@ -177,7 +217,7 @@ type PostRow = {
 };
 
 function toPost(row: PostRow, media: BoardPost["media"] = []): BoardPost {
-  const mark = row.mark === "sloppy" || row.mark === "unsupported" ? row.mark : null;
+  const mark = isMarkValue(row.mark) ? row.mark : null;
   return {
     id: row.id,
     room: row.room_id,
@@ -226,7 +266,8 @@ async function openBan(
   if (!row) return null;
   const strikes = Number(row.strikes);
   const until = atMs(row.until_at);
-  const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
+  const reason = asRule(row.reason);
+  if (reason === "csam") return { until, strikes, reason };
   if (strikes < 2 && until <= now.getTime()) return null;
   return { until, strikes, reason };
 }
@@ -325,6 +366,44 @@ export async function listBoard(db: Db, userId: string, now: Date): Promise<Resu
   }>(
     `select id, name, reason, strikes, until_at, created_at from board_ban order by created_at desc limit 500`,
   );
+  const appealRows = await db.query<{
+    id: string;
+    room_id: string;
+    post_id: string;
+    author_name: string;
+    kind: string;
+    reason: string;
+    decision: string | null;
+    decision_note: string;
+    decided_by_name: string;
+    created_at: Date | string;
+    decided_at: Date | string | null;
+    rule: string | null;
+  }>(
+    `select a.id, a.room_id, a.post_id, a.author_name, a.kind, a.reason, a.decision,
+            a.decision_note, a.decided_by_name, a.created_at, a.decided_at, r.reason as rule
+     from board_appeal a
+     left join board_removal r on a.kind = 'removal' and r.id = a.target_id
+     order by a.created_at desc
+     limit 200`,
+  );
+  let csamReports: CsamReport[] = [];
+  if (actor.admin) {
+    await purgeExpiredHolds(db, now);
+    const reportRows = await db.query<{
+      id: string;
+      post_id: string;
+      room_id: string;
+      author_user_id: string;
+      author_name: string;
+      media_count: number;
+      byte_size: number;
+      media_types: unknown;
+      created_at: Date | string;
+      retain_until: Date | string;
+    }>(CSAM_QUEUE_SQL);
+    csamReports = reportRows.map(reportFromRow);
+  }
   const ban = await openBan(db, userId, now);
   return {
     ok: true,
@@ -338,7 +417,7 @@ export async function listBoard(db: Db, userId: string, now: Date): Promise<Resu
         postId: row.post_id,
         author: row.author_name,
         by: row.by_name,
-        mark: row.mark === "sloppy" || row.mark === "unsupported" ? row.mark : null,
+        mark: isMarkValue(row.mark) ? row.mark : null,
         reason: row.reason,
         at: atMs(row.created_at),
       })),
@@ -346,17 +425,32 @@ export async function listBoard(db: Db, userId: string, now: Date): Promise<Resu
         id: row.id,
         postId: row.post_id,
         author: row.author_name,
-        reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+        reason: asRule(row.reason),
         at: atMs(row.created_at),
       })),
       bans: banRows.map((row) => ({
         id: row.id,
         author: row.name,
-        reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+        reason: asRule(row.reason),
         until: atMs(row.until_at),
         strikes: Number(row.strikes),
         at: atMs(row.created_at),
       })),
+      appeals: appealRows.map((row) => ({
+        id: row.id,
+        room: row.room_id,
+        postId: row.post_id,
+        author: row.author_name,
+        kind: row.kind === "removal" ? "removal" : "mark",
+        reason: row.reason,
+        decision: row.decision === "uphold" || row.decision === "lift" ? row.decision : null,
+        decisionNote: row.decision_note,
+        decidedBy: row.decided_by_name,
+        at: atMs(row.created_at),
+        decidedAt: row.decided_at ? atMs(row.decided_at) : null,
+        rule: row.rule && isHardRule(row.rule) ? row.rule : null,
+      })),
+      csamReports,
     },
   };
 }
@@ -383,7 +477,9 @@ async function writeBan(
   );
   const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length);
   const strikes = input.removalId ? Math.max(counted, 1) : counted + 1;
-  const until = new Date(input.now.getTime() + (strikes >= 2 ? CLOSED_MS : BAN_MS));
+  const until = new Date(
+    input.now.getTime() + (input.reason === "csam" || strikes >= 2 ? CLOSED_MS : BAN_MS),
+  );
   const id = randomUUID();
   await tx.query(
     `insert into board_ban
@@ -663,8 +759,8 @@ export async function markPost(
   const sentence = sentenceOrStop(input.reason);
   if (!sentence.ok) return fail(400, sentence.error);
   const mark = input.mark === null || input.mark === "" ? null : input.mark;
-  if (mark !== null && mark !== "sloppy" && mark !== "unsupported") {
-    return fail(400, "A mark is sloppy or unsupported.");
+  if (mark !== null && !isMarkValue(mark)) {
+    return fail(400, MARK_ERROR);
   }
   const existing = await db.query<PostRow & { author_user_id: string }>(
     `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
@@ -722,15 +818,94 @@ export async function markPost(
   };
 }
 
+async function sealCsam(tx: Db, postId: string, now: Date): Promise<void> {
+  const texts = await tx.query<{
+    id: string;
+    room_id: string;
+    author_user_id: string;
+    author_name: string;
+    claim: string;
+    reason: string;
+    parent_id: string | null;
+  }>(
+    `select id, room_id, author_user_id, author_name, claim, reason, parent_id
+     from board_post where id = $1 or parent_id = $1`,
+    [postId],
+  );
+  const parent = texts.find((row) => row.id === postId);
+  if (!parent) throw new Stop(404, "That post is not here.");
+  const ids = texts.map((row) => row.id);
+  const files = await tx.query<{
+    id: string;
+    kind: string;
+    content_type: string;
+    byte_size: number;
+    file_key: string;
+    upload_key: string;
+    post_id: string;
+  }>(
+    `select id, kind, content_type, byte_size, file_key, upload_key, post_id
+     from media_object where deleted_at is null and post_id = any($1::text[])`,
+    [ids],
+  );
+  const body: HeldBody = {
+    claim: parent.claim,
+    reason: parent.reason,
+    replies: texts.filter((row) => row.parent_id).map((row) => ({ id: row.id, claim: row.claim })),
+    files: files.map((file) => ({
+      id: file.id,
+      kind: file.kind,
+      contentType: file.content_type,
+      byteSize: Number(file.byte_size),
+      fileKey: file.file_key || file.upload_key,
+    })),
+  };
+  let sealed: string;
+  try {
+    sealed = sealHold(body);
+  } catch {
+    throw new Stop(500, "The evidence hold is not configured.");
+  }
+  const types: string[] = [];
+  let bytes = 0;
+  for (const file of body.files) {
+    bytes += file.byteSize;
+    if (file.contentType && !types.includes(file.contentType)) types.push(file.contentType);
+  }
+  await tx.query(
+    `insert into board_csam_hold
+     (id, post_id, post_ids, room_id, author_user_id, author_name, sealed,
+      media_count, byte_size, media_types, created_at, retain_until)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      randomUUID(),
+      parent.id,
+      ids,
+      parent.room_id,
+      parent.author_user_id,
+      parent.author_name,
+      sealed,
+      body.files.length,
+      bytes,
+      types,
+      now,
+      new Date(now.getTime() + HOLD_MS),
+    ],
+  );
+  await tx.query(`update board_post set claim = $2, reason = '' where id = $1 or parent_id = $1`, [
+    parent.id,
+    REDACTED_CLAIM,
+  ]);
+}
+
 export async function removePost(
   db: Db,
   input: { userId: string; name: string; postId: string; reason: string; now: Date },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.steward) return fail(403, "Only a steward can remove a post.");
-  if (!HARD.has(input.reason))
-    return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
-  const reason = input.reason as BanEntry["reason"];
+  if (!isHardRule(input.reason)) return fail(400, RULE_ERROR);
+  const reason = input.reason;
   const existing = await db.query<{
     id: string;
     author_user_id: string;
@@ -745,6 +920,7 @@ export async function removePost(
   const removalId = randomUUID();
   try {
     const ban = await db.transaction(async (tx) => {
+      if (reason === "csam") await sealCsam(tx, post.id, input.now);
       await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
         post.id,
       ]);
@@ -798,9 +974,8 @@ export async function banMember(
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.steward) return fail(403, "Only a steward can bar an account.");
-  if (!HARD.has(input.reason))
-    return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
-  const reason = input.reason as BanEntry["reason"];
+  if (!isHardRule(input.reason)) return fail(400, RULE_ERROR);
+  const reason = input.reason;
   const email = input.email.trim().toLowerCase();
   if (!email) return fail(400, "Name the member.");
   const people = await db.query<{ id: string; name: string }>(
@@ -821,6 +996,212 @@ export async function banMember(
     now: input.now,
   });
   return { ok: true, value: ban };
+}
+
+const POST_RETURNING = `id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+  parent_id, closed, mark, removed, card_id, trade_id, campaign_id, created_at`;
+
+function appealFrom(row: {
+  id: string;
+  room_id: string;
+  post_id: string;
+  author_name: string;
+  kind: string;
+  reason: string;
+  decision: string | null;
+  decision_note: string;
+  decided_by_name: string;
+  created_at: Date | string;
+  decided_at: Date | string | null;
+  rule: string | null;
+}): AppealEntry {
+  return {
+    id: row.id,
+    room: row.room_id,
+    postId: row.post_id,
+    author: row.author_name,
+    kind: row.kind === "removal" ? "removal" : "mark",
+    reason: row.reason,
+    decision: row.decision === "uphold" || row.decision === "lift" ? row.decision : null,
+    decisionNote: row.decision_note,
+    decidedBy: row.decided_by_name,
+    at: atMs(row.created_at),
+    decidedAt: row.decided_at ? atMs(row.decided_at) : null,
+    rule: row.rule && isHardRule(row.rule) ? row.rule : null,
+  };
+}
+
+const APPEAL_SELECT = `select a.id, a.room_id, a.post_id, a.author_name, a.kind, a.reason, a.decision,
+  a.decision_note, a.decided_by_name, a.created_at, a.decided_at, r.reason as rule
+  from board_appeal a
+  left join board_removal r on a.kind = 'removal' and r.id = a.target_id`;
+
+export async function fileAppeal(
+  db: Db,
+  input: { userId: string; name: string; postId: string; kind: string; reason: string; now: Date },
+): Promise<Result<AppealEntry>> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.member) return fail(403, "Only a member can appeal.");
+  if (input.kind !== "mark" && input.kind !== "removal")
+    return fail(400, "Appeal a mark or a removal.");
+  const sentence = sentenceOrStop(input.reason);
+  if (!sentence.ok) return fail(400, sentence.error);
+  const posts = await db.query<{
+    id: string;
+    room_id: string;
+    author_user_id: string;
+    author_name: string;
+    mark: string | null;
+    removed: boolean;
+  }>(
+    `select id, room_id, author_user_id, author_name, mark, removed from board_post where id = $1`,
+    [input.postId],
+  );
+  const post = posts[0];
+  if (!post) return fail(404, "That post is not here.");
+  if (post.author_user_id !== input.userId) return fail(403, "Only the author can appeal.");
+  let targetId = "";
+  if (input.kind === "mark") {
+    if (post.removed || !isMarkValue(post.mark)) return fail(404, "That mark is not here.");
+    const marks = await db.query<{ id: string }>(
+      `select id from board_mark where post_id = $1 and mark is not null order by created_at desc limit 1`,
+      [post.id],
+    );
+    targetId = marks[0]?.id ?? post.id;
+  } else {
+    const removals = await db.query<{ id: string }>(
+      `select id from board_removal where post_id = $1 order by created_at desc limit 1`,
+      [post.id],
+    );
+    const removal = removals[0];
+    if (!removal) return fail(404, "That removal is not here.");
+    targetId = removal.id;
+  }
+  const id = randomUUID();
+  const author = input.name.trim() || post.author_name;
+  try {
+    await db.query(
+      `insert into board_appeal
+       (id, post_id, room_id, author_user_id, author_name, kind, target_id, reason, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        post.id,
+        post.room_id,
+        input.userId,
+        author,
+        input.kind,
+        targetId,
+        sentence.text,
+        input.now,
+      ],
+    );
+  } catch (error) {
+    if (isUniqueViolation(error)) return fail(409, "That appeal is already filed.");
+    throw error;
+  }
+  const saved = await db.query<Parameters<typeof appealFrom>[0]>(
+    `${APPEAL_SELECT} where a.id = $1`,
+    [id],
+  );
+  const row = saved[0];
+  if (!row) return fail(500, "The appeal was not filed.");
+  console.log(JSON.stringify({ event: "appeal-filed", postId: post.id, kind: input.kind }));
+  return { ok: true, value: appealFrom(row) };
+}
+
+export async function decideAppeal(
+  db: Db,
+  input: {
+    userId: string;
+    name: string;
+    appealId: string;
+    decision: string;
+    reason: string;
+    now: Date;
+  },
+): Promise<Result<{ appeal: AppealEntry; posts: BoardPost[] }>> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.steward) return fail(403, "Only a steward can decide an appeal.");
+  if (input.decision !== "uphold" && input.decision !== "lift")
+    return fail(400, "Uphold or lift the appeal.");
+  const sentence = sentenceOrStop(input.reason);
+  if (!sentence.ok) return fail(400, sentence.error);
+  const open = await db.query<{
+    id: string;
+    post_id: string;
+    author_user_id: string;
+    kind: string;
+    target_id: string;
+    decision: string | null;
+  }>(
+    `select id, post_id, author_user_id, kind, target_id, decision from board_appeal where id = $1`,
+    [input.appealId],
+  );
+  const appeal = open[0];
+  if (!appeal || appeal.decision) return fail(404, "That appeal is not open.");
+  if (appeal.author_user_id === input.userId)
+    return fail(403, "A steward does not decide their own appeal.");
+  const by = input.name.trim() || "Steward";
+  try {
+    const posts = await db.transaction(async (tx) => {
+      if (input.decision === "lift" && appeal.kind === "removal") {
+        const removals = await tx.query<{ reason: string }>(
+          `select reason from board_removal where id = $1`,
+          [appeal.target_id],
+        );
+        if (removals[0]?.reason === "csam") {
+          throw new Stop(400, "That removal stays. Child sexual abuse material is not put back.");
+        }
+        await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [
+          appeal.post_id,
+        ]);
+        await tx.query(`update board_ban set until_at = $2 where removal_id = $1 and strikes < 2`, [
+          appeal.target_id,
+          input.now,
+        ]);
+      }
+      if (input.decision === "lift" && appeal.kind === "mark") {
+        await tx.query(`update board_post set mark = null where id = $1 and removed = false`, [
+          appeal.post_id,
+        ]);
+      }
+      await tx.query(
+        `update board_appeal
+         set decision = $2, decision_note = $3, decided_by_user_id = $4, decided_by_name = $5, decided_at = $6
+         where id = $1 and decision is null`,
+        [appeal.id, input.decision, sentence.text, input.userId, by, input.now],
+      );
+      if (input.decision !== "lift") return [];
+      return tx.query<PostRow>(
+        `select ${POST_RETURNING} from board_post where id = $1 or parent_id = $1`,
+        [appeal.post_id],
+      );
+    });
+    const saved = await db.query<Parameters<typeof appealFrom>[0]>(
+      `${APPEAL_SELECT} where a.id = $1`,
+      [appeal.id],
+    );
+    const row = saved[0];
+    if (!row) return fail(500, "The decision was not saved.");
+    console.log(
+      JSON.stringify({ event: "appeal-decided", appealId: appeal.id, decision: input.decision }),
+    );
+    const pictures = await mediaFor(
+      db,
+      posts.map((post) => post.id),
+    );
+    return {
+      ok: true,
+      value: {
+        appeal: appealFrom(row),
+        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [])),
+      },
+    };
+  } catch (error) {
+    if (error instanceof Stop) return fail(error.status, error.message);
+    throw error;
+  }
 }
 
 export async function createRoom(

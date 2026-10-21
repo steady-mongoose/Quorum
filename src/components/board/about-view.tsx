@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ServerInvite } from "@/components/board/server-invite";
-import { APP_NAME, POST_TYPES, RULE_LABEL, type HardRule } from "@/lib/board/model";
+import {
+  APP_NAME,
+  POST_TYPES,
+  RULE_LABEL,
+  RULE_SENTENCE,
+  authorName,
+  type CsamReport,
+  type HardRule,
+} from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -41,7 +49,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Three things get a post removed and the poster barred for 30 days: threats of violence, pornography, child sexual abuse material. Everything else stays up. Stewards can mark a post as sloppy or unsupported, with one sentence saying why. A mark moves it down and is listed in the room. It does not hide the post.",
+    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark is listed in the room. It does not hide the post. The author can appeal a mark or a removal to the room's stewards. The appeal and the decision are logged.",
   },
 ];
 
@@ -50,6 +58,9 @@ export function AboutView() {
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
   const removals = useBoard((state) => state.removals);
+  const appeals = useBoard((state) => state.appeals);
+  const csamReports = useBoard((state) => state.csamReports);
+  const appeal = useBoard((state) => state.appeal);
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
   const remote = useBoard((state) => state.remote);
@@ -114,13 +125,20 @@ export function AboutView() {
         </dl>
         <p className="max-w-prose text-sm text-muted">
           Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}. A second
-          removal closes the account.
+          removal closes the account. Child sexual abuse material closes it the first time.
         </p>
+        <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
+          {RULES.map((rule) => (
+            <li key={rule}>{RULE_SENTENCE[rule]}</li>
+          ))}
+        </ul>
       </section>
 
       {remote && admin ? (
         <AdminTools createRoom={createRoom} appointSteward={appointSteward} />
       ) : null}
+
+      {remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>
@@ -173,12 +191,111 @@ export function AboutView() {
                 className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted"
               >
                 {new Date(row.at).toLocaleString()} · {row.author} · {RULE_LABEL[row.reason]}
+                {row.author === authorName(me) ? (
+                  <RemovalAppeal
+                    postId={row.postId}
+                    filed={appeals.some(
+                      (item) =>
+                        item.postId === row.postId &&
+                        item.kind === "removal" &&
+                        item.decision === null,
+                    )}
+                    appeal={appeal}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
         </section>
       ) : null}
     </div>
+  );
+}
+
+function CsamQueue({ reports }: { reports: CsamReport[] }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <h2 className="text-2xl text-fg">CyberTipline queue</h2>
+      <p className="max-w-prose text-sm text-muted">
+        Prepared for the NCMEC CyberTipline under 18 U.S.C. 2258A. Josh files each report by hand.
+        This page does not send it. The words and the pictures are not shown.
+      </p>
+      {reports.length === 0 ? (
+        <p className="text-sm text-muted">No report is waiting.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {reports.map((report) => (
+            <li
+              key={report.id}
+              className="rounded-md border border-line px-3 py-2 text-sm text-muted"
+            >
+              Prepared · {new Date(report.incidentAt).toLocaleString()} · {report.author} · account{" "}
+              {report.accountId} · room {report.room} · post {report.postId} · {report.mediaCount}{" "}
+              {report.mediaCount === 1 ? "file" : "files"}, {report.byteSize} bytes · hold until{" "}
+              {new Date(report.retainUntil).toLocaleDateString()}
+              {report.mediaTypes.length > 0 ? ` · ${report.mediaTypes.join(", ")}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function RemovalAppeal({
+  postId,
+  filed,
+  appeal,
+}: {
+  postId: string;
+  filed: boolean;
+  appeal: (
+    postId: string,
+    kind: "removal",
+    reason: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  if (filed) return <p className="mt-2">Appeal filed with the stewards.</p>;
+  if (!open) {
+    return (
+      <button type="button" className={`${btnGhost} mt-2`} onClick={() => setOpen(true)}>
+        Appeal this removal
+      </button>
+    );
+  }
+  return (
+    <label className="mt-2 flex flex-col gap-2">
+      One sentence to the stewards
+      <input
+        className={fieldClass}
+        value={reason}
+        onChange={(event) => {
+          setReason(event.target.value);
+          setError("");
+        }}
+      />
+      {error ? <span className="text-signal">{error}</span> : null}
+      <span className="flex gap-2">
+        <button
+          type="button"
+          className={btnSignal}
+          onClick={() => {
+            void appeal(postId, "removal", reason).then((result) => {
+              if (!result.ok) setError(result.error ?? "That appeal was not filed.");
+              else setOpen(false);
+            });
+          }}
+        >
+          File appeal
+        </button>
+        <button type="button" className={btnGhost} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </span>
+    </label>
   );
 }
 

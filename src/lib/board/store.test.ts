@@ -28,6 +28,8 @@ function reset() {
     removals: [],
     markLog: [],
     bans: [],
+    appeals: [],
+    csamReports: [],
     boardError: "",
   });
 }
@@ -111,10 +113,49 @@ test("a live board writes through the API client", async () => {
     remove: async () => ({ ok: false, error: "unused" }),
     createRoom: async () => ({ ok: false, error: "unused" }),
     appointSteward: async () => ({ ok: false, error: "unused" }),
+    appeal: async () => ({ ok: false, error: "unused" }),
+    decideAppeal: async () => ({ ok: false, error: "unused" }),
   });
   useBoard.setState({ remote: true });
   const check = await useBoard.getState().file(draft());
   assert.equal(check.ok, true);
   assert.equal(useBoard.getState().posts[0]?.id, "server-1");
   assert.equal(useBoard.getState().posts[0]?.removed, false);
+});
+
+test("out of scope stays on the post, and the appeal and the decision are logged", async () => {
+  reset();
+  await useBoard.getState().file(draft());
+  const id = useBoard.getState().posts[0]?.id ?? "";
+  const marked = await useBoard
+    .getState()
+    .mark(id, "out_of_scope", "This belongs in the county room.");
+  assert.equal(marked.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.mark, "out_of_scope");
+  assert.equal(useBoard.getState().posts[0]?.removed, false);
+  const filed = await useBoard.getState().appeal(id, "mark", "The post is about the shop night.");
+  assert.equal(filed.ok, true);
+  assert.equal(useBoard.getState().appeals[0]?.decision, null);
+  useBoard.setState({ me: "Tom" });
+  const lifted = await useBoard
+    .getState()
+    .decideAppeal(useBoard.getState().appeals[0]?.id ?? "", "lift", "The post stays in this room.");
+  assert.equal(lifted.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.mark, null);
+  assert.equal(useBoard.getState().posts[0]?.removed, false);
+  assert.equal(useBoard.getState().appeals[0]?.decision, "lift");
+  assert.equal(useBoard.getState().appeals[0]?.decidedBy, "Tom");
+});
+
+test("a local CSAM removal keeps the words off the post and bans the account", async () => {
+  reset();
+  await useBoard.getState().file(draft());
+  const id = useBoard.getState().posts[0]?.id ?? "";
+  const removed = await useBoard.getState().remove(id, "csam");
+  assert.equal(removed.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.claim, "[removed]");
+  assert.equal(useBoard.getState().posts[0]?.reason, "");
+  assert.equal(useBoard.getState().bans[0]?.reason, "csam");
+  const again = await useBoard.getState().file(draft());
+  assert.equal(again.ok, false);
 });

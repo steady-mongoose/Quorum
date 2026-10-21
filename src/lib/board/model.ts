@@ -6,8 +6,12 @@ import {
   hasHeadcount,
   hasStreetAddress,
   isEnglish,
+  looksLikeBlasphemy,
+  looksLikeDoxxing,
   looksLikePorn,
   looksLikeThreat,
+  type HardRuleValue,
+  type MarkValue,
 } from "./text.ts";
 
 export const APP_NAME = "Avouch Social";
@@ -26,10 +30,10 @@ export type RoomId =
   | "dispatch"
   | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
-export type Mark = "sloppy" | "unsupported";
+export type Mark = MarkValue;
 export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
-export type HardRule = "threat" | "porn" | "csam";
+export type HardRule = HardRuleValue;
 
 export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
@@ -165,6 +169,37 @@ export type BanRow = {
   strikes: number;
   at: number;
 };
+export type AppealKind = "mark" | "removal";
+export type AppealDecision = "uphold" | "lift";
+export type AppealRow = {
+  id: string;
+  room: RoomId;
+  postId: string;
+  author: string;
+  kind: AppealKind;
+  reason: string;
+  decision: AppealDecision | null;
+  decisionNote: string;
+  decidedBy: string;
+  at: number;
+  decidedAt: number | null;
+  /** Set when the appeal is of a removal. Null on a mark. */
+  rule: HardRule | null;
+};
+/** Metadata for a hand-filed CyberTipline report. The post itself is not here. */
+export type CsamReport = {
+  id: string;
+  postId: string;
+  room: string;
+  author: string;
+  accountId: string;
+  incidentAt: number;
+  retainUntil: number;
+  mediaCount: number;
+  byteSize: number;
+  mediaTypes: string[];
+  status: "prepared";
+};
 export type DmThread = { id: string; between: [string, string] };
 export type DmMessage = {
   id: string;
@@ -179,8 +214,23 @@ export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
   porn: "Pornography",
   csam: "Child sexual abuse material",
+  doxxing: "Doxxing",
+  blasphemy: "Mocking God or Christ",
 };
-export const MARK_LABEL: Record<Mark, string> = { sloppy: "Sloppy", unsupported: "Unsupported" };
+/** One sentence a steward can apply the same way to every member. */
+export const RULE_SENTENCE: Record<HardRule, string> = {
+  threat: "A threat of violence is removed.",
+  porn: "Pornography is removed.",
+  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days.",
+  doxxing:
+    "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
+  blasphemy: "A post that mocks God or Christ is removed.",
+};
+export const MARK_LABEL: Record<Mark, string> = {
+  sloppy: "Sloppy",
+  unsupported: "No legs",
+  out_of_scope: "Out of scope",
+};
 
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
@@ -518,7 +568,8 @@ export function inviteLive(invite: Invite, now: number): boolean {
 }
 
 // --- The composer check -----------------------------------------------------
-// Threats, pornography, and headcounts are caught here. The steward's hard remove is the real rule.
+// Threats, pornography, doxxing, blasphemy, and headcounts are caught here.
+// The steward's hard remove is the real rule.
 
 export type Draft = {
   room: RoomId;
@@ -566,6 +617,7 @@ export type CheckContext = {
   cards: MeetingCard[];
   removals: RemovalRow[];
   bans?: BanRow[];
+  appeals?: AppealRow[];
   rooms?: readonly Room[];
   now: number;
 };
@@ -580,9 +632,23 @@ export function sawLockedFor(author: string, posts: Post[]): boolean {
 
 export type Ban = { until: number; strikes: number; reason: HardRule };
 
-export function banFor(author: string, removals: RemovalRow[], now: number): Ban | null {
-  const own = removals.filter((row) => row.author === author).sort((a, b) => b.at - a.at);
+export function banFor(
+  author: string,
+  removals: RemovalRow[],
+  now: number,
+  appeals: AppealRow[] = [],
+): Ban | null {
+  const lifted = new Set(
+    appeals
+      .filter((row) => row.kind === "removal" && row.decision === "lift")
+      .map((row) => row.postId),
+  );
+  const own = removals
+    .filter((row) => row.author === author && (row.reason === "csam" || !lifted.has(row.postId)))
+    .sort((a, b) => b.at - a.at);
   if (own.length === 0) return null;
+  const csam = own.find((row) => row.reason === "csam");
+  if (csam) return { until: csam.at + 100 * 365 * DAY, strikes: own.length, reason: "csam" };
   const until = own[0].at + BAN_DAYS * DAY;
   if (own.length < 2 && until <= now) return null;
   return { until, strikes: own.length, reason: own[0].reason };
@@ -598,11 +664,12 @@ export function activeBan(
   removals: RemovalRow[],
   now: number,
   bans: BanRow[] = [],
+  appeals: AppealRow[] = [],
 ): Ban | null {
-  const fromRemovals = banFor(author, removals, now);
+  const fromRemovals = banFor(author, removals, now, appeals);
   const latest = bans.filter((row) => row.author === author).sort((a, b) => b.at - a.at)[0];
   const fromBan =
-    latest && (latest.strikes >= 2 || latest.until > now)
+    latest && (latest.reason === "csam" || latest.strikes >= 2 || latest.until > now)
       ? { until: latest.until, strikes: latest.strikes, reason: latest.reason }
       : null;
   return (
@@ -617,7 +684,7 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   const notes: string[] = [];
   const room = roomById(draft.room, ctx.rooms);
 
-  if (activeBan(ctx.author, ctx.removals, ctx.now, ctx.bans))
+  if (activeBan(ctx.author, ctx.removals, ctx.now, ctx.bans, ctx.appeals))
     return { ok: false, stops: ["This account cannot post right now."], notes };
   if (!draft.type) return { ok: false, stops: ["Choose what kind of post this is."], notes };
   const meta = typeMeta(draft.type);
@@ -679,8 +746,10 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   const text = `${claim}\n${reason}`;
   if (looksLikeThreat(text)) stops.push("That reads as a threat and will not post.");
   if (looksLikePorn(text)) stops.push("That will not post.");
+  if (looksLikeDoxxing(text)) stops.push("That reads as doxxing and will not post.");
+  if (looksLikeBlasphemy(text)) stops.push("That mocks God or Christ and will not post.");
   if (meta.reasonLabel && reason && reason.length < 12)
-    notes.push("That is a short reason. A steward may mark the post unsupported.");
+    notes.push("That is a short reason. A steward may mark the post No legs.");
   if (/^https?:\/\/\S+$/i.test(claim))
     notes.push("A link on its own is not a post. Say what is at the link.");
   if (draft.media.length > 1) stops.push("One picture per post.");
@@ -714,6 +783,8 @@ export function deskDid(input: DeskContact & { author: string }): Post {
 
 function tier(post: Post): number {
   if (post.mark === "sloppy") return 5;
+  // Stored value stays "unsupported". The screen says "No legs".
+  // out_of_scope is not a tier: the post stays in time order and stays visible.
   if (post.mark === "unsupported") return 4;
   if (post.type === "noted" || (post.type === "asked" && post.closed)) return 3;
   if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;

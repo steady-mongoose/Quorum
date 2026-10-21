@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseBoard } from "./api.ts";
-import { newPost, sortRoom } from "./model.ts";
+import { MARK_LABEL, newPost, sortRoom } from "./model.ts";
 
 test("the board payload drops likes, scores, and reshares", () => {
   const board = parseBoard({
@@ -94,21 +94,103 @@ test("room order stays the fixed tier, newest first inside it", () => {
     at: 2,
     cardId: "s-framing",
   });
+  const scope = newPost({
+    id: "scope",
+    room: "shop",
+    type: "did",
+    claim: "This belongs in the county room.",
+    author: "Ruth",
+    at: 30,
+    reason: "Tom was there with me.",
+    mark: "out_of_scope",
+  });
   const ordered = sortRoom(
     [
       Object.assign({}, sloppy, { likes: 1000 }),
       Object.assign({}, older, { score: 5 }),
       newest,
       hosted,
+      scope,
     ],
     "shop",
   );
+  assert.equal(MARK_LABEL.unsupported, "No legs");
+  assert.equal(scope.removed, false);
   assert.deepEqual(
     ordered.map((post) => post.id),
-    ["hosted", "new", "old", "sloppy"],
+    ["hosted", "scope", "new", "old", "sloppy"],
   );
   assert.equal(
     ordered.some((post) => post.removed),
     false,
   );
+});
+
+test("a CyberTipline row keeps metadata and drops the post itself", () => {
+  const secret = "the sealed words must not survive parsing";
+  const board = parseBoard({
+    me: { member: true, steward: false, admin: true, ban: null },
+    rooms: [],
+    posts: [],
+    marks: [
+      {
+        id: "m",
+        room: "shop",
+        postId: "p",
+        author: "Maria",
+        by: "Tom",
+        mark: "out_of_scope",
+        reason: "Wrong room.",
+        at: 3,
+      },
+    ],
+    removals: [{ id: "r", postId: "p", author: "Maria", reason: "doxxing", at: 4 }],
+    bans: [],
+    appeals: [
+      {
+        id: "a",
+        room: "shop",
+        postId: "p",
+        author: "Maria",
+        kind: "removal",
+        reason: "The post did not name a private person.",
+        decision: "uphold",
+        decisionNote: "The removal stands.",
+        decidedBy: "Tom",
+        at: 5,
+        decidedAt: 6,
+        rule: "doxxing",
+        claim: secret,
+      },
+    ],
+    csamReports: [
+      {
+        id: "c",
+        postId: "p",
+        room: "shop",
+        author: "Maria",
+        accountId: "user-1",
+        incidentAt: 7,
+        retainUntil: 8,
+        mediaCount: 1,
+        byteSize: 12,
+        mediaTypes: ["image/jpeg"],
+        status: "prepared",
+        claim: secret,
+        sealed: secret,
+        fileKey: "ready/secret",
+        url: "https://example.test/secret",
+      },
+      { id: "sent", status: "submitted", claim: secret },
+    ],
+  });
+  assert.ok(board);
+  assert.equal(board.marks[0]?.mark, "out_of_scope");
+  assert.equal(board.removals[0]?.reason, "doxxing");
+  assert.equal(board.appeals[0]?.decision, "uphold");
+  assert.equal(board.csamReports.length, 1);
+  assert.equal(board.csamReports[0]?.status, "prepared");
+  assert.equal(JSON.stringify(board).includes(secret), false);
+  assert.equal("fileKey" in (board.csamReports[0] ?? {}), false);
+  assert.equal("claim" in (board.appeals[0] ?? {}), false);
 });

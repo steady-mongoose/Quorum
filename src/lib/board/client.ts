@@ -1,4 +1,15 @@
-import type { BanRow, Draft, HardRule, Mark, MarkRow, Post, RemovalRow, Room } from "./model.ts";
+import type {
+  AppealRow,
+  BanRow,
+  CsamReport,
+  Draft,
+  HardRule,
+  Mark,
+  MarkRow,
+  Post,
+  RemovalRow,
+  Room,
+} from "./model.ts";
 
 export type BoardMe = {
   member: boolean;
@@ -14,6 +25,8 @@ export type BoardSnapshot = {
   marks: MarkRow[];
   removals: RemovalRow[];
   bans: BanRow[];
+  appeals: AppealRow[];
+  csamReports: CsamReport[];
 };
 
 export type BoardFailure = { ok: false; error: string; stops?: string[] };
@@ -49,6 +62,16 @@ export type BoardClient = {
     action: "grant" | "revoke";
     note: string;
   }) => Promise<{ ok: true } | BoardFailure>;
+  appeal: (
+    postId: string,
+    kind: "mark" | "removal",
+    reason: string,
+  ) => Promise<{ ok: true; appeal: AppealRow } | BoardFailure>;
+  decideAppeal: (
+    id: string,
+    decision: "uphold" | "lift",
+    reason: string,
+  ) => Promise<{ ok: true; appeal: AppealRow; posts: Post[] } | BoardFailure>;
 };
 
 let override: BoardClient | null = null;

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { postIsHeld } from "../board/csam.ts";
 import type { Db } from "../db.ts";
 import {
   IMAGE_BYTES,
@@ -153,6 +154,9 @@ export async function readForMember(
 > {
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
+  if (row.post_id && (await postIsHeld(deps.db, row.post_id))) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
   if (row.scope === "room") {
     if (!(await memberOfRoom(deps.db, userId, row.room_id))) {
       return { ok: false, status: 404, error: "That file is not here." };

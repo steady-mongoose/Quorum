@@ -7,6 +7,8 @@ import {
   banMember,
   createPost,
   createRoom,
+  decideAppeal,
+  fileAppeal,
   listBoard,
   markPost,
   removePost,
@@ -349,6 +351,165 @@ test("room creation is admin only, and steward grants and revocations are logged
       now,
     });
     assert.equal(barred.ok, false);
+  } finally {
+    await close();
+  }
+});
+
+test("out of scope stays visible, and a steward logs the appeal decision", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const marked = await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      mark: "out_of_scope",
+      reason: "This belongs in the county room.",
+      now,
+    });
+    assert.equal(marked.ok, true);
+    if (!marked.ok) return;
+    assert.equal(marked.value.post.mark, "out_of_scope");
+    assert.equal(marked.value.post.removed, false);
+    const short = await fileAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      kind: "mark",
+      reason: "No.",
+      now,
+    });
+    assert.equal(short.ok, false);
+    const filed = await fileAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      kind: "mark",
+      reason: "The post is about the shop night.",
+      now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+    const stranger = await decideAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      appealId: filed.value.id,
+      decision: "lift",
+      reason: "The author cannot decide this.",
+      now,
+    });
+    assert.equal(stranger.ok, false);
+    const lifted = await decideAppeal(db, {
+      userId: tom,
+      name: "Tom",
+      appealId: filed.value.id,
+      decision: "lift",
+      reason: "The post stays in this room.",
+      now,
+    });
+    assert.equal(lifted.ok, true);
+    if (!lifted.ok) return;
+    assert.equal(lifted.value.appeal.decision, "lift");
+    assert.equal(lifted.value.posts[0]?.mark, null);
+    assert.equal(lifted.value.posts[0]?.removed, false);
+    const board = await listBoard(db, maria, now);
+    assert.equal(board.ok, true);
+    if (!board.ok) return;
+    assert.equal(
+      board.value.posts.some((post) => post.id === posted.value.id),
+      true,
+    );
+    assert.equal(board.value.appeals[0]?.decision, "lift");
+    assert.equal(board.value.csamReports.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("doxxing and blasphemy do not post, and a steward can remove for them", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const dox = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: { ...did, claim: "Her phone is 555-014-2291." },
+      now,
+    });
+    assert.equal(dox.ok, false);
+    const faith = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "baptist",
+      body: {
+        type: "hosted",
+        claim: "God is good, and the meal is after the service.",
+        reason: "",
+        on: "2026-10-18",
+      },
+      now,
+    });
+    assert.equal(faith.ok, true);
+    const mockery = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: { ...did, claim: "Jesus is a joke." },
+      now,
+    });
+    assert.equal(mockery.ok, false);
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "doxxing",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    assert.equal(removed.value.removal.reason, "doxxing");
+    assert.equal(removed.value.ban.strikes, 1);
+    const later = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+    const again = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now: later,
+    });
+    assert.equal(again.ok, true);
   } finally {
     await close();
   }
