@@ -96,6 +96,8 @@ type LogAction =
   | "leave"
   | "grant-admin"
   | "revoke-admin"
+  | "grant-steward"
+  | "revoke-steward"
   | "post"
   | "mark"
   | "clear"
@@ -682,6 +684,81 @@ export async function setGroupAdmin(
   console.log(
     JSON.stringify({
       event: "group-admin-changed",
+      groupId: input.groupId,
+      action: input.action,
+      userId: person.id,
+    }),
+  );
+  return { ok: true, value: { action: input.action } };
+}
+
+export async function setGroupSteward(
+  db: Db,
+  input: {
+    userId: string;
+    name: string;
+    groupId: string;
+    email: string;
+    action: string;
+    now: Date;
+  },
+): Promise<Result<{ action: "grant" | "revoke" }>> {
+  const gated = await gate(db, input.userId, input.now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
+  if (input.action !== "grant" && input.action !== "revoke")
+    return fail(400, "Grant or revoke the steward role.");
+  const admin = await isGroupAdmin(db, input.groupId, input.userId);
+  if (!admin && !gated.actor.admin)
+    return fail(403, "Only an admin of this group can appoint a steward.");
+  const email = input.email.trim().toLowerCase();
+  if (!email) return fail(400, "Name the member.");
+  const people = await db.query<{ id: string; name: string }>(
+    `select id, name from "user" where lower(email) = $1`,
+    [email],
+  );
+  const person = people[0];
+  if (!person) return fail(404, "No member has that email.");
+  const target = await actorRole(db, person.id);
+  if (!target.member) return fail(400, "That person is not a member.");
+  if (input.action === "grant") {
+    const barred = await openBan(db, person.id, input.now);
+    if (barred) return fail(400, "That account is barred.");
+    if (!(await isJoined(db, input.groupId, person.id)))
+      return fail(400, "They have to join the group first.");
+    if (await isGroupSteward(db, input.groupId, person.id))
+      return fail(409, "That person is already a steward of this group.");
+  } else if (!(await isGroupSteward(db, input.groupId, person.id))) {
+    return fail(400, "That person is not a steward of this group.");
+  }
+  const who = input.name.trim() || "Admin";
+  await db.transaction(async (tx) => {
+    if (input.action === "grant") {
+      await tx.query(
+        `insert into theme_group_steward
+         (group_id, user_id, granted_by_user_id, granted_by_name, created_at)
+         values ($1, $2, $3, $4, $5)`,
+        [input.groupId, person.id, input.userId, who, input.now],
+      );
+    } else {
+      await tx.query(`delete from theme_group_steward where group_id = $1 and user_id = $2`, [
+        input.groupId,
+        person.id,
+      ]);
+    }
+    await writeLog(tx, {
+      groupId: input.groupId,
+      actorUserId: input.userId,
+      actorName: who,
+      action: input.action === "grant" ? "grant-steward" : "revoke-steward",
+      targetUserId: person.id,
+      detail: person.name,
+      now: input.now,
+    });
+  });
+  console.log(
+    JSON.stringify({
+      event: "group-steward-changed",
       groupId: input.groupId,
       action: input.action,
       userId: person.id,

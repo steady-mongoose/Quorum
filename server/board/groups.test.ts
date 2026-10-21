@@ -20,6 +20,7 @@ import {
   removeGroupPost,
   requestGroup,
   setGroupAdmin,
+  setGroupSteward,
 } from "./groups.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
@@ -1215,6 +1216,7 @@ test("deleting an account clears that name from the group tables", async () => {
     });
     assert.equal(approved.ok, true);
     await joinGroup(db, { userId: luis, name: "Luis", groupId: "beekeeping", now: later(2) });
+    await joinGroup(db, { userId: josh, name: "Josh", groupId: "beekeeping", now: later(2) });
     const appointed = await setGroupAdmin(db, {
       userId: maria,
       name: "Maria",
@@ -1224,12 +1226,33 @@ test("deleting an account clears that name from the group tables", async () => {
       now: later(3),
     });
     assert.equal(appointed.ok, true);
-    await db.query(
-      `insert into theme_group_steward
-       (group_id, user_id, granted_by_user_id, granted_by_name, created_at)
-       values ('beekeeping', $1, $2, 'Maria', $3)`,
-      [josh, maria, now],
-    );
+    const roomSteward = await setGroupSteward(db, {
+      userId: josh,
+      name: "Josh",
+      groupId: "beekeeping",
+      email: "luis@example.com",
+      action: "grant",
+      now: later(3),
+    });
+    assert.equal(roomSteward.ok, false);
+    const stewarded = await setGroupSteward(db, {
+      userId: maria,
+      name: "Maria",
+      groupId: "beekeeping",
+      email: "josh@example.com",
+      action: "grant",
+      now: later(3),
+    });
+    assert.equal(stewarded.ok, true);
+    const namedGrant = await setGroupSteward(db, {
+      userId: luis,
+      name: "Luis",
+      groupId: "beekeeping",
+      email: "maria@example.com",
+      action: "grant",
+      now: later(3),
+    });
+    assert.equal(namedGrant.ok, true);
     const posted = await createGroupPost(db, {
       userId: luis,
       name: "Luis",
@@ -1333,6 +1356,29 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     assert.equal(stewards[0]?.granted_by_name, "Removed member");
     assert.equal(stewards[0]?.granted_by_user_id, null);
+    const grantLog = await db.query<{ detail: string; target_user_id: string | null }>(
+      `select detail, target_user_id from theme_group_log
+       where group_id = 'beekeeping' and action = 'grant-steward' and actor_name = 'Luis'`,
+    );
+    assert.equal(grantLog[0]?.detail, "Removed member");
+    assert.equal(grantLog[0]?.target_user_id, null);
+    const adminGrant = await db.query<{ detail: string }>(
+      `select detail from theme_group_log
+       where group_id = 'beekeeping' and action = 'grant-admin'`,
+    );
+    assert.equal(adminGrant[0]?.detail, "Luis");
+    const textColumns = await db.query<{ table_name: string; column_name: string }>(
+      `select table_name, column_name from information_schema.columns
+       where table_schema = 'public' and table_name like 'theme_group%' and data_type = 'text'`,
+    );
+    for (const column of textColumns) {
+      assert.match(column.table_name, /^[a-z_]+$/);
+      assert.match(column.column_name, /^[a-z_]+$/);
+      const hits = await db.query(
+        `select 1 as hit from ${column.table_name} where ${column.column_name} = 'Maria' limit 1`,
+      );
+      assert.equal(hits.length, 0, `${column.table_name}.${column.column_name}`);
+    }
     const actors = await db.query<{ actor_name: string }>(
       `select actor_name from theme_group_log where group_id = 'beekeeping'`,
     );

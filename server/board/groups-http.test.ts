@@ -175,6 +175,41 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
     assert.equal(page.posts[1]?.mark, "sloppy");
     assert.equal(page.posts[0]?.score, undefined);
     assert.deepEqual(page.group.admins, ["Maria"]);
+
+    const refused = await handler(
+      new Request("http://127.0.0.1:8787/api/groups/beekeeping/stewards", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh" },
+        body: JSON.stringify({ email: "maria@example.com", action: "grant" }),
+      }),
+    );
+    assert.equal(refused.status, 403);
+    const appointed = await handler(
+      new Request("http://127.0.0.1:8787/api/groups/beekeeping/stewards", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": maria, "x-user-name": "Maria" },
+        body: JSON.stringify({ email: "josh@example.com", action: "grant" }),
+      }),
+    );
+    assert.equal(appointed.status, 200);
+    const logged = await db.query<{ action: string; detail: string }>(
+      `select action, detail from theme_group_log
+       where group_id = 'beekeeping' and action = 'grant-steward'`,
+    );
+    assert.equal(logged[0]?.detail, "Josh");
+    const revoked = await handler(
+      new Request("http://127.0.0.1:8787/api/groups/beekeeping/stewards", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": maria, "x-user-name": "Maria" },
+        body: JSON.stringify({ email: "josh@example.com", action: "revoke" }),
+      }),
+    );
+    assert.equal(revoked.status, 200);
+    const gone = await db.query<{ user_id: string }>(
+      `select user_id from theme_group_steward where group_id = 'beekeeping' and user_id = $1`,
+      [josh],
+    );
+    assert.equal(gone.length, 0);
   } finally {
     await close();
   }

@@ -16,6 +16,7 @@ import {
   removeGroupPost,
   requestGroup,
   setGroupAdmin,
+  setGroupSteward,
 } from "./groups.ts";
 
 function json(status: number, body: unknown, extra?: Headers): Response {
@@ -76,9 +77,8 @@ export async function handleGroups(
   request: Request,
   url: URL,
 ): Promise<Response | null> {
-  const groupAction = /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|log)$/.exec(
-    url.pathname,
-  );
+  const groupAction =
+    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log)$/.exec(url.pathname);
   const groupOne = /^\/api\/groups\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const requestOne = /^\/api\/group-requests\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
   const postAction = /^\/api\/group-posts\/([A-Za-z0-9_-]{1,80})\/(mark|remove|appeal)$/.exec(
@@ -93,7 +93,11 @@ export async function handleGroups(
     (url.pathname === "/api/group-appeals" && request.method === "GET") ||
     (groupOne !== null && request.method === "GET") ||
     (action === "log" && request.method === "GET") ||
-    ((action === "join" || action === "leave" || action === "posts" || action === "admins") &&
+    ((action === "join" ||
+      action === "leave" ||
+      action === "posts" ||
+      action === "admins" ||
+      action === "stewards") &&
       request.method === "POST") ||
     (requestOne !== null && request.method === "POST") ||
     (postAction !== null && request.method === "POST") ||
@@ -159,6 +163,17 @@ export async function handleGroups(
       return fromResult(
         200,
         await setGroupAdmin(deps.db, {
+          ...who,
+          groupId: groupAction[1],
+          email: stringField(body, "email"),
+          action: stringField(body, "action"),
+        }),
+      );
+    }
+    if (groupAction?.[1] && action === "stewards") {
+      return fromResult(
+        200,
+        await setGroupSteward(deps.db, {
           ...who,
           groupId: groupAction[1],
           email: stringField(body, "email"),

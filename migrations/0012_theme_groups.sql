@@ -189,6 +189,7 @@ create table if not exists theme_group_log (
     'request', 'approve', 'refuse',
     'join', 'leave',
     'grant-admin', 'revoke-admin',
+    'grant-steward', 'revoke-steward',
     'post', 'mark', 'clear', 'remove',
     'appeal', 'uphold', 'lift'
   )),
@@ -242,6 +243,18 @@ begin
   update theme_group_steward
     set granted_by_user_id = null, granted_by_name = 'Removed member'
     where granted_by_user_id = old.id;
+  -- Role grants copy the person's name into detail. Clear that copy
+  -- before target_user_id is dropped, and any other detail that is
+  -- exactly this account's name.
+  update theme_group_log
+    set detail = 'Removed member'
+    where target_user_id = old.id
+      and action in ('grant-admin', 'revoke-admin', 'grant-steward', 'revoke-steward');
+  update theme_group_log
+    set detail = 'Removed member'
+    where (target_user_id = old.id or actor_user_id = old.id)
+      and old.name <> ''
+      and detail = old.name;
   update theme_group_log
     set actor_user_id = null, actor_name = 'Removed member'
     where actor_user_id = old.id;
