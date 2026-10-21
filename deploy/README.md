@@ -223,6 +223,37 @@ Deleting a member tombstones pictures that member sent. A sweep in the worker de
 
 Pictures in a direct message are ciphertext. The server stores a wrapped key and does not read the bytes. The messaging change has to encrypt on the device. See `src/lib/media/e2e.ts`.
 
+## Room calls
+
+Live calls stay off until `CALLS=on` in `deploy/.env`. Restart the API after changing it. The site does not need a rebuild. Until then, `/api/calls/status` answers `{ "enabled": false, "record": false }` and the room page has no call button. Every other calls path answers 404.
+
+This is not stored video. `MEDIA_VIDEO` still governs uploaded clips. A call is WebRTC between the browsers. The API keeps the offer, the answer, and the ICE candidates in memory for the people currently in that room. It checks the session, then `room_member`. Someone who has not stood in the room is refused, and their slot is dropped on that request. An admin who is not a member of that room is refused. Nothing is written to Postgres for the call, so there is no new migration. A restart drops the call. There is no recording route, and the page leaves if a response ever says the call is recorded.
+
+Run one API container. The roster, the six-person cap, and the signals are in that process. A second replica would split the room. Do not scale `api` past one.
+
+Six people can be in one room's call. The mesh is browser to browser. Set `CALLS_STUN_URLS` and `CALLS_TURN_URLS` only when you want a relay you run yourself. Do not point them at Google, Cloudflare, AWS, Azure, Apple, or LiveKit Cloud. A TURN URL without `CALLS_TURN_SECRET`, or a secret without a URL, keeps calls off. The secret is 32 or more letters and digits (`openssl rand -hex 32`). The API mints a password that lasts about an hour. A poll or a re-join refreshes it before it expires. The status path does not receive that password.
+
+Removing or banning someone has to take them out of the call in the same moment. `evictCallMember(userId)` in `server/calls/evict.ts` drops them from every room on this process. `startHost` binds the store. The remove and ban functions are on PR #17 (`banMember` and `removePost` in `server/board/store.ts`), which is not in this branch. When that code lands, call `evictCallMember` after the ban is saved, with the banned user's id. A path that deletes one `room_member` row calls `store.leave(roomId, userId)` for that room. Until then, the next join, leave, signal, or poll from someone who is no longer a member drops the slot, and the other browsers close that peer.
+
+The relay is coturn, and only if you start the calls profile. `docker compose up` does not start it. LiveKit is not in the compose file: a media server can record, and these calls are not recorded. Coturn forwards packets. It has no recording switch.
+
+```bash
+# deploy/.env
+# CALLS=on
+# CALLS_STUN_URLS=stun:140.82.61.209:3478
+# CALLS_TURN_URLS=turn:140.82.61.209:3478?transport=udp
+# CALLS_TURN_SECRET=
+# CALLS_TURN_EXTERNAL_IP=140.82.61.209
+# CALLS_TURN_REALM=avouchsocial.com
+
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build api
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile calls up -d coturn
+```
+
+Coturn uses the host network and binds UDP and TCP 3478, plus UDP 49160 through 49260 for the relay. Open those in ufw only when you turn the profile on. It refuses to relay to the box's own public address, into private IPv4, and into `fc00::/7`, `fe80::/10`, and `::ffff:0:0/96`. It will not start without the secret and the public address. The credential is checked by coturn. It is not a standing password. Join, leave, and poll are limited to 60 in 10 seconds per member, and Caddy applies the same window per client address to `/api/calls/*`.
+
+Calls work without coturn when the browsers can reach each other directly. Most people behind home routers cannot. Leave the TURN lines blank until the profile is up. Calls stay on, and the browsers use host candidates only.
+
 ## What this box does not do
 
-It does not serve the static site. It does not run a feed, likes, reshares, or scores. Signup without an invite code is refused. The interface strings are English.
+It does not serve the static site. It does not run a feed, likes, reshares, or scores. It does not record room calls. Signup without an invite code is refused. The interface strings are English.

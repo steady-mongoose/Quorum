@@ -20,6 +20,17 @@
 			window 1m
 			ipv6_prefix 64
 		}
+		# Join, leave, poll, and signal. The API also limits join, leave,
+		# and poll per member. IPv6 is one bucket per /64.
+		zone calls {
+			match {
+				path /api/calls/*
+			}
+			key {remote_host}
+			events 60
+			window 10s
+			ipv6_prefix 64
+		}
 	}
 	# The API takes its URL from BETTER_AUTH_URL. It reads X-Forwarded-For
 	# only when the peer is this container (172.28.19.10).

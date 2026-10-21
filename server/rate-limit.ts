@@ -8,6 +8,8 @@ export const SIGN_IN_LIMIT = ATTEMPT_LIMIT;
 export const INVITE_LIMIT = ATTEMPT_LIMIT;
 /** Per member and per address. A picture is a direct upload, so this stays tight. */
 export const UPLOAD_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
+/** Join, leave, and poll. Sixty in ten seconds per signed-in member. */
+export const CALLS_LIMIT = { windowMs: 10_000, max: 60 };
 
 export type LimitRule = { windowMs: number; max: number };
 
