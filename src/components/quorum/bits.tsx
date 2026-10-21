@@ -51,7 +51,7 @@ export const btnGhost = cn(btn, "border border-line bg-surface text-fg");
 export const btnQuiet = cn(btn, "bg-transparent text-muted");
 
 export const fieldClass =
-  "w-full rounded-md border border-line bg-raised px-3 py-3 text-base text-fg placeholder:text-muted";
+  "w-full rounded-md border border-line-strong bg-raised px-3 py-3 text-base text-fg placeholder:text-muted focus-visible:border-fg";
 
 export function useNow(): Date | null {
   const [now, setNow] = useState<Date | null>(null);
