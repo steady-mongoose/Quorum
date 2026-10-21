@@ -70,13 +70,10 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 8. Seat Josh once, from the host. Do not put these values in `deploy/.env`. The API container is already running, so a line added to that file afterwards is never seen and the seed exits without seating anyone.
 
    ```bash
-   BOOTSTRAP_OWNER=Josh \
-   BOOTSTRAP_OWNER_EMAIL=josh@example.com \
-   BOOTSTRAP_OWNER_PASSWORD='the password' \
    ./scripts/seed-owner.sh
    ```
 
-   `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. If the three variables are unset and you are at a terminal, the script asks. The password is not echoed. They are handed to the seed process with `docker compose exec -e` and are not written into `deploy/.env`. A second run prints that the founding admin is already seated and exits 1. If a password was left in `deploy/.env`, the script clears that line and recreates the API so it is not left in the process. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
+   The script asks for `BOOTSTRAP_OWNER`, `BOOTSTRAP_OWNER_EMAIL`, and `BOOTSTRAP_OWNER_PASSWORD`. The password is not echoed. `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. They are handed to the seed process with `docker compose exec -e` and are not written into `deploy/.env`. A second run prints that the founding admin is already seated and exits 1. If a password was left in `deploy/.env`, the script clears that line and recreates the API so it is not left in the process. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
 
 9. Check health:
 

@@ -20,26 +20,44 @@ restore_echo() {
     STTY_OFF=
   fi
 }
-trap restore_echo EXIT INT TERM
+on_interrupt() {
+  restore_echo
+  exit 130
+}
+# The prompt runs in this shell, not a $(...) subshell, so this trap can
+# turn echo back on if the operator hits Ctrl-C while the password is hidden.
+trap restore_echo EXIT
+trap on_interrupt INT TERM
 
-# Prints the value. Asks on a terminal when the variable is empty.
-# A missing value with no terminal is an error, so the script never reads
-# the password back out of deploy/.env.
-ask() {
-  label="$1"
+# Sets one BOOTSTRAP_* variable. Called directly so stty and the trap stay
+# in this process.
+fill() {
+  name="$1"
   secret="$2"
+  case "$name" in
+    BOOTSTRAP_OWNER) current="${BOOTSTRAP_OWNER:-}" ;;
+    BOOTSTRAP_OWNER_EMAIL) current="${BOOTSTRAP_OWNER_EMAIL:-}" ;;
+    BOOTSTRAP_OWNER_PASSWORD) current="${BOOTSTRAP_OWNER_PASSWORD:-}" ;;
+    *)
+      echo "Unknown seed variable." >&2
+      exit 1
+      ;;
+  esac
+  if [ -n "$current" ]; then
+    return 0
+  fi
   if [ ! -t 0 ]; then
-    echo "Set ${label} in the environment. The seed does not read it from deploy/.env." >&2
+    echo "Set ${name} in the environment. The seed does not read it from deploy/.env." >&2
     exit 1
   fi
   if [ "$secret" = secret ]; then
     stty -echo
     STTY_OFF=1
   fi
-  printf '%s: ' "$label" >&2
+  printf '%s: ' "$name" >&2
   if ! IFS= read -r value; then
     restore_echo
-    echo "Set ${label}." >&2
+    echo "Set ${name}." >&2
     exit 1
   fi
   if [ "$secret" = secret ]; then
@@ -47,21 +65,19 @@ ask() {
     printf '\n' >&2
   fi
   if [ -z "$value" ]; then
-    echo "Set ${label}." >&2
+    echo "Set ${name}." >&2
     exit 1
   fi
-  printf '%s' "$value"
+  case "$name" in
+    BOOTSTRAP_OWNER) BOOTSTRAP_OWNER="$value" ;;
+    BOOTSTRAP_OWNER_EMAIL) BOOTSTRAP_OWNER_EMAIL="$value" ;;
+    BOOTSTRAP_OWNER_PASSWORD) BOOTSTRAP_OWNER_PASSWORD="$value" ;;
+  esac
 }
 
-if [ -z "${BOOTSTRAP_OWNER:-}" ]; then
-  BOOTSTRAP_OWNER="$(ask BOOTSTRAP_OWNER text)"
-fi
-if [ -z "${BOOTSTRAP_OWNER_EMAIL:-}" ]; then
-  BOOTSTRAP_OWNER_EMAIL="$(ask BOOTSTRAP_OWNER_EMAIL text)"
-fi
-if [ -z "${BOOTSTRAP_OWNER_PASSWORD:-}" ]; then
-  BOOTSTRAP_OWNER_PASSWORD="$(ask BOOTSTRAP_OWNER_PASSWORD secret)"
-fi
+fill BOOTSTRAP_OWNER text
+fill BOOTSTRAP_OWNER_EMAIL text
+fill BOOTSTRAP_OWNER_PASSWORD secret
 export BOOTSTRAP_OWNER BOOTSTRAP_OWNER_EMAIL BOOTSTRAP_OWNER_PASSWORD
 
 # `-e NAME` with no value takes the caller's environment. The password is

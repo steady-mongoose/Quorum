@@ -124,3 +124,82 @@ sys.exit(0 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0 else 1)
   assert.equal(trace.includes("s3cret horse"), false);
   assert.equal(readFileSync(envFile, "utf8").includes("s3cret horse"), false);
 });
+
+test("Ctrl-C during the hidden password prompt restores terminal echo", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
+  const bin = join(root, "bin");
+  const log = join(root, "docker.log");
+  const envFile = join(root, ".env");
+  const transcript = join(root, "tty.txt");
+  fakeDocker(bin, log);
+  writeFileSync(log, "");
+  writeFileSync(envFile, "POSTGRES_PASSWORD=db\n");
+  const py = `
+import os, pty, select, signal, sys, termios
+script, log, envfile, bin_dir, transcript = sys.argv[1:6]
+env = os.environ.copy()
+for key in ("BOOTSTRAP_OWNER", "BOOTSTRAP_OWNER_EMAIL", "BOOTSTRAP_OWNER_PASSWORD"):
+    env.pop(key, None)
+env["ENV_FILE"] = envfile
+env["DOCKER_LOG"] = log
+env["COMPOSE_FILE"] = os.path.join(os.path.dirname(envfile), "missing-compose.yml")
+env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe(script, [script], env)
+buf = b""
+sent = 0
+answers = [b"Josh\\n", b"josh@example.com\\n"]
+interrupted = False
+while not interrupted:
+    ready, _, _ = select.select([fd], [], [], 5)
+    if not ready:
+        os.kill(pid, signal.SIGKILL)
+        sys.stderr.write("prompt timed out\\n")
+        sys.exit(1)
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    buf += chunk
+    if sent < len(answers) and buf.endswith(b": "):
+        os.write(fd, answers[sent])
+        sent += 1
+    elif sent == len(answers) and buf.endswith(b": "):
+        attrs = termios.tcgetattr(fd)
+        if attrs[3] & termios.ECHO:
+            os.kill(pid, signal.SIGKILL)
+            sys.stderr.write("echo still on at the password prompt\\n")
+            sys.exit(1)
+        os.killpg(os.getpgid(pid), signal.SIGINT)
+        interrupted = True
+while True:
+    ready, _, _ = select.select([fd], [], [], 2)
+    if not ready:
+        break
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    buf += chunk
+_, status = os.waitpid(pid, 0)
+open(transcript, "wb").write(buf)
+if not interrupted:
+    sys.stderr.write("never reached the password prompt\\n")
+    sys.exit(1)
+attrs = termios.tcgetattr(fd)
+if not (attrs[3] & termios.ECHO):
+    sys.stderr.write("echo left off after interrupt\\n")
+    sys.exit(1)
+if not (os.WIFEXITED(status) and os.WEXITSTATUS(status) == 130):
+    sys.stderr.write("expected exit 130, status %s\\n" % (status,))
+    sys.exit(1)
+`;
+  await execFileAsync("python3", ["-c", py, join(projectRoot(), "scripts/seed-owner.sh"), log, envFile, bin, transcript]);
+  assert.equal(readFileSync(log, "utf8"), "");
+  assert.match(readFileSync(transcript, "utf8"), /BOOTSTRAP_OWNER_PASSWORD: /);
+});
