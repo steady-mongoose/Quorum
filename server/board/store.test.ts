@@ -903,3 +903,40 @@ test("a ban and a removal drop that person from every live call", async () => {
     await close();
   }
 });
+
+test("reading the board does not add the member to every room", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await user(db, maria, "Maria", "maria-rooms@example.com");
+    await grant(db, maria, "Maria", "member");
+    const board = await listBoard(db, maria, now);
+    assert.equal(board.ok, true);
+    const stood = await db.query<{ room_id: string }>(
+      `select room_id from room_member where user_id = $1`,
+      [maria],
+    );
+    assert.deepEqual(stood, []);
+
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    const again = await listBoard(db, maria, now);
+    assert.equal(again.ok, true);
+    const after = await db.query<{ room_id: string }>(
+      `select room_id from room_member where user_id = $1 order by room_id`,
+      [maria],
+    );
+    assert.deepEqual(
+      after.map((row) => row.room_id),
+      ["shop"],
+    );
+  } finally {
+    await close();
+  }
+});

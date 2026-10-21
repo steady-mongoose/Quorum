@@ -19,6 +19,17 @@ function json(status: number, body: unknown, extra?: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+function denied(result: {
+  status: number;
+  error: string;
+  ban?: { until: number; strikes: number; reason: string };
+}): Response {
+  return json(
+    result.status,
+    result.ban ? { error: result.error, ban: result.ban } : { error: result.error },
+  );
+}
+
 function tooMany(retryAfter: number): Response {
   return json(
     429,
@@ -98,7 +109,7 @@ export async function handleMedia(
       if (!byIp.allowed) return tooMany(byIp.retryAfter);
       const body = await readBody(request);
       const result = await prepareUpload(deps(), session.id, body);
-      if (!result.ok) return json(result.status, { error: result.error });
+      if (!result.ok) return denied(result);
       return json(result.status, result.body);
     }
 
@@ -106,7 +117,7 @@ export async function handleMedia(
     if (completeId) {
       if (!session) return json(401, { error: "Sign in first." });
       const result = await completeUpload(deps(), session.id, completeId);
-      if (!result.ok) return json(result.status, { error: result.error });
+      if (!result.ok) return denied(result);
       return json(result.status, result.body);
     }
 
@@ -117,7 +128,7 @@ export async function handleMedia(
         return json(503, { error: "Picture and video storage is not set up." });
       }
       const result = await readForMember(deps(), session.id, readId);
-      if (!result.ok) return json(result.status, { error: result.error });
+      if (!result.ok) return denied(result);
       return json(result.status, result.body);
     }
 
