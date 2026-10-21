@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { apiBaseUrl } from "../api-base.ts";
+import { readDemoFlag } from "../api-mode.ts";
 import { getBoardClient, type BoardPage } from "./client.ts";
 import {
   DAY,
@@ -614,7 +614,7 @@ export const useBoard = create<BoardState>()(
           return { ok: true };
         },
         connectRemote: async () => {
-          if (!apiBaseUrl()) return;
+          if (readDemoFlag()) return;
           set({ remote: true, sample: false, boardError: "" });
           const loaded = await (await getBoardClient()).load();
           if (!loaded.ok) {

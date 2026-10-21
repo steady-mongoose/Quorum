@@ -32,7 +32,7 @@ function reset() {
   });
 }
 
-test("an unset API base keeps posts in the browser", async () => {
+test("VITE_DEMO keeps posts in the browser, and same-origin calls the API", async () => {
   reset();
   let calls = 0;
   setBoardClient({
@@ -41,14 +41,22 @@ test("an unset API base keeps posts in the browser", async () => {
       return { ok: false, error: "no" };
     },
   } as BoardClient);
+  process.env.VITE_DEMO = "1";
+  try {
+    await useBoard.getState().connectRemote();
+    assert.equal(useBoard.getState().remote, false);
+    assert.equal(calls, 0);
+    const check = await useBoard.getState().file(draft());
+    assert.equal(check.ok, true);
+    assert.equal(useBoard.getState().posts.length, 1);
+    assert.equal(useBoard.getState().posts[0]?.author, "Maria");
+    assert.equal(calls, 0);
+  } finally {
+    delete process.env.VITE_DEMO;
+  }
   await useBoard.getState().connectRemote();
-  assert.equal(useBoard.getState().remote, false);
-  assert.equal(calls, 0);
-  const check = await useBoard.getState().file(draft());
-  assert.equal(check.ok, true);
-  assert.equal(useBoard.getState().posts.length, 1);
-  assert.equal(useBoard.getState().posts[0]?.author, "Maria");
-  assert.equal(calls, 0);
+  assert.equal(calls, 1);
+  assert.equal(useBoard.getState().remote, true);
 });
 
 test("a mark needs one sentence and does not hide the post", async () => {

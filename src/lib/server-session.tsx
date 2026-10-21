@@ -8,18 +8,19 @@ import {
   signUpWithInvite,
   type AccountUser,
 } from "@/lib/account-api";
-import { probeApiMode } from "@/lib/api-mode";
+import { probeApiMode, readDemoFlag } from "@/lib/api-mode";
 import { SessionContext, type ServerSession } from "@/lib/server-session-state";
 
 export function ServerSessionProvider({ children }: { children: ReactNode }) {
-  const configured = apiBaseUrl().length > 0;
-  const [mode, setMode] = useState<ServerSession["mode"]>(configured ? "pending" : "demo");
+  const demo = readDemoFlag();
+  const configured = !demo;
+  const [mode, setMode] = useState<ServerSession["mode"]>(demo ? "demo" : "pending");
   const [user, setUser] = useState<AccountUser | null>(null);
 
   useEffect(() => {
-    if (!configured) return;
+    if (demo) return;
     let cancelled = false;
-    probeApiMode(apiBaseUrl(), fetch).then(async (next) => {
+    probeApiMode(apiBaseUrl(), fetch, 2500, false).then(async (next) => {
       if (cancelled) return;
       if (next === "live") setUser(await readServerSession());
       if (!cancelled) setMode(next);
@@ -27,7 +28,7 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [configured]);
+  }, [demo]);
 
   const value: ServerSession = {
     configured,

@@ -83,7 +83,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
    Expect `{"ok":true}`. The health path is `/api/health`.
 
-10. Build the static site with `VITE_API_BASE_URL=https://api.avouchsocial.com` (no trailing slash). Until that variable is set, or when the API does not answer, the site stays in demo mode.
+10. Build the static site with `VITE_API_BASE_URL=https://api.avouchsocial.com` (no trailing slash). An empty value means same-origin `/api`. `VITE_DEMO=1` forces the browser demo and does not call the API. When `/api/health` does not answer, the site stays in demo mode.
 
 ## DNS fallback plan
 
