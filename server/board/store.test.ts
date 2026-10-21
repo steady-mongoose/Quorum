@@ -560,6 +560,97 @@ test("a reply follows the room's posting rules", async () => {
   }
 });
 
+test("seeds do not overwrite a named room, and deleting a member keeps the log", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await db.query(`update room set name = 'Edited Shop' where id = 'shop'`);
+    await db.query(
+      `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order)
+       values ('shop', 'The Shop', 'Replacement copy.', array['did'], array['noted'], array['meeting'], 'Meeting', true, false, 2)
+       on conflict (id) do update set name = excluded.name, what = excluded.what
+       where room.name = ''`,
+    );
+    const shop = await db.query<{ name: string }>(`select name from room where id = 'shop'`);
+    assert.equal(shop[0]?.name, "Edited Shop");
+
+    await db.query(`delete from room_member where room_id = 'dispatch'`);
+    await db.query(`delete from room where id = 'dispatch'`);
+    await db.query(
+      `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order)
+       values ('dispatch', 'Dispatch', 'Notices from the stewards.', array[]::text[], array['saw'], array[]::text[], 'Meeting', false, false, 9)
+       on conflict (id) do update set name = excluded.name where room.name = ''`,
+    );
+    const dispatch = await db.query<{ name: string }>(`select name from room where id = 'dispatch'`);
+    assert.equal(dispatch[0]?.name, "Dispatch");
+
+    const indexes = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes where indexname in (
+         'board_post_parent_idx', 'board_mark_post_idx', 'board_removal_post_idx', 'board_post_room_page_idx'
+       )`,
+    );
+    assert.equal(indexes.length, 4);
+
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      mark: "sloppy",
+      reason: "The notice does not say where that came from.",
+      now,
+    });
+    await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "threat",
+      now,
+    });
+    await db.query(`delete from "user" where id = $1`, [maria]);
+    const post = await db.query<{ author_name: string; author_user_id: string | null }>(
+      `select author_name, author_user_id from board_post where id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(post[0]?.author_name, "Removed member");
+    assert.equal(post[0]?.author_user_id, null);
+    const mark = await db.query<{ author_name: string; by_name: string }>(
+      `select author_name, by_name from board_mark where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(mark[0]?.author_name, "Removed member");
+    assert.equal(mark[0]?.by_name, "Tom");
+    const removal = await db.query<{ author_name: string; author_user_id: string | null }>(
+      `select author_name, author_user_id from board_removal where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(removal[0]?.author_name, "Removed member");
+    assert.equal(removal[0]?.author_user_id, null);
+    const ban = await db.query<{ name: string; user_id: string | null }>(
+      `select name, user_id from board_ban where name = 'Removed member' or user_id = $1`,
+      [maria],
+    );
+    assert.equal(ban[0]?.name, "Removed member");
+    assert.equal(ban[0]?.user_id, null);
+  } finally {
+    await close();
+  }
+});
+
 test("room pages walk backward from the newest post", async () => {
   const { db, close } = await openTestDb();
   try {
