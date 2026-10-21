@@ -383,12 +383,9 @@ export const useBoard = create<BoardState>()(
           set({
             posts: get().posts.map((item) =>
               item.id === id
-                ? { ...item, claim: patch.claim.trim(), reason: patch.reason.trim(), mark: null }
+                ? { ...item, claim: patch.claim.trim(), reason: patch.reason.trim() }
                 : item,
             ),
-            markLog: post.mark
-              ? [markRow(post, null, "The author revised the post."), ...get().markLog]
-              : get().markLog,
           });
         },
         closeAsked: async (id) => {

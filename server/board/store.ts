@@ -568,6 +568,8 @@ export async function revisePost(
 ): Promise<Result<{ post: BoardPost; mark: MarkEntry | null }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
+  if (await openBan(db, input.userId, input.now))
+    return fail(403, "This account cannot post right now.");
   const existing = await db.query<PostRow & { author_user_id: string }>(
     `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, created_at
@@ -595,53 +597,24 @@ export async function revisePost(
   });
   if (stops.length > 0) return fail(400, stops[0] ?? "That revision was not saved.", stops);
   const updated = await db.query<PostRow>(
-    `update board_post set claim = $2, reason = $3, mark = null where id = $1
+    `update board_post set claim = $2, reason = $3 where id = $1
      returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, created_at`,
     [post.id, input.claim.trim(), input.reason.trim()],
   );
   const saved = updated[0];
   if (!saved) return fail(404, "That post is not here.");
-  let mark: MarkEntry | null = null;
-  if (post.mark) {
-    const sentence = "The author revised the post.";
-    const id = randomUUID();
-    await db.query(
-      `insert into board_mark
-       (id, post_id, room_id, author_user_id, author_name, by_user_id, by_name, mark, reason, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, null, $8, $9)`,
-      [
-        id,
-        post.id,
-        post.room_id,
-        input.userId,
-        post.author_name,
-        input.userId,
-        input.name.trim() || post.author_name,
-        sentence,
-        input.now,
-      ],
-    );
-    mark = {
-      id,
-      room: post.room_id,
-      postId: post.id,
-      author: post.author_name,
-      by: input.name.trim() || post.author_name,
-      mark: null,
-      reason: sentence,
-      at: input.now.getTime(),
-    };
-  }
-  return { ok: true, value: { post: toPost(saved), mark } };
+  return { ok: true, value: { post: toPost(saved), mark: null } };
 }
 
 export async function closeAsked(
   db: Db,
-  input: { userId: string; postId: string },
+  input: { userId: string; postId: string; now: Date },
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
+  if (await openBan(db, input.userId, input.now))
+    return fail(403, "This account cannot post right now.");
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
      where id = $1 and author_user_id = $2 and type = 'asked' and parent_id is null and removed = false

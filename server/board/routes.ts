@@ -198,7 +198,10 @@ export async function handleBoard(
       );
     }
     if (action === "close") {
-      return fromResult(200, await closeAsked(deps.db, { userId: session.id, postId }));
+      return fromResult(
+        200,
+        await closeAsked(deps.db, { userId: session.id, postId, now }),
+      );
     }
     if (action === "mark") {
       return fromResult(

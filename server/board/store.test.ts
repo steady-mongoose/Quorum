@@ -5,11 +5,13 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
   banMember,
+  closeAsked,
   createPost,
   createRoom,
   listBoard,
   markPost,
   removePost,
+  revisePost,
   setSteward,
 } from "./store.ts";
 
@@ -349,6 +351,97 @@ test("room creation is admin only, and steward grants and revocations are logged
       now,
     });
     assert.equal(barred.ok, false);
+  } finally {
+    await close();
+  }
+});
+
+test("a barred member cannot revise or close, and a revision keeps the mark", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, tom, "Tom", "tom@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const marked = await markPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      mark: "unsupported",
+      reason: "The notice does not say where that came from.",
+      now,
+    });
+    assert.equal(marked.ok, true);
+    const revised = await revisePost(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      claim: "Sharpened the chisels and put them back.",
+      reason: "Tom checked them on Thursday.",
+      now,
+    });
+    assert.equal(revised.ok, true);
+    if (!revised.ok) return;
+    assert.equal(revised.value.post.mark, "unsupported");
+    assert.equal(revised.value.mark, null);
+    const marks = await db.query<{ mark: string | null }>(
+      `select mark from board_mark where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(marks.length, 1);
+    assert.equal(marks[0]?.mark, "unsupported");
+
+    const asked = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: {
+        type: "asked",
+        claim: "Can someone lend a carboy?",
+        reason: "I already asked Luis.",
+      },
+      now,
+    });
+    assert.equal(asked.ok, true);
+    if (!asked.ok) return;
+    await banMember(db, {
+      userId: tom,
+      name: "Tom",
+      email: "maria@example.com",
+      reason: "threat",
+      now,
+    });
+    const blockedRevise = await revisePost(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      claim: "Sharpened the chisels again.",
+      reason: "Tom checked them on Thursday.",
+      now,
+    });
+    assert.equal(blockedRevise.ok, false);
+    if (blockedRevise.ok) return;
+    assert.equal(blockedRevise.status, 403);
+    const blockedClose = await closeAsked(db, {
+      userId: maria,
+      postId: asked.value.id,
+      now,
+    });
+    assert.equal(blockedClose.ok, false);
+    if (blockedClose.ok) return;
+    assert.equal(blockedClose.status, 403);
   } finally {
     await close();
   }

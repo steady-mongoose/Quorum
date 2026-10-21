@@ -118,3 +118,18 @@ test("a live board writes through the API client", async () => {
   assert.equal(useBoard.getState().posts[0]?.id, "server-1");
   assert.equal(useBoard.getState().posts[0]?.removed, false);
 });
+
+test("a revision keeps a steward mark", async () => {
+  reset();
+  await useBoard.getState().file(draft());
+  const id = useBoard.getState().posts[0]?.id ?? "";
+  await useBoard
+    .getState()
+    .mark(id, "sloppy", "The notice does not say where that came from.");
+  await useBoard.getState().revise(id, {
+    claim: "Sharpened the chisels and put them back.",
+    reason: "Tom checked them on Thursday.",
+  });
+  assert.equal(useBoard.getState().posts[0]?.mark, "sloppy");
+  assert.equal(useBoard.getState().markLog.length, 1);
+});
