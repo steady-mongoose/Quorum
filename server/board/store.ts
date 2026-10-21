@@ -3,6 +3,7 @@ import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
+import { evictCallMember } from "../calls/evict.ts";
 import { actorRole, moderationStop } from "./access.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
@@ -846,6 +847,7 @@ export async function removePost(
       });
     });
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
+    evictCallMember(post.author_user_id);
     return {
       ok: true,
       value: {
@@ -895,6 +897,7 @@ export async function banMember(
     removalId: null,
     now: input.now,
   });
+  evictCallMember(person.id);
   return { ok: true, value: ban };
 }
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { bindCallEviction } from "../calls/evict.ts";
+import { createCallStore } from "../calls/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
@@ -825,6 +827,79 @@ test("a steward cannot bar the owner, an admin, or another steward", async () =>
     });
     assert.equal(adminRemovesSteward.ok, true);
   } finally {
+    await close();
+  }
+});
+
+test("a ban and a removal drop that person from every live call", async () => {
+  const { db, close } = await openTestDb();
+  const calls = createCallStore();
+  bindCallEviction(calls);
+  try {
+    const steward = randomUUID();
+    const member = randomUUID();
+    const other = randomUUID();
+    const owner = randomUUID();
+    await user(db, steward, "Tom", "tom-call@example.com");
+    await grant(db, steward, "Tom", "member");
+    await grant(db, steward, "Tom", "steward");
+    await user(db, member, "Maria", "maria-call@example.com");
+    await grant(db, member, "Maria", "member");
+    await user(db, other, "Ruth", "ruth-call@example.com");
+    await grant(db, other, "Ruth", "member");
+    await seatOwner(db, owner, "Josh", "josh-call@example.com");
+
+    const at = now.getTime();
+    calls.join("shop", { id: member, name: "Maria" }, at);
+    calls.join("county", { id: member, name: "Maria" }, at);
+    calls.join("shop", { id: other, name: "Ruth" }, at);
+    calls.join("county", { id: other, name: "Ruth" }, at);
+    calls.join("shop", { id: owner, name: "Josh" }, at);
+
+    const refused = await banMember(db, {
+      userId: steward,
+      name: "Tom",
+      email: "josh-call@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(refused.ok, false);
+    assert.equal(calls.poll("shop", owner, 0, at + 1).ok, true);
+
+    const posted = await createPost(db, {
+      userId: member,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: steward,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    assert.equal(calls.poll("shop", member, 0, at + 1).ok, false);
+    assert.equal(calls.poll("county", member, 0, at + 1).ok, false);
+    assert.equal(calls.poll("shop", other, 0, at + 1).ok, true);
+
+    const banned = await banMember(db, {
+      userId: steward,
+      name: "Tom",
+      email: "ruth-call@example.com",
+      reason: "porn",
+      now,
+    });
+    assert.equal(banned.ok, true);
+    assert.equal(calls.poll("shop", other, 0, at + 2).ok, false);
+    assert.equal(calls.poll("county", other, 0, at + 2).ok, false);
+    assert.equal(calls.poll("shop", owner, 0, at + 2).ok, true);
+  } finally {
+    bindCallEviction(createCallStore());
     await close();
   }
 });
