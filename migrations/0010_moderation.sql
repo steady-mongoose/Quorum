@@ -3,7 +3,8 @@
 -- decision from merging. The API process does not apply migrations.
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
--- Numbered 0010. 0006 is reserved by PR #10. 0009 is unused.
+-- Numbered 0010. 0006 is reserved by PR #10. 0009 is unused. 0011 is places
+-- and is already on production. This file can be applied after 0011.
 --
 -- Doxxing and blasphemy join the hard-removal rules. Marks gain out_of_scope.
 -- The author can appeal a mark or a removal; the appeal and the decision stay
@@ -11,6 +12,10 @@
 -- days (18 U.S.C. 2258A). The sealed column is ciphertext. No board query
 -- returns it. The admin queue reads the other columns only. Nothing here is a
 -- like, a score, or a rank.
+--
+-- Account deletion for these tables is anonymize_moderation_user. It does not
+-- replace anonymize_board_user. A later migration that rewrites that function
+-- must leave this one in place.
 
 -- Inline checks in 0008 were named for the column. Drop those, then add the
 -- wider lists. A second run is safe because of IF EXISTS.
@@ -39,7 +44,7 @@ create table if not exists board_appeal (
   id text primary key,
   room_id text not null references room (id),
   post_id text not null references board_post (id) on delete cascade,
-  author_user_id text not null references "user" (id) on delete cascade,
+  author_user_id text references "user" (id) on delete set null,
   author_name text not null,
   kind text not null check (kind in ('mark', 'removal')),
   target_id text not null,
@@ -94,3 +99,26 @@ create table if not exists board_csam_hold (
 create index if not exists board_csam_hold_open_idx
   on board_csam_hold (post_id)
   where purged_at is null;
+
+-- Names on an appeal are dropped when the account is deleted. The sentence
+-- stays. This trigger is not anonymize_board_user. A CSAM hold keeps
+-- author_user_id on delete restrict, so the account cannot be deleted while
+-- the 90-day report is open.
+create or replace function anonymize_moderation_user() returns trigger
+language plpgsql
+as $$
+begin
+  update board_appeal
+    set author_user_id = null, author_name = 'Removed member'
+    where author_user_id = old.id;
+  update board_appeal
+    set decided_by_user_id = null, decided_by_name = 'Removed member'
+    where decided_by_user_id = old.id;
+  return old;
+end;
+$$;
+
+drop trigger if exists anonymize_moderation_user on "user";
+create trigger anonymize_moderation_user
+  before delete on "user"
+  for each row execute function anonymize_moderation_user();

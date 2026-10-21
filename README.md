@@ -8,7 +8,7 @@ Quorum (below) is the engine of The County room. A campaign is one demand on one
 
 ## Get it running
 
-You need [Node.js](https://nodejs.org/) 22 or newer and Git. Then, in a terminal:
+You need [Node.js](https://nodejs.org/) 22.6 or newer and Git. Then, in a terminal:
 
 ```bash
 git clone https://github.com/steady-mongoose/Quorum.git
@@ -65,11 +65,17 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
 
-**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_, _No legs_ (stored as `unsupported`), or _out of scope_ (they do not disappear; sloppy and No legs sort down) and hard-remove threats, pornography, CSAM, doxxing, and posts that mock God or Christ. A removal bars filing for 30 days. CSAM bans the account, holds the evidence for 90 days, and prepares a CyberTipline report that Josh files by hand. The content is never shown. Every mark, appeal, and decision is logged in the room for everyone to read.
+**Built in, not settings:** chronological inside the room ending in "You're caught up"; no feed algorithm, reshare, quote, like counts, badges, streaks, or scores; one mark on every screen, set by the owner (`OWNER_THEME` in `src/lib/board/themes.ts`); a dismissable line at twenty minutes. **Stewards** mark posts _sloppy_, _No legs_ (stored as `unsupported`), or _out of scope_. A mark dims the post. It stays in time order and it does not disappear. A steward can mark, remove, or decide an appeal only in a room they steward. A grant with no room does not count. Hard removal covers threats, pornography, CSAM, doxxing, and posts that mock God or Christ. A removal bars filing for 30 days. CSAM bans the account, holds the evidence for 90 days, and prepares a CyberTipline report that Josh files by hand. The content is never shown. Every mark, appeal, and decision is logged in the room for everyone to read.
 
-Status: the screens still run in the browser. A closed test can point them at `https://api.avouchsocial.com` with `VITE_API_BASE_URL`. Signup on that API is invite-code only. When the variable is empty, or the API does not answer, the door stays in demo mode and nothing is saved on a server. The box itself is described in `deploy/README.md`. Do not apply `migrations/` until the owner approves those files.
+**Home** is a fixed list: rooms you have joined, then town rooms for your ZIP, then your congregation, then wider regions. Inside a room, posts stay newest first. A mark only dims a post. The council can label a candidate post or a business post **Council-approved**, once, with a logged reason and a review checklist. That label is not a rank. A steward is the inviter plus a steward of that room (the first steward of a room is the inviter plus the council chair). An admin is already a steward, plus the role owner's sign-off. Every grant and revocation is in `access_log`. A ZIP does not create a room. A member requests one, and an admin approves it.
+
+Migration **0011** is `migrations/0011_places.sql`. It adds towns, ZIP codes, congregations, room requests, and council approvals. It is not applied. Approve 0011 before it is applied. Merging is not that approval.
+
+Status: the screens still run in the browser when `VITE_DEMO=1`, or when `/api/health` does not answer. A closed test can point them at `https://api.avouchsocial.com` with `VITE_API_BASE_URL`. An empty `VITE_API_BASE_URL` means same-origin `/api`, not the demo. Signup on that API is invite-code only. The box itself is described in `deploy/README.md`. Do not apply `migrations/` until the owner approves those files.
 
 Pictures and short video upload straight to S3-compatible storage with a presigned link that locks the size. That stays off until the storage credentials are set, and video stays off until `MEDIA_VIDEO=on`. A worker re-encodes the file, strips location data, and makes a thumbnail. Only a member of that room can see it, through a short-lived signed link. A picture in a message is encrypted on the device; that step waits on the messaging work described in `src/lib/media/e2e.ts`. There is still no feed algorithm, reshare, like, or score.
+
+A room can also hold a live group call. That is separate from stored video, and it stays hidden until `CALLS=on` on the API. The browsers talk to each other. The API only passes the offer, the answer, and the network candidates, and only to people who have stood in that room. The call is not recorded. The roster lives in that one API process. A TURN relay, if you run one, is the optional `calls` profile in `deploy/docker-compose.yml`. `docker compose up` does not start it. See `deploy/README.md`.
 
 ---
 

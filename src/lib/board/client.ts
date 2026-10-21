@@ -1,3 +1,4 @@
+import type { HomePayload } from "./home.ts";
 import type {
   AppealRow,
   BanRow,
@@ -15,8 +16,39 @@ export type BoardMe = {
   member: boolean;
   steward: boolean;
   admin: boolean;
+  council: boolean;
+  councilChair: boolean;
   ban: { until: number; strikes: number; reason: HardRule } | null;
 };
+
+export type PlaceInput = { zip: string; congregationId: string };
+
+export type RoomRequestInput = {
+  kind: "town" | "congregation" | "region";
+  name: string;
+  state: string;
+};
+
+export type RoomDecisionInput = { decision: "approved" | "refused"; note: string };
+
+export type ZipCorrectionInput = { zip: string; name: string; state: string; clear?: boolean };
+
+export type AccessInput = {
+  action: "grant-member" | "grant-steward" | "grant-admin" | "revoke";
+  email: string;
+  roomId?: string;
+  inviterEmail?: string;
+  stewardEmail?: string;
+  role?: "member" | "steward" | "admin";
+};
+
+export type CouncilInput = {
+  action: "approve" | "revoke";
+  reason: string;
+  checklist: string[];
+};
+
+export type BoardPage = { room: string; next: string | null };
 
 export type BoardSnapshot = {
   me: BoardMe;
@@ -27,12 +59,16 @@ export type BoardSnapshot = {
   bans: BanRow[];
   appeals: AppealRow[];
   csamReports: CsamReport[];
+  pages: BoardPage[];
 };
 
 export type BoardFailure = { ok: false; error: string; stops?: string[] };
 
 export type BoardClient = {
-  load: () => Promise<{ ok: true; board: BoardSnapshot } | BoardFailure>;
+  load: (query?: {
+    room?: string;
+    cursor?: string;
+  }) => Promise<{ ok: true; board: BoardSnapshot } | BoardFailure>;
   createPost: (
     draft: Draft,
     extra?: { campaignId?: string },
@@ -72,6 +108,15 @@ export type BoardClient = {
     decision: "uphold" | "lift",
     reason: string,
   ) => Promise<{ ok: true; appeal: AppealRow; posts: Post[] } | BoardFailure>;
+  loadHome: () => Promise<{ ok: true; home: HomePayload } | BoardFailure>;
+  savePlace: (input: PlaceInput) => Promise<{ ok: true } | BoardFailure>;
+  joinRoom: (roomId: string) => Promise<{ ok: true } | BoardFailure>;
+  leaveRoom: (roomId: string) => Promise<{ ok: true } | BoardFailure>;
+  requestRoom: (input: RoomRequestInput) => Promise<{ ok: true } | BoardFailure>;
+  decideRoom: (id: string, input: RoomDecisionInput) => Promise<{ ok: true } | BoardFailure>;
+  correctZip: (input: ZipCorrectionInput) => Promise<{ ok: true } | BoardFailure>;
+  changeAccess: (input: AccessInput) => Promise<{ ok: true } | BoardFailure>;
+  setCouncil: (id: string, input: CouncilInput) => Promise<{ ok: true } | BoardFailure>;
 };
 
 let override: BoardClient | null = null;

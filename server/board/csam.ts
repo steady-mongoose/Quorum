@@ -46,10 +46,44 @@ export type CsamReport = {
   status: "prepared";
 };
 
+export function holdKeyError(raw: string | undefined = process.env.CSAM_HOLD_KEY): string | null {
+  if ((raw?.trim() ?? "").length < 16) {
+    return "Set CSAM_HOLD_KEY before removing child sexual abuse material.";
+  }
+  return null;
+}
+
 export function holdKey(): Buffer {
   const raw = process.env.CSAM_HOLD_KEY?.trim() ?? "";
-  if (raw.length < 16) throw new Error("CSAM_HOLD_KEY is not set.");
+  const missing = holdKeyError(raw);
+  if (missing) throw new Error(missing);
   return createHash("sha256").update(raw).digest();
+}
+
+/**
+ * Tests serialize CSAM removals so one case can unset the key without
+ * racing another case in this process. The server does not call this.
+ * The key is read only when a removal is sealed, never at boot.
+ */
+let holdChain: Promise<unknown> = Promise.resolve();
+
+export function withHoldKey<T>(raw: string | undefined, run: () => Promise<T>): Promise<T> {
+  const result = holdChain.then(async () => {
+    const previous = process.env.CSAM_HOLD_KEY;
+    if (raw === undefined) delete process.env.CSAM_HOLD_KEY;
+    else process.env.CSAM_HOLD_KEY = raw;
+    try {
+      return await run();
+    } finally {
+      if (previous === undefined) delete process.env.CSAM_HOLD_KEY;
+      else process.env.CSAM_HOLD_KEY = previous;
+    }
+  });
+  holdChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 /** Ciphertext for the legal hold. Callers that serve the board do not open it. */

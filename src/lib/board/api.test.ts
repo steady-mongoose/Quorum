@@ -56,7 +56,7 @@ test("the board payload drops likes, scores, and reshares", () => {
   assert.equal(board.me.member, true);
 });
 
-test("room order stays the fixed tier, newest first inside it", () => {
+test("room order is newest first, and a mark does not move a post", () => {
   const older = newPost({
     id: "old",
     room: "shop",
@@ -107,7 +107,15 @@ test("room order stays the fixed tier, newest first inside it", () => {
   const ordered = sortRoom(
     [
       Object.assign({}, sloppy, { likes: 1000 }),
-      Object.assign({}, older, { score: 5 }),
+      Object.assign({}, older, {
+        score: 5,
+        council: {
+          label: "Council-approved",
+          reason: "Named the office.",
+          checklist: ["The post names the candidate and the office."],
+          approvalId: "c1",
+        },
+      }),
       newest,
       hosted,
       scope,
@@ -118,8 +126,9 @@ test("room order stays the fixed tier, newest first inside it", () => {
   assert.equal(scope.removed, false);
   assert.deepEqual(
     ordered.map((post) => post.id),
-    ["hosted", "scope", "new", "old", "sloppy"],
+    ["sloppy", "scope", "new", "hosted", "old"],
   );
+  assert.equal(ordered.find((post) => post.id === "old")?.council?.label, "Council-approved");
   assert.equal(
     ordered.some((post) => post.removed),
     false,

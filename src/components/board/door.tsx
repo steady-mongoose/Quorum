@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { AccountDoor } from "@/components/board/account-door";
+import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
 import { APP_NAME, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -42,47 +43,14 @@ export function Door() {
   const [outcome, setOutcome] = useState<string | null>(null);
   const live = server.mode === "live";
 
+  useEffect(() => {
+    const fromUrl = codeFromSearch(window.location.search);
+    if (fromUrl) setCode(fromUrl);
+  }, []);
+
   return (
     <div className="grid gap-10 py-6 lg:min-h-[70vh] lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-center lg:gap-16 lg:py-10">
-      <div className="flex max-w-3xl flex-col gap-8">
-        <section className="flex flex-col gap-3">
-          <Kicker>Invite only</Kicker>
-          <h1 className="font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
-            Someone brought you here for one thing.
-          </h1>
-          <p className="max-w-prose text-base text-muted lg:text-lg">
-            {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a book
-            table, a meal after church. Enter your name and the code, and you are in and on the list
-            for that meeting. There is no sign-up form and nothing to browse until then.
-          </p>
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-            What a typical week looks like
-          </h2>
-          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
-            {WEEK.map((row) => (
-              <div key={row.day} className="contents">
-                <dt className="font-semibold text-fg">{row.day}</dt>
-                <dd className="text-muted">{row.what}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">The rooms</h2>
-          <p className="max-w-prose text-sm text-muted">
-            {rooms
-              .filter((room) => room.id !== "dispatch")
-              .map((room) => room.name)
-              .join(" · ")}
-          </p>
-        </section>
-      </div>
-
-      <div className="flex flex-col gap-6 lg:sticky lg:top-28">
+      <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
         {live ? <AccountDoor /> : null}
         {server.mode === "demo" && server.configured ? (
           <p className="text-sm text-muted">
@@ -140,6 +108,44 @@ export function Door() {
           <button type="button" className={cn(btnGhost, "self-start")} onClick={loadSample}>
             Load the sample week
           </button>
+        </section>
+      </div>
+
+      <div className="flex max-w-3xl flex-col gap-8">
+        <section className="flex flex-col gap-3">
+          <Kicker>Invite only</Kicker>
+          <h1 className="font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
+            Someone brought you here for one thing.
+          </h1>
+          <p className="max-w-prose text-base text-muted lg:text-lg">
+            {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a book
+            table, a meal after church. Enter your name and the code, and you are in and on the list
+            for that meeting. There is no sign-up form and nothing to browse until then.
+          </p>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+            What a typical week looks like
+          </h2>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
+            {WEEK.map((row) => (
+              <div key={row.day} className="contents">
+                <dt className="font-semibold text-fg">{row.day}</dt>
+                <dd className="text-muted">{row.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">The rooms</h2>
+          <p className="max-w-prose text-sm text-muted">
+            {rooms
+              .filter((room) => room.id !== "dispatch")
+              .map((room) => room.name)
+              .join(" · ")}
+          </p>
         </section>
       </div>
     </div>

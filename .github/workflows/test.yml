@@ -93,3 +93,13 @@ jobs:
 
       - name: Process a picture and a video in the media profile
         run: chmod +x scripts/media-compose-smoke.sh && ./scripts/media-compose-smoke.sh
+
+  api-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build the API image, migrate, and require /api/health
+        run: chmod +x scripts/api-image-smoke.sh && ./scripts/api-image-smoke.sh

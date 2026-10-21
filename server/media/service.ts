@@ -22,7 +22,13 @@ import {
 import { attachmentName, type ObjectStore } from "./s3.ts";
 
 export type MediaResult<T> =
-  { ok: true; status: number; body: T } | { ok: false; status: number; error: string };
+  | { ok: true; status: number; body: T }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      ban?: { until: number; strikes: number; reason: string };
+    };
 
 export type MediaServiceDeps = {
   db: Db;
@@ -68,7 +74,7 @@ export async function prepareUpload(
     return { ok: false, status: 400, error: "Choose the other person." };
   }
   if (plan.scope === "room") {
-    const access = await canAttachToPost(deps.db, userId, plan.roomId, plan.postId);
+    const access = await canAttachToPost(deps.db, userId, plan.roomId, plan.postId, deps.now());
     if (!access.ok) return access;
   }
   const id = randomUUID();
@@ -158,7 +164,11 @@ export async function readForMember(
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {
-    if (!(await memberOfRoom(deps.db, userId, row.room_id))) {
+    const stood = await memberOfRoom(deps.db, userId, row.room_id, deps.now());
+    if (!stood.ok) {
+      if (stood.error === "banned") {
+        return { ok: false, status: 403, error: "banned", ban: stood.ban };
+      }
       return { ok: false, status: 404, error: "That file is not here." };
     }
     const posts = await deps.db.query<{ id: string }>(

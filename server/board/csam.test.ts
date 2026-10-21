@@ -5,7 +5,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createMemoryStore } from "../media/memory-store.ts";
 import { readForMember } from "../media/service.ts";
-import { CSAM_QUEUE_SQL, HOLD_MS, openHold, purgeExpiredHolds } from "./csam.ts";
+import { CSAM_QUEUE_SQL, HOLD_MS, holdKeyError, openHold, purgeExpiredHolds, withHoldKey } from "./csam.ts";
 import { createPost, decideAppeal, fileAppeal, listBoard, removePost } from "./store.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
@@ -21,12 +21,18 @@ async function user(db: Db, id: string, name: string, email: string) {
   );
 }
 
-async function grant(db: Db, userId: string, name: string, role: "member" | "steward" | "admin") {
+async function grant(
+  db: Db,
+  userId: string,
+  name: string,
+  role: "member" | "steward" | "admin",
+  roomId = "",
+) {
   await db.query(
     `insert into access_log
      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
-     values ($1, $2, $3, $4, '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $5)`,
-    [randomUUID(), userId, name, role, now],
+     values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.', $6)`,
+    [randomUUID(), userId, name, role, roomId, now],
   );
 }
 
@@ -37,7 +43,59 @@ test("the admin queue selects no sealed column", () => {
   assert.equal(CSAM_QUEUE_SQL.includes("cybertipline"), false);
 });
 
+test("an unset hold key refuses the removal and leaves the post up", async () => {
+  assert.match(holdKeyError("") ?? "", /CSAM_HOLD_KEY/);
+  assert.match(holdKeyError("short") ?? "", /CSAM_HOLD_KEY/);
+  assert.equal(holdKeyError("test-hold-key-value"), null);
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-nokey@example.com");
+    await user(db, tom, "Tom", "tom-nokey@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: {
+        type: "did",
+        claim,
+        reason: "Tom checked them on Thursday.",
+        on: "2026-10-18",
+      },
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await withHoldKey(undefined, () =>
+      removePost(db, {
+        userId: tom,
+        name: "Tom",
+        postId: posted.value.id,
+        reason: "csam",
+        now,
+      }),
+    );
+    assert.equal(removed.ok, false);
+    if (removed.ok) return;
+    assert.equal(removed.status, 503);
+    assert.match(removed.error, /CSAM_HOLD_KEY/);
+    const stored = await db.query<{ claim: string; removed: boolean }>(
+      `select claim, removed from board_post where id = $1`,
+      [posted.value.id],
+    );
+    assert.equal(stored[0]?.removed, false);
+    assert.equal(stored[0]?.claim, claim);
+  } finally {
+    await close();
+  }
+});
+
 test("CSAM is removed, banned, held for 90 days, and never returned", async () => {
+  await withHoldKey("test-hold-key-value", async () => {
   const { db, close } = await openTestDb();
   try {
     const maria = randomUUID();
@@ -48,7 +106,7 @@ test("CSAM is removed, banned, held for 90 days, and never returned", async () =
     await user(db, josh, "Josh", "josh@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, tom, "Tom", "member");
-    await grant(db, tom, "Tom", "steward");
+    await grant(db, tom, "Tom", "steward", "shop");
     await grant(db, josh, "Josh", "member");
     await grant(db, josh, "Josh", "admin");
 
@@ -122,12 +180,10 @@ test("CSAM is removed, banned, held for 90 days, and never returned", async () =
 
     const member = await listBoard(db, maria, now);
     const admin = await listBoard(db, josh, now);
-    assert.equal(member.ok, true);
+    assert.equal(member.ok, false);
     assert.equal(admin.ok, true);
-    if (!member.ok || !admin.ok) return;
-    assert.equal(JSON.stringify(member.value).includes(claim), false);
+    if (member.ok || !admin.ok) return;
     assert.equal(JSON.stringify(admin.value).includes(claim), false);
-    assert.equal(member.value.csamReports.length, 0);
     assert.equal(admin.value.csamReports.length, 1);
     const report = admin.value.csamReports[0];
     assert.equal(report?.status, "prepared");
@@ -213,4 +269,5 @@ test("CSAM is removed, banned, held for 90 days, and never returned", async () =
   } finally {
     await close();
   }
+  });
 });

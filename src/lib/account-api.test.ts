@@ -30,6 +30,14 @@ test("signup and sign-in errors stay in plain English", () => {
     ok: false,
     message: "An invite code is required.",
   });
+  assert.deepEqual(
+    parseAccountResult(400, { error: "That code is not valid.", code: "invite_invalid" }),
+    { ok: false, message: "That code is not valid.", code: "invite_invalid" },
+  );
+  assert.deepEqual(parseAccountResult(400, { error: "Unicode in your name isn't allowed" }), {
+    ok: false,
+    message: "Unicode in your name isn't allowed",
+  });
   assert.equal(
     parseAccountResult(200, { user: { id: "1", name: "Maria", email: "maria@example.com" } }).ok,
     true,

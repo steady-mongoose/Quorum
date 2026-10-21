@@ -20,6 +20,29 @@
 			window 1m
 			ipv6_prefix 64
 		}
+		# Join, leave, and poll. The API also limits those per member.
+		# Signal is its own zone: an offer, an answer, and the candidates
+		# outrun the rest of the calls API. The path is
+		# /api/calls/rooms/<room>/signal. IPv6 is one bucket per /64.
+		zone calls {
+			match {
+				path /api/calls/*
+				not path /api/calls/rooms/*/signal
+			}
+			key {remote_host}
+			events 60
+			window 10s
+			ipv6_prefix 64
+		}
+		zone call_signal {
+			match {
+				path /api/calls/rooms/*/signal
+			}
+			key {remote_host}
+			events 120
+			window 10s
+			ipv6_prefix 64
+		}
 	}
 	# The API takes its URL from BETTER_AUTH_URL. It reads X-Forwarded-For
 	# only when the peer is this container (172.28.19.10).

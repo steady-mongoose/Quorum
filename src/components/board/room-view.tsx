@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
+import { RoomCall } from "@/components/board/room-call";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -49,6 +50,7 @@ import {
   type MeetingCard,
   type Post,
 } from "@/lib/board/model";
+import { checklistFor } from "@/lib/board/council";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -65,6 +67,9 @@ export function RoomView() {
   const appeals = useBoard((state) => state.appeals);
   const rooms = useBoard((state) => state.rooms);
   const boardError = useBoard((state) => state.boardError);
+  const remote = useBoard((state) => state.remote);
+  const older = useBoard((state) => state.roomPages.find((page) => page.room === room)?.next ?? null);
+  const loadOlder = useBoard((state) => state.loadOlder);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
   const meta = roomById(room, rooms);
@@ -143,6 +148,7 @@ export function RoomView() {
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
@@ -165,10 +171,10 @@ export function RoomView() {
           )}
 
           {steward && feed.length > 0 ? (
-            <label className="flex items-center gap-2 self-end text-xs text-muted">
+            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-xs text-muted">
               <input
                 type="checkbox"
-                className="size-4"
+                className="size-5"
                 checked={tools}
                 onChange={(event) => setTools(event.target.checked)}
               />
@@ -188,9 +194,19 @@ export function RoomView() {
                 steward={steward && tools}
               />
             ))}
-            <p className="py-6 text-sm text-muted">
-              {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
-            </p>
+            {remote && older ? (
+              <button
+                type="button"
+                className="py-6 text-left text-sm text-signal underline"
+                onClick={() => void loadOlder(room)}
+              >
+                Older posts
+              </button>
+            ) : (
+              <p className="py-6 text-sm text-muted">
+                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+              </p>
+            )}
           </section>
         </div>
 
@@ -252,6 +268,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const bans = useBoard((state) => state.bans);
   const rooms = useBoard((state) => state.rooms);
   const file = useBoard((state) => state.file);
+  const remote = useBoard((state) => state.remote);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
   const meta = roomById(room, rooms);
@@ -288,6 +305,15 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     [current, me, steward, posts, cards, removals, bans, rooms],
   );
 
+  const subjectChoices: { value: Draft["subject"]; label: string }[] = [
+    { value: "", label: "No subject" },
+  ];
+  if (meta.cardKinds.includes("candidate")) {
+    subjectChoices.push({ value: "candidate", label: "Candidate" });
+  }
+  if (meta.cardKinds.includes("trade")) {
+    subjectChoices.push({ value: "business", label: "Business" });
+  }
   const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
   const reset = () => {
     setDraft(blankDraft(room));
@@ -370,6 +396,28 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               value={current.tradeId}
               onChange={(tradeId) => patch({ tradeId })}
             />
+          ) : null}
+          {remote && subjectChoices.length > 1 ? (
+            <fieldset className="flex flex-col gap-2 text-sm text-muted">
+              <legend>Subject, if the council may label this</legend>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Subject">
+                {subjectChoices.map((choice) => (
+                  <label
+                    key={choice.value || "none"}
+                    className={pill(current.subject === choice.value, "cursor-pointer")}
+                  >
+                    <input
+                      type="radio"
+                      className="sr-only"
+                      name="subject"
+                      checked={current.subject === choice.value}
+                      onChange={() => patch({ subject: choice.value })}
+                    />
+                    {choice.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           ) : null}
           <label className="flex flex-col gap-2 text-sm text-muted">
             {type.claimLabel}
@@ -516,7 +564,7 @@ function Name({ name }: { name: string }) {
   return (
     <button
       type="button"
-      className="font-semibold text-fg hover:underline"
+      className="inline-flex min-h-[44px] items-center font-semibold text-fg hover:underline"
       onClick={() => view(name)}
     >
       {name}
@@ -549,6 +597,13 @@ const PostCard = memo(function PostCard({
   const appeal = useBoard((state) => state.appeal);
   const appeals = useBoard((state) => state.appeals);
   const openDm = useBoard((state) => state.openDm);
+  const remote = useBoard((state) => state.remote);
+  const councilMember = useBoard((state) => state.council);
+  const admin = useBoard((state) => state.admin);
+  const setCouncil = useBoard((state) => state.setCouncil);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [councilReason, setCouncilReason] = useState("");
+  const [councilError, setCouncilError] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -570,7 +625,7 @@ const PostCard = memo(function PostCard({
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark === "sloppy" && "opacity-60")}>
+    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
@@ -585,7 +640,80 @@ const PostCard = memo(function PostCard({
             {MARK_LABEL[post.mark]}
           </span>
         ) : null}
+        {post.council ? (
+          <span className="rounded-sm border border-signal px-2 py-1 text-signal">
+            {post.council.label}
+          </span>
+        ) : null}
       </div>
+      {post.council ? (
+        <div className="mt-2">
+          <p className="text-sm text-muted">{post.council.reason}</p>
+          <ul className="mt-1 list-disc pl-5 text-sm text-muted">
+            {post.council.checklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          {remote && admin ? (
+            <button
+              type="button"
+              className={cn(btnQuiet, "mt-2 px-0")}
+              onClick={() => {
+                void setCouncil(post.id, { action: "revoke", reason: "", checklist: [] }).then(
+                  (result) => {
+                    if (!result.ok) setCouncilError(result.error ?? "That approval was not saved.");
+                  },
+                );
+              }}
+            >
+              Revoke council approval
+            </button>
+          ) : null}
+        </div>
+      ) : remote && councilMember && post.subject && !post.parentId ? (
+        <form
+          className="mt-3 flex flex-col gap-2 border-t border-line pt-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void setCouncil(post.id, {
+              action: "approve",
+              reason: councilReason,
+              checklist: checks,
+            }).then((result) => {
+              setCouncilError(result.ok ? "" : (result.error ?? "That approval was not saved."));
+            });
+          }}
+        >
+          <p className="text-xs tracking-widest text-muted uppercase">Council review</p>
+          {checklistFor(post.subject).map((item) => (
+            <label key={item} className="flex items-start gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={checks.includes(item)}
+                onChange={() =>
+                  setChecks((current) =>
+                    current.includes(item) ? current.filter((row) => row !== item) : [...current, item],
+                  )
+                }
+              />
+              {item}
+            </label>
+          ))}
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            One sentence
+            <input
+              className={fieldClass}
+              value={councilReason}
+              onChange={(event) => setCouncilReason(event.target.value)}
+            />
+          </label>
+          <button type="submit" className={btnSignal}>
+            Council-approved
+          </button>
+        </form>
+      ) : null}
+      {councilError ? <p className="mt-2 text-sm text-muted">{councilError}</p> : null}
 
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">

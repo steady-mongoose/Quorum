@@ -1,7 +1,18 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { apiBaseUrl } from "../api-base.ts";
-import { getBoardClient } from "./client.ts";
+import { readDemoFlag } from "../api-mode.ts";
+import {
+  getBoardClient,
+  type AccessInput,
+  type BoardPage,
+  type BoardSnapshot,
+  type CouncilInput,
+  type PlaceInput,
+  type RoomDecisionInput,
+  type RoomRequestInput,
+  type ZipCorrectionInput,
+} from "./client.ts";
+import type { HomePayload } from "./home.ts";
 import {
   DAY,
   DM_RETENTION_DAYS,
@@ -61,8 +72,13 @@ type BoardState = {
   /** Whose profile is open. */
   viewing: string | null;
   steward: boolean;
-  /** Founding admin. Room creation and steward appointment. */
+  /** Founding admin. Room creation and the role owner's sign-off. */
   admin: boolean;
+  /** A council member can label a candidate or business post, once. */
+  council: boolean;
+  councilChair: boolean;
+  /** Server Home. Null in the sample week. The array order is the server's. */
+  home: HomePayload | null;
   /** True while this browser is writing rooms and posts to the API. */
   remote: boolean;
   boardError: string;
@@ -75,6 +91,8 @@ type BoardState = {
   appeals: AppealRow[];
   csamReports: CsamReport[];
   markLog: MarkRow[];
+  /** Per-room cursor. A null next means that room has no older page. */
+  roomPages: BoardPage[];
   threads: DmThread[];
   messages: DmMessage[];
   openThread: string | null;
@@ -112,7 +130,16 @@ type BoardState = {
     action: "grant" | "revoke";
     note: string;
   }) => Promise<{ ok: boolean; error?: string }>;
+  savePlace: (input: PlaceInput) => Promise<{ ok: boolean; error?: string }>;
+  joinRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  leaveRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+  requestRoom: (input: RoomRequestInput) => Promise<{ ok: boolean; error?: string }>;
+  decideRoom: (id: string, input: RoomDecisionInput) => Promise<{ ok: boolean; error?: string }>;
+  correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
+  changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
+  setCouncil: (id: string, input: CouncilInput) => Promise<{ ok: boolean; error?: string }>;
   connectRemote: () => Promise<void>;
+  loadOlder: (room: RoomId) => Promise<void>;
   disconnectRemote: () => void;
   addCard: (card: Parameters<typeof newCard>[0]) => void;
   updateCard: (id: string, patch: Partial<MeetingCard>) => void;
@@ -234,6 +261,49 @@ export const useBoard = create<BoardState>()(
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
 
+      const applySnapshot = (board: BoardSnapshot) => {
+        const rooms = board.rooms.length > 0 ? board.rooms : ROOMS;
+        setRoomCatalog(rooms);
+        set({
+          remote: true,
+          sample: false,
+          boardError: "",
+          rooms,
+          posts: board.posts,
+          markLog: board.marks,
+          removals: board.removals,
+          bans: board.bans,
+          appeals: board.appeals,
+          csamReports: board.csamReports,
+          roomPages: board.pages,
+          steward: board.me.steward,
+          admin: board.me.admin,
+          council: board.me.council,
+          councilChair: board.me.councilChair,
+          member: true,
+        });
+      };
+
+      const pullHome = async () => {
+        const loaded = await (await getBoardClient()).loadHome();
+        if (loaded.ok) set({ home: loaded.home });
+      };
+
+      const placeCall = async (
+        run: (client: Awaited<ReturnType<typeof getBoardClient>>) => Promise<{ ok: true } | { ok: false; error: string }>,
+        reloadBoard: boolean,
+      ): Promise<{ ok: boolean; error?: string }> => {
+        if (!get().remote) return { ok: false, error: "That is saved on the server." };
+        const saved = await run(await getBoardClient());
+        if (!saved.ok) return { ok: false, error: saved.error };
+        if (reloadBoard) {
+          const loaded = await (await getBoardClient()).load();
+          if (loaded.ok) applySnapshot(loaded.board);
+        }
+        await pullHome();
+        return { ok: true };
+      };
+
       return {
         section: "week",
         room: "county",
@@ -246,6 +316,9 @@ export const useBoard = create<BoardState>()(
         viewing: null,
         steward: false,
         admin: false,
+        council: false,
+        councilChair: false,
+        home: null,
         remote: false,
         boardError: "",
         rooms: ROOMS,
@@ -257,6 +330,7 @@ export const useBoard = create<BoardState>()(
         appeals: [],
         csamReports: [],
         markLog: [],
+        roomPages: [],
         threads: [],
         messages: [],
         openThread: null,
@@ -402,12 +476,9 @@ export const useBoard = create<BoardState>()(
           set({
             posts: get().posts.map((item) =>
               item.id === id
-                ? { ...item, claim: patch.claim.trim(), reason: patch.reason.trim(), mark: null }
+                ? { ...item, claim: patch.claim.trim(), reason: patch.reason.trim() }
                 : item,
             ),
-            markLog: post.mark
-              ? [markRow(post, null, "The author revised the post."), ...get().markLog]
-              : get().markLog,
           });
         },
         closeAsked: async (id) => {
@@ -774,39 +845,69 @@ export const useBoard = create<BoardState>()(
           if (!saved.ok) return { ok: false, error: saved.error };
           return { ok: true };
         },
+        savePlace: (input) => placeCall((client) => client.savePlace(input), false),
+        joinRoom: (roomId) => placeCall((client) => client.joinRoom(roomId), false),
+        leaveRoom: (roomId) => placeCall((client) => client.leaveRoom(roomId), false),
+        requestRoom: (input) => placeCall((client) => client.requestRoom(input), false),
+        decideRoom: (id, input) => placeCall((client) => client.decideRoom(id, input), true),
+        correctZip: (input) => placeCall((client) => client.correctZip(input), false),
+        changeAccess: (input) => placeCall((client) => client.changeAccess(input), true),
+        setCouncil: (id, input) => placeCall((client) => client.setCouncil(id, input), true),
         connectRemote: async () => {
-          if (!apiBaseUrl()) return;
+          if (readDemoFlag()) return;
           set({ remote: true, sample: false, boardError: "" });
           const loaded = await (await getBoardClient()).load();
           if (!loaded.ok) {
             set({
               remote: true,
-              boardError: loaded.error,
+              boardError: loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
               posts: [],
               markLog: [],
               removals: [],
               bans: [],
               appeals: [],
               csamReports: [],
+              roomPages: [],
+              home: null,
+              council: false,
+              councilChair: false,
             });
             return;
           }
-          const rooms = loaded.board.rooms.length > 0 ? loaded.board.rooms : ROOMS;
-          setRoomCatalog(rooms);
+          applySnapshot(loaded.board);
+          await pullHome();
+        },
+        loadOlder: async (room) => {
+          if (!get().remote) return;
+          const page = get().roomPages.find((item) => item.room === room);
+          if (!page?.next) return;
+          const loaded = await (await getBoardClient()).load({ room, cursor: page.next });
+          if (!loaded.ok) {
+            set({
+              boardError:
+                loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
+            });
+            return;
+          }
+          const seen = new Set(get().posts.map((post) => post.id));
+          const posts = [...get().posts];
+          for (const post of loaded.board.posts) {
+            if (!seen.has(post.id)) posts.push(post);
+          }
+          const seenMarks = new Set(get().markLog.map((row) => row.id));
+          const markLog = [...get().markLog];
+          for (const row of loaded.board.marks) {
+            if (!seenMarks.has(row.id)) markLog.push(row);
+          }
+          const nextPage = loaded.board.pages.find((item) => item.room === room) ?? {
+            room,
+            next: null,
+          };
           set({
-            remote: true,
-            sample: false,
+            posts,
+            markLog,
+            roomPages: get().roomPages.map((item) => (item.room === room ? nextPage : item)),
             boardError: "",
-            rooms,
-            posts: loaded.board.posts,
-            markLog: loaded.board.marks,
-            removals: loaded.board.removals,
-            bans: loaded.board.bans,
-            appeals: loaded.board.appeals,
-            csamReports: loaded.board.csamReports,
-            steward: loaded.board.me.steward,
-            admin: loaded.board.me.admin,
-            member: true,
           });
         },
         disconnectRemote: () => {
@@ -815,6 +916,9 @@ export const useBoard = create<BoardState>()(
             remote: false,
             admin: false,
             steward: false,
+            council: false,
+            councilChair: false,
+            home: null,
             member: false,
             boardError: "",
             rooms: ROOMS,
@@ -824,6 +928,7 @@ export const useBoard = create<BoardState>()(
             bans: [],
             appeals: [],
             csamReports: [],
+            roomPages: [],
           });
         },
         loadSample: () => {
@@ -835,6 +940,9 @@ export const useBoard = create<BoardState>()(
             bans: [],
             remote: false,
             admin: false,
+            council: false,
+            councilChair: false,
+            home: null,
             boardError: "",
             sample: true,
             sampleVersion: SAMPLE_VERSION,

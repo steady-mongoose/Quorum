@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ServerInvite } from "@/components/board/server-invite";
+import type { HomeAccessRow } from "@/lib/board/home";
+import type { AccessInput, ZipCorrectionInput } from "@/lib/board/client";
 import {
   APP_NAME,
   POST_TYPES,
@@ -49,7 +51,11 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark is listed in the room. It does not hide the post. The author can appeal a mark or a removal to the room's stewards. The appeal and the decision are logged.",
+    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The appeal and the decision are logged.",
+  },
+  {
+    title: "Home",
+    text: "Home lists the rooms you joined, then your ZIP town, then your congregation, then farther out. Inside a room, posts stay newest first. A council approval adds the label Council-approved. It does not rank the post.",
   },
 ];
 
@@ -67,7 +73,9 @@ export function AboutView() {
   const loadSample = useBoard((state) => state.loadSample);
   const clearBoard = useBoard((state) => state.clearBoard);
   const createRoom = useBoard((state) => state.createRoom);
-  const appointSteward = useBoard((state) => state.appointSteward);
+  const home = useBoard((state) => state.home);
+  const changeAccess = useBoard((state) => state.changeAccess);
+  const correctZip = useBoard((state) => state.correctZip);
 
   return (
     <div className="flex flex-col gap-10">
@@ -134,8 +142,14 @@ export function AboutView() {
         </ul>
       </section>
 
+      {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+
       {remote && admin ? (
-        <AdminTools createRoom={createRoom} appointSteward={appointSteward} />
+        <AdminTools
+          createRoom={createRoom}
+          correctZip={correctZip}
+          accessLog={home?.accessLog ?? []}
+        />
       ) : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
@@ -154,8 +168,8 @@ export function AboutView() {
           </label>
           <p className="self-end text-sm text-muted">
             {steward
-              ? "You are a steward: you can post notices and remove posts."
-              : "Stewards are appointed by the founder."}
+              ? "You are a steward of a room. You can post notices and mark a post. A mark dims it."
+              : "A steward needs the inviter and a steward of that room. The first steward of a room needs the inviter and the council chair."}
           </p>
         </div>
         {remote ? (
@@ -299,34 +313,161 @@ function RemovalAppeal({
   );
 }
 
+function RoleTools({
+  changeAccess,
+  admin,
+}: {
+  changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
+  admin: boolean;
+}) {
+  const [email, setEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
+  const [stewardEmail, setStewardEmail] = useState("");
+  const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
+  const [message, setMessage] = useState("");
+  const report = (result: { ok: boolean; error?: string }, ok: string) => {
+    setMessage(result.ok ? ok : (result.error ?? "That role was not changed."));
+  };
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <h2 className="text-2xl text-fg">Roles</h2>
+      <p className="max-w-prose text-sm text-muted">
+        A member is one inviter. A later steward is the inviter plus a steward of that room. The
+        first steward of a room is the inviter plus the council chair. An admin is already a
+        steward, plus the role owner's sign-off. Each change is written in the access log.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Member email
+          <input className={fieldClass} value={email} onChange={(event) => setEmail(event.target.value)} />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Room id
+          <input
+            className={fieldClass}
+            value={roomId}
+            placeholder="shop"
+            onChange={(event) => setRoomId(event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Inviter email
+          <input
+            className={fieldClass}
+            value={inviterEmail}
+            onChange={(event) => setInviterEmail(event.target.value)}
+          />
+        </label>
+        {admin ? (
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Steward email
+            <input
+              className={fieldClass}
+              value={stewardEmail}
+              onChange={(event) => setStewardEmail(event.target.value)}
+            />
+          </label>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={btnSignal}
+          onClick={() => {
+            void changeAccess({ action: "grant-member", email, roomId }).then((result) =>
+              report(result, "Member granted."),
+            );
+          }}
+        >
+          Grant member
+        </button>
+        <button
+          type="button"
+          className={btnSignal}
+          onClick={() => {
+            void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then((result) =>
+              report(result, "Steward granted."),
+            );
+          }}
+        >
+          Grant steward
+        </button>
+        {admin ? (
+          <button
+            type="button"
+            className={btnSignal}
+            onClick={() => {
+              void changeAccess({ action: "grant-admin", email, stewardEmail }).then((result) =>
+                report(result, "Admin granted."),
+              );
+            }}
+          >
+            Grant admin
+          </button>
+        ) : null}
+      </div>
+      {admin ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Role to revoke
+            <select
+              className={fieldClass}
+              value={role}
+              onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
+            >
+              <option value="member">Member</option>
+              <option value="steward">Steward</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => {
+              void changeAccess({ action: "revoke", email, role, roomId }).then((result) =>
+                report(result, "Role revoked."),
+              );
+            }}
+          >
+            Revoke
+          </button>
+        </div>
+      ) : null}
+      {message ? <p className="text-sm text-muted">{message}</p> : null}
+    </section>
+  );
+}
+
 function AdminTools({
   createRoom,
-  appointSteward,
+  correctZip,
+  accessLog,
 }: {
   createRoom: (input: {
     id: string;
     name: string;
     what: string;
   }) => Promise<{ ok: boolean; error?: string }>;
-  appointSteward: (input: {
-    email: string;
-    action: "grant" | "revoke";
-    note: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
+  correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
+  accessLog: HomeAccessRow[];
 }) {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
-  const [email, setEmail] = useState("");
-  const [note, setNote] = useState("");
+  const [zip, setZip] = useState("");
+  const [town, setTown] = useState("");
+  const [stateCode, setStateCode] = useState("");
+  const [clearZip, setClearZip] = useState(false);
   const [message, setMessage] = useState("");
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">Admin</h2>
       <p className="max-w-prose text-sm text-muted">
-        Adding a room and appointing a steward are admin only. A grant or a revocation is written in
-        the access log, with the sentence you give.
+        A topic room is added here. A town, congregation, or wider room is a request you approve on
+        Home. A ZIP correction is an append-only log. An empty town clears that ZIP.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
@@ -374,51 +515,62 @@ function AdminTools({
       </button>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Member email
+          ZIP to correct
           <input
             className={fieldClass}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            value={zip}
+            onChange={(event) => setZip(event.target.value)}
           />
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
-          One sentence
+          Town
           <input
             className={fieldClass}
-            value={note}
-            placeholder="Appointed by the founder."
-            onChange={(event) => setNote(event.target.value)}
+            value={town}
+            onChange={(event) => setTown(event.target.value)}
           />
         </label>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          State
+          <input
+            className={fieldClass}
+            value={stateCode}
+            placeholder="FL"
+            onChange={(event) => setStateCode(event.target.value)}
+          />
+        </label>
+        <label className="flex items-center gap-2 self-end text-sm text-muted">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={clearZip}
+            onChange={(event) => setClearZip(event.target.checked)}
+          />
+          Clear this ZIP
+        </label>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={btnSignal}
-          onClick={() => {
-            void appointSteward({ email, action: "grant", note }).then((result) => {
-              setMessage(
-                result.ok ? "Steward granted." : (result.error ?? "That role was not changed."),
-              );
-            });
-          }}
-        >
-          Grant steward
-        </button>
-        <button
-          type="button"
-          className={btnGhost}
-          onClick={() => {
-            void appointSteward({ email, action: "revoke", note }).then((result) => {
-              setMessage(
-                result.ok ? "Steward revoked." : (result.error ?? "That role was not changed."),
-              );
-            });
-          }}
-        >
-          Revoke steward
-        </button>
-      </div>
+      <button
+        type="button"
+        className={btnGhost}
+        onClick={() => {
+          void correctZip({ zip, name: town, state: stateCode, clear: clearZip }).then((result) => {
+            setMessage(result.ok ? "The ZIP is corrected." : (result.error ?? "That ZIP was not corrected."));
+          });
+        }}
+      >
+        Correct ZIP
+      </button>
+      {accessLog.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {accessLog.map((row) => (
+            <li key={row.id} className="text-sm text-muted">
+              {new Date(row.at).toLocaleString()} · {row.action} {row.role}
+              {row.roomId ? ` in ${row.roomId}` : ""} · {row.name}
+              {row.note ? ` · ${row.note}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {message ? <p className="text-sm text-muted">{message}</p> : null}
     </section>
   );

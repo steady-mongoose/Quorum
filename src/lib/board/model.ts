@@ -13,6 +13,7 @@ import {
   type HardRuleValue,
   type MarkValue,
 } from "./text.ts";
+import { meetingDates, shiftLocalDate } from "./week-days.ts";
 
 export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
@@ -98,6 +99,15 @@ export type Post = {
   campaignId?: string;
   cardId?: string;
   tradeId?: string;
+  /** Candidate or business. The council can label one of these, once. */
+  subject?: "candidate" | "business";
+  /** A one-time label. It does not move the post. */
+  council?: {
+    label: "Council-approved";
+    reason: string;
+    checklist: string[];
+    approvalId: string;
+  } | null;
   /** One picture or video, kept with the post. Older posts omit this. */
   media?: SharedMedia[];
 };
@@ -117,6 +127,12 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Host paused the series. It does not fill the week. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
   lastFour: boolean[];
   /** Names who have been, the lister first. Two names list a card. */
   wentBy: string[];
@@ -496,9 +512,9 @@ export function todayIso(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Local calendar days. Adding 24 hours repeats the fallback day and drops the Saturday after it. */
 export function addDays(iso: string, days: number): string {
-  const date = parseIsoDate(iso);
-  return date ? todayIso(new Date(date.getTime() + days * DAY)) : iso;
+  return shiftLocalDate(iso, days);
 }
 
 export function formatDate(iso: string): string {
@@ -588,6 +604,7 @@ export type Draft = {
   /** Set when a picture is uploaded, so the post id matches the stored object. */
   postId: string;
   media: SharedMedia[];
+  subject: "" | "candidate" | "business";
 };
 
 export function blankDraft(room: RoomId): Draft {
@@ -606,6 +623,7 @@ export function blankDraft(room: RoomId): Draft {
     tradeId: "",
     postId: "",
     media: [],
+    subject: "",
   };
 }
 
@@ -780,21 +798,12 @@ export function deskDid(input: DeskContact & { author: string }): Post {
 }
 
 // --- Sort, shelf, week, cards -------------------------------------------------
-
-function tier(post: Post): number {
-  if (post.mark === "sloppy") return 5;
-  // Stored value stays "unsupported". The screen says "No legs".
-  // out_of_scope is not a tier: the post stays in time order and stays visible.
-  if (post.mark === "unsupported") return 4;
-  if (post.type === "noted" || (post.type === "asked" && post.closed)) return 3;
-  if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;
-  return 2;
-}
+// A mark dims a post. It does not move it, hide it, or score it.
 
 export function sortRoom(posts: Post[], room: RoomId): Post[] {
   return posts
     .filter((post) => post.room === room && !post.parentId && !post.removed)
-    .sort((a, b) => tier(a) - tier(b) || b.at - a.at);
+    .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
 }
 
 export function repliesByParent(posts: Post[]): Map<string, Post[]> {
@@ -859,22 +868,23 @@ export function shelfFor(
 
 export type WeekDay = { iso: string; cards: MeetingCard[] };
 
-/** The next seven days that have something on them. Empty days are left out. */
-export function weekFor(
-  cards: MeetingCard[],
-  witnesses: Map<string, string[]>,
-  today: string,
-): WeekDay[] {
+/**
+ * The next seven local days that have something on them. Empty days are left
+ * out. A named weekday is placed on that weekday. A stored date is a local
+ * calendar day, not a UTC instant.
+ */
+export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter(
-      (card) =>
-        card.next === iso &&
-        card.kind !== "trade" &&
-        card.kind !== "need" &&
-        cardListed(card, witnesses),
-    );
+    const dated = cards.filter((card) => {
+      const occurs = meetingDates(card.time, card.next, today, {
+        paused: card.paused,
+        cancelled: card.cancelled,
+        until: card.until,
+      });
+      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+    });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;
