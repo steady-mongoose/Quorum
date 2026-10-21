@@ -67,13 +67,13 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
    The command is safe to repeat. Each file runs once and is recorded in `_migrations`.
 
-8. Seat Josh once, from the host:
+8. Seat Josh once, from the host. Do not put these values in `deploy/.env`. The API container is already running, so a line added to that file afterwards is never seen and the seed exits without seating anyone.
 
    ```bash
    ./scripts/seed-owner.sh
    ```
 
-   `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. Set `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` in `deploy/.env` first. A second run prints that the founding admin is already seated and exits 1. After a successful seat, the script clears `BOOTSTRAP_OWNER_PASSWORD` in `deploy/.env` and recreates the API process so the password is not left in memory. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
+   The script asks for `BOOTSTRAP_OWNER`, `BOOTSTRAP_OWNER_EMAIL`, and `BOOTSTRAP_OWNER_PASSWORD`. The password is not echoed. `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. They are handed to the seed process with `docker compose exec -e` and are not written into `deploy/.env`. A second run prints that the founding admin is already seated and exits 1. If a password was left in `deploy/.env`, the script clears that line and recreates the API so it is not left in the process. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
 
 9. Check health:
 
@@ -165,7 +165,7 @@ sudo crontab -e
 15 3 * * * cd /opt/avouch && set -a && . ./deploy/.env && set +a && ./scripts/backup-postgres.sh >> /var/log/avouch-backup.log 2>&1
 ```
 
-That line runs at 3:15 UTC.
+That line runs at 3:15 UTC with the host clock on UTC.
 
 `deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
 
