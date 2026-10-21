@@ -9,6 +9,7 @@ import {
   looksLikePorn,
   looksLikeThreat,
 } from "./text.ts";
+import { meetingDates, shiftLocalDate } from "./week-days.ts";
 
 export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
@@ -446,9 +447,9 @@ export function todayIso(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Local calendar days. Adding 24 hours repeats the fallback day and drops the Saturday after it. */
 export function addDays(iso: string, days: number): string {
-  const date = parseIsoDate(iso);
-  return date ? todayIso(new Date(date.getTime() + days * DAY)) : iso;
+  return shiftLocalDate(iso, days);
 }
 
 export function formatDate(iso: string): string {
@@ -780,22 +781,16 @@ export function shelfFor(
 
 export type WeekDay = { iso: string; cards: MeetingCard[] };
 
-/** The next seven days that have something on them. Empty days are left out. */
-export function weekFor(
-  cards: MeetingCard[],
-  witnesses: Map<string, string[]>,
-  today: string,
-): WeekDay[] {
+/**
+ * The next seven local days that have something on them. Empty days are left
+ * out. A named weekday is placed on that weekday. A stored date is a local
+ * calendar day, not a UTC instant.
+ */
+export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter(
-      (card) =>
-        card.next === iso &&
-        card.kind !== "trade" &&
-        card.kind !== "need" &&
-        cardListed(card, witnesses),
-    );
+    const dated = cards.filter((card) => meetingDates(card.time, card.next, today).includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses));
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;

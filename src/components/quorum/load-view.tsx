@@ -193,7 +193,7 @@ function StartCall() {
 
       <label className="flex flex-col gap-2">
         <span className="text-sm font-semibold text-fg">2. Which official decides whether this bill moves?</span>
-        <select className="min-h-11 max-w-md rounded-md border border-line bg-raised px-3 text-base text-fg" value={activeId} onChange={(event) => setOfficeId(event.target.value)}>
+        <select className="min-h-11 max-w-md rounded-md border border-line-strong bg-raised px-3 text-base text-fg" value={activeId} onChange={(event) => setOfficeId(event.target.value)}>
           {roster.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name} · {item.role}
