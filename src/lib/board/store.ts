@@ -137,13 +137,19 @@ type BoardState = {
    */
   clearLocalBoard: () => void;
   undoClearBoard: () => void;
-  /** In-memory undo of the last confirmed clear. Not persisted. */
+  /** One-step undo of the last confirmed clear. Persisted until it expires. */
   undoClear: BoardUndo | null;
   /** Keeps a cleared sample inside the app on a live server. Not persisted. */
   localEntry: boolean;
 };
 
+/** The undo bar hides itself. The snapshot stays until `UNDO_TTL_MS`. */
+export const UNDO_BAR_MS = 10_000;
+/** A reload inside this window can still put the cleared board back. */
+export const UNDO_TTL_MS = 10 * 60 * 1000;
+
 type BoardUndo = {
+  at: number;
   sample: boolean;
   sampleVersion: number;
   me: string;
@@ -165,6 +171,13 @@ type BoardUndo = {
   viewing: string | null;
   openThread: string | null;
 };
+
+export function undoSnapshotLive(
+  undo: BoardUndo | null | undefined,
+  now = Date.now(),
+): undo is BoardUndo {
+  return !!undo && typeof undo.at === "number" && now - undo.at < UNDO_TTL_MS;
+}
 
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
 
@@ -217,6 +230,7 @@ function snapshotBoard(state: {
   openThread: string | null;
 }): BoardUndo {
   return structuredClone({
+    at: Date.now(),
     sample: state.sample,
     sampleVersion: state.sampleVersion,
     me: state.me,
@@ -315,6 +329,7 @@ export const useBoard = create<BoardState>()(
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
+      let posting = false;
 
       return {
         section: "week",
@@ -351,16 +366,42 @@ export const useBoard = create<BoardState>()(
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: async (draft) => {
+          if (posting) return { ok: false, stops: [], notes: [] };
           const { posts, cards } = get();
           const check = checkNow(draft);
           if (!check.ok || !draft.type) return check;
-          if (get().remote) {
-            const saved = await (await getBoardClient()).createPost(draft);
-            if (!saved.ok)
-              return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
+          posting = true;
+          try {
+            if (get().remote) {
+              const saved = await (await getBoardClient()).createPost(draft);
+              if (!saved.ok)
+                return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
+              if (draft.type === "hosted") {
+                const card = cards.find((item) => item.id === draft.cardId);
+                if (card) {
+                  hosted(card, {
+                    happened: true,
+                    next: draft.next,
+                    line: draft.claim.trim(),
+                    on: draft.on,
+                    came: draft.came,
+                    named: draft.named,
+                    pages: draft.pages,
+                    post: saved.post,
+                  });
+                } else {
+                  set({
+                    posts: [saved.post, ...get().posts.filter((item) => item.id !== saved.post.id)],
+                  });
+                }
+              } else {
+                set({ posts: [saved.post, ...posts.filter((item) => item.id !== saved.post.id)] });
+              }
+              return check;
+            }
             if (draft.type === "hosted") {
               const card = cards.find((item) => item.id === draft.cardId);
-              if (card) {
+              if (card)
                 hosted(card, {
                   happened: true,
                   next: draft.next,
@@ -369,48 +410,33 @@ export const useBoard = create<BoardState>()(
                   came: draft.came,
                   named: draft.named,
                   pages: draft.pages,
-                  post: saved.post,
+                  postId: draft.postId,
+                  media: draft.media.slice(0, 1),
                 });
-              } else {
-                set({
-                  posts: [saved.post, ...get().posts.filter((item) => item.id !== saved.post.id)],
-                });
-              }
-            } else {
-              set({ posts: [saved.post, ...posts.filter((item) => item.id !== saved.post.id)] });
+              return check;
             }
+            const post = newPost({
+              room: draft.room,
+              type: draft.type,
+              claim: draft.claim.trim(),
+              reason: draft.reason.trim(),
+              on: draft.on,
+              author: me(),
+              media: draft.media.slice(0, 1),
+              ...(draft.postId ? { id: draft.postId } : {}),
+              ...(draft.cardId ? { cardId: draft.cardId } : {}),
+              ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
+            });
+            set({ posts: [post, ...posts] });
             return check;
+          } finally {
+            // The flag stays set through the rest of this turn, so a second
+            // click in the same turn cannot file another post. It drops before
+            // the next turn, once this one has settled.
+            queueMicrotask(() => {
+              posting = false;
+            });
           }
-          if (draft.type === "hosted") {
-            const card = cards.find((item) => item.id === draft.cardId);
-            if (card)
-              hosted(card, {
-                happened: true,
-                next: draft.next,
-                line: draft.claim.trim(),
-                on: draft.on,
-                came: draft.came,
-                named: draft.named,
-                pages: draft.pages,
-                postId: draft.postId,
-                media: draft.media.slice(0, 1),
-              });
-            return check;
-          }
-          const post = newPost({
-            room: draft.room,
-            type: draft.type,
-            claim: draft.claim.trim(),
-            reason: draft.reason.trim(),
-            on: draft.on,
-            author: me(),
-            media: draft.media.slice(0, 1),
-            ...(draft.postId ? { id: draft.postId } : {}),
-            ...(draft.cardId ? { cardId: draft.cardId } : {}),
-            ...(draft.tradeId ? { tradeId: draft.tradeId } : {}),
-          });
-          set({ posts: [post, ...posts] });
-          return check;
         },
         fileDeskContact: async (input) => {
           const post = deskDid({ ...input, author: me() });
@@ -889,6 +915,7 @@ export const useBoard = create<BoardState>()(
         markLog: state.remote ? [] : state.markLog,
         threads: state.threads,
         messages: state.messages,
+        undoClear: state.remote ? null : state.undoClear,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
       migrate: (persisted, version) => {
@@ -918,10 +945,16 @@ export const useBoard = create<BoardState>()(
             sampleVersion: SAMPLE_VERSION,
             member: true,
             steward: true,
+            undoClear: null,
             messages: pruneMessages(fresh.messages, Date.now()),
           };
         }
-        return { ...current, ...saved, messages: pruneMessages(saved.messages ?? [], Date.now()) };
+        return {
+          ...current,
+          ...saved,
+          undoClear: undoSnapshotLive(saved.undoClear) ? saved.undoClear : null,
+          messages: pruneMessages(saved.messages ?? [], Date.now()),
+        };
       },
     },
   ),

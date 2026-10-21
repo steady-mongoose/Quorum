@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setBoardClient, type BoardClient } from "./client.ts";
 import { blankDraft, todayIso, weekFor, type Post } from "./model.ts";
-import { useBoard } from "./store.ts";
+import { UNDO_TTL_MS, useBoard } from "./store.ts";
 
 function draft() {
   return {
@@ -152,6 +152,129 @@ test("a confirmed clear stays on an empty week and undo puts the board back", ()
   assert.equal(restored.posts.length, posts);
   assert.equal(restored.undoClear, null);
   assert.equal(restored.localEntry, true);
+});
+
+function persisted(): {
+  state: { posts: Post[]; undoClear: { at: number; posts: Post[]; me: string } | null };
+} {
+  const raw = localStorage.getItem("the-board-v1");
+  assert.ok(raw);
+  return JSON.parse(raw) as {
+    state: { posts: Post[]; undoClear: { at: number; posts: Post[]; me: string } | null };
+  };
+}
+
+/** Drop the in-memory board, then load whatever was put back in storage. */
+async function reload(raw: string) {
+  useBoard.setState({ posts: [], undoClear: null, me: "", sample: false, member: false });
+  localStorage.setItem("the-board-v1", raw);
+  await useBoard.persist.rehydrate();
+}
+
+test("a reload during the undo window still has the board", async () => {
+  reset();
+  useBoard.getState().loadSample();
+  const posts = useBoard.getState().posts.length;
+  const name = useBoard.getState().me;
+  assert.ok(posts > 0);
+  useBoard.getState().clearLocalBoard();
+  const saved = localStorage.getItem("the-board-v1");
+  assert.ok(saved);
+  const stored = persisted();
+  assert.equal(stored.state.posts.length, 0);
+  assert.equal(stored.state.undoClear?.posts.length, posts);
+  assert.equal(stored.state.undoClear?.me, name);
+
+  await reload(saved);
+  const reloaded = useBoard.getState();
+  assert.equal(reloaded.posts.length, 0);
+  assert.equal(reloaded.sample, false);
+  assert.equal(reloaded.member, true);
+  assert.equal(reloaded.undoClear?.posts.length, posts);
+  assert.equal(reloaded.undoClear?.me, name);
+  useBoard.getState().undoClearBoard();
+  assert.equal(useBoard.getState().posts.length, posts);
+  assert.equal(useBoard.getState().sample, true);
+  assert.equal(useBoard.getState().me, name);
+  assert.equal(useBoard.getState().undoClear, null);
+});
+
+test("an expired undo snapshot is dropped on reload", async () => {
+  reset();
+  useBoard.getState().loadSample();
+  useBoard.getState().clearLocalBoard();
+  const stored = persisted();
+  assert.ok(stored.state.undoClear);
+  stored.state.undoClear.at = Date.now() - UNDO_TTL_MS - 1;
+  await reload(JSON.stringify(stored));
+  assert.equal(useBoard.getState().undoClear, null);
+  assert.equal(useBoard.getState().posts.length, 0);
+});
+
+test("two files in one turn create one post", async () => {
+  reset();
+  const first = useBoard.getState().file(draft());
+  const second = useBoard.getState().file(draft());
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.ok, true);
+  assert.equal(b.ok, false);
+  assert.deepEqual(b.stops, []);
+  assert.equal(useBoard.getState().posts.length, 1);
+  const third = await useBoard.getState().file(draft());
+  assert.equal(third.ok, true);
+  assert.equal(useBoard.getState().posts.length, 2);
+});
+
+test("a second file does not post while the first is still sending", async () => {
+  reset();
+  let calls = 0;
+  let release: (value: { ok: true; post: Post }) => void = () => {};
+  const gate = new Promise<{ ok: true; post: Post }>((resolve) => {
+    release = resolve;
+  });
+  const serverPost: Post = {
+    id: "server-lock",
+    room: "shop",
+    type: "did",
+    claim: "Sharpened the chisels in the shop.",
+    reason: "Tom checked them on Thursday.",
+    on: todayIso(),
+    next: "",
+    came: [],
+    named: "",
+    author: "Maria",
+    at: 21,
+    parentId: null,
+    closed: false,
+    mark: null,
+    removed: false,
+    media: [],
+  };
+  setBoardClient({
+    load: async () => ({ ok: false, error: "unused" }),
+    createPost: () => {
+      calls += 1;
+      return gate;
+    },
+    reply: async () => ({ ok: false, error: "unused" }),
+    revise: async () => ({ ok: false, error: "unused" }),
+    closeAsked: async () => ({ ok: false, error: "unused" }),
+    mark: async () => ({ ok: false, error: "unused" }),
+    remove: async () => ({ ok: false, error: "unused" }),
+    createRoom: async () => ({ ok: false, error: "unused" }),
+    appointSteward: async () => ({ ok: false, error: "unused" }),
+  });
+  useBoard.setState({ remote: true, posts: [] });
+  const first = useBoard.getState().file(draft());
+  const second = await useBoard.getState().file(draft());
+  assert.equal(calls, 1);
+  assert.equal(second.ok, false);
+  assert.equal(useBoard.getState().posts.length, 0);
+  release({ ok: true, post: serverPost });
+  const done = await first;
+  assert.equal(done.ok, true);
+  assert.equal(useBoard.getState().posts.length, 1);
+  assert.equal(useBoard.getState().posts[0]?.id, "server-lock");
 });
 
 test("a silent clear and a remote board do not offer undo", () => {

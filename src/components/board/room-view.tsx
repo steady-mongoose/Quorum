@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -230,7 +230,7 @@ export function RoomView() {
 function FieldError({ id, messages }: { id: string; messages: string[] }) {
   if (messages.length === 0) return null;
   return (
-    <p id={id} role="alert" className="text-sm text-[#f0b4a4]">
+    <p id={id} className="text-sm text-[#f0b4a4]">
       {messages.join(" ")}
     </p>
   );
@@ -290,6 +290,8 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
   const [attempted, setAttempted] = useState(false);
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const meta = roomById(room, rooms);
   const current = draft.room === room ? draft : blankDraft(room);
@@ -330,21 +332,31 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setResult(null);
   };
   const reset = () => {
+    pendingRef.current = false;
+    setPending(false);
     setDraft(blankDraft(room));
     setResult(null);
     setAttempted(false);
     setConfirmClear(false);
   };
   const send = () => {
+    if (pendingRef.current) return;
     setAttempted(true);
     if (!check.ok) {
       setResult(null);
       return;
     }
-    void file(current).then((outcome) => {
-      if (outcome.ok) reset();
-      else setResult(outcome);
-    });
+    pendingRef.current = true;
+    setPending(true);
+    void file(current)
+      .then((outcome) => {
+        if (outcome.ok) reset();
+        else setResult(outcome);
+      })
+      .finally(() => {
+        pendingRef.current = false;
+        setPending(false);
+      });
   };
   const askClear = () => {
     if (draftHasWriting(current)) setConfirmClear(true);
@@ -375,6 +387,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     patch({ came, named: came.includes(current.named) ? current.named : "" });
   };
 
+  const latestError = visible?.stops.at(-1);
   const typeErrors = messages("type");
   const claimErrors = messages("claim");
   const reasonErrors = messages("reason");
@@ -609,6 +622,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               onClear={() => patch({ media: [], postId: "" })}
             />
             <FieldError id={composerErrorId("form")} messages={formMessages} />
+            {latestError ? (
+              <p role="alert" className="sr-only">
+                {latestError}
+              </p>
+            ) : null}
             {check.notes.length > 0 ? (
               <ul className="flex flex-col gap-1 text-sm text-muted">
                 {check.notes.map((note) => (
@@ -617,8 +635,13 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               </ul>
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
-              <button type="submit" className={cn(btnSignal, "min-h-[44px]")}>
-                {postButtonLabel(type.id)}
+              <button
+                type="submit"
+                className={cn(btnSignal, "min-h-[44px]")}
+                disabled={pending}
+                aria-disabled={pending ? true : undefined}
+              >
+                {pending ? "Posting…" : postButtonLabel(type.id)}
               </button>
               <button
                 type="button"

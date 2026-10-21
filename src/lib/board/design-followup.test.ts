@@ -136,3 +136,75 @@ test("the clear dialog and the post form use the review markup", () => {
   assert.match(app, />\s*Undo\s*</);
   assert.match(week, /The board is cleared, and nothing is on the calendar\./);
 });
+
+function channel(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map((value) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+  ) as [number, number, number];
+}
+
+function contrast(foreground: string, background: string): number {
+  const lum = (hex: string) => {
+    const [r, g, b] = channel(hex);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const lighter = Math.max(lum(foreground), lum(background));
+  const darker = Math.min(lum(foreground), lum(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** 60% of the warning colour painted over the surface, the way the border is. */
+function blend(foreground: string, background: string, alpha: number): string {
+  const rgb = (hex: string) => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const fg = rgb(foreground);
+  const bg = rgb(background);
+  const mixed = fg.map((value, index) =>
+    Math.round(value * alpha + (bg[index] ?? 0) * (1 - alpha)),
+  );
+  return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+test("the clear button, undo bar, and backdrop follow the review", () => {
+  const dialog = source("../../components/board/confirm-dialog.tsx");
+  const app = source("../../components/board/app.tsx");
+  const about = source("../../components/board/about-view.tsx");
+  const css = source("../../styles.css");
+  const surface = css.match(/--color-surface:\s*(#[0-9a-fA-F]{6})/)?.[1]?.toLowerCase();
+  const warning = "#f0b4a4";
+  assert.equal(surface, "#16241b");
+  assert.ok(contrast(warning, surface) >= 4.5);
+  assert.ok(contrast(blend(warning, surface, 0.6), surface) >= 3);
+
+  assert.match(dialog, /border-\[#f0b4a4\]\/60 text-\[#f0b4a4\]/);
+  assert.match(dialog, /backdrop:bg-bg\/80/);
+  assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
+  assert.match(css, /--color-bg:\s*#0f1a14/);
+
+  assert.match(app, /Clear the sample week…/);
+  assert.equal(app.includes("Clear it under About"), false);
+  assert.match(app, /UNDO_BAR_MS/);
+  assert.match(app, /UNDO_TTL_MS/);
+  assert.match(app, />\s*Close\s*</);
+  assert.match(app, /setUndoBar\(false\)/);
+  assert.match(about, /Put the board back/);
+});
+
+test("the composer announces one error and ignores a second click", () => {
+  const room = source("../../components/board/room-view.tsx");
+  assert.equal(room.match(/role="alert"/g)?.length, 1);
+  assert.match(room, /const latestError = visible\?\.stops\.at\(-1\)/);
+  assert.match(room, /role="alert" className="sr-only"/);
+  assert.match(room, /if \(pendingRef\.current\) return/);
+  assert.match(room, /disabled=\{pending\}/);
+  assert.match(room, /aria-disabled=\{pending \? true : undefined\}/);
+  assert.match(room, /Posting…/);
+  const fieldError = room.slice(
+    room.indexOf("function FieldError"),
+    room.indexOf("function describedBy"),
+  );
+  assert.equal(fieldError.includes("role="), false);
+});

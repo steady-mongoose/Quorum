@@ -52,7 +52,7 @@ export function ConfirmDialog({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="w-[min(28rem,calc(100%-2rem))] rounded-lg border border-line bg-surface p-5 text-fg backdrop:bg-[#0f1a14]/80"
+      className="w-[min(28rem,calc(100%-2rem))] rounded-lg border border-line bg-surface p-5 text-fg backdrop:bg-bg/80"
       onCancel={(event) => {
         event.preventDefault();
         onCancel();
@@ -74,7 +74,7 @@ export function ConfirmDialog({
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
+          className={cn(btnGhost, "min-h-[44px] border-[#f0b4a4]/60 text-[#f0b4a4]")}
           onClick={() => {
             confirming.current = true;
             onConfirm();

@@ -58,6 +58,8 @@ export function AboutView() {
   const sample = useBoard((state) => state.sample);
   const loadSample = useBoard((state) => state.loadSample);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
+  const undoClear = useBoard((state) => state.undoClear);
+  const undoClearBoard = useBoard((state) => state.undoClearBoard);
   const [confirmClear, setConfirmClear] = useState(false);
   const createRoom = useBoard((state) => state.createRoom);
   const appointSteward = useBoard((state) => state.appointSteward);
@@ -175,6 +177,20 @@ export function AboutView() {
               }}
               onCancel={() => setConfirmClear(false)}
             />
+            {undoClear ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <p className="max-w-prose text-sm text-muted">
+                  The board was cleared. You can still put it back.
+                </p>
+                <button
+                  type="button"
+                  className={cn(btnGhost, "min-h-[44px]")}
+                  onClick={() => undoClearBoard()}
+                >
+                  Put the board back
+                </button>
+              </div>
+            ) : null}
             <p className="mt-2 max-w-prose text-sm text-muted">
               The sample is six invented people and a week of meetings, for trying the app. It
               replaces whatever is here, and you become "Josh."
