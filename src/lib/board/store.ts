@@ -620,7 +620,7 @@ export const useBoard = create<BoardState>()(
           if (!loaded.ok) {
             set({
               remote: true,
-              boardError: loaded.error,
+              boardError: loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
               posts: [],
               markLog: [],
               removals: [],
@@ -652,7 +652,10 @@ export const useBoard = create<BoardState>()(
           if (!page?.next) return;
           const loaded = await (await getBoardClient()).load({ room, cursor: page.next });
           if (!loaded.ok) {
-            set({ boardError: loaded.error });
+            set({
+              boardError:
+                loaded.error === "banned" ? "This account is barred from the board." : loaded.error,
+            });
             return;
           }
           const seen = new Set(get().posts.map((post) => post.id));

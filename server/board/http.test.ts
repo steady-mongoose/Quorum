@@ -129,3 +129,44 @@ test("two signed-in members see the same post", async () => {
     await close();
   }
 });
+
+test("a barred member cannot read the board, the invite log, or a picture", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await db.query(
+      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ($1, 'Maria', 'maria@example.com', true, now(), now())`,
+      [maria],
+    );
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
+       values ($1, $2, 'Maria', 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+      [randomUUID(), maria],
+    );
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, $2, 'Maria', 'threat', 'Tom', 1, $3, $4)`,
+      [randomUUID(), maria, new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), now],
+    );
+    const handler = app(db);
+    const headers = { "x-user-id": maria, "x-user-name": "Maria" };
+    for (const path of [
+      "/api/board",
+      "/api/board?room=shop",
+      "/api/invite-log",
+      "/api/media/11111111-1111-4111-8111-111111111111",
+    ]) {
+      const response = await handler(
+        new Request(`http://127.0.0.1:8787${path}`, { headers }),
+      );
+      assert.equal(response.status, 403, path);
+      const body = (await response.json()) as { error?: string; ban?: { reason?: string } };
+      assert.equal(body.error, "banned", path);
+      assert.equal(body.ban?.reason, "threat", path);
+    }
+  } finally {
+    await close();
+  }
+});

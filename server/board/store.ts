@@ -98,7 +98,13 @@ const PAGE_DEFAULT = 40;
 const PAGE_MAX = 100;
 
 type Ok<T> = { ok: true; value: T };
-type Err = { ok: false; status: number; error: string; stops?: string[] };
+type Err = {
+  ok: false;
+  status: number;
+  error: string;
+  stops?: string[];
+  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" };
+};
 export type Result<T> = Ok<T> | Err;
 
 function fail(status: number, error: string, stops?: string[]): Err {
@@ -222,7 +228,7 @@ async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
   return toRoom(row);
 }
 
-async function openBan(
+export async function openBan(
   db: Db,
   userId: string,
   now: Date,
@@ -333,6 +339,8 @@ export async function listBoard(
 ): Promise<Result<BoardPayload>> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read the board.");
+  const ban = await openBan(db, userId, now);
+  if (ban) return { ok: false, status: 403, error: "banned", ban };
   if (query.cursor && !query.room) return fail(400, "Name the room for that page.");
   if (query.room && !ROOM_ID.test(query.room)) return fail(400, "That room is not here.");
   const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -399,11 +407,10 @@ export async function listBoard(
   }>(
     `select id, name, reason, strikes, until_at, created_at from board_ban order by created_at desc limit 500`,
   );
-  const ban = await openBan(db, userId, now);
   return {
     ok: true,
     value: {
-      me: { member: true, steward: actor.steward, admin: actor.admin, ban },
+      me: { member: true, steward: actor.steward, admin: actor.admin, ban: null },
       rooms,
       posts,
       marks: markRows.map((row) => ({

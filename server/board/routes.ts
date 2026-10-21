@@ -93,10 +93,11 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
 
 function fromResult(status: number, result: Result<unknown>): Response {
   if (!result.ok) {
-    return json(
-      result.status,
-      result.stops ? { error: result.error, stops: result.stops } : { error: result.error },
-    );
+    return json(result.status, {
+      error: result.error,
+      ...(result.stops ? { stops: result.stops } : {}),
+      ...(result.ban ? { ban: result.ban } : {}),
+    });
   }
   return json(status, result.value);
 }

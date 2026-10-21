@@ -2,7 +2,7 @@ import type { Db } from "./db.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
 import { registerRoomPost } from "./media/access.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
-import { createPost } from "./board/store.ts";
+import { createPost, openBan } from "./board/store.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
@@ -298,6 +298,8 @@ async function route(
   if (url.pathname === "/api/invite-log" && request.method === "GET") {
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
+    const ban = await openBan(deps.db, session.id, deps.now());
+    if (ban) return json(403, { error: "banned", ban });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
@@ -340,6 +342,10 @@ async function route(
   if (url.pathname.startsWith("/api/media/")) {
     const session =
       url.pathname === "/api/media/status" ? null : await deps.readSession(request.headers);
+    if (request.method === "GET" && session) {
+      const ban = await openBan(deps.db, session.id, deps.now());
+      if (ban) return json(403, { error: "banned", ban });
+    }
     return (
       (await handleMedia(media, deps.db, request, url, session, clientIp(request))) ??
       json(404, { error: "Not found." })

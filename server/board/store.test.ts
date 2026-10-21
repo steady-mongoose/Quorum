@@ -488,6 +488,12 @@ test("only a steward sees ban and removal logs", async () => {
     assert.deepEqual(member.value.removals, []);
     assert.deepEqual(member.value.bans, []);
     assert.equal(member.value.me.ban, null);
+    const barred = await listBoard(db, maria, now);
+    assert.equal(barred.ok, false);
+    if (barred.ok) return;
+    assert.equal(barred.status, 403);
+    assert.equal(barred.error, "banned");
+    assert.equal(barred.ban?.reason, "threat");
   } finally {
     await close();
   }
@@ -686,6 +692,7 @@ test("room pages walk backward from the newest post", async () => {
     assert.equal(first.value.posts.some((post) => post.room === "county"), false);
     const next = first.value.pages.find((page) => page.room === "shop")?.next;
     assert.equal(typeof next, "string");
+    if (!next) return;
     const second = await listBoard(db, maria, now, { room: "shop", cursor: next, limit: 2 });
     assert.equal(second.ok, true);
     if (!second.ok) return;
