@@ -74,6 +74,8 @@ export type BanEntry = {
   at: number;
 };
 
+export type RoomPage = { room: string; next: string | null };
+
 export type BoardPayload = {
   me: {
     member: boolean;
@@ -86,7 +88,14 @@ export type BoardPayload = {
   marks: MarkEntry[];
   removals: RemovalEntry[];
   bans: BanEntry[];
+  /** One cursor per room. Null means that room has no older page. */
+  pages: RoomPage[];
 };
+
+export type BoardPageQuery = { room?: string; cursor?: string; limit?: number };
+
+const PAGE_DEFAULT = 40;
+const PAGE_MAX = 100;
 
 type Ok<T> = { ok: true; value: T };
 type Err = { ok: false; status: number; error: string; stops?: string[] };
@@ -267,6 +276,48 @@ async function mediaFor(db: Db, postIds: string[]): Promise<Map<string, BoardPos
   return map;
 }
 
+function encodeCursor(at: Date | string, id: string): string {
+  return `${new Date(at).getTime()}~${id}`;
+}
+
+function decodeCursor(value: string): { at: Date; id: string } | null {
+  const match = /^(\d{1,16})~([A-Za-z0-9_-]{1,80})$/.exec(value);
+  if (!match?.[1] || !match[2]) return null;
+  const at = Number(match[1]);
+  if (!Number.isFinite(at)) return null;
+  return { at: new Date(at), id: match[2] };
+}
+
+async function pagePosts(
+  db: Db,
+  roomId: string,
+  cursor: { at: Date; id: string } | null,
+  limit: number,
+): Promise<{ rows: PostRow[]; next: string | null }> {
+  const rows = await db.query<PostRow>(
+    `select id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+            parent_id, closed, mark, removed, card_id, trade_id, campaign_id, created_at
+     from board_post
+     where removed = false
+       and room_id = $1
+       and (
+         $2::timestamptz is null
+         or created_at < $2::timestamptz
+         or (created_at = $2::timestamptz and id < $3)
+       )
+     order by created_at desc, id desc
+     limit $4`,
+    [roomId, cursor?.at ?? null, cursor?.id ?? "", limit + 1],
+  );
+  const extra = rows.length > limit;
+  const kept = extra ? rows.slice(0, limit) : rows;
+  const last = kept[kept.length - 1];
+  return {
+    rows: kept,
+    next: extra && last ? encodeCursor(last.created_at, last.id) : null,
+  };
+}
+
 async function standInRoom(db: Db, userId: string, roomId: string): Promise<void> {
   await db.query(
     `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
@@ -274,38 +325,61 @@ async function standInRoom(db: Db, userId: string, roomId: string): Promise<void
   );
 }
 
-export async function listBoard(db: Db, userId: string, now: Date): Promise<Result<BoardPayload>> {
+export async function listBoard(
+  db: Db,
+  userId: string,
+  now: Date,
+  query: BoardPageQuery = {},
+): Promise<Result<BoardPayload>> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read the board.");
+  if (query.cursor && !query.room) return fail(400, "Name the room for that page.");
+  if (query.room && !ROOM_ID.test(query.room)) return fail(400, "That room is not here.");
+  const cursor = query.cursor ? decodeCursor(query.cursor) : null;
+  if (query.cursor && !cursor) return fail(400, "That page is not valid.");
+  const limit = Math.min(
+    PAGE_MAX,
+    Math.max(1, Math.floor(query.limit ?? PAGE_DEFAULT) || PAGE_DEFAULT),
+  );
   const roomRows = await db.query<RoomRow>(
     `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish
      from room where name <> '' order by sort_order asc, name asc`,
   );
   const rooms = roomRows.map(toRoom);
   for (const room of rooms) await standInRoom(db, userId, room.id);
-  const postRows = await db.query<PostRow>(
-    `select id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
-            parent_id, closed, mark, removed, card_id, trade_id, campaign_id, created_at
-     from board_post where removed = false order by created_at desc limit 2000`,
-  );
+  const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
+  const postRows: PostRow[] = [];
+  const pages: RoomPage[] = [];
+  for (const room of targets) {
+    const page = await pagePosts(db, room.id, query.room ? cursor : null, limit);
+    postRows.push(...page.rows);
+    pages.push({ room: room.id, next: page.next });
+  }
+  if (query.room && targets.length === 0) pages.push({ room: query.room, next: null });
   const pictures = await mediaFor(
     db,
     postRows.map((row) => row.id),
   );
   const posts = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [])));
-  const markRows = await db.query<{
-    id: string;
-    room_id: string;
-    post_id: string;
-    author_name: string;
-    by_name: string;
-    mark: string | null;
-    reason: string;
-    created_at: Date | string;
-  }>(
-    `select id, room_id, post_id, author_name, by_name, mark, reason, created_at
-     from board_mark order by created_at desc limit 200`,
-  );
+  const postIds = postRows.map((row) => row.id);
+  const markRows =
+    postIds.length === 0
+      ? []
+      : await db.query<{
+          id: string;
+          room_id: string;
+          post_id: string;
+          author_name: string;
+          by_name: string;
+          mark: string | null;
+          reason: string;
+          created_at: Date | string;
+        }>(
+          `select id, room_id, post_id, author_name, by_name, mark, reason, created_at
+           from board_mark where post_id in (${postIds.map((_, index) => `$${index + 1}`).join(", ")})
+           order by created_at desc`,
+          postIds,
+        );
   const removalRows = await db.query<{
     id: string;
     post_id: string;
@@ -361,6 +435,7 @@ export async function listBoard(db: Db, userId: string, now: Date): Promise<Resu
             at: atMs(row.created_at),
           }))
         : [],
+      pages,
     },
   };
 }

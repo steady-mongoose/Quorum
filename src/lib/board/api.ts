@@ -211,6 +211,18 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
       ban = { until: row.until, strikes: row.strikes, reason: row.reason as HardRule };
     }
   }
+  const pages: BoardSnapshot["pages"] = [];
+  if (Array.isArray(body.pages)) {
+    for (const item of body.pages) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as { room?: unknown; next?: unknown };
+      if (typeof row.room !== "string" || !row.room) continue;
+      pages.push({
+        room: row.room,
+        next: typeof row.next === "string" && row.next ? row.next : null,
+      });
+    }
+  }
   return {
     me: {
       member: who.member === true,
@@ -223,6 +235,7 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
     marks,
     removals,
     bans,
+    pages,
   };
 }
 
@@ -245,8 +258,12 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
 }
 
 export const apiBoardClient: BoardClient = {
-  async load() {
-    const response = await send("/api/board");
+  async load(query) {
+    const params = new URLSearchParams();
+    if (query?.room) params.set("room", query.room);
+    if (query?.cursor) params.set("cursor", query.cursor);
+    const search = params.toString();
+    const response = await send(search ? `/api/board?${search}` : "/api/board");
     if (!response.ok) return failure(response.json, "The board did not load.");
     const board = parseBoard(response.json);
     if (!board) return { ok: false, error: "The board did not load." };

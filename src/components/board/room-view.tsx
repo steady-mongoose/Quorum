@@ -63,6 +63,9 @@ export function RoomView() {
   const bans = useBoard((state) => state.bans);
   const rooms = useBoard((state) => state.rooms);
   const boardError = useBoard((state) => state.boardError);
+  const remote = useBoard((state) => state.remote);
+  const older = useBoard((state) => state.roomPages.find((page) => page.room === room)?.next ?? null);
+  const loadOlder = useBoard((state) => state.loadOlder);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
   const meta = roomById(room, rooms);
@@ -184,9 +187,19 @@ export function RoomView() {
                 steward={steward && tools}
               />
             ))}
-            <p className="py-6 text-sm text-muted">
-              {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
-            </p>
+            {remote && older ? (
+              <button
+                type="button"
+                className="py-6 text-left text-sm text-signal underline"
+                onClick={() => void loadOlder(room)}
+              >
+                Older posts
+              </button>
+            ) : (
+              <p className="py-6 text-sm text-muted">
+                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+              </p>
+            )}
           </section>
         </div>
 

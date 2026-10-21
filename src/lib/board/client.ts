@@ -7,6 +7,8 @@ export type BoardMe = {
   ban: { until: number; strikes: number; reason: HardRule } | null;
 };
 
+export type BoardPage = { room: string; next: string | null };
+
 export type BoardSnapshot = {
   me: BoardMe;
   rooms: Room[];
@@ -14,12 +16,16 @@ export type BoardSnapshot = {
   marks: MarkRow[];
   removals: RemovalRow[];
   bans: BanRow[];
+  pages: BoardPage[];
 };
 
 export type BoardFailure = { ok: false; error: string; stops?: string[] };
 
 export type BoardClient = {
-  load: () => Promise<{ ok: true; board: BoardSnapshot } | BoardFailure>;
+  load: (query?: {
+    room?: string;
+    cursor?: string;
+  }) => Promise<{ ok: true; board: BoardSnapshot } | BoardFailure>;
   createPost: (
     draft: Draft,
     extra?: { campaignId?: string },

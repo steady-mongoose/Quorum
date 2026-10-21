@@ -560,6 +560,56 @@ test("a reply follows the room's posting rules", async () => {
   }
 });
 
+test("room pages walk backward from the newest post", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await grant(db, maria, "Maria", "member");
+    const claims = ["First chisel.", "Second chisel.", "Third chisel."];
+    for (const [index, claim] of claims.entries()) {
+      const posted = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { ...did, claim, reason: "Tom checked them on Thursday." },
+        now: new Date(now.getTime() + index * 1000),
+      });
+      assert.equal(posted.ok, true);
+    }
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: { ...did, claim: "Called the county office." },
+      now: new Date(now.getTime() + 5000),
+    });
+    assert.equal(county.ok, true);
+    const first = await listBoard(db, maria, now, { room: "shop", limit: 2 });
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.deepEqual(
+      first.value.posts.map((post) => post.claim),
+      ["Third chisel.", "Second chisel."],
+    );
+    assert.equal(first.value.posts.some((post) => post.room === "county"), false);
+    const next = first.value.pages.find((page) => page.room === "shop")?.next;
+    assert.equal(typeof next, "string");
+    const second = await listBoard(db, maria, now, { room: "shop", cursor: next, limit: 2 });
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.deepEqual(
+      second.value.posts.map((post) => post.claim),
+      ["First chisel."],
+    );
+    assert.equal(second.value.pages.find((page) => page.room === "shop")?.next, null);
+    const bad = await listBoard(db, maria, now, { room: "shop", cursor: "not-a-page" });
+    assert.equal(bad.ok, false);
+  } finally {
+    await close();
+  }
+});
+
 async function seatOwner(db: Db, id: string, name: string, email: string) {
   await user(db, id, name, email);
   await db.query(

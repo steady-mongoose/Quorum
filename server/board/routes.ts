@@ -130,7 +130,18 @@ export async function handleBoard(
     const now = deps.now();
 
     if (url.pathname === "/api/board") {
-      return fromResult(200, await listBoard(deps.db, session.id, now));
+      const room = url.searchParams.get("room") ?? "";
+      const cursor = url.searchParams.get("cursor") ?? "";
+      const limitRaw = url.searchParams.get("limit");
+      const limit = limitRaw === null ? undefined : Number(limitRaw);
+      return fromResult(
+        200,
+        await listBoard(deps.db, session.id, now, {
+          ...(room ? { room } : {}),
+          ...(cursor ? { cursor } : {}),
+          ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
+        }),
+      );
     }
 
     const body = await readJson(request);
