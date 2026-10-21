@@ -61,7 +61,7 @@ jobs:
         env:
           CLEAR_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch_test
           CLEAR_POSTGRES_REQUIRED: "1"
-        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs scripts/clear-email-limit.test.mjs
+        run: node --test scripts/backup-restore.test.mjs scripts/backup-retention.test.mjs scripts/deploy-edge.test.mjs scripts/clear-email-limit.test.mjs scripts/seed-owner.test.mjs
 
       - name: Report suite results
         if: always()
