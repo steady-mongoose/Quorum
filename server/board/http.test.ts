@@ -155,6 +155,7 @@ test("a barred member cannot read the board, the invite log, or a picture", asyn
     for (const path of [
       "/api/board",
       "/api/board?room=shop",
+      "/api/home",
       "/api/invite-log",
       "/api/media/11111111-1111-4111-8111-111111111111",
     ]) {

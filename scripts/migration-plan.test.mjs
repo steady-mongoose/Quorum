@@ -76,9 +76,26 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0005_rate_limit_index.sql",
       "0007_media_worker_role.sql",
       "0008_board.sql",
+      "0011_places.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+});
+
+test("migration 0011 is the places file and is not a ranking table", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0011_places.sql"), "utf8");
+  assert.match(sql, /Numbered 0011/);
+  assert.match(sql, /This is migration 0011/);
+  assert.match(sql, /The owner must approve this file/);
+  assert.match(sql, /council_approval/);
+  assert.match(sql, /checklist/);
+  assert.match(sql, /access_log/);
+  assert.match(sql, /create or replace function anonymize_places_user/);
+  assert.match(sql, /create trigger anonymize_places_user/);
+  assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
+  assert.equal(sql.includes("like_count"), false);
+  assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
+  assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {

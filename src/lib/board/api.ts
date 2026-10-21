@@ -12,6 +12,7 @@ import type {
   SharedMedia,
 } from "./model.ts";
 import type { BoardClient, BoardFailure, BoardSnapshot } from "./client.ts";
+import { parseHomePayload } from "./home.ts";
 
 const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
 const MARKS = new Set(["sloppy", "unsupported"]);
@@ -84,7 +85,25 @@ function postFrom(value: unknown): Post | null {
     ...(typeof row.cardId === "string" && row.cardId ? { cardId: row.cardId } : {}),
     ...(typeof row.tradeId === "string" && row.tradeId ? { tradeId: row.tradeId } : {}),
     ...(typeof row.campaignId === "string" && row.campaignId ? { campaignId: row.campaignId } : {}),
+    ...(row.subject === "candidate" || row.subject === "business" ? { subject: row.subject } : {}),
+    ...(councilFrom(row.council) ? { council: councilFrom(row.council) } : {}),
     media,
+  };
+}
+
+function councilFrom(value: unknown): Post["council"] {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as Record<string, unknown>;
+  if (row.label !== "Council-approved" || typeof row.reason !== "string" || !row.reason.trim())
+    return undefined;
+  if (typeof row.approvalId !== "string") return undefined;
+  const checklist = strings(row.checklist);
+  if (checklist.length === 0) return undefined;
+  return {
+    label: "Council-approved",
+    reason: row.reason,
+    checklist,
+    approvalId: row.approvalId,
   };
 }
 
@@ -228,6 +247,8 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
       member: who.member === true,
       steward: who.steward === true,
       admin: who.admin === true,
+      council: who.council === true,
+      councilChair: who.councilChair === true,
       ban,
     },
     rooms,
@@ -253,6 +274,7 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
     tradeId: draft.tradeId,
     attested: draft.attested,
     mediaCount: draft.media.length,
+    ...(draft.subject === "candidate" || draft.subject === "business" ? { subject: draft.subject } : {}),
     ...(extra?.campaignId ? { campaignId: extra.campaignId } : {}),
   };
 }
@@ -339,6 +361,53 @@ export const apiBoardClient: BoardClient = {
   async appointSteward(input) {
     const response = await send("/api/access", input);
     if (!response.ok) return failure(response.json, "That role was not changed.");
+    return { ok: true };
+  },
+  async loadHome() {
+    const response = await send("/api/home");
+    if (!response.ok) return failure(response.json, "Home did not load.");
+    const home = parseHomePayload(response.json);
+    if (!home) return { ok: false, error: "Home did not load." };
+    return { ok: true, home };
+  },
+  async savePlace(input) {
+    const response = await send("/api/place", input);
+    if (!response.ok) return failure(response.json, "That place was not saved.");
+    return { ok: true };
+  },
+  async joinRoom(roomId) {
+    const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/join`, {});
+    if (!response.ok) return failure(response.json, "That room was not joined.");
+    return { ok: true };
+  },
+  async leaveRoom(roomId) {
+    const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/leave`, {});
+    if (!response.ok) return failure(response.json, "That room was not left.");
+    return { ok: true };
+  },
+  async requestRoom(input) {
+    const response = await send("/api/room-requests", input);
+    if (!response.ok) return failure(response.json, "That request was not saved.");
+    return { ok: true };
+  },
+  async decideRoom(id, input) {
+    const response = await send(`/api/room-requests/${encodeURIComponent(id)}/decide`, input);
+    if (!response.ok) return failure(response.json, "That decision was not saved.");
+    return { ok: true };
+  },
+  async correctZip(input) {
+    const response = await send("/api/zips", input);
+    if (!response.ok) return failure(response.json, "That ZIP was not corrected.");
+    return { ok: true };
+  },
+  async changeAccess(input) {
+    const response = await send("/api/access", input);
+    if (!response.ok) return failure(response.json, "That role was not changed.");
+    return { ok: true };
+  },
+  async setCouncil(id, input) {
+    const response = await send(`/api/posts/${encodeURIComponent(id)}/council`, input);
+    if (!response.ok) return failure(response.json, "That approval was not saved.");
     return { ok: true };
   },
 };

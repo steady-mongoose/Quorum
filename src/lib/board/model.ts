@@ -95,6 +95,15 @@ export type Post = {
   campaignId?: string;
   cardId?: string;
   tradeId?: string;
+  /** Candidate or business. The council can label one of these, once. */
+  subject?: "candidate" | "business";
+  /** A one-time label. It does not move the post. */
+  council?: {
+    label: "Council-approved";
+    reason: string;
+    checklist: string[];
+    approvalId: string;
+  } | null;
   /** One picture or video, kept with the post. Older posts omit this. */
   media?: SharedMedia[];
 };
@@ -538,6 +547,7 @@ export type Draft = {
   /** Set when a picture is uploaded, so the post id matches the stored object. */
   postId: string;
   media: SharedMedia[];
+  subject: "" | "candidate" | "business";
 };
 
 export function blankDraft(room: RoomId): Draft {
@@ -556,6 +566,7 @@ export function blankDraft(room: RoomId): Draft {
     tradeId: "",
     postId: "",
     media: [],
+    subject: "",
   };
 }
 
