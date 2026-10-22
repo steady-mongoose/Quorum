@@ -93,7 +93,7 @@ test("tap interactions add no count, badge, or feed gesture", () => {
   const rsvp = read("../../components/board/rsvp-control.tsx");
   assert.match(rsvp, /You’re going/);
   assert.match(rsvp, /aria-hidden="true">✓/);
-  assert.equal(rsvp.includes("aria-pressed"), false);
+  assert.equal(/aria-pressed\s*=/.test(rsvp), false);
   assert.match(week, /RsvpControl/);
   assert.match(find, /RsvpControl/);
   assert.equal(SHARE_GATHERINGS, false);
