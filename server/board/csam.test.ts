@@ -609,6 +609,19 @@ test("migration 0010 can be applied twice and keeps its own trigger", async () =
     assert.equal(names.includes("anonymize_moderation_user"), true);
     assert.equal(names.includes("anonymize_board_user"), true);
     assert.equal(names.includes("anonymize_theme_group_user"), true);
+    const widen = readFileSync(
+      new URL("../../migrations/0015_hard_rules.sql", import.meta.url),
+      "utf8",
+    );
+    await pg.exec(widen);
+    await pg.exec(widen);
+    const check = await pg.query<{ def: string }>(
+      `select pg_get_constraintdef(oid) as def
+       from pg_constraint
+       where conname = 'theme_group_removal_reason_check'`,
+    );
+    assert.match(check.rows[0]?.def ?? "", /doxxing/);
+    assert.match(check.rows[0]?.def ?? "", /blasphemy/);
   } finally {
     await close();
   }

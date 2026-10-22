@@ -189,7 +189,7 @@ $$;
 
 -- Theme-group and room-chat checks are created by later files. When this
 -- migration is applied after those tables exist, widen them here too.
--- 0014 does the same for a fresh database, where this block is a no-op.
+-- 0015 does the same for a fresh database, where this block is a no-op.
 
 drop trigger if exists anonymize_moderation_user on "user";
 create trigger anonymize_moderation_user
@@ -198,7 +198,7 @@ create trigger anonymize_moderation_user
 
 -- Widen hard-removal checks when the theme-group or room-chat tables are
 -- already present. A fresh database creates those tables in a later file;
--- 0014 repeats this block so the later create is widened too.
+-- 0015 repeats this block so the later create is widened too.
 do $$
 declare
   cons name;

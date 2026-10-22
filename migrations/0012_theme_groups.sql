@@ -11,7 +11,7 @@
 -- society. Each group has its own admins. Those admins mark a post sloppy
 -- or unsupported, with one sentence, and hard-remove for a threat,
 -- pornography, child sexual abuse material, doxxing, or blasphemy.
--- 0014 widens a database that already applied the narrower checks.
+-- 0015 widens a database that already applied the narrower checks.
 -- The mark stays on the post.
 -- It does not move it. Members appeal to stewards. Every action is logged.
 -- Posts are newest first. Nothing here is a like, a reshare, a score, or a rank.
