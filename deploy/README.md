@@ -181,6 +181,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health
 ```
 
+To restore the newest dump from the bucket onto a fresh host, follow `deploy/FAILOVER.md` and run `scripts/restore-from-backup.sh`. That script uses these same `BACKUP_S3_*` names.
+
 If the copy you need is only in the bucket:
 
 ```bash

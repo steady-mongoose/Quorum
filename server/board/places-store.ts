@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Db } from "../db.ts";
+import { isUniqueViolation, type Db } from "../db.ts";
+import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
-import { isUniqueViolation } from "../db.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   planAdminGrant,
@@ -30,7 +30,11 @@ import {
   type ZipCorrectionRow,
   type ZipSeed,
 } from "../../src/lib/board/home.ts";
-import { planRoomDecision, planRoomRequest, planZipCorrection } from "../../src/lib/board/room-requests.ts";
+import {
+  planRoomDecision,
+  planRoomRequest,
+  planZipCorrection,
+} from "../../src/lib/board/room-requests.ts";
 import { actorRole, councilFlags } from "./access.ts";
 
 type Err = { ok: false; status: number; error: string };
@@ -64,7 +68,8 @@ async function openBan(
   userId: string,
   now: Date,
 ): Promise<{ until: number; strikes: number; reason: RuleId } | null> {
-  const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
+  const rows = await queryBanTable<{ strikes: number; until_at: Date | string; reason: string }>(
+    db,
     `select strikes, until_at, reason from board_ban
      where user_id = $1 and room_id = ''
      order by created_at desc`,
@@ -130,7 +135,9 @@ async function readLog(db: Db): Promise<LogRow[]> {
 
 async function roomExists(db: Db, id: string): Promise<boolean> {
   if (!ROOM_ID.test(id)) return false;
-  const rows = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [id]);
+  const rows = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
+    id,
+  ]);
   return Boolean(rows[0]);
 }
 
@@ -231,7 +238,8 @@ export async function grantAccess(
       const log = await readLog(tx);
       const action = input.action.trim();
       if (action === "grant-member") {
-        if (!(await roomExists(tx, input.roomId.trim()))) return fail(400, "That room is not here.");
+        if (!(await roomExists(tx, input.roomId.trim())))
+          return fail(400, "That room is not here.");
         const planned = planMemberGrant(log, {
           inviterId: input.userId,
           targetId: target.id,
@@ -242,7 +250,8 @@ export async function grantAccess(
         return { ok: true as const, value: { action: "grant" as const, role: "member" as const } };
       }
       if (action === "grant-steward") {
-        if (!(await roomExists(tx, input.roomId.trim()))) return fail(400, "That room is not here.");
+        if (!(await roomExists(tx, input.roomId.trim())))
+          return fail(400, "That room is not here.");
         const inviter = await personByEmail(tx, input.inviterEmail);
         if (!inviter) return fail(404, "No member has that inviter email.");
         const planned = planStewardGrant(log, {
@@ -364,7 +373,11 @@ export async function councilMarks(db: Db, postIds: string[]): Promise<Map<strin
   return map;
 }
 
-export async function listHome(db: Db, userId: string, now: Date): Promise<PlaceResult<HomePayload>> {
+export async function listHome(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<PlaceResult<HomePayload>> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read Home.");
   const ban = await openBan(db, userId, now);
@@ -482,10 +495,12 @@ export async function listHome(db: Db, userId: string, now: Date): Promise<Place
     });
   }
   for (const tier of ["joined", "town", "congregation", "region"] as const) {
-    const tierRooms = ordered.filter((row) => row.tier === tier).map((row) => ({
-      id: row.room.id,
-      name: row.room.name,
-    }));
+    const tierRooms = ordered
+      .filter((row) => row.tier === tier)
+      .map((row) => ({
+        id: row.room.id,
+        name: row.room.name,
+      }));
     if (tierRooms.length === 0) continue;
     sections.push({ tier, label: HOME_SECTION_LABEL[tier], rooms: tierRooms });
   }
@@ -727,7 +742,8 @@ export async function decideRoom(
     decision: input.decision,
     note: input.note,
   });
-  if (!planned.ok) return fail(planned.error === "An admin decides a room request." ? 403 : 400, planned.error);
+  if (!planned.ok)
+    return fail(planned.error === "An admin decides a room request." ? 403 : 400, planned.error);
   if (planned.decision === "refused") {
     const updated = await db.query<{ id: string }>(
       `update room_request
@@ -741,7 +757,11 @@ export async function decideRoom(
   }
   const kind = request.kind === "congregation" || request.kind === "region" ? request.kind : "town";
   const slug =
-    kind === "town" ? request.town_id : kind === "congregation" ? request.congregation_id : request.region_id;
+    kind === "town"
+      ? request.town_id
+      : kind === "congregation"
+        ? request.congregation_id
+        : request.region_id;
   const roomId = `${kind === "town" ? "town" : kind === "congregation" ? "cong" : "region"}-${slug}`;
   if (!ROOM_ID.test(roomId)) return fail(400, "Use a shorter name.");
   const shape = roomShape(kind, request.name, request.state);
@@ -821,7 +841,8 @@ export async function correctZip(
     state: input.state,
     clear: input.clear,
   });
-  if (!planned.ok) return fail(planned.error === "Only an admin can correct a ZIP." ? 403 : 400, planned.error);
+  if (!planned.ok)
+    return fail(planned.error === "Only an admin can correct a ZIP." ? 403 : 400, planned.error);
   if (!who) return fail(403, "Only an admin can correct a ZIP.");
   if (planned.townId) {
     await db.query(
@@ -884,7 +905,8 @@ export async function setCouncil(
   const live = marks.get(post.id);
   if (input.action === "revoke") {
     const planned = planCouncilRevoke({ admin: actor.admin, live: Boolean(live) });
-    if (!planned.ok) return fail(planned.error.startsWith("Only an admin") ? 403 : 400, planned.error);
+    if (!planned.ok)
+      return fail(planned.error.startsWith("Only an admin") ? 403 : 400, planned.error);
     if (!live) return fail(400, "There is no live approval to revoke.");
     await db.query(
       `insert into council_approval
@@ -928,4 +950,3 @@ export async function setCouncil(
     },
   };
 }
-

@@ -16,12 +16,12 @@
 #   docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 #   curl -fsS https://api.avouchsocial.com/api/health
 #
-# To fetch a copy from the bucket Josh approved:
-#   aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_REGION:-auto}" \
-#     --bucket "$BACKUP_S3_BUCKET" --key "avouch/avouch-STAMP.dump.age" avouch-STAMP.dump.age
+# To fetch the newest copy from the bucket and restore it, use
+# scripts/restore-from-backup.sh. That script uses the same env names.
 #
 # BACKUP_MODE=docker (default) restores into the compose Postgres.
 # BACKUP_MODE=pg_restore shells out to pg_restore on PATH, which tests use.
+# When DATABASE_URL is set, pg_restore writes into that database.
 set -eu
 
 if [ "$#" -ne 1 ]; then
@@ -59,7 +59,11 @@ if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < "$PLAIN"
 elif [ "$BACKUP_MODE" = "pg_restore" ]; then
-  pg_restore --no-owner --exit-on-error < "$PLAIN"
+  if [ -n "${DATABASE_URL:-}" ]; then
+    pg_restore --no-owner --exit-on-error --dbname="$DATABASE_URL" < "$PLAIN"
+  else
+    pg_restore --no-owner --exit-on-error < "$PLAIN"
+  fi
 else
   echo "BACKUP_MODE must be docker or pg_restore." >&2
   exit 1
