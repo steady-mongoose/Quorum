@@ -190,6 +190,23 @@ test("a CyberTipline row keeps metadata and drops the post itself", () => {
         fileKey: "ready/secret",
         url: "https://example.test/secret",
       },
+      {
+        id: "filed",
+        postId: "p",
+        room: "shop",
+        author: "Maria",
+        accountId: "user-1",
+        incidentAt: 7,
+        retainUntil: 8,
+        mediaCount: 0,
+        byteSize: 0,
+        mediaTypes: [],
+        status: "filed",
+        reportId: "NCMEC-1",
+        filedAt: 9,
+        filedBy: "Josh",
+        sealed: secret,
+      },
       { id: "sent", status: "submitted", claim: secret },
     ],
   });
@@ -197,9 +214,12 @@ test("a CyberTipline row keeps metadata and drops the post itself", () => {
   assert.equal(board.marks[0]?.mark, "out_of_scope");
   assert.equal(board.removals[0]?.reason, "doxxing");
   assert.equal(board.appeals[0]?.decision, "uphold");
-  assert.equal(board.csamReports.length, 1);
+  assert.equal(board.csamReports.length, 2);
   assert.equal(board.csamReports[0]?.status, "prepared");
+  assert.equal(board.csamReports[1]?.status, "filed");
+  assert.equal(board.csamReports[1]?.reportId, "NCMEC-1");
   assert.equal(JSON.stringify(board).includes(secret), false);
   assert.equal("fileKey" in (board.csamReports[0] ?? {}), false);
+  assert.equal("sealed" in (board.csamReports[1] ?? {}), false);
   assert.equal("claim" in (board.appeals[0] ?? {}), false);
 });

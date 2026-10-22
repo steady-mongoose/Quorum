@@ -533,7 +533,11 @@ function appealsFrom(value: unknown): AppealRow[] {
 function reportFrom(value: unknown): CsamReport | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
-  if (row.status !== "prepared") return null;
+  const status =
+    row.status === "prepared" || row.status === "pending_seal" || row.status === "filed"
+      ? row.status
+      : null;
+  if (!status) return null;
   if (typeof row.id !== "string" || typeof row.postId !== "string" || typeof row.room !== "string")
     return null;
   if (typeof row.author !== "string" || typeof row.accountId !== "string") return null;
@@ -550,7 +554,10 @@ function reportFrom(value: unknown): CsamReport | null {
     mediaCount: row.mediaCount,
     byteSize: row.byteSize,
     mediaTypes: strings(row.mediaTypes),
-    status: "prepared",
+    status,
+    reportId: typeof row.reportId === "string" ? row.reportId : "",
+    filedAt: typeof row.filedAt === "number" ? row.filedAt : null,
+    filedBy: typeof row.filedBy === "string" ? row.filedBy : "",
   };
 }
 

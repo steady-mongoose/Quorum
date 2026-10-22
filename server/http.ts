@@ -359,7 +359,7 @@ async function route(
     return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
   }
 
-  const board = await handleBoard(deps, request, url);
+  const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;
 
   const groups = await handleGroups(deps, request, url);

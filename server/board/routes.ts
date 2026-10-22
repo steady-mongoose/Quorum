@@ -1,6 +1,8 @@
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
+import type { ObjectStore } from "../media/s3.ts";
+import { fileCsamReport } from "./csam.ts";
 import {
   correctZip,
   decideRoom,
@@ -32,6 +34,8 @@ export type BoardDeps = {
   db: Db;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   now: () => Date;
+  /** Present when picture storage is on. A CSAM removal moves files through it. */
+  store?: ObjectStore | null;
 };
 
 function json(status: number, body: unknown, extra?: Headers): Response {
@@ -135,6 +139,7 @@ export async function handleBoard(
       url.pathname,
     );
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
+  const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const matched =
@@ -149,7 +154,8 @@ export async function handleBoard(
     Boolean(roomJoin && (request.method === "POST" || request.method === "DELETE")) ||
     Boolean(decide && request.method === "POST") ||
     Boolean(postAction && request.method === "POST") ||
-    Boolean(appealAction && request.method === "POST");
+    Boolean(appealAction && request.method === "POST") ||
+    Boolean(fileHold && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -295,6 +301,19 @@ export async function handleBoard(
       return fromResult(201, banned);
     }
 
+    if (fileHold) {
+      return fromResult(
+        200,
+        await fileCsamReport(deps.db, {
+          userId: session.id,
+          name: session.name,
+          holdId: fileHold[1] ?? "",
+          reportId: stringField(body, "reportId"),
+          now,
+        }),
+      );
+    }
+
     if (appealAction) {
       return fromResult(
         200,
@@ -385,6 +404,7 @@ export async function handleBoard(
         postId,
         reason: stringField(body, "reason"),
         now,
+        store: deps.store ?? null,
       }),
     );
   } catch (error) {

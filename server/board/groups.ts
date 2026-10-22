@@ -17,7 +17,7 @@ import { openBan, type Result } from "./store.ts";
 
 const PAGE_DEFAULT = 40;
 const PAGE_MAX = 100;
-const HARD = new Set(["threat", "porn", "csam"]);
+const HARD = new Set(["threat", "porn", "csam", "doxxing", "blasphemy"]);
 
 export type ThemeGroup = {
   id: string;
@@ -51,7 +51,7 @@ export type GroupRemoval = {
   id: string;
   postId: string;
   author: string;
-  reason: "threat" | "porn" | "csam";
+  reason: "threat" | "porn" | "csam" | "doxxing" | "blasphemy";
   at: number;
 };
 
@@ -110,7 +110,7 @@ type Err = {
   ok: false;
   status: number;
   error: string;
-  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" };
+  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" | "doxxing" | "blasphemy" };
 };
 
 type Gate = { ok: true; actor: BoardActor } | Err;
@@ -118,7 +118,7 @@ type Gate = { ok: true; actor: BoardActor } | Err;
 function fail(
   status: number,
   error: string,
-  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" },
+  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" | "doxxing" | "blasphemy" },
 ): Err {
   return ban ? { ok: false, status, error, ban } : { ok: false, status, error };
 }
@@ -145,7 +145,16 @@ function markOf(value: string | null): GroupPost["mark"] {
 }
 
 function hardReason(value: string): GroupRemoval["reason"] {
-  return value === "porn" || value === "csam" ? value : "threat";
+  if (
+    value === "porn" ||
+    value === "csam" ||
+    value === "doxxing" ||
+    value === "blasphemy" ||
+    value === "threat"
+  ) {
+    return value;
+  }
+  return "threat";
 }
 
 function groupIdFor(name: string): string {
@@ -1109,7 +1118,10 @@ export async function removeGroupPost(
   const gated = await gate(db, input.userId, input.now);
   if (!gated.ok) return gated;
   if (!HARD.has(input.reason))
-    return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
+    return fail(
+      400,
+      "Name the rule: threat, pornography, child sexual abuse material, doxxing, or mocking God or Christ.",
+    );
   const reason = input.reason as GroupRemoval["reason"];
   const post = await loadPost(db, input.postId);
   if (!post || post.removed) return fail(404, "That post is not here.");

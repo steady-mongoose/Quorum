@@ -53,7 +53,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The appeal and the decision are logged.",
+    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -268,7 +268,8 @@ function CsamQueue({ reports }: { reports: CsamReport[] }) {
       <h2 className="text-2xl text-fg">CyberTipline queue</h2>
       <p className="max-w-prose text-sm text-muted">
         Prepared for the NCMEC CyberTipline under 18 U.S.C. 2258A. Josh files each report by hand.
-        This page does not send it. The words and the pictures are not shown.
+        This page does not send it. The words and the pictures are not shown. The hold is one year,
+        pending counsel.
       </p>
       {reports.length === 0 ? (
         <p className="text-sm text-muted">No report is waiting.</p>
@@ -279,7 +280,13 @@ function CsamQueue({ reports }: { reports: CsamReport[] }) {
               key={report.id}
               className="rounded-md border border-line px-3 py-2 text-sm text-muted"
             >
-              Prepared · {new Date(report.incidentAt).toLocaleString()} · {report.author} · account{" "}
+              {report.status === "filed"
+                ? "Filed"
+                : report.status === "pending_seal"
+                  ? "Not sealed"
+                  : "Not filed"}
+              {report.status === "filed" && report.reportId ? ` · report ${report.reportId}` : ""} ·{" "}
+              {new Date(report.incidentAt).toLocaleString()} · {report.author} · account{" "}
               {report.accountId} · room {report.room} · post {report.postId} · {report.mediaCount}{" "}
               {report.mediaCount === 1 ? "file" : "files"}, {report.byteSize} bytes · hold until{" "}
               {new Date(report.retainUntil).toLocaleDateString()}

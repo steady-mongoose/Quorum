@@ -15,15 +15,13 @@ import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import {
   CSAM_QUEUE_SQL,
-  HOLD_MS,
-  REDACTED_CLAIM,
-  holdKeyError,
-  purgeExpiredHolds,
+  dropObjectKeys,
   reportFromRow,
-  sealHold,
+  sealCsamHold,
+  type AdminAlert,
   type CsamReport,
-  type HeldBody,
 } from "./csam.ts";
+import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -139,6 +137,7 @@ export type BoardPayload = {
   bans: BanEntry[];
   appeals: AppealEntry[];
   csamReports: CsamReport[];
+  adminAlerts: AdminAlert[];
   /** One cursor per room. Null means that room has no older page. */
   pages: RoomPage[];
 };
@@ -491,8 +490,13 @@ export async function listBoard(
     author_name: string;
     reason: string;
     created_at: Date | string;
+    room_id: string;
   }>(
-    `select id, post_id, author_name, reason, created_at from board_removal order by created_at desc limit 500`,
+    `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id
+     from board_removal r
+     join board_post p on p.id = r.post_id
+     order by r.created_at desc
+     limit 500`,
   );
   const banRows = await db.query<{
     id: string;
@@ -501,13 +505,20 @@ export async function listBoard(
     strikes: number;
     until_at: Date | string;
     created_at: Date | string;
+    room_id: string | null;
   }>(
-    `select id, name, reason, strikes, until_at, created_at from board_ban order by created_at desc limit 500`,
+    `select b.id, b.name, b.reason, b.strikes, b.until_at, b.created_at, p.room_id
+     from board_ban b
+     left join board_removal r on r.id = b.removal_id
+     left join board_post p on p.id = r.post_id
+     order by b.created_at desc
+     limit 500`,
   );
   const appealRows = await db.query<{
     id: string;
     room_id: string;
     post_id: string;
+    author_user_id: string | null;
     author_name: string;
     kind: string;
     reason: string;
@@ -518,7 +529,7 @@ export async function listBoard(
     decided_at: Date | string | null;
     rule: string | null;
   }>(
-    `select a.id, a.room_id, a.post_id, a.author_name, a.kind, a.reason, a.decision,
+    `select a.id, a.room_id, a.post_id, a.author_user_id, a.author_name, a.kind, a.reason, a.decision,
             a.decision_note, a.decided_by_name, a.created_at, a.decided_at, r.reason as rule
      from board_appeal a
      left join board_removal r on a.kind = 'removal' and r.id = a.target_id
@@ -526,23 +537,51 @@ export async function listBoard(
      limit 200`,
   );
   let csamReports: CsamReport[] = [];
+  let adminAlerts: AdminAlert[] = [];
   if (actor.admin) {
-    await purgeExpiredHolds(db, now);
     const reportRows = await db.query<{
       id: string;
       post_id: string;
       room_id: string;
-      author_user_id: string;
+      author_user_id: string | null;
       author_name: string;
       media_count: number;
       byte_size: number;
       media_types: unknown;
       created_at: Date | string;
       retain_until: Date | string;
+      seal_status: string;
+      filed_at: Date | string | null;
+      report_id: string;
+      filed_by_name: string;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
+    const alertRows = await db.query<{
+      id: string;
+      kind: string;
+      hold_id: string;
+      created_at: Date | string;
+    }>(
+      `select id, kind, hold_id, created_at from board_admin_alert order by created_at desc limit 50`,
+    );
+    adminAlerts = alertRows.flatMap((row) => {
+      if (row.kind !== "csam_hold" && row.kind !== "csam_pending_seal") return [];
+      return [
+        {
+          id: row.id,
+          kind: row.kind,
+          holdId: row.hold_id,
+          at: atMs(row.created_at),
+        },
+      ];
+    });
   }
-  const seeModeration = actor.steward;
+  const seesRoom = (roomId: string | null) =>
+    actor.admin || (roomId !== null && actor.stewardRooms.includes(roomId));
+  const visibleAppeals = appealRows.filter(
+    (row) =>
+      actor.admin || row.author_user_id === userId || actor.stewardRooms.includes(row.room_id),
+  );
   return {
     ok: true,
     value: {
@@ -566,26 +605,26 @@ export async function listBoard(
         reason: row.reason,
         at: atMs(row.created_at),
       })),
-      removals: seeModeration
-        ? removalRows.map((row) => ({
-            id: row.id,
-            postId: row.post_id,
-            author: row.author_name,
-            reason: asRule(row.reason),
-            at: atMs(row.created_at),
-          }))
-        : [],
-      bans: seeModeration
-        ? banRows.map((row) => ({
-            id: row.id,
-            author: row.name,
-            reason: asRule(row.reason),
-            until: atMs(row.until_at),
-            strikes: Number(row.strikes),
-            at: atMs(row.created_at),
-          }))
-        : [],
-      appeals: appealRows.map((row) => ({
+      removals: removalRows
+        .filter((row) => seesRoom(row.room_id))
+        .map((row) => ({
+          id: row.id,
+          postId: row.post_id,
+          author: row.author_name,
+          reason: asRule(row.reason),
+          at: atMs(row.created_at),
+        })),
+      bans: banRows
+        .filter((row) => seesRoom(row.room_id))
+        .map((row) => ({
+          id: row.id,
+          author: row.name,
+          reason: asRule(row.reason),
+          until: atMs(row.until_at),
+          strikes: Number(row.strikes),
+          at: atMs(row.created_at),
+        })),
+      appeals: visibleAppeals.map((row) => ({
         id: row.id,
         room: row.room_id,
         postId: row.post_id,
@@ -597,9 +636,15 @@ export async function listBoard(
         decidedBy: row.decided_by_name,
         at: atMs(row.created_at),
         decidedAt: row.decided_at ? atMs(row.decided_at) : null,
-        rule: row.rule && isHardRule(row.rule) ? row.rule : null,
+        rule:
+          row.rule &&
+          isHardRule(row.rule) &&
+          (row.rule !== "csam" || actor.admin || row.author_user_id === userId)
+            ? row.rule
+            : null,
       })),
       csamReports,
+      adminAlerts,
       pages,
     },
   };
@@ -976,89 +1021,16 @@ export async function markPost(
   };
 }
 
-async function sealCsam(tx: Db, postId: string, now: Date): Promise<void> {
-  const texts = await tx.query<{
-    id: string;
-    room_id: string;
-    author_user_id: string;
-    author_name: string;
-    claim: string;
-    reason: string;
-    parent_id: string | null;
-  }>(
-    `select id, room_id, author_user_id, author_name, claim, reason, parent_id
-     from board_post where id = $1 or parent_id = $1`,
-    [postId],
-  );
-  const parent = texts.find((row) => row.id === postId);
-  if (!parent) throw new Stop(404, "That post is not here.");
-  const ids = texts.map((row) => row.id);
-  const files = await tx.query<{
-    id: string;
-    kind: string;
-    content_type: string;
-    byte_size: number;
-    file_key: string;
-    upload_key: string;
-    post_id: string;
-  }>(
-    `select id, kind, content_type, byte_size, file_key, upload_key, post_id
-     from media_object where deleted_at is null and post_id = any($1::text[])`,
-    [ids],
-  );
-  const body: HeldBody = {
-    claim: parent.claim,
-    reason: parent.reason,
-    replies: texts.filter((row) => row.parent_id).map((row) => ({ id: row.id, claim: row.claim })),
-    files: files.map((file) => ({
-      id: file.id,
-      kind: file.kind,
-      contentType: file.content_type,
-      byteSize: Number(file.byte_size),
-      fileKey: file.file_key || file.upload_key,
-    })),
-  };
-  let sealed: string;
-  try {
-    sealed = sealHold(body);
-  } catch {
-    throw new Stop(503, "Set CSAM_HOLD_KEY before removing child sexual abuse material.");
-  }
-  const types: string[] = [];
-  let bytes = 0;
-  for (const file of body.files) {
-    bytes += file.byteSize;
-    if (file.contentType && !types.includes(file.contentType)) types.push(file.contentType);
-  }
-  await tx.query(
-    `insert into board_csam_hold
-     (id, post_id, post_ids, room_id, author_user_id, author_name, sealed,
-      media_count, byte_size, media_types, created_at, retain_until)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-    [
-      randomUUID(),
-      parent.id,
-      ids,
-      parent.room_id,
-      parent.author_user_id,
-      parent.author_name,
-      sealed,
-      body.files.length,
-      bytes,
-      types,
-      now,
-      new Date(now.getTime() + HOLD_MS),
-    ],
-  );
-  await tx.query(`update board_post set claim = $2, reason = '' where id = $1 or parent_id = $1`, [
-    parent.id,
-    REDACTED_CLAIM,
-  ]);
-}
-
 export async function removePost(
   db: Db,
-  input: { userId: string; name: string; postId: string; reason: string; now: Date },
+  input: {
+    userId: string;
+    name: string;
+    postId: string;
+    reason: string;
+    now: Date;
+    store?: ObjectStore | null;
+  },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
   if (!isHardRule(input.reason)) return fail(400, RULE_ERROR);
@@ -1085,15 +1057,17 @@ export async function removePost(
   const target = await actorRole(db, post.author_user_id);
   const blocked = moderationStop(actor, target);
   if (blocked) return fail(403, blocked);
-  if (reason === "csam") {
-    const missing = holdKeyError();
-    if (missing) return fail(503, missing);
-  }
   const by = input.name.trim() || "Steward";
   const removalId = randomUUID();
+  let publicKeys: string[] = [];
+  let sealedKeys: string[] = [];
   try {
     const ban = await db.transaction(async (tx) => {
-      if (reason === "csam") await sealCsam(tx, post.id, input.now);
+      if (reason === "csam") {
+        const relocated = await sealCsamHold(tx, input.store ?? null, post.id, input.now);
+        publicKeys = relocated.map((item) => item.from);
+        sealedKeys = relocated.map((item) => item.to).filter((key) => key !== "");
+      }
       await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
         post.id,
       ]);
@@ -1121,6 +1095,7 @@ export async function removePost(
         now: input.now,
       });
     });
+    await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     evictCallMember(post.author_user_id);
     return {
@@ -1137,6 +1112,7 @@ export async function removePost(
       },
     };
   } catch (error) {
+    await dropObjectKeys(input.store ?? null, sealedKeys);
     if (error instanceof Stop) return fail(error.status, error.message);
     throw error;
   }

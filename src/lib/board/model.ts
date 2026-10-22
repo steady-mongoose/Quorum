@@ -214,7 +214,10 @@ export type CsamReport = {
   mediaCount: number;
   byteSize: number;
   mediaTypes: string[];
-  status: "prepared";
+  status: "prepared" | "pending_seal" | "filed";
+  reportId: string;
+  filedAt: number | null;
+  filedBy: string;
 };
 export type DmThread = { id: string; between: [string, string] };
 export type DmMessage = {
@@ -237,7 +240,7 @@ export const RULE_LABEL: Record<HardRule, string> = {
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat: "A threat of violence is removed.",
   porn: "Pornography is removed.",
-  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for 90 days.",
+  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel.",
   doxxing:
     "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
   blasphemy: "A post that mocks God or Christ is removed.",
