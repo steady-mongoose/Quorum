@@ -21,6 +21,7 @@ import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./acce
 import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
+import { queryBanTable } from "./ban-check.ts";
 import { openBan, type OpenBan, type Result } from "./store.ts";
 import type { RuleId } from "./rule.ts";
 
@@ -237,8 +238,7 @@ export async function banFromSourceRooms(
   try {
     rooms = await approvedRoomIds(db, groupId);
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
     if (code === "42P01") return null;
     throw error;
   }
@@ -247,8 +247,7 @@ export async function banFromSourceRooms(
       const ban = await openBan(db, userId, now, roomId);
       if (ban) return ban;
     } catch (error) {
-      const code =
-        error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
       if (code === "42P01") return null;
       throw error;
     }
@@ -408,7 +407,7 @@ export async function listGroups(
 ): Promise<Result<{ groups: ThemeGroup[] }>> {
   const gated = await gate(db, userId, now);
   if (!gated.ok) return gated;
-  const rows = await db.query<{
+  const rows = await queryBanTable<{
     id: string;
     name: string;
     about: string;
@@ -418,6 +417,7 @@ export async function listGroups(
     ban_strikes: number | string | null;
     ban_until: Date | string | null;
   }>(
+    db,
     `select g.id, g.name, g.about,
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
