@@ -22,6 +22,7 @@ import {
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
+import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -324,7 +325,7 @@ export async function openBan(
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
     const reason = ruleId(row.reason);
-    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
+    if (!banOpen({ reason, strikes, until }, now.getTime())) continue;
     return { until, strikes, reason };
   }
   return null;
