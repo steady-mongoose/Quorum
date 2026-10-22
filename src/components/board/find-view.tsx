@@ -8,6 +8,7 @@ import {
   Kicker,
   useCopy,
 } from "@/components/quorum/bits";
+import { RsvpControl } from "@/components/board/rsvp-control";
 import { cn } from "@/lib/cn";
 import {
   CARD_LABELS,
@@ -287,13 +288,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (
-          <button
-            type="button"
-            className={going ? btnGhost : btnSignal}
-            onClick={() => rsvp(card.id)}
-          >
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
         <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
           {went ? "You've been" : "I went"}

@@ -34,7 +34,7 @@ function Drawn({ theme, className }: { theme: ThemeId; className?: string }) {
   return null;
 }
 
-const LETTERING = { fontFamily: "Fraunces, Georgia, serif", fontWeight: 700, letterSpacing: 1.2 } as const;
+const LETTERING = { fontFamily: "EB Garamond, Georgia, serif", fontWeight: 700, letterSpacing: 1.2 } as const;
 
 /** The Pine Tree Flag, 1775: a white field, a green pine, the motto above. */
 function AppealToHeaven({ className }: { className?: string }) {

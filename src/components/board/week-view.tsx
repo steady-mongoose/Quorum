@@ -15,6 +15,8 @@ import {
   type MeetingCard,
 } from "@/lib/board/model";
 import { HomePanel } from "@/components/board/home-view";
+import { RsvpControl } from "@/components/board/rsvp-control";
+import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -96,7 +98,16 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   return (
     <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg"
+          onClick={(event) => {
+            clearChipNames(event.currentTarget);
+            event.currentTarget.style.viewTransitionName = `card-${card.room}`;
+            armRoom(card.room);
+            withViewTransition(() => setRoom(card.room));
+          }}
+        >
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
@@ -108,9 +119,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
       {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {card.host !== me ? (
-          <button type="button" className={going ? btnGhost : btnSignal} onClick={() => rsvp(card.id)}>
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : (
           <span className="self-center text-sm text-muted">You host this.</span>
         )}
