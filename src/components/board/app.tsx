@@ -159,6 +159,7 @@ function BoardShell() {
 
   return (
     <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+      {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { artAttribute, artSection, heroLabel, isEveningHour, showsHero } from "./engraved.ts";
 
@@ -26,10 +28,13 @@ test("the engraved stylesheet stays under 3 KB gzipped", () => {
 
 test("Martin is only the landing and the sign-in plate", () => {
   assert.match(css, /--art-landing:url\("\/art\/martin-hero-A\.webp"\)/);
+  assert.match(css, /\[data-section="landing"\],\[data-section="signin"\]\{background:var\(--bg\)\}/);
   assert.match(
     css,
-    /\[data-section="landing"\],\[data-section="signin"\]\{background:var\(--bg\) var\(--art-landing\)/,
+    /\[data-section="landing"\] \.plate-ground,\[data-section="signin"\] \.plate-ground\{background:var\(--art-landing\) center 30%\/cover no-repeat\}/,
   );
+  assert.match(css, /\.plate-ground\{position:sticky/);
+  assert.equal(css.includes("no-repeat fixed"), false);
   assert.equal([...css.matchAll(/var\(--art-landing\)/g)].length, 1);
   assert.equal(css.includes("martin-creation"), false);
   assert.equal(artSection({ entered: false, section: "week", signingIn: false }), "landing");
@@ -130,6 +135,11 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   assert.equal(illum.includes("border-bottom"), false);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\[data-section\]\{background-attachment:scroll\}/);
   assert.equal(css.includes("background-attachment:fixed"), false);
+  assert.equal(css.includes("filter:blur"), false);
+  assert.ok(contrast("#8f6f2f", "#ece2cc") >= 3, "parchment focus ring");
+  assert.ok(contrast("#8f6f2f", "#fffaf0") >= 3, "parchment focus ring on the raised card");
+  assert.match(css, /:focus-visible\{outline:2px solid var\(--gold\)/);
+  assert.match(css, /@media \(max-width:1023px\)\{[^]*dore-band-A-900\.webp/);
   assert.equal([...css.matchAll(/var\(--accent\)/g)].length, 1);
   const adjust = readFileSync(new URL("../../../public/engraved-adjust.css", import.meta.url), "utf8");
   assert.equal(adjust.includes("background-color"), false);
@@ -144,6 +154,7 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   assert.match(app, /overflow-x-clip/);
   assert.equal(app.includes("overflow-x-hidden"), false);
+  assert.match(app, /plate-ground/);
   const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
   assert.equal([...week.matchAll(/illum/g)].length, 1);
   const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
@@ -153,7 +164,31 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   assert.match(styles, /--color-gilt:\s*#c9a45c/);
   assert.match(styles, /--color-rubric:\s*#b4483e/);
   assert.match(styles, /--color-parchment:\s*#ece2cc/);
+  assert.equal(styles.includes("outline: 2px solid var(--color-gilt)"), false);
+  assertIlluminatedCapitals();
 });
+
+function assertIlluminatedCapitals() {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  for (const file of sourceFiles(root)) {
+    const text = readFileSync(file, "utf8");
+    for (const line of text.split("\n")) {
+      if (!line.includes("illum")) continue;
+      assert.match(line, /text-(3xl|4xl|5xl|6xl)/, line.trim());
+      assert.equal(/text-(xs|sm|base|lg)\b/.test(line), false, line.trim());
+    }
+  }
+}
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const file = join(dir, name);
+    if (statSync(file).isDirectory()) out.push(...sourceFiles(file));
+    else if (name.endsWith(".tsx")) out.push(file);
+  }
+  return out;
+}
 
 test("hero bands are week, rooms, and messages, and the label names the plate", () => {
   assert.equal(showsHero("week"), true);
