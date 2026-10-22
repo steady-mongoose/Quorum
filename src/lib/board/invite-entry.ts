@@ -15,12 +15,19 @@ export function entryFromSearch(search: string): { mode: "sign-in" | "sign-up"; 
   return { mode: "sign-up", code };
 }
 
+/** Server error type for a missing, unknown, used, or expired invite code. */
+export const INVITE_INVALID = "invite_invalid";
+
 /**
- * The field error for an empty code, or for a server refusal that is about
- * the code. A refusal about some other field returns null.
+ * The field error for an empty code, or for a refusal whose type is the
+ * invite code. Any other server message, including one that merely contains
+ * the word "code", returns null.
  */
-export function inviteCodeError(code: string, serverMessage?: string | null): string | null {
+export function inviteCodeError(
+  code: string,
+  failure?: { code?: string | null; message?: string | null } | null,
+): string | null {
   if (!code.trim()) return INVITE_CODE_ERROR;
-  if (serverMessage && /code/i.test(serverMessage)) return INVITE_CODE_ERROR;
+  if (failure?.code === INVITE_INVALID) return INVITE_CODE_ERROR;
   return null;
 }

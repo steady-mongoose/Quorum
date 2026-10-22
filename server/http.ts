@@ -4,6 +4,7 @@ import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
 import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
+import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
@@ -260,7 +261,12 @@ async function route(
       deps.signIn,
       deps.now(),
     );
-    if (!result.ok) return json(result.status, { error: result.error });
+    if (!result.ok) {
+      return json(
+        result.status,
+        result.code ? { error: result.error, code: result.code } : { error: result.error },
+      );
+    }
     if (result.value.user.response) return result.value.user.response;
     return json(200, {
       user: {
@@ -359,6 +365,9 @@ async function route(
 
   const board = await handleBoard(deps, request, url);
   if (board) return board;
+
+  const groups = await handleGroups(deps, request, url);
+  if (groups) return groups;
 
   if (url.pathname.startsWith("/api/calls")) {
     const openStatus = url.pathname === "/api/calls/status" && request.method === "GET";

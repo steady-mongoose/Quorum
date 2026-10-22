@@ -123,6 +123,12 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Host paused the series. It does not fill the week. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
   lastFour: boolean[];
   /** Names who have been, the lister first. Two names list a card. */
   wentBy: string[];
@@ -572,7 +578,77 @@ export function blankDraft(room: RoomId): Draft {
   };
 }
 
-export type Check = { ok: boolean; stops: string[]; notes: string[] };
+export type ComposerField =
+  | "type"
+  | "claim"
+  | "reason"
+  | "on"
+  | "next"
+  | "card"
+  | "trade"
+  | "named"
+  | "pages"
+  | "attest"
+  | "form";
+
+export function composerErrorId(field: ComposerField): string {
+  return `composer-${field}-error`;
+}
+
+/** The plain-language post button for each kind of post. */
+export function postButtonLabel(type: PostType): string {
+  switch (type) {
+    case "asked":
+      return "Post question";
+    case "did":
+      return "Post what you did";
+    case "noted":
+      return "Post notice";
+    case "saw":
+      return "Post bulletin";
+    case "hosted":
+      return "Post meeting";
+  }
+}
+
+/**
+ * Enter posts from a single-line field. A textarea inserts a newline on Enter,
+ * and posts on Ctrl+Enter or Cmd+Enter. Shift+Enter never posts.
+ */
+export function composerSubmitsOnEnter(
+  key: string,
+  modifiers: { meta: boolean; ctrl: boolean; shift: boolean },
+  multiline: boolean,
+): boolean {
+  if (key !== "Enter" || modifiers.shift) return false;
+  return multiline ? modifiers.meta || modifiers.ctrl : true;
+}
+
+/** True when Clear would throw away something the person wrote. */
+export function draftHasWriting(draft: Draft): boolean {
+  const today = todayIso();
+  return (
+    draft.claim.trim() !== "" ||
+    draft.reason.trim() !== "" ||
+    draft.pages.trim() !== "" ||
+    draft.named !== "" ||
+    draft.came.length > 0 ||
+    draft.tradeId !== "" ||
+    draft.media.length > 0 ||
+    draft.postId !== "" ||
+    draft.attested ||
+    draft.next !== "" ||
+    (draft.on !== "" && draft.on !== today)
+  );
+}
+
+export type Check = {
+  ok: boolean;
+  stops: string[];
+  notes: string[];
+  /** Messages for each field, so the form can point aria-describedby at them. */
+  fields?: Partial<Record<ComposerField, string[]>>;
+};
 export type CheckContext = {
   author: string;
   steward: boolean;
@@ -629,14 +705,32 @@ export function activeBan(
 export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   const stops: string[] = [];
   const notes: string[] = [];
+  const fields: Partial<Record<ComposerField, string[]>> = {};
+  const stop = (field: ComposerField, message: string) => {
+    stops.push(message);
+    const list = fields[field] ?? [];
+    list.push(message);
+    fields[field] = list;
+  };
+  const attach = (field: ComposerField, message: string) => {
+    const list = fields[field] ?? [];
+    list.push(message);
+    fields[field] = list;
+  };
   const room = roomById(draft.room, ctx.rooms);
 
-  if (activeBan(ctx.author, ctx.removals, ctx.now, ctx.bans))
-    return { ok: false, stops: ["This account cannot post right now."], notes };
-  if (!draft.type) return { ok: false, stops: ["Choose what kind of post this is."], notes };
+  if (activeBan(ctx.author, ctx.removals, ctx.now, ctx.bans)) {
+    const message = "This account cannot post right now.";
+    return { ok: false, stops: [message], notes, fields: { form: [message] } };
+  }
+  if (!draft.type) {
+    const message = "Choose what kind of post this is.";
+    return { ok: false, stops: [message], notes, fields: { type: [message] } };
+  }
   const meta = typeMeta(draft.type);
   if (!typesFor(room, ctx.steward).includes(draft.type)) {
-    stops.push(
+    stop(
+      "type",
       room.stewardTakes.includes(draft.type)
         ? `Only a steward can post a ${meta.label}.`
         : `${room.name} does not take ${meta.label} posts.`,
@@ -645,61 +739,83 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
 
   const claim = draft.claim.trim();
   const reason = draft.reason.trim();
-  if (!claim) stops.push(`Missing: ${meta.claimLabel.toLowerCase()}.`);
-  if (meta.reasonLabel && !reason) stops.push(`Missing: ${meta.reasonLabel.toLowerCase()}.`);
-  if ((claim && !isEnglish(claim)) || (reason && !isEnglish(reason)))
-    stops.push("Write it in English.");
-  if (claim.length > 600) stops.push("Keep it under 600 characters.");
-  if (meta.dateLabel && !isIsoDate(draft.on)) stops.push("Add the date.");
+  if (!claim) stop("claim", `Missing: ${meta.claimLabel.toLowerCase()}.`);
+  if (meta.reasonLabel && !reason) stop("reason", `Missing: ${meta.reasonLabel.toLowerCase()}.`);
+  if ((claim && !isEnglish(claim)) || (reason && !isEnglish(reason))) {
+    const message = "Write it in English.";
+    stops.push(message);
+    if (claim && !isEnglish(claim)) attach("claim", message);
+    if (reason && !isEnglish(reason)) attach("reason", message);
+  }
+  if (claim.length > 600) stop("claim", "Keep it under 600 characters.");
+  if (meta.dateLabel && !isIsoDate(draft.on)) stop("on", "Add the date.");
   if (meta.closes && draft.next && !isIsoDate(draft.next))
-    stops.push("The next date is not a valid date.");
+    stop("next", "The next date is not a valid date.");
   if (meta.closable && (claim.match(/\?/g) ?? []).length > 1)
-    stops.push("One question per post. Ask the second one separately.");
+    stop("claim", "One question per post. Ask the second one separately.");
 
   if (meta.cardPick === "own") {
     const card = ctx.cards.find((item) => item.id === draft.cardId);
-    if (!card) stops.push("Choose which meeting this is about.");
-    else if (card.host !== ctx.author) stops.push("Only the host can write up a meeting.");
+    if (!card) stop("card", "Choose which meeting this is about.");
+    else if (card.host !== ctx.author) stop("card", "Only the host can write up a meeting.");
     else if (card.room !== draft.room)
-      stops.push(`That card lives in ${roomById(card.room, ctx.rooms).name}.`);
+      stop("card", `That card lives in ${roomById(card.room, ctx.rooms).name}.`);
     if (hasHeadcount(claim))
-      stops.push("Leave out the headcount. Say how it went, not how many came.");
+      stop("claim", "Leave out the headcount. Say how it went, not how many came.");
     if (card?.book && draft.next && !draft.pages.trim())
-      stops.push("Say what to read before the next meeting.");
+      stop("pages", "Say what to read before the next meeting.");
     if (draft.named) {
-      if (draft.named === ctx.author) stops.push("You cannot mention yourself.");
+      if (draft.named === ctx.author) stop("named", "You cannot mention yourself.");
       else if (!draft.came.includes(draft.named))
-        stops.push("You can only mention someone who was there.");
+        stop("named", "You can only mention someone who was there.");
     }
   }
   if (meta.tradePick && draft.tradeId) {
     const trade = ctx.cards.find((item) => item.id === draft.tradeId);
-    if (trade && trade.host === ctx.author) stops.push("You cannot vouch for your own work.");
+    if (trade && trade.host === ctx.author) stop("trade", "You cannot vouch for your own work.");
   }
   if (meta.attest) {
     if (sawLockedFor(ctx.author, ctx.posts))
-      stops.push(
+      stop(
+        "form",
         "Notices are locked until you revise one of your last three posts; all three were marked sloppy.",
       );
-    if (!hasClock(reason) && !hasClock(claim)) stops.push("Include the time.");
-    if (hasStreetAddress(claim) || hasStreetAddress(reason))
-      stops.push(
-        "That looks like a home address. Give the block or the corner, not the house number.",
-      );
+    if (!hasClock(reason) && !hasClock(claim)) {
+      stop(meta.reasonLabel ? "reason" : "claim", "Include the time.");
+    }
+    if (hasStreetAddress(claim) || hasStreetAddress(reason)) {
+      const message =
+        "That looks like a home address. Give the block or the corner, not the house number.";
+      stops.push(message);
+      if (hasStreetAddress(claim)) attach("claim", message);
+      if (hasStreetAddress(reason)) attach("reason", message);
+    }
     if (!draft.attested)
-      stops.push("Tick the box to confirm: no children's faces, no private person named.");
+      stop("attest", "Tick the box to confirm: no children's faces, no private person named.");
   }
 
   const text = `${claim}\n${reason}`;
-  if (looksLikeThreat(text)) stops.push("That reads as a threat and will not post.");
-  if (looksLikePorn(text)) stops.push("That will not post.");
+  if (looksLikeThreat(text)) {
+    const message = "That reads as a threat and will not post.";
+    stops.push(message);
+    if (looksLikeThreat(claim)) attach("claim", message);
+    if (looksLikeThreat(reason)) attach("reason", message);
+    if (!looksLikeThreat(claim) && !looksLikeThreat(reason)) attach("form", message);
+  }
+  if (looksLikePorn(text)) {
+    const message = "That will not post.";
+    stops.push(message);
+    if (looksLikePorn(claim)) attach("claim", message);
+    if (looksLikePorn(reason)) attach("reason", message);
+    if (!looksLikePorn(claim) && !looksLikePorn(reason)) attach("form", message);
+  }
   if (meta.reasonLabel && reason && reason.length < 12)
     notes.push("That is a short reason. A steward may mark the post unsupported.");
   if (/^https?:\/\/\S+$/i.test(claim))
     notes.push("A link on its own is not a post. Say what is at the link.");
-  if (draft.media.length > 1) stops.push("One picture per post.");
+  if (draft.media.length > 1) stop("form", "One picture per post.");
 
-  return { ok: stops.length === 0, stops, notes };
+  return { ok: stops.length === 0, stops, notes, fields };
 }
 
 export type DeskContact = {
@@ -803,7 +919,14 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter((card) => meetingDates(card.time, card.next, today).includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses));
+    const dated = cards.filter((card) => {
+      const occurs = meetingDates(card.time, card.next, today, {
+        paused: card.paused,
+        cancelled: card.cancelled,
+        until: card.until,
+      });
+      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+    });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;

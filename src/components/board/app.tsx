@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -8,8 +8,9 @@ import {
   Search,
   User,
 } from "lucide-react";
-import { IconNav } from "@/components/quorum/bits";
-import { useBoard } from "@/lib/board/store";
+import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
+import { cn } from "@/lib/cn";
+import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
@@ -51,16 +52,44 @@ function BoardShell() {
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
   const sample = useBoard((state) => state.sample);
+  const localEntry = useBoard((state) => state.localEntry);
+  const undoClear = useBoard((state) => state.undoClear);
+  const undoClearBoard = useBoard((state) => state.undoClearBoard);
   const boardError = useBoard((state) => state.boardError);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const [undoBar, setUndoBar] = useState(false);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
-  const entered = server.mode === "live" ? Boolean(server.user) || sample : member;
+  const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
     void useQuorum.persist.rehydrate();
   }, []);
+
+  useEffect(() => {
+    if (!undoClear) {
+      setUndoBar(false);
+      return;
+    }
+    const remaining = undoClear.at + UNDO_TTL_MS - Date.now();
+    if (remaining <= 0) {
+      useBoard.setState({ undoClear: null });
+      return;
+    }
+    const expire = window.setTimeout(() => useBoard.setState({ undoClear: null }), remaining);
+    setUndoBar(true);
+    const hide = window.setTimeout(() => setUndoBar(false), UNDO_BAR_MS);
+    return () => {
+      window.clearTimeout(expire);
+      window.clearTimeout(hide);
+    };
+  }, [undoClear]);
+
+  useEffect(() => {
+    if (undoClear && undoBar) undoButton.current?.focus();
+  }, [undoClear, undoBar]);
 
   useEffect(() => {
     if (server.mode !== "live" || !server.user) return;
@@ -124,10 +153,36 @@ function BoardShell() {
             className="text-signal underline"
             onClick={() => setSection("about")}
           >
-            Clear it under About
+            Clear the sample week…
           </button>{" "}
           when you are ready to use it for real.
         </p>
+      ) : null}
+      {entered && undoClear && undoBar ? (
+        <div className="border-b border-line bg-surface" role="status">
+          <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-3 px-[clamp(1rem,4vw,4rem)] py-3">
+            <p className="max-w-prose text-sm text-muted">
+              The board is cleared. You can put it back.
+            </p>
+            <span className="flex flex-wrap gap-2">
+              <button
+                ref={undoButton}
+                type="button"
+                className={cn(btnGhost, "min-h-[44px]")}
+                onClick={() => undoClearBoard()}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                className={cn(btnQuiet, "min-h-[44px]")}
+                onClick={() => setUndoBar(false)}
+              >
+                Close
+              </button>
+            </span>
+          </div>
+        </div>
       ) : null}
       <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
         {waiting ? <p className="text-sm text-muted">Checking the server.</p> : null}

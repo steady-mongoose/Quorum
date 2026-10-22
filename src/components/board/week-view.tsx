@@ -29,6 +29,7 @@ export function WeekView() {
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
+  const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
   const needs = useMemo(() => needsFor(cards), [cards]);
@@ -46,7 +47,9 @@ export function WeekView() {
           ) : null}
           {week.length === 0 ? (
             <p className="max-w-2xl text-base text-muted">
-              A card lands here when it has a date inside seven days.{" "}
+              {justCleared
+                ? "The board is cleared, and nothing is on the calendar. "
+                : "A card lands here when it has a date inside seven days. "}
               <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
                 Look in the rooms
               </button>{" "}
@@ -93,7 +96,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   return (
     <article className="rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg" onClick={() => setRoom(card.room)}>
+        <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
