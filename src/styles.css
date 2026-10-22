@@ -65,11 +65,6 @@
     cursor: pointer;
   }
 
-  :focus-visible {
-    outline: 2px solid var(--color-gilt);
-    outline-offset: 3px;
-  }
-
   ::selection {
     background: var(--color-signal);
     color: var(--color-signal-ink);
