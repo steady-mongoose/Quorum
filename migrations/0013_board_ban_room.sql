@@ -1,7 +1,9 @@
 -- The owner must approve this file before it is applied to a database.
 -- The API process does not apply migrations. `npm run db:migrate` does.
 --
--- Numbered 0012. A room steward's bar is stored on board_ban.room_id.
+-- Numbered 0013. A room steward's bar is stored on board_ban.room_id.
+-- 0012 is theme groups. This file does not replace anonymize_board_user
+-- or anonymize_theme_group_user.
 -- An empty room_id is a site-wide bar, which only an admin writes.
 -- Existing rows stay site-wide because the default is empty.
 -- This file does not replace anonymize_board_user.

@@ -4,6 +4,7 @@ import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
 import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
+import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
@@ -360,6 +361,9 @@ async function route(
 
   const board = await handleBoard(deps, request, url);
   if (board) return board;
+
+  const groups = await handleGroups(deps, request, url);
+  if (groups) return groups;
 
   if (url.pathname.startsWith("/api/calls")) {
     const openStatus = url.pathname === "/api/calls/status" && request.method === "GET";

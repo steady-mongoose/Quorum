@@ -52,7 +52,7 @@ function clientIp(request: Request): string {
   return rateLimitIp(value || "local");
 }
 
-async function limit(
+export async function limitBoard(
   db: Db,
   request: Request,
   userId: string,
@@ -72,7 +72,7 @@ export async function limitBoardWrite(
   request: Request,
   userId: string,
 ): Promise<Response | null> {
-  return limit(db, request, userId, "write");
+  return limitBoard(db, request, userId, "write");
 }
 
 class HttpError extends Error {
@@ -152,7 +152,7 @@ export async function handleBoard(
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     const kind = request.method === "GET" ? "read" : "write";
-    const blocked = await limit(deps.db, request, session.id, kind);
+    const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
 
@@ -320,10 +320,7 @@ export async function handleBoard(
       );
     }
     if (action === "close") {
-      return fromResult(
-        200,
-        await closeAsked(deps.db, { userId: session.id, postId, now }),
-      );
+      return fromResult(200, await closeAsked(deps.db, { userId: session.id, postId, now }));
     }
     if (action === "council") {
       const result = await setCouncil(deps.db, {
