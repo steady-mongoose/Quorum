@@ -64,8 +64,15 @@ test("every plate the stylesheet names is a WebP in public/art", () => {
   }
 });
 
+test("the desktop Doré week band is about 160 KB", () => {
+  const size = statSync(new URL("../../../public/art/dore-band-A.webp", import.meta.url)).size;
+  assert.ok(size >= 140 * 1024 && size <= 180 * 1024, `dore-band-A.webp is ${size} bytes`);
+});
+
 test("reduced data and the first paint skip the art URL", () => {
-  assert.match(css, /prefers-reduced-data:reduce/);
+  assert.match(css, /prefers-reduced-data:\s*reduce/);
+  assert.match(css, /prefers-reduced-motion:\s*reduce/);
+  assert.match(css, /animation:none!important/);
   assert.equal(artAttribute({ painted: false, reducedData: false, section: "week" }), null);
   assert.equal(artAttribute({ painted: true, reducedData: true, section: "landing" }), null);
   assert.equal(artAttribute({ painted: true, reducedData: false, section: "rooms" }), "rooms");
@@ -90,12 +97,26 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
     ["#bcae94", "#17110b", 4.5],
     ["#c9a45c", "#14100c", 3],
     ["#c9a45c", "#241d16", 3],
+    ["#b4483e", "#241d16", 3],
+    ["#b4483e", "#14100c", 3],
     ["#1f1912", "#f8f3e7", 4.5],
     ["#5e5242", "#f8f3e7", 4.5],
+    ["#14100c", "#f0e7d3", 4.5],
   ];
   for (const [fg, bg, min] of pairs) {
     assert.ok(contrast(fg, bg) >= min, `${fg} on ${bg}`);
   }
+  // Oxblood is a large initial, not body text: it clears 3:1 and misses 4.5:1.
+  assert.ok(contrast("#b4483e", "#241d16") < 4.5);
+  assert.match(css, /\.illum::first-letter\{color:var\(--accent\)/);
+  assert.equal([...css.matchAll(/var\(--accent\)/g)].length, 1);
+  const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(styles, /--color-bg:\s*#14100c/);
+  assert.match(styles, /--color-raised:\s*#241d16/);
+  assert.match(styles, /--color-fg:\s*#f0e7d3/);
+  assert.match(styles, /--color-gilt:\s*#c9a45c/);
+  assert.match(styles, /--color-rubric:\s*#b4483e/);
+  assert.match(styles, /--color-parchment:\s*#ece2cc/);
 });
 
 test("hero bands are week, rooms, and messages, and the label names the plate", () => {

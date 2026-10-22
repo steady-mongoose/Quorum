@@ -19,17 +19,17 @@
   /* Ink & Bone, the default plate palette. Parchment is [data-palette="parchment"] in backgrounds.css. */
   --color-bg: #14100c;
   --color-surface: #1f1914;
-  --color-raised: #2d251c;
+  --color-raised: #241d16;
   --color-fg: #f0e7d3;
   --color-muted: #bcae94;
   --color-line: #3a3026;
   --color-line-strong: #8a7a62;
   --color-signal: #f0e7d3;
   --color-signal-ink: #14100c;
-  --color-parchment: #f3ecdc;
+  --color-parchment: #ece2cc;
   --color-ink: #1f1912;
   --color-gilt: #c9a45c;
-  --color-accent: #b4483e;
+  --color-rubric: #b4483e;
   --font-sans: "Public Sans", "Segoe UI", sans-serif;
   --font-display: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
 }

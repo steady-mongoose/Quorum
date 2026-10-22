@@ -66,7 +66,7 @@ export function FindView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
-          <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
+          <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
             Every meeting, in one list.
           </h1>
           <p className="max-w-prose text-base text-muted">
@@ -182,7 +182,7 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
   return (
     <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card} />
-      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       <p className="mt-1 text-sm text-muted">
         {witnesses.length === 0
@@ -258,7 +258,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         {card.pinned ? <span className="text-signal">pinned</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </Tags>
-      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       <p className="mt-1 text-sm text-muted">

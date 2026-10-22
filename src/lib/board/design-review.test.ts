@@ -198,7 +198,7 @@ test("ink and bone are the colour tokens, and the amber theme is gone", () => {
     THEMES.some((item) => item.colors.signal === "#e6a23c"),
     false,
   );
-  assert.equal(theme.colors.raised, "#2d251c");
+  assert.equal(theme.colors.raised, "#241d16");
   assert.equal(theme.colors.signal, "#f0e7d3");
 });
 

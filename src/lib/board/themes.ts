@@ -28,7 +28,7 @@ export const THEMES: Theme[] = [
     id: "appeal",
     name: "An Appeal to Heaven",
     motto: "An Appeal to Heaven",
-    colors: { bg: "#14100c", surface: "#1f1914", raised: "#2d251c", fg: "#f0e7d3", muted: "#bcae94", line: "#3a3026", signal: "#f0e7d3", signalInk: "#14100c" },
+    colors: { bg: "#14100c", surface: "#1f1914", raised: "#241d16", fg: "#f0e7d3", muted: "#bcae94", line: "#3a3026", signal: "#f0e7d3", signalInk: "#14100c" },
   },
   {
     id: "jerusalem",

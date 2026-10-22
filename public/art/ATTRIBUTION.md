@@ -9,6 +9,10 @@ and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to
 text colour. They are not upscaled past the source scan. CSS lives in
 `public/backgrounds.css` and is loaded as its own stylesheet.
 
+`dore-band-A.webp` is that same colour duotone, resized to 1600×677 and re-encoded to
+about 160KB for the desktop week band. It is not grayscale. The 900px mobile band and
+the margin plate are the original files.
+
 | Screen | Work | File | Commons | Licence |
 |---|---|---|---|---|
 | This week, hero band and margin | Gustave Doré, *Jacob's Dream*, Doré's English Bible, 1866 | `dore-band-A.webp`, `dore-band-A-900.webp`, `dore-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:021.Jacob%27s_Dream.jpg | Public domain (artist died 1883) |

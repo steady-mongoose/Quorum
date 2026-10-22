@@ -115,7 +115,7 @@ export function RoomView() {
                   : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
-          <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
+          <h2 className="illum mt-2 text-2xl text-fg">{card.name}</h2>
           <p className="text-sm text-muted">
             {cardSummary(card)}
             {card.next ? ` · ${formatDate(card.next)}` : ""}
@@ -136,8 +136,16 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <section className="plate flex flex-col gap-2">
+        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
+        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
+        <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
+        <RoomChat roomId={room} />
+      </section>
+
       <nav
-        className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        className="relative z-10 flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
         aria-label="Rooms"
       >
         {rooms.map((item) => (
@@ -152,14 +160,6 @@ export function RoomView() {
           </button>
         ))}
       </nav>
-
-      <section className="plate flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
-        <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <RoomCall roomId={room} />
-        <RoomChat roomId={room} />
-      </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">
