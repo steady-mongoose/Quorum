@@ -60,16 +60,19 @@ async function openBan(
   now: Date,
 ): Promise<{ until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null> {
   const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
-    `select strikes, until_at, reason from board_ban where user_id = $1 order by created_at desc limit 1`,
+    `select strikes, until_at, reason from board_ban
+     where user_id = $1 and room_id = ''
+     order by created_at desc`,
     [userId],
   );
-  const row = rows[0];
-  if (!row) return null;
-  const strikes = Number(row.strikes);
-  const until = atMs(row.until_at);
-  const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
-  if (strikes < 2 && until <= now.getTime()) return null;
-  return { until, strikes, reason };
+  for (const row of rows) {
+    const strikes = Number(row.strikes);
+    const until = atMs(row.until_at);
+    if (strikes < 2 && until <= now.getTime()) continue;
+    const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
+    return { until, strikes, reason };
+  }
+  return null;
 }
 
 function textList(value: unknown): string[] {

@@ -12,18 +12,22 @@ export function bindCallEviction(store: CallStore): void {
 }
 
 /**
- * Drop a person from every live call on this API process.
+ * Drop a person from live calls on this API process.
  *
- * `banMember` calls this with the banned user's id, and `removePost` calls
- * it with the author's id, after the ban is saved. A path that deletes one
- * `room_member` row calls `store.leave(roomId, userId)` for that room instead.
+ * `banMember` and `removePost` call this after the ban is saved. An admin
+ * bar passes no rooms and drops every call. A room steward passes the rooms
+ * the bar covers, and each of those calls `store.leave(roomId, userId)`.
  *
  * If the store is not bound, this returns 0 and the ban still stands. The
  * next join, leave, signal, or poll from someone who is no longer in
  * `room_member` also drops their slot. Other browsers close that peer
  * connection when the id disappears from the roster.
  */
-export function evictCallMember(userId: string): number {
+export function evictCallMember(userId: string, roomIds?: readonly string[]): number {
   if (!userId || !bound) return 0;
+  if (roomIds) {
+    for (const roomId of roomIds) bound.leave(roomId, userId);
+    return roomIds.length;
+  }
   return bound.evict(userId);
 }

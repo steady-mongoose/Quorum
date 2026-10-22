@@ -262,27 +262,46 @@ async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
 
 export type OpenBan = { until: number; strikes: number; reason: BanEntry["reason"] };
 
-export async function openBan(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
+/**
+ * An open bar that applies here.
+ * An empty room id checks site-wide bars only. A room id also checks that room.
+ * A newer expired bar does not hide an older one that is still in force.
+ */
+export async function openBan(
+  db: Db,
+  userId: string,
+  now: Date,
+  roomId = "",
+): Promise<OpenBan | null> {
   const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
-    `select strikes, until_at, reason from board_ban where user_id = $1 order by created_at desc limit 1`,
-    [userId],
+    `select strikes, until_at, reason
+     from board_ban
+     where user_id = $1 and (room_id = '' or room_id = $2)
+     order by created_at desc`,
+    [userId, roomId],
   );
-  const row = rows[0];
-  if (!row) return null;
-  const strikes = Number(row.strikes);
-  const until = atMs(row.until_at);
-  const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
-  if (strikes < 2 && until <= now.getTime()) return null;
-  return { until, strikes, reason };
+  for (const row of rows) {
+    const strikes = Number(row.strikes);
+    const until = atMs(row.until_at);
+    if (strikes < 2 && until <= now.getTime()) continue;
+    const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
+    return { until, strikes, reason };
+  }
+  return null;
 }
 
 /**
  * The ban, or none when the board tables are not in this database yet.
  * A missing `board_ban` is not a ban. Any other failure still throws.
  */
-export async function openBanOrNone(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
+export async function openBanOrNone(
+  db: Db,
+  userId: string,
+  now: Date,
+  roomId = "",
+): Promise<OpenBan | null> {
   try {
-    return await openBan(db, userId, now);
+    return await openBan(db, userId, now, roomId);
   } catch (error) {
     const code =
       error && typeof error === "object" && "code" in error ? String(error.code) : "";
@@ -519,24 +538,35 @@ async function writeBan(
     byName: string;
     removalId: string | null;
     now: Date;
+    /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
+    roomId: string;
   },
 ): Promise<BanEntry> {
   const prior = await tx.query<{ strikes: number }>(
-    `select strikes from board_ban where user_id = $1 order by created_at desc limit 1`,
-    [input.userId],
+    `select strikes from board_ban
+     where user_id = $1 and room_id = $2
+     order by created_at desc limit 1`,
+    [input.userId, input.roomId],
   );
-  const removals = await tx.query<{ id: string }>(
-    `select id from board_removal where author_user_id = $1`,
-    [input.userId],
-  );
+  const removals = input.roomId
+    ? await tx.query<{ id: string }>(
+        `select r.id from board_removal r
+         join board_post p on p.id = r.post_id
+         where r.author_user_id = $1 and p.room_id = $2`,
+        [input.userId, input.roomId],
+      )
+    : await tx.query<{ id: string }>(
+        `select id from board_removal where author_user_id = $1`,
+        [input.userId],
+      );
   const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length);
   const strikes = input.removalId ? Math.max(counted, 1) : counted + 1;
   const until = new Date(input.now.getTime() + (strikes >= 2 ? CLOSED_MS : BAN_MS));
   const id = randomUUID();
   await tx.query(
     `insert into board_ban
-     (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, removal_id, created_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+     (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, removal_id, room_id, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       id,
       input.userId,
@@ -547,6 +577,7 @@ async function writeBan(
       strikes,
       until,
       input.removalId,
+      input.roomId,
       input.now,
     ],
   );
@@ -575,10 +606,10 @@ export async function createPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  const ban = await openBan(db, input.userId, input.now);
-  if (ban) return fail(403, "This account cannot post right now.");
   const room = await roomById(db, input.roomId);
   if (!room) return fail(400, "Choose a room.");
+  const ban = await openBan(db, input.userId, input.now, room.id);
+  if (ban) return fail(403, "This account cannot post right now.");
   const type = field(input.body, "type").trim();
   const claim = field(input.body, "claim");
   const reason = field(input.body, "reason");
@@ -605,7 +636,7 @@ export async function createPost(
     author: input.name.trim() || "Member",
     attested: input.body.attested === true,
     mediaCount,
-    steward: actor.steward,
+    steward: stewardsRoom(actor, room.id),
     room: rulesOf(room),
   });
   if (stops.length > 0) return fail(400, stops[0] ?? "That post was not filed.", stops);
@@ -687,8 +718,6 @@ export async function replyToPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
-    return fail(403, "This account cannot post right now.");
   const stops = replyStops(input.claim);
   if (stops.length > 0) return fail(400, stops[0] ?? "That reply was not filed.", stops);
   const parents = await db.query<{
@@ -702,7 +731,11 @@ export async function replyToPost(
   if (!parent || parent.removed || parent.parent_id) return fail(404, "That post is not here.");
   const room = await roomById(db, parent.room_id);
   if (!room) return fail(404, "That post is not here.");
-  const allowed = actor.steward ? [...room.takes, ...room.stewardTakes] : room.takes;
+  if (await openBan(db, input.userId, input.now, room.id))
+    return fail(403, "This account cannot post right now.");
+  const allowed = stewardsRoom(actor, room.id)
+    ? [...room.takes, ...room.stewardTakes]
+    : room.takes;
   if (!allowed.includes(parent.type)) {
     return fail(
       403,
@@ -742,8 +775,6 @@ export async function revisePost(
 ): Promise<Result<{ post: BoardPost; mark: MarkEntry | null }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
-    return fail(403, "This account cannot post right now.");
   const existing = await db.query<PostRow & { author_user_id: string }>(
     `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
@@ -752,6 +783,8 @@ export async function revisePost(
   );
   const post = existing[0];
   if (!post || post.removed) return fail(404, "That post is not here.");
+  if (await openBan(db, input.userId, input.now, post.room_id))
+    return fail(403, "This account cannot post right now.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can revise a post.");
   const room = await roomById(db, post.room_id);
   if (!room) return fail(404, "That post is not here.");
@@ -766,7 +799,7 @@ export async function revisePost(
     author: post.author_name,
     attested: true,
     mediaCount: 0,
-    steward: actor.steward,
+    steward: stewardsRoom(actor, room.id),
     room: rulesOf(room),
   });
   if (stops.length > 0) return fail(400, stops[0] ?? "That revision was not saved.", stops);
@@ -787,7 +820,11 @@ export async function closeAsked(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
+  const found = await db.query<{ room_id: string }>(
+    `select room_id from board_post where id = $1`,
+    [input.postId],
+  );
+  if (await openBan(db, input.userId, input.now, found[0]?.room_id ?? ""))
     return fail(403, "This account cannot post right now.");
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
@@ -935,10 +972,12 @@ export async function removePost(
         byName: by,
         removalId,
         now: input.now,
+        roomId: actor.admin ? "" : post.room_id,
       });
     });
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    evictCallMember(post.author_user_id);
+    if (actor.admin) evictCallMember(post.author_user_id);
+    else evictCallMember(post.author_user_id, [post.room_id]);
     return {
       ok: true,
       value: {
@@ -981,25 +1020,49 @@ export async function banMember(
   if (!target.member) return fail(400, "That person is not a member.");
   const blocked = moderationStop(actor, target);
   if (blocked) return fail(403, blocked);
-  if (!actor.admin) {
-    const posted = await db.query<{ room_id: string }>(
-      `select distinct room_id from board_post where author_user_id = $1`,
-      [person.id],
-    );
-    if (!posted.some((row) => actor.stewardRooms.includes(row.room_id))) {
-      return fail(403, "A steward can bar a member only for a post in a room they steward.");
-    }
+  const byName = input.name.trim() || "Steward";
+  if (actor.admin) {
+    const ban = await writeBan(db, {
+      userId: person.id,
+      name: person.name,
+      reason,
+      byUserId: input.userId,
+      byName,
+      removalId: null,
+      now: input.now,
+      roomId: "",
+    });
+    evictCallMember(person.id);
+    return { ok: true, value: ban };
   }
-  const ban = await writeBan(db, {
-    userId: person.id,
-    name: person.name,
-    reason,
-    byUserId: input.userId,
-    byName: input.name.trim() || "Steward",
-    removalId: null,
-    now: input.now,
+  const posted = await db.query<{ room_id: string }>(
+    `select distinct room_id from board_post where author_user_id = $1`,
+    [person.id],
+  );
+  const rooms = posted
+    .map((row) => row.room_id)
+    .filter((roomId) => actor.stewardRooms.includes(roomId));
+  if (rooms.length === 0) {
+    return fail(403, "A steward can bar a member only for a post in a room they steward.");
+  }
+  const ban = await db.transaction(async (tx) => {
+    let saved: BanEntry | null = null;
+    for (const roomId of rooms) {
+      saved = await writeBan(tx, {
+        userId: person.id,
+        name: person.name,
+        reason,
+        byUserId: input.userId,
+        byName,
+        removalId: null,
+        now: input.now,
+        roomId,
+      });
+    }
+    return saved;
   });
-  evictCallMember(person.id);
+  if (!ban) return fail(500, "The bar was not saved.");
+  evictCallMember(person.id, rooms);
   return { ok: true, value: ban };
 }
 

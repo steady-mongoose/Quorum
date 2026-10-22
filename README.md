@@ -69,7 +69,7 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Home** is a fixed list: rooms you have joined, then town rooms for your ZIP, then your congregation, then wider regions. Inside a room, posts stay newest first. A mark only dims a post. The council can label a candidate post or a business post **Council-approved**, once, with a logged reason and a review checklist. That label is not a rank. A steward is the inviter plus a steward of that room (the first steward of a room is the inviter plus the council chair). An admin is already a steward, plus the role owner's sign-off. Every grant and revocation is in `access_log`. A ZIP does not create a room. A member requests one, and an admin approves it.
 
-Migration **0011** is `migrations/0011_places.sql`. It adds towns, ZIP codes, congregations, room requests, and council approvals. It is not applied. Approve 0011 before it is applied. Merging is not that approval.
+Migration **0011** is `migrations/0011_places.sql`. It adds towns, ZIP codes, congregations, room requests, and council approvals. Migration **0012** is `migrations/0012_board_ban_room.sql`. It adds `board_ban.room_id` so a room steward's bar covers that room, and an empty room id stays a site-wide bar. Neither file is applied. Approve each one before it is applied. Merging is not that approval.
 
 Status: the screens still run in the browser when `VITE_DEMO=1`, or when `/api/health` does not answer. A closed test can point them at `https://api.avouchsocial.com` with `VITE_API_BASE_URL`. An empty `VITE_API_BASE_URL` means same-origin `/api`, not the demo. Signup on that API is invite-code only. The box itself is described in `deploy/README.md`. Do not apply `migrations/` until the owner approves those files.
 
