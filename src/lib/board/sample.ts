@@ -38,7 +38,7 @@ export const SEED_CARDS: MeetingCard[] = [
 ];
 
 /** Bump when the sample changes; a saved sample older than this is reloaded. */
-export const SAMPLE_VERSION = 7;
+export const SAMPLE_VERSION = 8;
 
 export type SampleBoard = {
   me: string;
@@ -150,6 +150,8 @@ export function sampleBoard(): SampleBoard {
     p({ id: "p42", room: "shelf", type: "asked", author: "Josh", at: ago(5), claim: "Anyone got a copy of Reno's Return of the Strong Gods I can borrow before his talk?", reason: "Library has a 6 week hold on it." }),
     p({ id: "p42r", room: "shelf", type: "asked", author: "Luis", at: ago(5, 1), parentId: "p42", claim: "I do. Bring it Sunday." }),
     p({ id: "p43", room: "shelf", type: "noted", author: "Maria", at: ago(7), claim: "Hillsdale's free online course on the Federalist Papers is 10 lectures, about 30 min each, if you want background before Tuesday.", reason: "online.hillsdale.edu, I did 4 of them" }),
+    // Public domain. The card cites Milton, not Maria. Sonnet XIX, 1673.
+    p({ id: "p44", room: "shelf", type: "noted", author: "Maria", at: ago(1, 6), claim: "“They also serve who only stand and wait.”", reason: "John Milton, Sonnet XIX" }),
 
     // Latin Mass: the Summa group
     p({ id: "p50", room: "latin", type: "hosted", author: "Luis", at: ago(4, 7), cardId: "s-thomist", on: iso(-4), next: iso(3), came: ["Maria", "Josh"], claim: "Question 1 of the Summa, whether theology is a science. 7 of us in the library, Father stopped in for 10 minutes. Next week question 2, the five ways. Read the objections first, that's where the argument is." }),

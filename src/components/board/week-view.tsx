@@ -15,6 +15,8 @@ import {
   type MeetingCard,
 } from "@/lib/board/model";
 import { HomePanel } from "@/components/board/home-view";
+import { RsvpControl } from "@/components/board/rsvp-control";
+import { armRoom, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -41,7 +43,7 @@ export function WeekView() {
       <div className="flex flex-col gap-8">
         <section className="plate flex flex-col gap-2">
           <Kicker>This week</Kicker>
-          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
+          <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
           {week.length > 0 ? (
             <p className="max-w-prose text-base text-muted">The next seven days. Press <strong className="font-semibold text-fg">I'll be there</strong> on anything you will go to; the host will take roll after.</p>
           ) : null}
@@ -96,21 +98,27 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   return (
     <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg"
+          onClick={(event) => {
+            event.currentTarget.style.viewTransitionName = `card-${card.room}`;
+            armRoom(card.room);
+            withViewTransition(() => setRoom(card.room));
+          }}
+        >
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </div>
-      <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 font-display text-2xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {card.host !== me ? (
-          <button type="button" className={going ? btnGhost : btnSignal} onClick={() => rsvp(card.id)}>
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : (
           <span className="self-center text-sm text-muted">You host this.</span>
         )}
@@ -127,7 +135,7 @@ export function NeedCard({ card }: { card: MeetingCard }) {
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{roomById(card.room).name}</span>
         <span className="text-muted">organized by {card.host}</span>
       </div>
-      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 font-display text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">
         {card.time} · {card.place}
       </p>
@@ -167,7 +175,7 @@ function TheCall() {
         const office = officeById(campaign.officeId, customOffices);
         return (
           <article key={campaign.id} className="card rounded-lg border border-signal bg-surface p-4">
-            <h3 className="text-2xl text-fg">{campaign.title}</h3>
+            <h3 className="illum font-display text-2xl text-fg">{campaign.title}</h3>
             <p className="text-sm text-muted">
               {office.name}, {office.role} · {formatWindow(campaign.surgeStart, campaign.surgeEnd)}
             </p>
