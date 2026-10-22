@@ -26,7 +26,16 @@ import {
   warnMissingHoldKey,
   withHoldKey,
 } from "./csam.ts";
-import { createPost, decideAppeal, fileAppeal, listBoard, listOwnAppeals, markPost, removePost } from "./store.ts";
+import {
+  createPost,
+  decideAppeal,
+  fileAppeal,
+  listBoard,
+  listOwnAppeals,
+  markPost,
+  removePost,
+  setRemovePostAfterSaveForTests,
+} from "./store.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
 
@@ -424,21 +433,25 @@ test("a committed hold stays when a later step throws", async () => {
       const store = createMemoryStore();
       const plain = Uint8Array.of(3, 1, 4, 1);
       const media = await attachImage(db, store, maria, posted.value.id, plain);
-      await assert.rejects(
-        () =>
-          removePost(db, {
-            userId: tom,
-            name: "Tom",
-            postId: posted.value.id,
-            reason: "csam",
-            now,
-            store,
-            onSaved() {
-              throw new Error("after the save");
-            },
-          }),
-        /after the save/,
-      );
+      setRemovePostAfterSaveForTests(() => {
+        throw new Error("after the save");
+      });
+      try {
+        await assert.rejects(
+          () =>
+            removePost(db, {
+              userId: tom,
+              name: "Tom",
+              postId: posted.value.id,
+              reason: "csam",
+              now,
+              store,
+            }),
+          /after the save/,
+        );
+      } finally {
+        setRemovePostAfterSaveForTests(undefined);
+      }
       const stored = await db.query<{ claim: string; removed: boolean }>(
         `select claim, removed from board_post where id = $1`,
         [posted.value.id],

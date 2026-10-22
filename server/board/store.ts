@@ -1091,6 +1091,13 @@ export async function markPost(
   };
 }
 
+/** Tests throw from here after a removal commits. Production leaves this unset. */
+let afterRemovePostSaved: (() => void) | undefined;
+
+export function setRemovePostAfterSaveForTests(hook: (() => void) | undefined): void {
+  afterRemovePostSaved = hook;
+}
+
 export async function removePost(
   db: Db,
   input: {
@@ -1100,8 +1107,6 @@ export async function removePost(
     reason: string;
     now: Date;
     store?: ObjectStore | null;
-    /** Tests throw from here after the save, to prove the hold copies stay. */
-    onSaved?: () => void;
   },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
@@ -1181,7 +1186,7 @@ export async function removePost(
         ...(await groupsApprovedFrom(db, post.room_id)),
       ]);
     if (alert) scheduleHoldAlert(alert);
-    input.onSaved?.();
+    afterRemovePostSaved?.();
     return {
       ok: true,
       value: {

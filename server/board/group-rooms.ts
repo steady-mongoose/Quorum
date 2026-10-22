@@ -26,8 +26,12 @@ export async function groupsApprovedFrom(db: Db, roomId: string): Promise<string
   if (!roomId) return [];
   try {
     const rows = await db.query<{ group_id: string }>(
-      `select distinct group_id from theme_group_request
-       where room_id = $1 and status = 'approved' and group_id <> ''`,
+      `select distinct r.group_id
+       from theme_group_request r
+       where r.room_id = $1
+         and r.status = 'approved'
+         and r.group_id <> ''
+         and not exists (select 1 from room m where m.id = r.group_id)`,
       [roomId],
     );
     return rows.map((row) => row.group_id);

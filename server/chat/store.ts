@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
-import { banFromSourceRooms } from "../board/groups.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
@@ -66,8 +65,6 @@ export async function requireRoomMember(
   if (!actor.member) return fail(403, "Only a member can read this room.");
   const ban = await openBan(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
-  const inherited = await banFromSourceRooms(db, userId, roomId, now);
-  if (inherited) return { ok: false, status: 403, error: "banned", ban: inherited };
   const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
     roomId,
   ]);
