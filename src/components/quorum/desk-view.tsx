@@ -76,7 +76,7 @@ export function DeskView() {
   if (!campaign) {
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-3xl text-fg">That call is gone.</h1>
+        <h1 className="illum font-display text-3xl text-fg">That call is gone.</h1>
         <button type="button" className={btnGhost} onClick={() => setView("load")}>
           Back to calls
         </button>
@@ -146,7 +146,7 @@ export function DeskView() {
             </span>
           )}
         </div>
-        <h1 className="text-4xl text-fg">{campaign.title}</h1>
+        <h1 className="illum font-display text-4xl text-fg">{campaign.title}</h1>
         <p className="max-w-prose text-base text-muted">{campaign.principle}</p>
         <p className="max-w-prose text-sm text-muted">
           This is one call. Below: the message everyone gives, the official and when to call, the script to read word for word, how to send it to your group, and the "I called" button.

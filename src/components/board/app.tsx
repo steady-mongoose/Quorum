@@ -28,6 +28,7 @@ import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
 import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
 import { useEngravedDocument } from "@/components/board/engraved-ground";
+import { PrimaryHaptic } from "@/components/board/haptics";
 
 const NAV = [
   { id: "week", label: "This week", icon: CalendarDays },
@@ -131,6 +132,7 @@ function BoardShell() {
 
   return (
     <div className="min-h-screen overflow-x-hidden text-fg" style={themeVars(theme)}>
+      <PrimaryHaptic />
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
