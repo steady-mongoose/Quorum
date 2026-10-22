@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
+import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 import { isUniqueViolation } from "../db.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
@@ -75,7 +76,7 @@ async function openBan(
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
     const reason = ruleId(row.reason);
-    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
+    if (!banOpen({ reason, strikes, until }, now.getTime())) continue;
     return { until, strikes, reason };
   }
   return null;

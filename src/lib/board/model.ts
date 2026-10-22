@@ -369,6 +369,9 @@ export const ROOMS: Room[] = [
   },
 ];
 
+/** Room ids shipped in code. A group cannot take one, even if the row is missing. */
+export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));
+
 export type TypeMeta = {
   id: PostType;
   label: string;
