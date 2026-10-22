@@ -39,6 +39,34 @@ const NAV = [
   { id: "about", label: "About", icon: BookOpen },
 ] satisfies { id: Section; label: string; icon: typeof CalendarDays }[];
 
+/** Phone sections. A wrapping bar, not a row that clips the later names. */
+function SectionTabs({
+  current,
+  onSelect,
+}: {
+  current: Section;
+  onSelect: (id: Section) => void;
+}) {
+  return (
+    <nav className="tabbar" aria-label="Sections">
+      {NAV.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={current === item.id ? "page" : undefined}
+            onClick={() => onSelect(item.id)}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {item.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function BoardApp() {
   return (
     <ServerSessionProvider>
@@ -130,10 +158,10 @@ function BoardShell() {
   );
 
   return (
-    <div className="min-h-screen overflow-x-hidden text-fg" style={themeVars(theme)}>
+    <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
-      <header className="sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+      <header className="top sticky top-0 z-20 border-b border-line bg-bg">
+        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
             <div>
               <p className="font-display text-3xl leading-none text-fg lg:text-4xl">{APP_NAME}</p>
@@ -142,12 +170,14 @@ function BoardShell() {
             <Emblem theme={theme.id} size="header" />
           </div>
           {entered ? (
-            <IconNav
-              items={NAV}
-              current={section}
-              onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
-              label="Sections"
-            />
+            <div className="topnav">
+              <IconNav
+                items={NAV}
+                current={section}
+                onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+                label="Sections"
+              />
+            </div>
           ) : null}
           {server.user ? (
             <button
@@ -196,7 +226,7 @@ function BoardShell() {
       ) : null}
       {entered && undoClear && undoBar ? (
         <div className="border-b border-line bg-surface" role="status">
-          <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-3 px-[clamp(1rem,4vw,4rem)] py-3">
+          <div className="mx-auto flex w-full max-w-[72rem] flex-wrap items-center justify-between gap-3 px-[clamp(1rem,4vw,4rem)] py-3">
             <p className="max-w-prose text-sm text-muted">
               The board is cleared. You can put it back.
             </p>
@@ -220,18 +250,28 @@ function BoardShell() {
           </div>
         </div>
       ) : null}
-      {hero ? <div className="hero-band" role="img" aria-label={hero} /> : null}
-      <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
-        {margin ? (
-          <div className="with-margin">
-            <div className="min-w-0">{page}</div>
-            <aside className="margin-art" aria-hidden="true" />
-          </div>
-        ) : (
-          page
-        )}
-      </main>
+      {hero ? <div className="hero-band full" role="img" aria-label={hero} /> : null}
+      <div className="shell-body">
+        {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
+        {margin ? <div className="outer-art r" aria-hidden="true" /> : null}
+        <main>
+          {margin ? (
+            <div className="with-side">
+              <div className="min-w-0">{page}</div>
+              <aside className="side-art" aria-hidden="true" />
+            </div>
+          ) : (
+            page
+          )}
+        </main>
+      </div>
       {entered ? <SessionLine /> : null}
+      {entered ? (
+        <SectionTabs
+          current={section}
+          onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+        />
+      ) : null}
     </div>
   );
 }

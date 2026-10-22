@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
-/* EB Garamond (SIL OFL 1.1). Files: public/fonts. See public/art/ATTRIBUTION.md. */
+/* EB Garamond (SIL OFL 1.1), Latin subset, WOFF2. See public/art/ATTRIBUTION.md. */
 @font-face {
   font-family: "EB Garamond";
-  src: url("/fonts/EBGaramond[wght].ttf") format("truetype");
+  src: url("/fonts/EBGaramond-latin.woff2") format("woff2");
   font-weight: 400 800;
   font-display: swap;
 }
 @font-face {
   font-family: "EB Garamond";
-  src: url("/fonts/EBGaramond-Italic[wght].ttf") format("truetype");
+  src: url("/fonts/EBGaramond-italic-latin.woff2") format("woff2");
   font-weight: 400 800;
   font-style: italic;
   font-display: swap;
@@ -38,9 +38,8 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Everything is in rem, so this one line scales the app with the window:
-       15px on a phone, 20px on a wide desktop. */
-    font-size: clamp(15px, 0.45vw + 12.5px, 20px);
+    /* Body text: 16px on a phone, 18px on a wide desktop. */
+    font-size: clamp(16px, 0.95rem + 0.25vw, 18px);
   }
 
   body {

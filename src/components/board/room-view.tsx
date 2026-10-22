@@ -115,7 +115,7 @@ export function RoomView() {
                   : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
-          <h2 className="illum mt-2 text-2xl text-fg">{card.name}</h2>
+          <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
           <p className="text-sm text-muted">
             {cardSummary(card)}
             {card.next ? ` · ${formatDate(card.next)}` : ""}
@@ -145,7 +145,7 @@ export function RoomView() {
       </section>
 
       <nav
-        className="relative z-10 flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        className="relative z-10 flex flex-wrap gap-2 pb-1"
         aria-label="Rooms"
       >
         {rooms.map((item) => (

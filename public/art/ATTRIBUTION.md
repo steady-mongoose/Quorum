@@ -9,9 +9,9 @@ and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to
 text colour. They are not upscaled past the source scan. CSS lives in
 `public/backgrounds.css` and is loaded as its own stylesheet.
 
-`dore-band-A.webp` is that same colour duotone, resized to 1600×677 and re-encoded to
-about 160KB for the desktop week band. It is not grayscale. The 900px mobile band and
-the margin plate are the original files.
+`dore-band-A.webp` and `dore-band-B.webp` are those same colour duotones, resized to
+1600×677 and re-encoded to about 160KB for the desktop week band. They are not
+grayscale. The 900px mobile bands and the margin plates are the original files.
 
 | Screen | Work | File | Commons | Licence |
 |---|---|---|---|---|
@@ -30,5 +30,6 @@ The hero band has a fixed height, so the image does not move the layout when it 
 ## Type
 
 EB Garamond, by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.
-The license is `public/fonts/OFL.txt`. The files are the variable fonts from
-`google/fonts/ofl/ebgaramond`.
+The license is `public/fonts/OFL.txt`. The shipped files are a Latin subset of the
+variable fonts from `google/fonts/ofl/ebgaramond`, in WOFF2, about 100KB together.
+Only the roman is preloaded. The italic loads if a heading asks for it.

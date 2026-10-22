@@ -64,9 +64,26 @@ test("every plate the stylesheet names is a WebP in public/art", () => {
   }
 });
 
-test("the desktop Doré week band is about 160 KB", () => {
-  const size = statSync(new URL("../../../public/art/dore-band-A.webp", import.meta.url)).size;
-  assert.ok(size >= 140 * 1024 && size <= 180 * 1024, `dore-band-A.webp is ${size} bytes`);
+test("the desktop Doré week bands are about 160 KB", () => {
+  for (const name of ["dore-band-A.webp", "dore-band-B.webp"]) {
+    const size = statSync(new URL(`../../../public/art/${name}`, import.meta.url)).size;
+    assert.ok(size >= 140 * 1024 && size <= 180 * 1024, `${name} is ${size} bytes`);
+  }
+});
+
+test("EB Garamond is a Latin WOFF2 pair of about 100 KB, and only the roman is preloaded", () => {
+  const fonts = new URL("../../../public/fonts/", import.meta.url);
+  const roman = statSync(new URL("EBGaramond-latin.woff2", fonts)).size;
+  const italic = statSync(new URL("EBGaramond-italic-latin.woff2", fonts)).size;
+  assert.ok(roman + italic < 110 * 1024, `${roman + italic} bytes`);
+  assert.equal(roman > 20 * 1024 && italic > 10 * 1024, true);
+  const names = readdirSync(fonts);
+  assert.equal(names.some((name) => name.endsWith(".ttf")), false);
+  const root = readFileSync(new URL("../../routes/__root.tsx", import.meta.url), "utf8");
+  assert.match(root, /EBGaramond-latin\.woff2/);
+  assert.equal(root.includes("EBGaramond-italic-latin.woff2"), false);
+  const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(styles, /font-size:\s*clamp\(16px,\s*0\.95rem \+ 0\.25vw,\s*18px\)/);
 });
 
 test("reduced data and the first paint skip the art URL", () => {
@@ -109,7 +126,26 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   // Oxblood is a large initial, not body text: it clears 3:1 and misses 4.5:1.
   assert.ok(contrast("#b4483e", "#241d16") < 4.5);
   assert.match(css, /\.illum::first-letter\{color:var\(--accent\)/);
+  const illum = css.match(/\.illum::first-letter\{[^}]+\}/)?.[0] ?? "";
+  assert.equal(illum.includes("border-bottom"), false);
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\[data-section\]\{background-attachment:scroll\}/);
+  assert.equal(css.includes("background-attachment:fixed"), false);
   assert.equal([...css.matchAll(/var\(--accent\)/g)].length, 1);
+  const adjust = readFileSync(new URL("../../../public/engraved-adjust.css", import.meta.url), "utf8");
+  assert.equal(adjust.includes("background-color"), false);
+  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.match(fluid, /--content-max:72rem/);
+  assert.match(fluid, /min-width:1600px/);
+  assert.match(fluid, /min-width:1100px\) and \(max-width:1599px\)/);
+  assert.match(fluid, /repeat\(auto-fit,minmax\(min\(100%,22rem\),1fr\)\)/);
+  assert.match(fluid, /\.tabbar/);
+  assert.match(fluid, /100dvh/);
+  assert.match(fluid, /safe-area-inset-bottom/);
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  assert.match(app, /overflow-x-clip/);
+  assert.equal(app.includes("overflow-x-hidden"), false);
+  const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
+  assert.equal([...week.matchAll(/illum/g)].length, 1);
   const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
   assert.match(styles, /--color-bg:\s*#14100c/);
   assert.match(styles, /--color-raised:\s*#241d16/);
