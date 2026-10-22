@@ -363,7 +363,7 @@ async function route(
   const chat = await handleRoomChat(deps, request, url);
   if (chat) return chat;
 
-  const board = await handleBoard(deps, request, url);
+  const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;
 
   const groups = await handleGroups(deps, request, url);

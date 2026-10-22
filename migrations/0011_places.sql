@@ -4,7 +4,9 @@
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
 -- Numbered 0011. This is migration 0011. Do not renumber it.
--- 0006 is reserved by PR #10. 0008 is the board. 0009 and 0010 are unused.
+-- 0006 is reserved by PR #10. 0008 is the board. 0009 is unused.
+-- 0010 is moderation. It has its own anonymize function. Do not fold that
+-- into anonymize_board_user or anonymize_places_user.
 --
 -- Towns, ZIP codes, congregations, room requests, and council approvals.
 -- Steward and admin grants stay in access_log. A council approval is a

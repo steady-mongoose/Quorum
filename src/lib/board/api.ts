@@ -1,9 +1,10 @@
 import { apiFetch } from "../api-base.ts";
+import { isHardRule, isMarkValue } from "./text.ts";
 import type {
+  AppealRow,
   BanRow,
+  CsamReport,
   Draft,
-  HardRule,
-  Mark,
   MarkRow,
   Post,
   RemovalRow,
@@ -15,8 +16,6 @@ import type { BoardClient, BoardFailure, BoardSnapshot } from "./client.ts";
 import { parseHomePayload } from "./home.ts";
 
 const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
-const MARKS = new Set(["sloppy", "unsupported"]);
-const RULES = new Set(["threat", "porn", "csam"]);
 const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
 function failure(json: unknown, fallback: string): BoardFailure {
@@ -55,7 +54,7 @@ function postFrom(value: unknown): Post | null {
     return null;
   if (typeof row.type !== "string" || !POST_TYPES.has(row.type)) return null;
   if (typeof row.author !== "string" || typeof row.at !== "number") return null;
-  const mark = row.mark === "sloppy" || row.mark === "unsupported" ? row.mark : null;
+  const mark = isMarkValue(row.mark) ? row.mark : null;
   const media: SharedMedia[] = [];
   if (Array.isArray(row.media)) {
     for (const item of row.media) {
@@ -157,7 +156,7 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         continue;
       if (typeof row.by !== "string" || typeof row.room !== "string" || typeof row.at !== "number")
         continue;
-      const mark = row.mark === "sloppy" || row.mark === "unsupported" ? row.mark : null;
+      const mark = isMarkValue(row.mark) ? row.mark : null;
       if (row.mark !== null && row.mark !== undefined && !mark) continue;
       marks.push({
         id: row.id,
@@ -182,7 +181,7 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         typeof row.author !== "string"
       )
         continue;
-      if (typeof row.reason !== "string" || !RULES.has(row.reason) || typeof row.at !== "number")
+      if (typeof row.reason !== "string" || !isHardRule(row.reason) || typeof row.at !== "number")
         continue;
       removals.push({
         id: row.id,
@@ -205,7 +204,11 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         typeof row.at !== "number"
       )
         continue;
-      if (typeof row.reason !== "string" || !RULES.has(row.reason) || typeof row.until !== "number")
+      if (
+        typeof row.reason !== "string" ||
+        !isHardRule(row.reason) ||
+        typeof row.until !== "number"
+      )
         continue;
       if (typeof row.strikes !== "number") continue;
       bans.push({
@@ -226,9 +229,9 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
       typeof row.until === "number" &&
       typeof row.strikes === "number" &&
       typeof row.reason === "string" &&
-      RULES.has(row.reason)
+      isHardRule(row.reason)
     ) {
-      ban = { until: row.until, strikes: row.strikes, reason: row.reason as HardRule };
+      ban = { until: row.until, strikes: row.strikes, reason: row.reason };
     }
   }
   const pages: BoardSnapshot["pages"] = [];
@@ -260,6 +263,8 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
     marks,
     removals,
     bans,
+    appeals: appealsFrom(body.appeals),
+    csamReports: who.admin === true ? reportsFrom(body.csamReports) : [],
     pages,
   };
 }
@@ -367,6 +372,30 @@ export const apiBoardClient: BoardClient = {
     if (!response.ok) return failure(response.json, "That role was not changed.");
     return { ok: true };
   },
+  async appeal(postId, kind, reason) {
+    const response = await send(`/api/posts/${encodeURIComponent(postId)}/appeal`, {
+      kind,
+      reason,
+    });
+    if (!response.ok) return failure(response.json, "That appeal was not filed.");
+    const appeal = appealFrom(response.json);
+    if (!appeal) return { ok: false, error: "That appeal was not filed." };
+    return { ok: true, appeal };
+  },
+  async decideAppeal(id, decision, reason) {
+    const response = await send(`/api/appeals/${encodeURIComponent(id)}/decide`, {
+      decision,
+      reason,
+    });
+    if (!response.ok) return failure(response.json, "That decision was not saved.");
+    const body = response.json as { appeal?: unknown; posts?: unknown } | null;
+    const appeal = appealFrom(body?.appeal);
+    if (!appeal) return { ok: false, error: "That decision was not saved." };
+    const posts = Array.isArray(body?.posts)
+      ? body.posts.map(postFrom).filter((post): post is Post => post !== null)
+      : [];
+    return { ok: true, appeal, posts };
+  },
   async loadHome() {
     const response = await send("/api/home");
     if (!response.ok) return failure(response.json, "Home did not load.");
@@ -423,8 +452,8 @@ function markRow(value: unknown): MarkRow | null {
     return null;
   if (typeof row.author !== "string" || typeof row.by !== "string" || typeof row.at !== "number")
     return null;
-  if (row.mark !== null && row.mark !== undefined && !MARKS.has(String(row.mark))) return null;
-  const mark = row.mark === "sloppy" || row.mark === "unsupported" ? (row.mark as Mark) : null;
+  if (row.mark !== null && row.mark !== undefined && !isMarkValue(row.mark)) return null;
+  const mark = isMarkValue(row.mark) ? row.mark : null;
   return {
     id: row.id,
     room: row.room as RoomId,
@@ -446,13 +475,13 @@ function removalFrom(value: unknown): RemovalRow | null {
     typeof row.author !== "string"
   )
     return null;
-  if (typeof row.reason !== "string" || !RULES.has(row.reason) || typeof row.at !== "number")
+  if (typeof row.reason !== "string" || !isHardRule(row.reason) || typeof row.at !== "number")
     return null;
   return {
     id: row.id,
     postId: row.postId,
     author: row.author,
-    reason: row.reason as HardRule,
+    reason: row.reason,
     at: row.at,
   };
 }
@@ -462,14 +491,81 @@ function banFrom(value: unknown): BanRow | null {
   const row = value as Record<string, unknown>;
   if (typeof row.id !== "string" || typeof row.author !== "string" || typeof row.at !== "number")
     return null;
-  if (typeof row.reason !== "string" || !RULES.has(row.reason)) return null;
+  if (typeof row.reason !== "string" || !isHardRule(row.reason)) return null;
   if (typeof row.until !== "number" || typeof row.strikes !== "number") return null;
   return {
     id: row.id,
     author: row.author,
-    reason: row.reason as HardRule,
+    reason: row.reason,
     until: row.until,
     strikes: row.strikes,
     at: row.at,
   };
+}
+
+function appealFrom(value: unknown): AppealRow | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== "string" || typeof row.postId !== "string" || typeof row.room !== "string")
+    return null;
+  if (typeof row.author !== "string" || typeof row.at !== "number") return null;
+  if (row.kind !== "mark" && row.kind !== "removal") return null;
+  if (typeof row.reason !== "string") return null;
+  const decision = row.decision === "uphold" || row.decision === "lift" ? row.decision : null;
+  if (row.decision !== null && row.decision !== undefined && !decision) return null;
+  return {
+    id: row.id,
+    room: row.room as RoomId,
+    postId: row.postId,
+    author: row.author,
+    kind: row.kind,
+    reason: row.reason,
+    decision,
+    decisionNote: typeof row.decisionNote === "string" ? row.decisionNote : "",
+    decidedBy: typeof row.decidedBy === "string" ? row.decidedBy : "",
+    at: row.at,
+    decidedAt: typeof row.decidedAt === "number" ? row.decidedAt : null,
+    rule: isHardRule(row.rule) ? row.rule : null,
+  };
+}
+
+function appealsFrom(value: unknown): AppealRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(appealFrom).filter((row): row is AppealRow => row !== null);
+}
+
+function reportFrom(value: unknown): CsamReport | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const status =
+    row.status === "prepared" || row.status === "pending_seal" || row.status === "filed"
+      ? row.status
+      : null;
+  if (!status) return null;
+  if (typeof row.id !== "string" || typeof row.postId !== "string" || typeof row.room !== "string")
+    return null;
+  if (typeof row.author !== "string" || typeof row.accountId !== "string") return null;
+  if (typeof row.incidentAt !== "number" || typeof row.retainUntil !== "number") return null;
+  if (typeof row.mediaCount !== "number" || typeof row.byteSize !== "number") return null;
+  return {
+    id: row.id,
+    postId: row.postId,
+    room: row.room,
+    author: row.author,
+    accountId: row.accountId,
+    incidentAt: row.incidentAt,
+    retainUntil: row.retainUntil,
+    mediaCount: row.mediaCount,
+    byteSize: row.byteSize,
+    mediaTypes: strings(row.mediaTypes),
+    status,
+    reportId: typeof row.reportId === "string" ? row.reportId : "",
+    filedAt: typeof row.filedAt === "number" ? row.filedAt : null,
+    filedBy: typeof row.filedBy === "string" ? row.filedBy : "",
+  };
+}
+
+function reportsFrom(value: unknown): CsamReport[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(reportFrom).filter((row): row is CsamReport => row !== null);
 }

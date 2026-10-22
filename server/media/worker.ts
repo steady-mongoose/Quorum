@@ -31,7 +31,8 @@ export type WorkerDeps = {
 
 async function deleteKeys(store: ObjectStore, keys: string[]): Promise<void> {
   for (const key of keys) {
-    if (!key) continue;
+    // Held evidence lives under csam-hold/ and is deleted only by the hold sweep.
+    if (!key || key.startsWith("csam-hold/")) continue;
     await store.delete(key);
   }
 }

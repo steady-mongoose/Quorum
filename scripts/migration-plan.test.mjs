@@ -76,13 +76,40 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0005_rate_limit_index.sql",
       "0007_media_worker_role.sql",
       "0008_board.sql",
+      "0010_moderation.sql",
       "0011_places.sql",
       "0012_theme_groups.sql",
       "0013_room_chat.sql",
       "0014_board_ban_room.sql",
+      "0015_hard_rules.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+});
+
+test("migration 0010 anonymizes on its own and does not replace anonymize_board_user", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0010_moderation.sql"), "utf8");
+  assert.match(sql, /Numbered 0010/);
+  assert.match(sql, /create or replace function anonymize_moderation_user/);
+  assert.match(sql, /create trigger anonymize_moderation_user/);
+  assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
+  assert.equal(/create trigger anonymize_board_user/.test(sql), false);
+  assert.equal(sql.includes("like_count"), false);
+  assert.match(sql, /pending counsel/i);
+  assert.match(sql, /365/);
+  assert.match(sql, /anonymize_moderation_user/);
+});
+
+test("migration 0015 widens group and chat rules and does not replace anonymize functions", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0015_hard_rules.sql"), "utf8");
+  assert.match(sql, /Numbered 0015/);
+  assert.match(sql, /doxxing/);
+  assert.match(sql, /blasphemy/);
+  assert.match(sql, /theme_group_removal/);
+  assert.match(sql, /room_chat_removal/);
+  assert.match(sql, /0014 is the room-ban migration/);
+  assert.equal(/create or replace function anonymize_/.test(sql), false);
+  assert.equal(sql.includes("like_count"), false);
 });
 
 test("migration 0011 is the places file and is not a ranking table", () => {

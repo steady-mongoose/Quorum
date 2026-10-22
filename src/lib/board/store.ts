@@ -30,8 +30,12 @@ import {
   stoodWith,
   threadIdFor,
   todayIso,
+  type AppealDecision,
+  type AppealKind,
+  type AppealRow,
   type BanRow,
   type Check,
+  type CsamReport,
   type DeskContact,
   type DmMessage,
   type DmThread,
@@ -86,6 +90,8 @@ type BoardState = {
   invites: Invite[];
   removals: RemovalRow[];
   bans: BanRow[];
+  appeals: AppealRow[];
+  csamReports: CsamReport[];
   markLog: MarkRow[];
   /** Per-room cursor. A null next means that room has no older page. */
   roomPages: BoardPage[];
@@ -106,6 +112,16 @@ type BoardState = {
   closeAsked: (id: string) => Promise<void>;
   mark: (id: string, mark: Mark | null, reason: string) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string, reason: HardRule) => Promise<{ ok: boolean; error?: string }>;
+  appeal: (
+    postId: string,
+    kind: AppealKind,
+    reason: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  decideAppeal: (
+    id: string,
+    decision: AppealDecision,
+    reason: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   createRoom: (input: {
     id: string;
     name: string;
@@ -191,6 +207,8 @@ type BoardUndo = {
   threads: DmThread[];
   messages: DmMessage[];
   removals: RemovalRow[];
+  appeals: AppealRow[];
+  csamReports: CsamReport[];
   rooms: Room[];
   room: RoomId;
   section: Section;
@@ -227,6 +245,8 @@ function emptyLocalBoard(remote: boolean, rooms: Room[]) {
     threads: [] as DmThread[],
     messages: [] as DmMessage[],
     removals: [] as RemovalRow[],
+    appeals: [] as AppealRow[],
+    csamReports: [] as CsamReport[],
     openThread: null,
     viewing: null,
     rooms: remote ? rooms : ROOMS,
@@ -249,6 +269,8 @@ function snapshotBoard(state: {
   threads: DmThread[];
   messages: DmMessage[];
   removals: RemovalRow[];
+  appeals: AppealRow[];
+  csamReports: CsamReport[];
   rooms: Room[];
   room: RoomId;
   section: Section;
@@ -272,6 +294,8 @@ function snapshotBoard(state: {
     threads: state.threads,
     messages: state.messages,
     removals: state.removals,
+    appeals: state.appeals,
+    csamReports: state.csamReports,
     rooms: state.rooms,
     room: state.room,
     section: state.section,
@@ -295,7 +319,7 @@ export const useBoard = create<BoardState>()(
         at: Date.now(),
       });
       const checkNow = (draft: Draft) => {
-        const { posts, cards, removals, bans, rooms, steward } = get();
+        const { posts, cards, removals, bans, appeals, rooms, steward } = get();
         return composerCheck(draft, {
           author: me(),
           steward,
@@ -303,6 +327,7 @@ export const useBoard = create<BoardState>()(
           cards,
           removals,
           bans,
+          appeals,
           rooms,
           now: Date.now(),
         });
@@ -369,6 +394,8 @@ export const useBoard = create<BoardState>()(
           markLog: board.marks,
           removals: board.removals,
           bans: board.bans,
+          appeals: board.appeals,
+          csamReports: board.csamReports,
           roomPages: board.pages,
           steward: board.me.steward,
           admin: board.me.admin,
@@ -423,6 +450,8 @@ export const useBoard = create<BoardState>()(
         invites: [],
         removals: [],
         bans: [],
+        appeals: [],
+        csamReports: [],
         markLog: [],
         roomPages: [],
         threads: [],
@@ -630,26 +659,169 @@ export const useBoard = create<BoardState>()(
         remove: async (id, reason) => {
           const post = get().posts.find((item) => item.id === id);
           if (!post) return { ok: false, error: "That post is not here." };
+          const blank = (item: Post): Post =>
+            reason === "csam"
+              ? { ...item, removed: true, claim: "[removed]", reason: "", media: [] }
+              : { ...item, removed: true };
           if (get().remote) {
             const saved = await (await getBoardClient()).remove(id, reason);
             if (!saved.ok) return { ok: false, error: saved.error };
             set({
               posts: get().posts.map((item) =>
-                item.id === id || item.parentId === id ? { ...item, removed: true } : item,
+                item.id === id || item.parentId === id ? blank(item) : item,
               ),
               removals: [saved.removal, ...get().removals],
               bans: [saved.ban, ...get().bans],
             });
             return { ok: true };
           }
+          const removal = {
+            id: crypto.randomUUID(),
+            postId: id,
+            author: post.author,
+            reason,
+            at: Date.now(),
+          };
           set({
             posts: get().posts.map((item) =>
-              item.id === id || item.parentId === id ? { ...item, removed: true } : item,
+              item.id === id || item.parentId === id ? blank(item) : item,
             ),
-            removals: [
-              { id: crypto.randomUUID(), postId: id, author: post.author, reason, at: Date.now() },
-              ...get().removals,
-            ],
+            removals: [removal, ...get().removals],
+            bans:
+              reason === "csam"
+                ? [
+                    {
+                      id: crypto.randomUUID(),
+                      author: post.author,
+                      reason: "csam",
+                      until: Date.now() + 100 * 365 * DAY,
+                      strikes: 1,
+                      at: Date.now(),
+                    },
+                    ...get().bans,
+                  ]
+                : get().bans,
+          });
+          return { ok: true };
+        },
+        appeal: async (postId, kind, reason) => {
+          const sentence = oneSentence(reason);
+          if (!sentence) return { ok: false, error: SENTENCE_ERROR };
+          const post = get().posts.find((item) => item.id === postId);
+          if (get().remote) {
+            const saved = await (await getBoardClient()).appeal(postId, kind, sentence);
+            if (!saved.ok) return { ok: false, error: saved.error };
+            set({
+              appeals: [saved.appeal, ...get().appeals.filter((row) => row.id !== saved.appeal.id)],
+            });
+            return { ok: true };
+          }
+          if (!post) return { ok: false, error: "That post is not here." };
+          if (post.author !== me()) return { ok: false, error: "Only the author can appeal." };
+          if (kind === "mark" && (post.removed || !post.mark))
+            return { ok: false, error: "That mark is not here." };
+          const removal = get().removals.find((row) => row.postId === postId);
+          if (kind === "removal" && !removal)
+            return { ok: false, error: "That removal is not here." };
+          if (
+            get().appeals.some(
+              (row) => row.postId === postId && row.kind === kind && row.decision === null,
+            )
+          ) {
+            return { ok: false, error: "That appeal is already filed." };
+          }
+          const row: AppealRow = {
+            id: crypto.randomUUID(),
+            room: post.room,
+            postId,
+            author: post.author,
+            kind,
+            reason: sentence,
+            decision: null,
+            decisionNote: "",
+            decidedBy: "",
+            at: Date.now(),
+            decidedAt: null,
+            rule: kind === "removal" ? (removal?.reason ?? null) : null,
+          };
+          set({ appeals: [row, ...get().appeals] });
+          return { ok: true };
+        },
+        decideAppeal: async (id, decision, reason) => {
+          const sentence = oneSentence(reason);
+          if (!sentence) return { ok: false, error: SENTENCE_ERROR };
+          if (!get().steward) return { ok: false, error: "Only a steward can decide an appeal." };
+          const appeal = get().appeals.find((row) => row.id === id);
+          if (!appeal || appeal.decision) return { ok: false, error: "That appeal is not open." };
+          if (appeal.author === me())
+            return { ok: false, error: "A steward does not decide their own appeal." };
+          if (decision !== "uphold" && decision !== "lift")
+            return { ok: false, error: "Uphold or lift the appeal." };
+          if (get().remote) {
+            const saved = await (await getBoardClient()).decideAppeal(id, decision, sentence);
+            if (!saved.ok) return { ok: false, error: saved.error };
+            const posts = get().posts.map((item) => {
+              const next = saved.posts.find((post) => post.id === item.id);
+              return next ?? item;
+            });
+            for (const post of saved.posts) {
+              if (!posts.some((item) => item.id === post.id)) posts.unshift(post);
+            }
+            set({
+              posts,
+              appeals: get().appeals.map((row) => (row.id === id ? saved.appeal : row)),
+              bans:
+                decision === "lift" &&
+                saved.appeal.kind === "removal" &&
+                saved.appeal.rule !== "csam"
+                  ? get().bans.map((row) =>
+                      row.author === saved.appeal.author && row.strikes < 2
+                        ? { ...row, until: Date.now() }
+                        : row,
+                    )
+                  : get().bans,
+            });
+            return { ok: true };
+          }
+          if (decision === "lift" && appeal.kind === "removal" && appeal.rule === "csam") {
+            return {
+              ok: false,
+              error: "That removal stays. Child sexual abuse material is not put back.",
+            };
+          }
+          set({
+            appeals: get().appeals.map((row) =>
+              row.id === id
+                ? {
+                    ...row,
+                    decision,
+                    decisionNote: sentence,
+                    decidedBy: me(),
+                    decidedAt: Date.now(),
+                  }
+                : row,
+            ),
+            posts:
+              decision === "lift"
+                ? get().posts.map((item) => {
+                    if (appeal.kind === "mark" && item.id === appeal.postId)
+                      return { ...item, mark: null };
+                    if (
+                      appeal.kind === "removal" &&
+                      (item.id === appeal.postId || item.parentId === appeal.postId)
+                    )
+                      return { ...item, removed: false };
+                    return item;
+                  })
+                : get().posts,
+            bans:
+              decision === "lift" && appeal.kind === "removal"
+                ? get().bans.map((row) =>
+                    row.author === appeal.author && row.strikes < 2 && row.reason !== "csam"
+                      ? { ...row, until: Date.now() }
+                      : row,
+                  )
+                : get().bans,
           });
           return { ok: true };
         },
@@ -830,6 +1002,8 @@ export const useBoard = create<BoardState>()(
               markLog: [],
               removals: [],
               bans: [],
+              appeals: [],
+              csamReports: [],
               roomPages: [],
               home: null,
               council: false,
@@ -891,6 +1065,8 @@ export const useBoard = create<BoardState>()(
             markLog: [],
             removals: [],
             bans: [],
+            appeals: [],
+            csamReports: [],
             roomPages: [],
             undoClear: null,
             localEntry: false,
@@ -916,6 +1092,8 @@ export const useBoard = create<BoardState>()(
             steward: true,
             invites: [],
             removals: [],
+            appeals: [],
+            csamReports: [],
             openThread: null,
             viewing: null,
             section: "week",
@@ -961,6 +1139,8 @@ export const useBoard = create<BoardState>()(
             threads: undo.threads,
             messages: undo.messages,
             removals: undo.removals,
+            appeals: undo.appeals ?? [],
+            csamReports: undo.csamReports ?? [],
             rooms: undo.rooms,
             room: undo.room,
             section: undo.section,
@@ -990,6 +1170,7 @@ export const useBoard = create<BoardState>()(
         cards: state.cards,
         invites: state.invites,
         removals: state.remote ? [] : state.removals,
+        appeals: state.remote ? [] : state.appeals,
         markLog: state.remote ? [] : state.markLog,
         threads: state.threads,
         messages: state.messages,

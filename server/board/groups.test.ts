@@ -1171,12 +1171,21 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     assert.deepEqual(
       functions.map((row) => row.proname),
-      ["anonymize_board_user", "anonymize_places_user", "anonymize_room_chat_user", "anonymize_theme_group_user"],
+      [
+        "anonymize_board_user",
+        "anonymize_moderation_user",
+        "anonymize_places_user",
+        "anonymize_room_chat_user",
+        "anonymize_theme_group_user",
+      ],
     );
     const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
     const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");
+    const moderationFn = functions.find((row) => row.proname === "anonymize_moderation_user");
     assert.equal(boardFn?.prosrc.includes("theme_group"), false);
     assert.equal(groupFn?.prosrc.includes("board_post"), false);
+    assert.match(moderationFn?.prosrc ?? "", /board_csam_hold/);
+    assert.equal(moderationFn?.prosrc.includes("theme_group"), false);
     assert.match(groupFn?.prosrc ?? "", /theme_group_post/);
     const triggers = await db.query<{ tgname: string }>(
       `select tgname from pg_trigger where tgrelid = '"user"'::regclass and not tgisinternal`,
@@ -1400,6 +1409,68 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     assert.equal(board[0]?.author_name, "Removed member");
     assert.equal(board[0]?.author_user_id, null);
+  } finally {
+    await close();
+  }
+});
+
+test("a group removal can name doxxing or blasphemy", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-group-rule@example.com");
+    await user(db, ada, "Ada", "ada-group-rule@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, ada, "Ada", "member");
+    await groupSteward(db, "carpentry", ada, "Ada");
+    await joinGroup(db, { userId: maria, name: "Maria", groupId: "carpentry", now });
+    await setGroupAdmin(db, {
+      userId: ada,
+      name: "Ada",
+      groupId: "carpentry",
+      email: "maria-group-rule@example.com",
+      action: "grant",
+      now,
+    });
+    const posted = await createGroupPost(db, {
+      userId: maria,
+      name: "Maria",
+      groupId: "carpentry",
+      body: "A bench note that a steward will remove.",
+      on: "",
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removeGroupPost(db, {
+      userId: ada,
+      name: "Ada",
+      postId: posted.value.id,
+      reason: "doxxing",
+      now: later(1),
+    });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    assert.equal(removed.value.removal.reason, "doxxing");
+    const second = await createGroupPost(db, {
+      userId: maria,
+      name: "Maria",
+      groupId: "carpentry",
+      body: "Another bench note that a steward will remove.",
+      on: "",
+      now: later(2),
+    });
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    const blasphemy = await removeGroupPost(db, {
+      userId: ada,
+      name: "Ada",
+      postId: second.value.id,
+      reason: "blasphemy",
+      now: later(3),
+    });
+    assert.equal(blasphemy.ok, true);
   } finally {
     await close();
   }

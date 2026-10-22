@@ -9,6 +9,7 @@ import { bindCallEviction } from "./calls/evict.ts";
 import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
+import { startHoldSweep } from "./board/csam.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -72,6 +73,8 @@ export function startHost(): void {
   });
   const now = () => new Date();
   const mediaConfig = readMediaConfig();
+  const mediaStore = storeFromConfig(mediaConfig);
+  startHoldSweep(pgDb(pool), mediaStore);
   console.log(
     JSON.stringify({
       event: "media-storage",
@@ -99,7 +102,7 @@ export function startHost(): void {
     signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
-    media: { config: mediaConfig, store: storeFromConfig(mediaConfig), now },
+    media: { config: mediaConfig, store: mediaStore, now },
     calls: { config: callsConfig, store: callStore, now },
   });
   const server = createServer(async (req, res) => {
