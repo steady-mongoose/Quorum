@@ -410,7 +410,7 @@ test("a steward hard removal hides the line, bars the account, and shares the st
       true,
     );
 
-    const mariaBan = await openBan(db, maria, new Date(now.getTime() + 3_000));
+    const mariaBan = await openBan(db, maria, new Date(now.getTime() + 3_000), "shop");
     assert.equal(mariaBan?.strikes, 1);
     const mariaRead = await listChat(db, {
       userId: maria,
@@ -518,7 +518,7 @@ test("a chat removal and a later post removal are the second strike, in either o
   }
 });
 
-test("removing a room line drops that member from every live call", async () => {
+test("removing a room line drops that member from that room's call", async () => {
   const { db, close } = await openTestDb();
   const calls = createCallStore();
   bindCallEviction(calls);
@@ -560,7 +560,34 @@ test("removing a room line drops that member from every live call", async () => 
     });
     assert.equal(removed.ok, true);
     assert.equal(calls.poll("shop", maria, 0, at + 1).ok, false);
-    assert.equal(calls.poll("county", maria, 0, at + 1).ok, false);
+    assert.equal(calls.poll("county", maria, 0, at + 1).ok, true);
+    const shopBan = await openBan(db, maria, now, "shop");
+    assert.equal(shopBan?.strikes, 1);
+    assert.equal(await openBan(db, maria, now), null);
+    const shopChat = await listChat(db, { userId: maria, roomId: "shop", now });
+    assert.equal(shopChat.ok, false);
+    if (shopChat.ok) return;
+    assert.equal(shopChat.error, "banned");
+    const shopSend = await sendChat(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      text: "One more line in the shop.",
+      now,
+    });
+    assert.equal(shopSend.ok, false);
+    if (shopSend.ok) return;
+    assert.equal(shopSend.error, "banned");
+    const countyChat = await listChat(db, { userId: maria, roomId: "county", now });
+    assert.equal(countyChat.ok, true);
+    const countyLine = await sendChat(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      text: "The county line is still open.",
+      now,
+    });
+    assert.equal(countyLine.ok, true);
     assert.equal(calls.poll("shop", ruth, 0, at + 1).ok, true);
   } finally {
     bindCallEviction(createCallStore());

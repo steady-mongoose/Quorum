@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
+import { ruleId, type RuleId } from "./rule.ts";
 import { isUniqueViolation } from "../db.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -54,22 +55,29 @@ function atMs(value: Date | string | number): number {
   return new Date(value).getTime();
 }
 
+/**
+ * Home, vouching, a ZIP correction, and a room request look at site-wide bars only.
+ * A room bar does not block those. A theme group does not inherit a room bar.
+ */
 async function openBan(
   db: Db,
   userId: string,
   now: Date,
-): Promise<{ until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null> {
+): Promise<{ until: number; strikes: number; reason: RuleId } | null> {
   const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
-    `select strikes, until_at, reason from board_ban where user_id = $1 order by created_at desc limit 1`,
+    `select strikes, until_at, reason from board_ban
+     where user_id = $1 and room_id = ''
+     order by created_at desc`,
     [userId],
   );
-  const row = rows[0];
-  if (!row) return null;
-  const strikes = Number(row.strikes);
-  const until = atMs(row.until_at);
-  const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
-  if (strikes < 2 && until <= now.getTime()) return null;
-  return { until, strikes, reason };
+  for (const row of rows) {
+    const strikes = Number(row.strikes);
+    const until = atMs(row.until_at);
+    if (strikes < 2 && until <= now.getTime()) continue;
+    const reason = ruleId(row.reason);
+    return { until, strikes, reason };
+  }
+  return null;
 }
 
 function textList(value: unknown): string[] {

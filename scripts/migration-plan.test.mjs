@@ -79,6 +79,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0011_places.sql",
       "0012_theme_groups.sql",
       "0013_room_chat.sql",
+      "0014_board_ban_room.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -98,6 +99,18 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.equal(sql.includes("like_count"), false);
   assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
+});
+
+test("0014 adds the room bar column and leaves anonymize functions alone", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0014_board_ban_room.sql"), "utf8");
+  assert.match(sql, /Numbered 0014/);
+  assert.match(sql, /add column if not exists room_id text not null default ''/i);
+  assert.match(sql, /create index if not exists board_ban_user_room_idx/i);
+  assert.equal(/anonymize_/i.test(sql), false);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+  assert.equal(/drop trigger/i.test(sql), false);
+  assert.equal(/drop function/i.test(sql), false);
 });
 
 test("0012 anonymizes group names on its own trigger", () => {

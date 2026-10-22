@@ -23,7 +23,7 @@ export async function roomCallMember(
 ): Promise<MemberCheck> {
   if (!userId || !ROOM_ID.test(roomId)) return { kind: "bad-room" };
   try {
-    const ban = await openBanOrNone(db, userId, now);
+    const ban = await openBanOrNone(db, userId, now, roomId);
     if (ban) return { kind: "banned", ban };
   } catch {
     return { kind: "unavailable" };

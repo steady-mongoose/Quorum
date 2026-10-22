@@ -63,7 +63,7 @@ export async function requireRoomMember(
   if (!ROOM_ID.test(roomId)) return fail(400, "That room is not here.");
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read this room.");
-  const ban = await openBan(db, userId, now);
+  const ban = await openBan(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
   const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
     roomId,
@@ -291,7 +291,8 @@ export async function removeChatMessage(
         input.now,
       ],
     );
-    if (!message.author_user_id) return { ban: null };
+    if (!message.author_user_id) return { ban: null, siteWide: false };
+    const siteWide = gate.value.admin || reason === "csam";
     const ban = await writeBan(tx, {
       userId: message.author_user_id,
       name: message.author_name,
@@ -301,11 +302,15 @@ export async function removeChatMessage(
       removalId: null,
       removalAlreadyCounted: true,
       now: input.now,
+      roomId: siteWide ? "" : input.roomId,
     });
-    return { ban };
+    return { ban, siteWide };
   });
   if (!saved) return fail(404, "That message is not here.");
-  if (message.author_user_id) evictCallMember(message.author_user_id);
+  if (message.author_user_id) {
+    if (saved.siteWide) evictCallMember(message.author_user_id);
+    else evictCallMember(message.author_user_id, [input.roomId]);
+  }
   console.log(JSON.stringify({ event: "chat-removed", messageId: message.id, reason }));
   return {
     ok: true,

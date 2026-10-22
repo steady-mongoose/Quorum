@@ -33,7 +33,7 @@ export async function memberOfRoom(
   if (!(await roomExists(db, roomId))) {
     return { ok: false, status: 404, error: "That room is not here." };
   }
-  const ban = await openBanOrNone(db, userId, now);
+  const ban = await openBanOrNone(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
   if (await isAdmin(db, userId)) return { ok: true };
   const rows = await db.query<{ user_id: string }>(
