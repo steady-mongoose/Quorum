@@ -1171,7 +1171,7 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     assert.deepEqual(
       functions.map((row) => row.proname),
-      ["anonymize_board_user", "anonymize_places_user", "anonymize_theme_group_user"],
+      ["anonymize_board_user", "anonymize_places_user", "anonymize_room_chat_user", "anonymize_theme_group_user"],
     );
     const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
     const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");

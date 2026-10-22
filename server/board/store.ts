@@ -4,6 +4,7 @@ import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
+import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
@@ -71,6 +72,8 @@ export type RemovalEntry = {
   author: string;
   reason: "threat" | "porn" | "csam";
   at: number;
+  /** Set when the row is a room chat line. A post leaves this off. */
+  roomChat?: boolean;
 };
 
 export type BanEntry = {
@@ -91,6 +94,8 @@ export type BoardPayload = {
     admin: boolean;
     council: boolean;
     councilChair: boolean;
+    /** Rooms with a live steward grant. An admin is not listed here. */
+    stewardRooms: string[];
     ban: { until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null;
   };
   rooms: BoardRoom[];
@@ -449,8 +454,20 @@ export async function listBoard(
     author_name: string;
     reason: string;
     created_at: Date | string;
+    room_chat: boolean;
   }>(
-    `select id, post_id, author_name, reason, created_at from board_removal order by created_at desc limit 500`,
+    (await roomChatReady(db))
+      ? `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         union all
+         select id, message_id, author_name, reason, created_at, true as room_chat
+         from room_chat_removal
+         order by created_at desc
+         limit 500`
+      : `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         order by created_at desc
+         limit 500`,
   );
   const banRows = await db.query<{
     id: string;
@@ -471,6 +488,7 @@ export async function listBoard(
         admin: actor.admin,
         council: flags.council,
         councilChair: flags.chair,
+        stewardRooms: actor.stewardRooms,
         ban: null,
       },
       rooms,
@@ -492,6 +510,7 @@ export async function listBoard(
             author: row.author_name,
             reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
             at: atMs(row.created_at),
+            ...(row.room_chat ? { roomChat: true } : {}),
           }))
         : [],
       bans: actor.steward
@@ -509,7 +528,7 @@ export async function listBoard(
   };
 }
 
-async function writeBan(
+export async function writeBan(
   tx: Db,
   input: {
     userId: string;
@@ -519,6 +538,11 @@ async function writeBan(
     byName: string;
     removalId: string | null;
     now: Date;
+    /**
+     * The new hard removal is already stored. A room chat line sets this
+     * because its row lives in room_chat_removal, not board_removal.
+     */
+    removalAlreadyCounted?: boolean;
   },
 ): Promise<BanEntry> {
   const prior = await tx.query<{ strikes: number }>(
@@ -529,8 +553,14 @@ async function writeBan(
     `select id from board_removal where author_user_id = $1`,
     [input.userId],
   );
-  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length);
-  const strikes = input.removalId ? Math.max(counted, 1) : counted + 1;
+  const chatRemovals = (await roomChatReady(tx))
+    ? await tx.query<{ id: string }>(`select id from room_chat_removal where author_user_id = $1`, [
+        input.userId,
+      ])
+    : [];
+  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
+  const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
+  const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
   const until = new Date(input.now.getTime() + (strikes >= 2 ? CLOSED_MS : BAN_MS));
   const id = randomUUID();
   await tx.query(
