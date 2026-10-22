@@ -1100,6 +1100,8 @@ export async function removePost(
     reason: string;
     now: Date;
     store?: ObjectStore | null;
+    /** Tests throw from here after the save, to prove the hold copies stay. */
+    onSaved?: () => void;
   },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
@@ -1168,6 +1170,8 @@ export async function removePost(
         roomId: siteWide ? "" : post.room_id,
       });
     });
+    // The save committed. Drop the rollback list so a later error cannot delete the evidence.
+    heldKeys.length = 0;
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
@@ -1177,6 +1181,7 @@ export async function removePost(
         ...(await groupsApprovedFrom(db, post.room_id)),
       ]);
     if (alert) scheduleHoldAlert(alert);
+    input.onSaved?.();
     return {
       ok: true,
       value: {
