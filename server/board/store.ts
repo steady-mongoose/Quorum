@@ -4,10 +4,12 @@ import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
+import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
+import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BAN_MS = 30 * DAY_MS;
@@ -69,14 +71,16 @@ export type RemovalEntry = {
   id: string;
   postId: string;
   author: string;
-  reason: "threat" | "porn" | "csam";
+  reason: RuleId;
   at: number;
+  /** Set when the row is a room chat line. A post leaves this off. */
+  roomChat?: boolean;
 };
 
 export type BanEntry = {
   id: string;
   author: string;
-  reason: "threat" | "porn" | "csam";
+  reason: RuleId;
   until: number;
   strikes: number;
   at: number;
@@ -91,7 +95,9 @@ export type BoardPayload = {
     admin: boolean;
     council: boolean;
     councilChair: boolean;
-    ban: { until: number; strikes: number; reason: "threat" | "porn" | "csam" } | null;
+    /** Rooms with a live steward grant. An admin is not listed here. */
+    stewardRooms: string[];
+    ban: { until: number; strikes: number; reason: RuleId } | null;
   };
   rooms: BoardRoom[];
   posts: BoardPost[];
@@ -113,7 +119,7 @@ type Err = {
   status: number;
   error: string;
   stops?: string[];
-  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" };
+  ban?: { until: number; strikes: number; reason: RuleId };
 };
 export type Result<T> = Ok<T> | Err;
 
@@ -284,7 +290,7 @@ export async function openBan(
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
     if (strikes < 2 && until <= now.getTime()) continue;
-    const reason = row.reason === "porn" || row.reason === "csam" ? row.reason : "threat";
+    const reason = ruleId(row.reason);
     return { until, strikes, reason };
   }
   return null;
@@ -420,7 +426,16 @@ export async function listBoard(
             scope_kind, town_id, congregation_id, region_id
      from room where name <> '' order by sort_order asc, name asc`,
   );
-  const rooms = roomRows.map(toRoom);
+  const openRooms: BoardRoom[] = [];
+  for (const room of roomRows.map(toRoom)) {
+    const roomBan = await openBan(db, userId, now, room.id);
+    if (!roomBan) {
+      openRooms.push(room);
+      continue;
+    }
+    if (query.room === room.id) return { ok: false, status: 403, error: "banned", ban: roomBan };
+  }
+  const rooms = openRooms;
   const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
@@ -468,8 +483,20 @@ export async function listBoard(
     author_name: string;
     reason: string;
     created_at: Date | string;
+    room_chat: boolean;
   }>(
-    `select id, post_id, author_name, reason, created_at from board_removal order by created_at desc limit 500`,
+    (await roomChatReady(db))
+      ? `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         union all
+         select id, message_id, author_name, reason, created_at, true as room_chat
+         from room_chat_removal
+         order by created_at desc
+         limit 500`
+      : `select id, post_id, author_name, reason, created_at, false as room_chat
+         from board_removal
+         order by created_at desc
+         limit 500`,
   );
   const banRows = await db.query<{
     id: string;
@@ -490,6 +517,7 @@ export async function listBoard(
         admin: actor.admin,
         council: flags.council,
         councilChair: flags.chair,
+        stewardRooms: actor.stewardRooms,
         ban: null,
       },
       rooms,
@@ -509,15 +537,16 @@ export async function listBoard(
             id: row.id,
             postId: row.post_id,
             author: row.author_name,
-            reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+            reason: ruleId(row.reason),
             at: atMs(row.created_at),
+            ...(row.room_chat ? { roomChat: true } : {}),
           }))
         : [],
       bans: actor.steward
         ? banRows.map((row) => ({
             id: row.id,
             author: row.name,
-            reason: row.reason === "porn" || row.reason === "csam" ? row.reason : "threat",
+            reason: ruleId(row.reason),
             until: atMs(row.until_at),
             strikes: Number(row.strikes),
             at: atMs(row.created_at),
@@ -528,7 +557,7 @@ export async function listBoard(
   };
 }
 
-async function writeBan(
+export async function writeBan(
   tx: Db,
   input: {
     userId: string;
@@ -540,6 +569,11 @@ async function writeBan(
     now: Date;
     /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
     roomId: string;
+    /**
+     * The new hard removal is already stored. A room chat line sets this
+     * because its row lives in room_chat_removal, not board_removal.
+     */
+    removalAlreadyCounted?: boolean;
   },
 ): Promise<BanEntry> {
   const prior = await tx.query<{ strikes: number }>(
@@ -559,8 +593,17 @@ async function writeBan(
         `select id from board_removal where author_user_id = $1`,
         [input.userId],
       );
-  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length);
-  const strikes = input.removalId ? Math.max(counted, 1) : counted + 1;
+  const chatRemovals = (await roomChatReady(tx))
+    ? await tx.query<{ id: string }>(
+        input.roomId
+          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2`
+          : `select id from room_chat_removal where author_user_id = $1`,
+        input.roomId ? [input.userId, input.roomId] : [input.userId],
+      )
+    : [];
+  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
+  const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
+  const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
   const until = new Date(input.now.getTime() + (strikes >= 2 ? CLOSED_MS : BAN_MS));
   const id = randomUUID();
   await tx.query(
@@ -964,6 +1007,7 @@ export async function removePost(
           input.now,
         ],
       );
+      const siteWide = actor.admin || reason === "csam";
       return writeBan(tx, {
         userId: post.author_user_id,
         name: post.author_name,
@@ -972,11 +1016,11 @@ export async function removePost(
         byName: by,
         removalId,
         now: input.now,
-        roomId: actor.admin ? "" : post.room_id,
+        roomId: siteWide ? "" : post.room_id,
       });
     });
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    if (actor.admin) evictCallMember(post.author_user_id);
+    if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
     else evictCallMember(post.author_user_id, [post.room_id]);
     return {
       ok: true,
@@ -997,9 +1041,23 @@ export async function removePost(
   }
 }
 
+async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<boolean> {
+  const posts = await db.query<{ id: string }>(
+    `select id from board_post where author_user_id = $1 and room_id = $2 limit 1`,
+    [userId, roomId],
+  );
+  if (posts[0]) return true;
+  if (!(await roomChatReady(db))) return false;
+  const lines = await db.query<{ id: string }>(
+    `select id from room_chat_message where author_user_id = $1 and room_id = $2 limit 1`,
+    [userId, roomId],
+  );
+  return Boolean(lines[0]);
+}
+
 export async function banMember(
   db: Db,
-  input: { userId: string; name: string; email: string; reason: string; now: Date },
+  input: { userId: string; name: string; email: string; reason: string; roomId?: string; now: Date },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin && actor.stewardRooms.length === 0) {
@@ -1035,34 +1093,27 @@ export async function banMember(
     evictCallMember(person.id);
     return { ok: true, value: ban };
   }
-  const posted = await db.query<{ room_id: string }>(
-    `select distinct room_id from board_post where author_user_id = $1`,
-    [person.id],
-  );
-  const rooms = posted
-    .map((row) => row.room_id)
-    .filter((roomId) => actor.stewardRooms.includes(roomId));
-  if (rooms.length === 0) {
+  const roomId = input.roomId?.trim() ?? "";
+  if (!roomId) return fail(400, "Name the room this bar is for.");
+  if (!actor.stewardRooms.includes(roomId)) {
+    return fail(403, "A steward can bar a member only in a room they steward.");
+  }
+  if (!(await offendedInRoom(db, person.id, roomId))) {
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
-  const ban = await db.transaction(async (tx) => {
-    let saved: BanEntry | null = null;
-    for (const roomId of rooms) {
-      saved = await writeBan(tx, {
-        userId: person.id,
-        name: person.name,
-        reason,
-        byUserId: input.userId,
-        byName,
-        removalId: null,
-        now: input.now,
-        roomId,
-      });
-    }
-    return saved;
+  const siteWide = reason === "csam";
+  const ban = await writeBan(db, {
+    userId: person.id,
+    name: person.name,
+    reason,
+    byUserId: input.userId,
+    byName,
+    removalId: null,
+    now: input.now,
+    roomId: siteWide ? "" : roomId,
   });
-  if (!ban) return fail(500, "The bar was not saved.");
-  evictCallMember(person.id, rooms);
+  if (siteWide) evictCallMember(person.id);
+  else evictCallMember(person.id, [roomId]);
   return { ok: true, value: ban };
 }
 

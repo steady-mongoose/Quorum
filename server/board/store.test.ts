@@ -6,6 +6,7 @@ import { roomCallMember } from "../calls/membership.ts";
 import { createCallStore } from "../calls/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
+import { ruleId } from "./rule.ts";
 import {
   banMember,
   closeAsked,
@@ -43,6 +44,15 @@ async function grant(
     [randomUUID(), userId, name, role, roomId, now],
   );
 }
+
+test("doxxing and blasphemy stay their own rule ids", () => {
+  assert.equal(ruleId("doxxing"), "doxxing");
+  assert.equal(ruleId("blasphemy"), "blasphemy");
+  assert.equal(ruleId("csam"), "csam");
+  assert.equal(ruleId("porn"), "porn");
+  assert.equal(ruleId("threat"), "threat");
+  assert.equal(ruleId("other"), "threat");
+});
 
 const did = {
   type: "did",
@@ -444,6 +454,7 @@ test("a barred member cannot revise or close, and a revision keeps the mark", as
       name: "Tom",
       email: "maria@example.com",
       reason: "threat",
+      roomId: "shop",
       now,
     });
     const blockedRevise = await revisePost(db, {
@@ -514,6 +525,20 @@ test("only a steward sees ban and removal logs", async () => {
     assert.equal(barred.ok, true);
     if (!barred.ok) return;
     assert.equal(barred.value.me.ban, null);
+    assert.equal(
+      barred.value.rooms.some((room) => room.id === "shop"),
+      false,
+    );
+    assert.equal(
+      barred.value.posts.some((post) => post.room === "shop"),
+      false,
+    );
+    const shopPage = await listBoard(db, maria, now, { room: "shop" });
+    assert.equal(shopPage.ok, false);
+    if (shopPage.ok) return;
+    assert.equal(shopPage.status, 403);
+    assert.equal(shopPage.error, "banned");
+    assert.equal(shopPage.ban?.reason, "threat");
     const shopAgain = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -934,6 +959,7 @@ test("a room bar drops that room's call, and an admin bar drops every live call"
       name: "Tom",
       email: "ruth-call@example.com",
       reason: "porn",
+      roomId: "shop",
       now,
     });
     assert.equal(banned.ok, true);
@@ -1031,6 +1057,7 @@ test("a steward of one room cannot mark, remove, or bar in another", async () =>
       name: "Tom",
       email: "dale-room@example.com",
       reason: "threat",
+      roomId: "shop",
       now,
     });
     assert.equal(barred.ok, false);
@@ -1213,6 +1240,7 @@ test("a room steward's bar covers that room, and an admin's bar covers the site"
     await grant(db, josh, "Josh", "member");
     await grant(db, josh, "Josh", "admin");
     await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, tom, "Tom", "steward", "county");
     const shop = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -1229,11 +1257,22 @@ test("a room steward's bar covers that room, and an admin's bar covers the site"
     });
     assert.equal(shop.ok, true);
     assert.equal(county.ok, true);
+    const unnamed = await banMember(db, {
+      userId: tom,
+      name: "Tom",
+      email: "maria-scope@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(unnamed.ok, false);
+    if (unnamed.ok) return;
+    assert.equal(unnamed.error, "Name the room this bar is for.");
     const barred = await banMember(db, {
       userId: tom,
       name: "Tom",
       email: "maria-scope@example.com",
       reason: "threat",
+      roomId: "shop",
       now,
     });
     assert.equal(barred.ok, true);
@@ -1300,6 +1339,58 @@ test("a room steward's bar covers that room, and an admin's bar covers the site"
     assert.equal(countyBlocked.ok, false);
     const countyCallAfter = await roomCallMember(db, maria, "county", now);
     assert.equal(countyCallAfter.kind, "banned");
+  } finally {
+    await close();
+  }
+});
+
+test("a CSAM removal is never room-scoped", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-csam@example.com");
+    await user(db, tom, "Tom", "tom-csam@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "csam",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    assert.equal(removed.value.ban.reason, "csam");
+    const rows = await db.query<{ room_id: string; reason: string }>(
+      `select room_id, reason from board_ban where user_id = $1`,
+      [maria],
+    );
+    assert.deepEqual(rows, [{ room_id: "", reason: "csam" }]);
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(county.ok, false);
+    const board = await listBoard(db, maria, now);
+    assert.equal(board.ok, false);
+    if (board.ok) return;
+    assert.equal(board.error, "banned");
+    assert.equal(board.ban?.reason, "csam");
   } finally {
     await close();
   }

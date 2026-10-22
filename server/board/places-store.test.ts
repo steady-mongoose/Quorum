@@ -533,6 +533,37 @@ test("a banned member cannot vouch anyone in", async () => {
   }
 });
 
+test("a room bar does not block Home or a vouch", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const pat = randomUUID();
+    await user(db, maria, "Maria", "maria-room-ban@example.com");
+    await user(db, pat, "Pat", "pat-room@example.com");
+    await member(db, maria, "Maria", later(1));
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Maria', 'threat', 'Tom', 1, $3, 'shop', $4)`,
+      [randomUUID(), maria, new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), later(2)],
+    );
+    const home = await listHome(db, maria, later(3));
+    assert.equal(home.ok, true);
+    const vouched = await grantAccess(db, {
+      userId: maria,
+      action: "grant-member",
+      email: "pat-room@example.com",
+      roomId: "shop",
+      inviterEmail: "",
+      stewardEmail: "",
+      role: "",
+      now: later(4),
+    });
+    if (!vouched.ok) assert.notEqual(vouched.error, "banned");
+  } finally {
+    await close();
+  }
+});
+
 test("deleting an account anonymizes council, room request, and ZIP rows", async () => {
   const { db, close } = await openTestDb();
   try {

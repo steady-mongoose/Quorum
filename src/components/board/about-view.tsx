@@ -28,6 +28,10 @@ const HOW = [
     text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted.",
   },
   {
+    title: "Room chat",
+    text: "Each room has a chat for people who have stood in that room. Lines stay in time order. A removed or barred member loses access on the next check. A steward can remove a line only in a room they steward. The lines are plain text.",
+  },
+  {
     title: "Posting",
     text: "In a room you can post something you did, with proof, or ask one question. Posts are in order of time; nothing is ranked and nothing refreshes on its own.",
   },
@@ -215,14 +219,15 @@ export function AboutView() {
 
       {removals.length > 0 ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-2xl text-fg">Removed posts</h2>
+          <h2 className="text-2xl text-fg">Hard removals</h2>
           <ul className="flex flex-col gap-2">
             {removals.map((row) => (
               <li
                 key={row.id}
                 className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted"
               >
-                {new Date(row.at).toLocaleString()} · {row.author} · {RULE_LABEL[row.reason]}
+                {new Date(row.at).toLocaleString()} · {row.roomChat ? "Room chat" : "Post"} ·{" "}
+                {row.author} · {RULE_LABEL[row.reason]}
               </li>
             ))}
           </ul>

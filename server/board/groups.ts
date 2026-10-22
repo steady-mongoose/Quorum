@@ -14,6 +14,7 @@ import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/t
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
 import { sentenceOrStop } from "./check.ts";
 import { openBan, type Result } from "./store.ts";
+import type { RuleId } from "./rule.ts";
 
 const PAGE_DEFAULT = 40;
 const PAGE_MAX = 100;
@@ -110,7 +111,7 @@ type Err = {
   ok: false;
   status: number;
   error: string;
-  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" };
+  ban?: { until: number; strikes: number; reason: RuleId };
 };
 
 type Gate = { ok: true; actor: BoardActor } | Err;
@@ -118,7 +119,7 @@ type Gate = { ok: true; actor: BoardActor } | Err;
 function fail(
   status: number,
   error: string,
-  ban?: { until: number; strikes: number; reason: "threat" | "porn" | "csam" },
+  ban?: { until: number; strikes: number; reason: RuleId },
 ): Err {
   return ban ? { ok: false, status, error, ban } : { ok: false, status, error };
 }
@@ -198,6 +199,7 @@ function decodeCursor(value: string): { at: Date; id: string } | null {
 async function gate(db: Db, userId: string, now: Date): Promise<Gate> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can do that.");
+  // A room bar does not carry into a theme group. That inheritance is still open.
   const ban = await openBan(db, userId, now);
   if (ban) return fail(403, "banned", ban);
   return { ok: true, actor };
