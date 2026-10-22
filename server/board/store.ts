@@ -535,7 +535,7 @@ export async function listBoard(
          order by r.created_at desc
          limit 500`,
   );
-  const banRows = await db.query<{
+  const banRows = await queryBanTable<{
     id: string;
     name: string;
     reason: string;
@@ -544,10 +544,12 @@ export async function listBoard(
     created_at: Date | string;
     room_id: string;
   }>(
+    db,
     `select id, name, reason, strikes, until_at, created_at, room_id
      from board_ban
      order by created_at desc
      limit 500`,
+    [],
   );
   const appealRows = await db.query<{
     id: string;
@@ -706,7 +708,8 @@ export async function writeBan(
     removalAlreadyCounted?: boolean;
   },
 ): Promise<BanEntry> {
-  const prior = await tx.query<{ strikes: number }>(
+  const prior = await queryBanTable<{ strikes: number }>(
+    tx,
     `select strikes from board_ban
      where user_id = $1 and room_id = $2
      order by created_at desc limit 1`,

@@ -6,8 +6,9 @@ import { roomCallMember } from "../calls/membership.ts";
 import type { Db } from "../db.ts";
 import { memberOfRoom } from "../media/access.ts";
 import { BAN_CHECK_UNAVAILABLE, BanCheckUnavailable } from "./ban-check.ts";
+import { listGroups } from "./groups.ts";
 import { listHome } from "./places-store.ts";
-import { openBan, openBanOrNone } from "./store.ts";
+import { listBoard, openBan, openBanOrNone, writeBan } from "./store.ts";
 
 const now = new Date("2026-10-22T12:00:00Z");
 
@@ -130,4 +131,60 @@ test("the invite log answers 503 when the ban table is missing and 200 when it i
   );
   assert.equal(open.status, 200);
   assert.deepEqual(await open.json(), { entries: [] });
+});
+
+test("the group list, the ban list, and a new ban fail closed when the table is missing", async () => {
+  const member = dbFor(async <T>(sql: string) => {
+    if (sql.includes("left join board_ban")) throw missingTable();
+    if (sql.includes("from board_ban") && sql.includes("limit 500")) throw missingTable();
+    if (sql.includes("select strikes from board_ban")) throw missingTable();
+    if (sql.includes("bootstrap_seat")) return [{ user_id: "maria" }] as T[];
+    return [] as T[];
+  });
+  await assert.rejects(listGroups(member, "maria", now), BanCheckUnavailable);
+  await assert.rejects(listBoard(member, "maria", now), BanCheckUnavailable);
+  await assert.rejects(
+    writeBan(member, {
+      userId: "pete",
+      name: "Pete",
+      reason: "threat",
+      byUserId: "josh",
+      byName: "Josh",
+      removalId: null,
+      now,
+      roomId: "",
+    }),
+    BanCheckUnavailable,
+  );
+
+  const handler = (query: Db["query"]) => {
+    const deps: AppDeps = {
+      db: dbFor(query),
+      origins: ["http://localhost:8080"],
+      now: () => now,
+      createAccount: (async () => ({ id: "unused" })) satisfies CreateAccount,
+      signIn: (async () => ({
+        ok: false,
+        status: 401,
+        message: "unused",
+      })) satisfies SignIn,
+      readSession: async () => ({ id: "maria", name: "Maria", email: "maria@example.com" }),
+      forwardAuth: async () => new Response(null, { status: 500 }),
+    };
+    return createApp(deps);
+  };
+  const app = handler(async <T>(sql: string) => {
+    if (
+      sql.includes("left join board_ban") ||
+      (sql.includes("from board_ban") && sql.includes("limit 500"))
+    )
+      throw missingTable();
+    if (sql.includes("bootstrap_seat")) return [{ user_id: "maria" }] as T[];
+    return [] as T[];
+  });
+  for (const path of ["/api/groups", "/api/board"]) {
+    const response = await app(new Request(`http://127.0.0.1:8787${path}`));
+    assert.equal(response.status, 503, path);
+    assert.deepEqual(await response.json(), { error: BAN_CHECK_UNAVAILABLE });
+  }
 });

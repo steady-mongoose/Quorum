@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Dry-run the failover restore against a throwaway Postgres container.
 # Creates a one-row database, dumps it, encrypts the dump with age, drops the
 # row, and restores through scripts/restore-from-backup.sh. No bucket is used.
-set -eu
+set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 NAME="${FAILOVER_DRILL_PG:-avouch-failover-drill}"

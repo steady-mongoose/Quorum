@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,12 +18,23 @@ const execFileAsync = promisify(execFile);
 const SCRIPT = join(projectRoot(), "scripts/restore-from-backup.sh");
 const PLAIN = "closed-test dump bytes\n";
 
-function writeBins(root, awsBody) {
+function writeBins(root, awsBody, relations = "0") {
   const bin = join(root, "bin");
   mkdirSync(bin);
-  writeFileSync(join(bin, "pg_restore"), '#!/bin/sh\ncat > "$RESTORE_SINK"\n');
+  writeFileSync(
+    join(bin, "pg_restore"),
+    `#!/bin/sh
+if [ "$1" = "--list" ]; then
+  printf '%s\\n' "1; 1259 16384 TABLE public drill_marker avouch"
+  exit 0
+fi
+cat > "$RESTORE_SINK"
+`,
+  );
+  writeFileSync(join(bin, "psql"), `#!/bin/sh\nprintf '%s\\n' "${relations}"\n`);
   writeFileSync(join(bin, "aws"), awsBody);
   chmodSync(join(bin, "pg_restore"), 0o755);
+  chmodSync(join(bin, "psql"), 0o755);
   chmodSync(join(bin, "aws"), 0o755);
   return bin;
 }
@@ -154,4 +172,75 @@ exit 1
   assert.match(log, /metadata:true/);
   assert.equal(log.includes(secret), false);
   assert.equal(log.includes("AGE-SECRET-KEY-"), false);
+});
+
+test("a restore refuses a database that is not empty unless --overwrite is set", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-restore-full-"));
+  const sink = join(root, "restored");
+  const bin = writeBins(root, "#!/bin/sh\nexit 99\n", "4");
+  const { identity, enc } = await encryptedDump(root);
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    RESTORE_DRY_RUN: "1",
+    RESTORE_DUMP: enc,
+    AGE_IDENTITY_FILE: identity,
+    BACKUP_MODE: "pg_restore",
+    DATABASE_URL: "postgres://avouch:secret@127.0.0.1:5432/avouch_restore_test",
+    RESTORE_SINK: sink,
+  };
+  const failed = await execFileAsync(SCRIPT, [], { env }).then(
+    () => {
+      throw new Error("a non-empty database should have been refused");
+    },
+    (error) => error,
+  );
+  assert.match(String(failed.stderr ?? ""), /Pass --overwrite/);
+  assert.equal(existsSync(sink) && readFileSync(sink, "utf8").includes(PLAIN), false);
+
+  const again = await execFileAsync(SCRIPT, ["--overwrite"], { env });
+  assert.match(again.stdout, /Restored /);
+  assert.equal(readFileSync(sink, "utf8"), PLAIN);
+});
+
+test("a dump that does not list is refused before the database is written", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-restore-list-"));
+  const sink = join(root, "restored");
+  const bin = writeBins(root, "#!/bin/sh\nexit 99\n");
+  writeFileSync(
+    join(bin, "pg_restore"),
+    `#!/bin/sh
+if [ "$1" = "--list" ]; then
+  echo "not an archive" >&2
+  exit 1
+fi
+cat > "$RESTORE_SINK"
+`,
+  );
+  chmodSync(join(bin, "pg_restore"), 0o755);
+  const { identity, enc } = await encryptedDump(root);
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    RESTORE_DRY_RUN: "1",
+    RESTORE_DUMP: enc,
+    AGE_IDENTITY_FILE: identity,
+    BACKUP_MODE: "pg_restore",
+    DATABASE_URL: "postgres://avouch:secret@127.0.0.1:5432/avouch_restore_test",
+    RESTORE_SINK: sink,
+  };
+  const failed = await execFileAsync(SCRIPT, [], { env }).then(
+    () => {
+      throw new Error("a dump that will not list should have been refused");
+    },
+    (error) => error,
+  );
+  assert.notEqual(failed.code, 0);
+  let restored = "";
+  try {
+    restored = readFileSync(sink, "utf8");
+  } catch {
+    restored = "";
+  }
+  assert.equal(restored.includes(PLAIN), false);
 });

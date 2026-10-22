@@ -171,11 +171,11 @@ That line runs at 3:15 UTC with the host clock on UTC.
 
 Set `BACKUP_HEALTHCHECK_URL` to a monitor's success URL if a nightly run should ping. Leave it blank and nothing is pinged. A successful run pings that URL. A failed run pings the same URL with `/fail` appended (Healthchecks.io). If the value already ends in `/fail`, that URL is the failure ping and the success ping is the URL with `/fail` removed. The script does not print the URL, and it does not put the URL on curl's command line.
 
-Restore, after stopping the API. Copy the identity onto the box only for this command, then remove it:
+Restore, after stopping the API. This database already has rows, so `--overwrite` is required: the script lists the dump, then drops and recreates it. Without that flag the database must be empty and nothing is dropped. Copy the identity onto the box only for this command, then remove it:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop api
-AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh /var/backups/avouch/avouch-STAMP.dump.age
+AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh --overwrite /var/backups/avouch/avouch-STAMP.dump.age
 rm -f /tmp/avouch-backup-identity.txt
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health

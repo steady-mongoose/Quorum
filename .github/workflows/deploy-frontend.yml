@@ -50,6 +50,9 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
           VITE_PUBLIC_HOSTNAME: ${{ vars.VITE_PUBLIC_HOSTNAME }}
+          # Auth stays on. A missing value used to follow .grok/app-env.json,
+          # and a committed "false" there would ship the site with sign-in off.
+          VITE_AUTH_ENABLED: "true"
 
       - name: Deploy preview (workers.dev, no custom domains)
         id: preview

@@ -16,6 +16,22 @@ Pick a company that is not the one that just failed you, and not AWS, Google, Az
 
 Clone this repository and check out `the-board`. Copy `deploy/env.example` to `deploy/.env` and fill it from the password manager. Use the same `BETTER_AUTH_SECRET`, `POSTGRES_PASSWORD`, and age public key as the old box so existing sessions still verify. A new auth secret signs everyone out.
 
+`CSAM_HOLD_KEY` has to be the same key that sealed the hold. A fresh key makes every restored `board_csam_hold` row undecryptable, and the 365-day evidence hold cannot be opened or finished. Two copies of that key exist:
+
+- On the old box, `/root/avouch-secrets` (mode 600). If that disk is still readable, copy the `CSAM_HOLD_KEY` line from there into `deploy/.env`.
+- In the same B2 bucket as the dumps, at `avouch/secrets/csam-hold-key.env.age`. Decrypt it with the same age identity as the database dumps. The plaintext is one env line, `CSAM_HOLD_KEY=...`. Put that line in `deploy/.env`, then shred the plaintext.
+
+```bash
+set -a && . ./deploy/.env && set +a
+aws s3api get-object --endpoint-url "$BACKUP_S3_ENDPOINT" --region "${BACKUP_S3_REGION:-auto}" \
+  --bucket "$BACKUP_S3_BUCKET" --key "avouch/secrets/csam-hold-key.env.age" /tmp/csam-hold-key.env.age
+age -d -i /tmp/avouch-backup-identity.txt -o /tmp/csam-hold-key.env /tmp/csam-hold-key.env.age
+# Copy the CSAM_HOLD_KEY line into deploy/.env. Do not leave the plaintext on disk.
+shred -u /tmp/csam-hold-key.env /tmp/csam-hold-key.env.age 2>/dev/null || rm -f /tmp/csam-hold-key.env /tmp/csam-hold-key.env.age
+```
+
+Do this before you start the API. The identity file used above is the same one step 2 deletes when the database restore finishes, so decrypt the key first or copy the identity only for both commands.
+
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d postgres
 ```
@@ -44,7 +60,27 @@ AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-from-backup.
 shred -u /tmp/avouch-backup-identity.txt 2>/dev/null || rm -f /tmp/avouch-backup-identity.txt
 ```
 
-The script lists `avouch/avouch-STAMP.dump.age` in the bucket, downloads the newest name, and restores it with `scripts/restore-postgres.sh`. It drops and recreates `POSTGRES_DB` on this host. That is safe here because this Postgres was empty. It does not delete the copy in B2, and it does not print the secret or the identity.
+The script lists `avouch/avouch-STAMP.dump.age` in the bucket, downloads the newest name, and restores it with `scripts/restore-postgres.sh`. It runs `pg_restore --list` on the decrypted dump before it touches the database. This Postgres was just created, so `public` is empty and the script restores into it. It does not drop the database. If `public` already has tables, the script refuses. Pass `--overwrite` only when you mean to drop `POSTGRES_DB` and recreate it from the dump:
+
+```bash
+AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-from-backup.sh --overwrite
+```
+
+It does not delete the copy in B2, and it does not print the secret or the identity.
+
+The dump is the database only. Objects under `csam-hold/` are not in it. Those bytes live in the media bucket (`MEDIA_S3_BUCKET`), and `board_csam_hold` names the keys. Point `MEDIA_S3_ENDPOINT`, `MEDIA_S3_BUCKET`, and the media keys at the same bucket the old box used, and do not copy anything. If you are leaving that bucket, copy the prefix onto the new one before you start the API. Use the media credentials, not the backup credentials:
+
+```bash
+AWS_ACCESS_KEY_ID="$MEDIA_S3_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$MEDIA_S3_SECRET_ACCESS_KEY" \
+  aws s3 sync --endpoint-url "$MEDIA_S3_ENDPOINT" \
+  "s3://${MEDIA_S3_BUCKET}/csam-hold/" /var/backups/avouch/csam-hold
+AWS_ACCESS_KEY_ID="$NEW_MEDIA_S3_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$NEW_MEDIA_S3_SECRET_ACCESS_KEY" \
+  aws s3 sync --endpoint-url "$NEW_MEDIA_S3_ENDPOINT" \
+  /var/backups/avouch/csam-hold "s3://${NEW_MEDIA_S3_BUCKET}/csam-hold/"
+rm -rf /var/backups/avouch/csam-hold
+```
+
+The new object's key must stay `csam-hold/...`, the same string stored in `board_csam_hold`. A missing object cannot be decrypted later, and the hold sweep will not invent it.
 
 ## 3. Start the API and check it on the new address
 

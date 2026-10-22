@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Restore the newest age-encrypted Avouch dump from Backblaze B2 onto this host.
 #
 # Uses the same names as scripts/backup-postgres.sh:
@@ -13,6 +13,11 @@
 #
 #   AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-from-backup.sh
 #
+# A database that already has objects is refused. Pass --overwrite only when
+# you mean to drop it. The dump is listed with pg_restore --list before that.
+#
+#   AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-from-backup.sh --overwrite
+#
 # A dry run does not contact the bucket. It restores RESTORE_DUMP into a
 # throwaway database (the name "test", or a name ending in _test):
 #
@@ -22,10 +27,11 @@
 #     ./scripts/restore-from-backup.sh
 #
 # Copy the age identity onto the box only for this command, then delete it.
-set -eu
+set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 WORKDIR=""
+OVERWRITE=0
 
 on_exit() {
   status="$?"
@@ -35,6 +41,17 @@ on_exit() {
   exit "$status"
 }
 trap on_exit EXIT
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --overwrite) OVERWRITE=1 ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
 
 BACKUP_MODE="${BACKUP_MODE:-docker}"
 POSTGRES_DB="${POSTGRES_DB:-avouch}"
@@ -103,6 +120,7 @@ fetch_latest() {
   export AWS_EC2_METADATA_DISABLED=true
   export AWS_PAGER=""
   list="$WORKDIR/keys.txt"
+  lines="$WORKDIR/keys.lines"
   aws s3api list-objects-v2 \
     --endpoint-url "$endpoint" \
     --region "$region" \
@@ -110,7 +128,10 @@ fetch_latest() {
     --prefix "avouch/" \
     --query "Contents[].Key" \
     --output text > "$list"
-  key="$(tr '\t' '\n' < "$list" | grep -E '^avouch/avouch-[0-9]{8}T[0-9]{6}Z\.dump\.age$' | sort | tail -n 1 || true)"
+  # tr is outside the grep pipeline so a failure there is not hidden by grep's
+  # "no match" status.
+  tr '\t' '\n' < "$list" > "$lines"
+  key="$(grep -E '^avouch/avouch-[0-9]{8}T[0-9]{6}Z\.dump\.age$' "$lines" | sort | tail -n 1 || true)"
   if [ -z "$key" ]; then
     echo "No age-encrypted Avouch dump in the bucket." >&2
     exit 1
@@ -137,4 +158,8 @@ else
 fi
 
 export BACKUP_MODE POSTGRES_DB ENV_FILE COMPOSE_FILE AGE_IDENTITY_FILE
-"$ROOT/scripts/restore-postgres.sh" "$ENC"
+if [ "$OVERWRITE" -eq 1 ]; then
+  "$ROOT/scripts/restore-postgres.sh" --overwrite "$ENC"
+else
+  "$ROOT/scripts/restore-postgres.sh" "$ENC"
+fi

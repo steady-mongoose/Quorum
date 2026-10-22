@@ -114,3 +114,27 @@ jobs:
 
       - name: Dry-run restore into a throwaway Postgres
         run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh
+
+  frontend-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the static frontend with auth on
+        run: npm run build:frontend
+        env:
+          VITE_AUTH_ENABLED: "true"
+
+      - name: Fail if the built bundle has auth disabled
+        run: node scripts/check-frontend-auth.mjs
