@@ -1,14 +1,19 @@
 import type { HoldAlert } from "./csam.ts";
 
+/** A few seconds. The removal does not wait on this. */
+export const ALERT_EMAIL_TIMEOUT_MS = 4_000;
+
 /**
  * Admin alert email. Sends only when Resend and an admin address are configured.
  * A missing setting is quiet. The message has no post text and no held bytes.
+ * A slow Resend call stops at `ALERT_EMAIL_TIMEOUT_MS`.
  */
 export async function sendHoldAlert(
   alert: HoldAlert,
   deps: {
     fetch?: typeof fetch;
     env?: NodeJS.ProcessEnv;
+    timeoutMs?: number;
   } = {},
 ): Promise<void> {
   const env = deps.env ?? process.env;
@@ -34,6 +39,7 @@ export async function sendHoldAlert(
   try {
     const response = await send("https://api.resend.com/emails", {
       method: "POST",
+      signal: AbortSignal.timeout(deps.timeoutMs ?? ALERT_EMAIL_TIMEOUT_MS),
       headers: {
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",

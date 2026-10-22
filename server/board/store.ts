@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
@@ -1128,14 +1129,13 @@ export async function removePost(
   const by = input.name.trim() || "Steward";
   const removalId = randomUUID();
   let publicKeys: string[] = [];
-  let sealedKeys: string[] = [];
+  const heldKeys: string[] = [];
   let alert: HoldAlert | null = null;
   try {
     const ban = await db.transaction(async (tx) => {
       if (reason === "csam") {
-        const relocated = await sealCsamHold(tx, input.store ?? null, post.id, input.now);
+        const relocated = await sealCsamHold(tx, input.store ?? null, post.id, input.now, heldKeys);
         publicKeys = relocated.files.map((item) => item.from);
-        sealedKeys = relocated.files.map((item) => item.to).filter((key) => key !== "");
         alert = relocated.alert;
       }
       await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
@@ -1168,10 +1168,10 @@ export async function removePost(
       });
     });
     await dropObjectKeys(input.store ?? null, publicKeys);
-    if (alert) await sendHoldAlert(alert);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
     else evictCallMember(post.author_user_id, [post.room_id]);
+    if (alert) scheduleHoldAlert(alert);
     return {
       ok: true,
       value: {
@@ -1186,10 +1186,17 @@ export async function removePost(
       },
     };
   } catch (error) {
-    await dropObjectKeys(input.store ?? null, sealedKeys);
+    await dropObjectKeys(input.store ?? null, heldKeys);
     if (error instanceof Stop) return fail(error.status, error.message);
     throw error;
   }
+}
+
+/** After the response is built and the call eviction has run. A hang does not stall either. */
+function scheduleHoldAlert(alert: HoldAlert): void {
+  setImmediate(() => {
+    void sendHoldAlert(alert);
+  });
 }
 
 async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<boolean> {

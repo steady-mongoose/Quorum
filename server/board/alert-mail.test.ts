@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { sendHoldAlert } from "./alert-mail.ts";
+import { ALERT_EMAIL_TIMEOUT_MS, sendHoldAlert } from "./alert-mail.ts";
 import type { HoldAlert } from "./csam.ts";
 
 const alert: HoldAlert = {
@@ -91,10 +91,45 @@ test("a hold alert email posts metadata to Resend and does not throw", async () 
   assert.match(errors[1] ?? "", /network down/);
 });
 
-test("a removal sends the hold alert after the public files are dropped", () => {
+test("a hold alert email stops when Resend does not answer", async () => {
+  assert.ok(ALERT_EMAIL_TIMEOUT_MS >= 2_000 && ALERT_EMAIL_TIMEOUT_MS <= 10_000);
+  let sawSignal = false;
+  const fetchImpl: typeof fetch = (_input, init) =>
+    new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      assert.ok(signal);
+      sawSignal = true;
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+  const keep = setInterval(() => undefined, 10);
+  try {
+    await sendHoldAlert(alert, { fetch: fetchImpl, env: configured(), timeoutMs: 20 });
+  } finally {
+    clearInterval(keep);
+    console.error = original;
+  }
+  assert.equal(sawSignal, true);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0] ?? "", /csam-alert-email-failed/);
+});
+
+test("a removal evicts the call, then sends the hold alert without waiting", () => {
   const source = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
-  const sent = source.indexOf("await sendHoldAlert(alert)");
-  const dropped = source.lastIndexOf("await dropObjectKeys", sent);
-  assert.ok(sent > 0);
-  assert.ok(dropped >= 0 && dropped < sent);
+  const dropped = source.indexOf("await dropObjectKeys(input.store ?? null, publicKeys)");
+  const evicted = source.indexOf("evictCallMember(post.author_user_id)");
+  const sent = source.indexOf("scheduleHoldAlert(alert)");
+  assert.ok(dropped > 0);
+  assert.ok(evicted > dropped);
+  assert.ok(sent > evicted);
+  assert.equal(source.includes("await sendHoldAlert"), false);
+  assert.match(source, /setImmediate/);
 });

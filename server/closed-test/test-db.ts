@@ -26,6 +26,9 @@ export async function openTestDb(): Promise<{ db: Db; pg: PGlite; close: () => P
       if (!queryable.transaction) throw new Error("This connection cannot open a transaction.");
       return queryable.transaction(async (tx) => fn(adapter(tx)));
     },
+    async session<T>(fn: (db: Db) => Promise<T>) {
+      return fn(adapter(queryable));
+    },
   });
   return { db: adapter(pg), pg, close: () => pg.close() };
 }

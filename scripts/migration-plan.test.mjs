@@ -82,6 +82,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0013_room_chat.sql",
       "0014_board_ban_room.sql",
       "0015_hard_rules.sql",
+      "0017_csam_hold_key.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -110,6 +111,16 @@ test("migration 0015 widens group and chat rules and does not replace anonymize 
   assert.match(sql, /0014 is the room-ban migration/);
   assert.equal(/create or replace function anonymize_/.test(sql), false);
   assert.equal(sql.includes("like_count"), false);
+});
+
+test("migration 0017 adds the hold key id and does not replace a function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0017_csam_hold_key.sql"), "utf8");
+  assert.match(sql, /Numbered 0017/);
+  assert.match(sql, /0016 is reserved/);
+  assert.match(sql, /add column if not exists key_id text not null default ''/i);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/anonymize_/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
 });
 
 test("migration 0011 is the places file and is not a ranking table", () => {

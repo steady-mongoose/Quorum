@@ -18,7 +18,10 @@ import {
   openHold,
   purgeExpiredHolds,
   rawHoldKey,
+  heldUploadKey,
+  holdKeyId,
   reencryptPendingHolds,
+  RESEAL_LOCK_NAME,
   sealedObjectKey,
   warnMissingHoldKey,
   withHoldKey,
@@ -36,6 +39,45 @@ async function user(db: Db, id: string, name: string, email: string) {
      values ($1, $2, $3, true, $4, $4)`,
     [id, name, email, now],
   );
+}
+
+async function attachImage(
+  db: Db,
+  store: ReturnType<typeof createMemoryStore>,
+  owner: string,
+  postId: string,
+  bytes: Uint8Array,
+) {
+  const mediaId = randomUUID();
+  const fileKey = `ready/${mediaId}/file`;
+  await db.query(
+    `insert into media_object (
+      id, owner_user_id, scope, kind, status, content_type, byte_size,
+      room_id, post_id, encryption, upload_key, file_key
+    ) values ($1, $2, 'room', 'image', 'ready', 'image/jpeg', $3, 'shop', $4, 'server-processed', $5, $6)`,
+    [mediaId, owner, bytes.byteLength, postId, `incoming/${mediaId}`, fileKey],
+  );
+  await store.put(fileKey, bytes, "image/jpeg");
+  return { mediaId, fileKey };
+}
+
+function failMediaClear(inner: Db): Db {
+  const wrap = (db: Db): Db => ({
+    async query<T>(text: string, params?: unknown[]) {
+      if (text.includes("update media_object") && text.includes("upload_key")) {
+        throw new Error("forced media clear failure");
+      }
+      return db.query<T>(text, params);
+    },
+    transaction: (fn) => db.transaction((tx) => fn(wrap(tx))),
+    session: db.session
+      ? (fn) => {
+          const run = db.session;
+          return run ? run(fn) : fn(db);
+        }
+      : undefined,
+  });
+  return wrap(inner);
 }
 
 async function grant(
@@ -173,11 +215,12 @@ test("an unset hold key keeps the text and media unserved until a key encrypts t
       assert.ok(encrypted);
       assert.notDeepEqual(encrypted, plain);
       assert.deepEqual(Array.from(openBytes(encrypted ?? new Uint8Array())), Array.from(plain));
-      const sealed = await db.query<{ sealed: string; seal_status: string }>(
-        `select sealed, seal_status from board_csam_hold where post_id = $1`,
+      const sealed = await db.query<{ sealed: string; seal_status: string; key_id: string }>(
+        `select sealed, seal_status, key_id from board_csam_hold where post_id = $1`,
         [posted.value.id],
       );
       assert.equal(sealed[0]?.seal_status, "sealed");
+      assert.equal(sealed[0]?.key_id, holdKeyId());
       assert.equal(sealed[0]?.sealed.startsWith("{"), false);
       assert.equal(openHold(sealed[0]?.sealed ?? "").claim, claim);
       assert.equal(await reencryptPendingHolds(db, store), 0);
@@ -209,6 +252,227 @@ test("an unset hold key keeps the text and media unserved until a key encrypts t
   } finally {
     await close();
   }
+});
+
+test("a CSAM removal holds two files, and the next removal with media still hides the post", async () => {
+  await withHoldKey("test-hold-key-value", async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const maria = randomUUID();
+      const tom = randomUUID();
+      const josh = randomUUID();
+      await user(db, maria, "Maria", "maria-two@example.com");
+      await user(db, tom, "Tom", "tom-two@example.com");
+      await user(db, josh, "Josh", "josh-two@example.com");
+      await grant(db, maria, "Maria", "member");
+      await grant(db, tom, "Tom", "member");
+      await grant(db, tom, "Tom", "steward", "shop");
+      await grant(db, josh, "Josh", "member");
+      await grant(db, josh, "Josh", "admin");
+      const first = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { type: "did", claim, reason: "Tom checked them on Thursday.", on: "2026-10-18" },
+        now,
+      });
+      const secondClaim = "Swept the shop floor after the chisels were put away.";
+      const second = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: {
+          type: "did",
+          claim: secondClaim,
+          reason: "Tom saw the floor on Thursday.",
+          on: "2026-10-18",
+        },
+        now,
+      });
+      assert.equal(first.ok, true);
+      assert.equal(second.ok, true);
+      if (!first.ok || !second.ok) return;
+      const store = createMemoryStore();
+      const left = Uint8Array.of(1, 2, 3, 4);
+      const right = Uint8Array.of(5, 6, 7, 8);
+      const later = Uint8Array.of(9, 9, 9, 9);
+      const a = await attachImage(db, store, maria, first.value.id, left);
+      const b = await attachImage(db, store, maria, first.value.id, right);
+      const c = await attachImage(db, store, maria, second.value.id, later);
+      const removed = await removePost(db, {
+        userId: tom,
+        name: "Tom",
+        postId: first.value.id,
+        reason: "csam",
+        now,
+        store,
+      });
+      assert.equal(removed.ok, true);
+      const again = await removePost(db, {
+        userId: josh,
+        name: "Josh",
+        postId: second.value.id,
+        reason: "csam",
+        now,
+        store,
+      });
+      assert.equal(again.ok, true);
+      const rows = await db.query<{ id: string; claim: string; removed: boolean; upload_key: string; file_key: string }>(
+        `select p.id, p.claim, p.removed, m.upload_key, m.file_key
+         from board_post p
+         join media_object m on m.post_id = p.id
+         where p.id = any($1::text[])
+         order by m.upload_key`,
+        [[first.value.id, second.value.id]],
+      );
+      assert.equal(rows.length, 3);
+      assert.equal(rows.every((row) => row.removed && row.claim === "[removed]" && row.file_key === ""), true);
+      assert.deepEqual(
+        rows.map((row) => row.upload_key).sort(),
+        [heldUploadKey(a.mediaId), heldUploadKey(b.mediaId), heldUploadKey(c.mediaId)].sort(),
+      );
+      assert.equal(store.objects.has(a.fileKey), false);
+      assert.equal(store.objects.has(b.fileKey), false);
+      assert.equal(store.objects.has(c.fileKey), false);
+      const held = [...store.objects.keys()].filter((key) => key.startsWith("csam-hold/"));
+      assert.equal(held.length, 3);
+      const admin = await listBoard(db, josh, now);
+      assert.equal(admin.ok, true);
+      if (!admin.ok) return;
+      assert.equal(JSON.stringify(admin.value).includes(claim), false);
+      assert.equal(JSON.stringify(admin.value).includes(secondClaim), false);
+      assert.equal(admin.value.csamReports.length, 2);
+    } finally {
+      await close();
+    }
+  });
+});
+
+test("a failed CSAM removal deletes the hold copies and leaves the post public", async () => {
+  await withHoldKey("test-hold-key-value", async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const maria = randomUUID();
+      const tom = randomUUID();
+      await user(db, maria, "Maria", "maria-fail@example.com");
+      await user(db, tom, "Tom", "tom-fail@example.com");
+      await grant(db, maria, "Maria", "member");
+      await grant(db, tom, "Tom", "member");
+      await grant(db, tom, "Tom", "steward", "shop");
+      const posted = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { type: "did", claim, reason: "Tom checked them on Thursday.", on: "2026-10-18" },
+        now,
+      });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const store = createMemoryStore();
+      const plain = Uint8Array.of(4, 3, 2, 1);
+      const media = await attachImage(db, store, maria, posted.value.id, plain);
+      await assert.rejects(
+        () =>
+          removePost(failMediaClear(db), {
+            userId: tom,
+            name: "Tom",
+            postId: posted.value.id,
+            reason: "csam",
+            now,
+            store,
+          }),
+        /forced media clear failure/,
+      );
+      const stored = await db.query<{ claim: string; removed: boolean }>(
+        `select claim, removed from board_post where id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(stored[0]?.removed, false);
+      assert.equal(stored[0]?.claim, claim);
+      const holds = await db.query<{ id: string }>(`select id from board_csam_hold`);
+      assert.equal(holds.length, 0);
+      const bans = await db.query<{ id: string }>(`select id from board_ban where user_id = $1`, [maria]);
+      assert.equal(bans.length, 0);
+      assert.deepEqual(store.objects.get(media.fileKey)?.bytes, plain);
+      assert.equal([...store.objects.keys()].some((key) => key.startsWith("csam-hold/")), false);
+    } finally {
+      await close();
+    }
+  });
+});
+
+test("a reseal skips a hold marked with another key and takes the advisory lock", async () => {
+  await withHoldKey(undefined, async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const maria = randomUUID();
+      const tom = randomUUID();
+      await user(db, maria, "Maria", "maria-key@example.com");
+      await user(db, tom, "Tom", "tom-key@example.com");
+      await grant(db, maria, "Maria", "member");
+      await grant(db, tom, "Tom", "member");
+      await grant(db, tom, "Tom", "steward", "shop");
+      const posted = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { type: "did", claim, reason: "Tom checked them on Thursday.", on: "2026-10-18" },
+        now,
+      });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const store = createMemoryStore();
+      const plain = Uint8Array.of(8, 7, 6, 5);
+      await attachImage(db, store, maria, posted.value.id, plain);
+      const removed = await removePost(db, {
+        userId: tom,
+        name: "Tom",
+        postId: posted.value.id,
+        reason: "csam",
+        now,
+        store,
+      });
+      assert.equal(removed.ok, true);
+      await db.query(`update board_csam_hold set key_id = 'other-key' where post_id = $1`, [
+        posted.value.id,
+      ]);
+      process.env.CSAM_HOLD_KEY = "test-hold-key-value";
+      const seen: { text: string; params: unknown[] }[] = [];
+      const watching: Db = {
+        async query<T>(text: string, params?: unknown[]) {
+          seen.push({ text, params: params ?? [] });
+          return db.query<T>(text, params);
+        },
+        transaction: (fn) => db.transaction(fn),
+        session: (fn) => fn(watching),
+      };
+      assert.equal(await reencryptPendingHolds(watching, store), 0);
+      assert.equal(seen.some((row) => row.text.includes("pg_try_advisory_lock")), true);
+      assert.equal(seen.some((row) => row.text.includes("pg_advisory_unlock")), true);
+      assert.equal(seen.some((row) => row.params.includes(RESEAL_LOCK_NAME)), true);
+      const heldKey = [...store.objects.keys()].find((key) => key.startsWith("csam-hold/")) ?? "";
+      assert.deepEqual(store.objects.get(heldKey)?.bytes, plain);
+      const pending = await db.query<{ seal_status: string; key_id: string }>(
+        `select seal_status, key_id from board_csam_hold where post_id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(pending[0]?.seal_status, "pending_seal");
+      assert.equal(pending[0]?.key_id, "other-key");
+      await db.query(`update board_csam_hold set key_id = '' where post_id = $1`, [posted.value.id]);
+      assert.equal(await reencryptPendingHolds(db, store), 1);
+      assert.notDeepEqual(store.objects.get(heldKey)?.bytes, plain);
+      assert.deepEqual(Array.from(openBytes(store.objects.get(heldKey)?.bytes ?? new Uint8Array())), Array.from(plain));
+      const sealed = await db.query<{ seal_status: string; key_id: string }>(
+        `select seal_status, key_id from board_csam_hold where post_id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(sealed[0]?.seal_status, "sealed");
+      assert.equal(sealed[0]?.key_id, holdKeyId());
+      assert.equal(await reencryptPendingHolds(db, store), 0);
+    } finally {
+      await close();
+    }
+  });
 });
 
 test("CSAM is removed, banned, held for one year, and never returned", async () => {
@@ -287,12 +551,18 @@ test("CSAM is removed, banned, held for one year, and never returned", async () 
     assert.ok(sealedBytes);
     assert.notDeepEqual(Array.from(sealedBytes ?? []), [1, 2, 3, 4]);
     assert.deepEqual(Array.from(openBytes(sealedBytes ?? new Uint8Array())), [1, 2, 3, 4]);
-    const kept = await db.query<{ deleted_at: Date | string | null; file_key: string }>(
-      `select deleted_at, file_key from media_object where id = $1`,
-      [mediaId],
-    );
+    const kept = await db.query<{
+      deleted_at: Date | string | null;
+      file_key: string;
+      upload_key: string;
+      thumb_key: string;
+    }>(`select deleted_at, file_key, upload_key, thumb_key from media_object where id = $1`, [
+      mediaId,
+    ]);
     assert.equal(kept[0]?.deleted_at, null);
     assert.equal(kept[0]?.file_key, "");
+    assert.equal(kept[0]?.thumb_key, "");
+    assert.equal(kept[0]?.upload_key, heldUploadKey(mediaId));
 
     const reading = await readForMember(
       { db, store, now: () => now, videoEnabled: false },
@@ -699,6 +969,18 @@ test("migration 0010 can be applied twice and keeps its own trigger", async () =
     );
     assert.match(chat.rows[0]?.def ?? "", /doxxing/);
     assert.match(chat.rows[0]?.def ?? "", /blasphemy/);
+    const keyId = readFileSync(new URL("../../migrations/0017_csam_hold_key.sql", import.meta.url), "utf8");
+    assert.match(keyId, /Numbered 0017/);
+    assert.match(keyId, /0016 is reserved/);
+    assert.equal(/create or replace function/i.test(keyId), false);
+    assert.equal(/anonymize_/i.test(keyId), false);
+    await pg.exec(keyId);
+    await pg.exec(keyId);
+    const column = await pg.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_name = 'board_csam_hold' and column_name = 'key_id'`,
+    );
+    assert.equal(column.rows[0]?.column_name, "key_id");
   } finally {
     await close();
   }
