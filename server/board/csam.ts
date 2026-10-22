@@ -503,7 +503,15 @@ async function resealPending(db: Db, store: ObjectStore | null): Promise<number>
     `select pg_try_advisory_lock(hashtext($1)) as locked`,
     [RESEAL_LOCK_NAME],
   );
-  if (!locked[0]?.locked) return 0;
+  if (!locked[0]?.locked) {
+    console.log(
+      JSON.stringify({
+        event: "csam-hold-reseal-skipped",
+        reason: "lock-held",
+      }),
+    );
+    return 0;
+  }
   try {
     const withKey = await holdKeyColumn(db);
     const keyId = holdKeyId();
