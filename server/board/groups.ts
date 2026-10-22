@@ -4,8 +4,9 @@
 // only that group's posts, under the same rules as the board. A steward of
 // that group, or a steward of the room it was approved from, hears appeals.
 // A group approved from a room inherits that room's bar: a member barred
-// there cannot read, post, chat, or call in the group. A seed group has
-// no approving room. A steward grant with no room does not count.
+// there cannot read or post in the group. Room chat and room calls use
+// only that room's own bar. A group cannot take a room's id. A seed group
+// has no approving room. A steward grant with no room does not count.
 // Posts are newest first.
 // English only. No counts.
 
@@ -276,6 +277,11 @@ async function isJoined(db: Db, groupId: string, userId: string): Promise<boolea
   return Boolean(rows[0]);
 }
 
+async function roomIdTaken(db: Db, id: string): Promise<boolean> {
+  const rows = await db.query<{ id: string }>(`select id from room where id = $1`, [id]);
+  return Boolean(rows[0]);
+}
+
 async function groupExists(db: Db, groupId: string): Promise<boolean> {
   if (!ROOM_ID.test(groupId)) return false;
   const rows = await db.query<{ id: string }>(`select id from theme_group where id = $1`, [
@@ -409,21 +415,34 @@ export async function listGroups(
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin
      from theme_group g
+     where not exists (
+       select 1
+       from theme_group_request r
+       join board_ban b on b.user_id = $1 and b.room_id = r.room_id
+       where r.group_id = g.id
+         and r.status = 'approved'
+         and r.room_id <> ''
+         and (
+           b.reason = 'csam'
+           or b.strikes >= 2
+           or b.until_at > $2::timestamptz
+         )
+     )
      order by g.name asc, g.id asc`,
-    [userId],
+    [userId, now],
   );
-  const groups: ThemeGroup[] = [];
-  for (const row of rows) {
-    if (await banFromSourceRooms(db, userId, row.id, now)) continue;
-    groups.push({
-      id: row.id,
-      name: row.name,
-      about: row.about,
-      joined: flag(row.joined),
-      admin: flag(row.admin),
-    });
-  }
-  return { ok: true, value: { groups } };
+  return {
+    ok: true,
+    value: {
+      groups: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        about: row.about,
+        joined: flag(row.joined),
+        admin: flag(row.admin),
+      })),
+    },
+  };
 }
 
 export async function listGroup(
@@ -861,6 +880,7 @@ export async function requestGroup(
   if (roomBan) return fail(403, "banned", roomBan);
   const groupId = groupIdFor(titled.text);
   if (!groupId || !ROOM_ID.test(groupId)) return fail(400, "Name the group.");
+  if (await roomIdTaken(db, groupId)) return fail(400, "That name is already a room.");
   if (await groupExists(db, groupId)) return fail(409, "That group is already here.");
   const open = await db.query<{ id: string }>(
     `select id from theme_group_request where group_id = $1 and status = 'open'`,
@@ -951,6 +971,8 @@ export async function decideGroupRequest(
   try {
     const created = await db.transaction(async (tx) => {
       if (input.decision === "approved") {
+        if (await roomIdTaken(tx, request.group_id))
+          throw new Stop(400, "That name is already a room.");
         if (await groupExists(tx, request.group_id))
           throw new Stop(409, "That group is already here.");
         await tx.query(

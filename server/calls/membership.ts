@@ -1,5 +1,4 @@
 import type { Db } from "../db.ts";
-import { banFromSourceRooms } from "../board/groups.ts";
 import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 
@@ -26,8 +25,6 @@ export async function roomCallMember(
   try {
     const ban = await openBanOrNone(db, userId, now, roomId);
     if (ban) return { kind: "banned", ban };
-    const inherited = await banFromSourceRooms(db, userId, roomId, now);
-    if (inherited) return { kind: "banned", ban: inherited };
   } catch {
     return { kind: "unavailable" };
   }
