@@ -21,6 +21,7 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
+import { groupsApprovedFrom } from "./group-rooms.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1170,7 +1171,11 @@ export async function removePost(
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
-    else evictCallMember(post.author_user_id, [post.room_id]);
+    else
+      evictCallMember(post.author_user_id, [
+        post.room_id,
+        ...(await groupsApprovedFrom(db, post.room_id)),
+      ]);
     if (alert) scheduleHoldAlert(alert);
     return {
       ok: true,
@@ -1270,7 +1275,7 @@ export async function banMember(
     roomId: siteWide ? "" : roomId,
   });
   if (siteWide) evictCallMember(person.id);
-  else evictCallMember(person.id, [roomId]);
+  else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
 }
 
