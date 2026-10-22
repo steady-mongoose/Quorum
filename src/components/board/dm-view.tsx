@@ -32,7 +32,7 @@ export function DmView() {
     return (
       <div className="flex flex-col gap-3">
         <Kicker>Messages</Kicker>
-        <h1 className="font-display text-4xl text-fg">Add your name first.</h1>
+        <h1 className="illum font-display text-4xl text-fg">Add your name first.</h1>
         <p className="max-w-2xl text-base text-muted">Messages go between two names. Yours is set under About.</p>
       </div>
     );
@@ -47,7 +47,7 @@ export function DmView() {
           <ArrowLeft className="size-4" aria-hidden="true" />
           All messages
         </button>
-        <h1 className="font-display text-3xl text-fg">{other}</h1>
+        <h1 className="illum font-display text-3xl text-fg">{other}</h1>
         <p className="text-sm text-muted">Plain text, deleted after {DM_RETENTION_DAYS} days.</p>
         <ul className="flex flex-col gap-2">
           {rows.length === 0 ? <li className="text-sm text-muted">Nothing yet.</li> : null}
@@ -87,7 +87,7 @@ export function DmView() {
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <Kicker>Messages</Kicker>
-        <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
+        <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
           You can message someone you have been on an "I went" list with, or who replied to your post. Open one
           from their post or their card. Messages are plain text, not encrypted, and are deleted after {DM_RETENTION_DAYS} days.

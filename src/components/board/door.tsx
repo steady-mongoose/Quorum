@@ -114,7 +114,7 @@ export function Door() {
       <div className="flex max-w-3xl flex-col gap-8">
         <section className="flex flex-col gap-3">
           <Kicker>Invite only</Kicker>
-          <h1 className="font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
+          <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
             Someone brought you here for one thing.
           </h1>
           <p className="max-w-prose text-base text-muted lg:text-lg">

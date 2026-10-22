@@ -1,0 +1,88 @@
+/* Tap interactions from issue #36. Engraved plates are not part of this sheet.
+   EB Garamond (SIL OFL 1.1, public/fonts/OFL.txt) is the drop cap and the quote card. */
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond[wght].ttf") format("truetype");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond-Italic[wght].ttf") format("truetype");
+  font-weight: 400 800;
+  font-style: italic;
+  font-display: swap;
+}
+:root {
+  --gilt: #b08d4a;
+  --cream: #e9e2c8;
+  --ease-press: cubic-bezier(.2, 0, .2, 1);
+  --dur-press: 120ms;
+  --dur-view: 240ms;
+  --dur-ink: 420ms;
+}
+.btn {
+  transition: transform var(--dur-press) var(--ease-press), box-shadow var(--dur-press) var(--ease-press);
+}
+.btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .35);
+}
+.btn.btn-primary {
+  background: var(--cream);
+  color: #14251a;
+  border-color: var(--cream);
+}
+:focus-visible {
+  outline: 2px solid var(--gilt);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.illum::first-letter {
+  font-family: "EB Garamond", serif;
+  color: var(--cream);
+  font-size: 1.35em;
+  font-weight: 600;
+  padding: 0 .04em;
+  margin-right: .02em;
+  border-bottom: 1px solid var(--gilt);
+}
+.rsvp-mark {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+.rsvp-mark .rule {
+  height: 1px;
+  background: var(--gilt);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 360ms var(--ease-press);
+}
+.rsvp-mark .laurel {
+  opacity: 0;
+  transition: opacity 360ms 120ms ease-out;
+  width: 28px;
+}
+[aria-pressed="true"] + .rsvp-mark .rule { transform: scaleX(1); }
+[aria-pressed="true"] + .rsvp-mark .laurel { opacity: 1; }
+@keyframes ink-settle {
+  from { opacity: 0; filter: blur(2px); letter-spacing: .01em; }
+  to { opacity: 1; filter: none; letter-spacing: normal; }
+}
+.post-new { animation: ink-settle var(--dur-ink) ease-out both; }
+@view-transition { navigation: auto; }
+::view-transition-group(*) {
+  animation-duration: var(--dur-view);
+  animation-timing-function: var(--ease-press);
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition-duration: 0s !important; }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+  ::view-transition-old(root) { animation: 120ms ease-out both fade-out !important; }
+  ::view-transition-new(root) { animation: 120ms ease-out both fade-in !important; }
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }

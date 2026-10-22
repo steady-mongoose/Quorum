@@ -8,6 +8,7 @@ import {
   Kicker,
   useCopy,
 } from "@/components/quorum/bits";
+import { RsvpControl } from "@/components/board/rsvp-control";
 import { cn } from "@/lib/cn";
 import {
   CARD_LABELS,
@@ -66,7 +67,7 @@ export function FindView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
-          <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
+          <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
             Every meeting, in one list.
           </h1>
           <p className="max-w-prose text-base text-muted">
@@ -182,7 +183,7 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
   return (
     <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card} />
-      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       <p className="mt-1 text-sm text-muted">
         {witnesses.length === 0
@@ -258,7 +259,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         {card.pinned ? <span className="text-signal">pinned</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </Tags>
-      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       <p className="mt-1 text-sm text-muted">
@@ -287,13 +288,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (
-          <button
-            type="button"
-            className={going ? btnGhost : btnSignal}
-            onClick={() => rsvp(card.id)}
-          >
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
         <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
           {went ? "You've been" : "I went"}

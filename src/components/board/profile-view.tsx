@@ -30,7 +30,7 @@ export function ProfileView() {
     return (
       <div className="flex flex-col gap-3">
         <Kicker>Profile</Kicker>
-        <h1 className="font-display text-4xl text-fg">{name}</h1>
+        <h1 className="illum font-display text-4xl text-fg">{name}</h1>
         <p className="max-w-2xl text-base text-muted">You can see a profile once you have been to the same meeting as that person. You and {name} have not been to one yet.</p>
       </div>
     );
@@ -40,7 +40,7 @@ export function ProfileView() {
     <div className="flex flex-col gap-8 lg:max-w-4xl">
       <section className="flex flex-col gap-2">
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
-        <h1 className="font-display text-4xl text-fg lg:text-5xl">{name}</h1>
+        <h1 className="illum font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
           <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}

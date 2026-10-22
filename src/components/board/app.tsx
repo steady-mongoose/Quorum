@@ -23,6 +23,7 @@ import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
+import { PrimaryHaptic } from "@/components/board/haptics";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
@@ -107,6 +108,7 @@ function BoardShell() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
+      <PrimaryHaptic />
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
