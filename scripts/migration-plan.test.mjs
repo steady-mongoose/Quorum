@@ -78,7 +78,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0008_board.sql",
       "0011_places.sql",
       "0012_theme_groups.sql",
-      "0013_board_ban_room.sql",
+      "0014_board_ban_room.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -95,14 +95,21 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.match(sql, /create or replace function anonymize_places_user/);
   assert.match(sql, /create trigger anonymize_places_user/);
   assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
-  const roomBan = readFileSync(join(projectRoot(), "migrations/0013_board_ban_room.sql"), "utf8");
-  assert.match(roomBan, /Numbered 0013/);
-  assert.match(roomBan, /board_ban/);
-  assert.match(roomBan, /room_id text not null default ''/);
-  assert.equal(/create or replace function anonymize_board_user/.test(roomBan), false);
   assert.equal(sql.includes("like_count"), false);
   assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
+});
+
+test("0014 adds the room bar column and leaves anonymize functions alone", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0014_board_ban_room.sql"), "utf8");
+  assert.match(sql, /Numbered 0014/);
+  assert.match(sql, /add column if not exists room_id text not null default ''/i);
+  assert.match(sql, /create index if not exists board_ban_user_room_idx/i);
+  assert.equal(/anonymize_/i.test(sql), false);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+  assert.equal(/drop trigger/i.test(sql), false);
+  assert.equal(/drop function/i.test(sql), false);
 });
 
 test("0012 anonymizes group names on its own trigger", () => {

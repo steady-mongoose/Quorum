@@ -71,7 +71,7 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 Migration **0011** is `migrations/0011_places.sql`. It adds towns, ZIP codes, congregations, room requests, and council approvals. It is not applied. Approve 0011 before it is applied. Merging is not that approval.
 
-Migration **0013** is `migrations/0013_board_ban_room.sql`. It adds `board_ban.room_id` so a room steward's bar covers that room, and an empty room id stays a site-wide bar. It is not applied. Approve 0013 before it is applied. Merging is not that approval.
+Migration **0014** is `migrations/0014_board_ban_room.sql`. It adds `board_ban.room_id` so a room steward's bar covers that room, and an empty room id stays a site-wide bar. It is not applied. Approve 0014 before it is applied. Merging is not that approval. 0013 is reserved by the room-chat migration.
 
 **Theme groups** sit beside the rooms: carpentry, gardening, brewing, distilling, and a literary society. Each group has its own admins and stewards. An admin of the group appoints a steward, and that grant is logged. Those admins use the same marks and hard removals on that group's posts. A member can appeal to a steward of that group, or to a steward of the room that approved the group. A steward grant with no room does not count. Posts are newest first, in English, with no likes and no scores. The tables are `migrations/0012_theme_groups.sql`. That file is numbered 0012 and is not applied. Merging does not approve it.
 
