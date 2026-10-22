@@ -1,4 +1,4 @@
-// One mark, set by the owner, on every screen. The green and cream live in
+// One mark, set by the owner, on every screen. Ink and bone live in
 // styles.css. The other marks stay for when the owner changes the emblem.
 
 export type ThemeId = "appeal" | "jerusalem" | "gadsden";
@@ -28,7 +28,7 @@ export const THEMES: Theme[] = [
     id: "appeal",
     name: "An Appeal to Heaven",
     motto: "An Appeal to Heaven",
-    colors: { bg: "#0f1a14", surface: "#16241b", raised: "#1e3025", fg: "#f3efe6", muted: "#a6b5a4", line: "#2c4034", signal: "#e9e2c8", signalInk: "#14251a" },
+    colors: { bg: "#14100c", surface: "#1f1914", raised: "#2d251c", fg: "#f0e7d3", muted: "#bcae94", line: "#3a3026", signal: "#f0e7d3", signalInk: "#14100c" },
   },
   {
     id: "jerusalem",

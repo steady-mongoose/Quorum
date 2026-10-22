@@ -39,7 +39,7 @@ export function WeekView() {
       <HomePanel />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
-        <section className="flex flex-col gap-2">
+        <section className="plate flex flex-col gap-2">
           <Kicker>This week</Kicker>
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
           {week.length > 0 ? (
@@ -60,7 +60,7 @@ export function WeekView() {
 
         {week.map((day) => (
           <section key={day.iso} className="flex flex-col gap-3">
-            <h2 className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
+            <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
               <span className="font-display text-2xl text-fg">{dayHeading(day.iso, today)}</span>
               <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">{formatDate(day.iso)}</span>
             </h2>
@@ -94,7 +94,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   const setRoom = useBoard((state) => state.setRoom);
   const going = card.going.includes(me);
   return (
-    <article className="rounded-lg border border-line bg-surface p-4">
+    <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
           {roomById(card.room).name}
@@ -122,7 +122,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
 export function NeedCard({ card }: { card: MeetingCard }) {
   const takeSlot = useBoard((state) => state.takeSlot);
   return (
-    <article className="rounded-lg border border-line bg-surface p-4">
+    <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{roomById(card.room).name}</span>
         <span className="text-muted">organized by {card.host}</span>
@@ -166,7 +166,7 @@ function TheCall() {
       {live.map((campaign) => {
         const office = officeById(campaign.officeId, customOffices);
         return (
-          <article key={campaign.id} className="rounded-lg border border-signal bg-surface p-4">
+          <article key={campaign.id} className="card rounded-lg border border-signal bg-surface p-4">
             <h3 className="text-2xl text-fg">{campaign.title}</h3>
             <p className="text-sm text-muted">
               {office.name}, {office.role} · {formatWindow(campaign.surgeStart, campaign.surgeEnd)}

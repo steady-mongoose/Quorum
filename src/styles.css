@@ -1,17 +1,37 @@
 @import "tailwindcss";
 
+/* EB Garamond (SIL OFL 1.1). Files: public/fonts. See public/art/ATTRIBUTION.md. */
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond[wght].ttf") format("truetype");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond-Italic[wght].ttf") format("truetype");
+  font-weight: 400 800;
+  font-style: italic;
+  font-display: swap;
+}
+
 @theme {
-  --color-bg: #0f1a14;
-  --color-surface: #16241b;
-  --color-raised: #1e3025;
-  --color-fg: #f3efe6;
-  --color-muted: #a6b5a4;
-  --color-line: #2c4034;
-  --color-line-strong: #857c6f;
-  --color-signal: #e9e2c8;
-  --color-signal-ink: #14251a;
+  /* Ink & Bone, the default plate palette. Parchment is [data-palette="parchment"] in backgrounds.css. */
+  --color-bg: #14100c;
+  --color-surface: #1f1914;
+  --color-raised: #2d251c;
+  --color-fg: #f0e7d3;
+  --color-muted: #bcae94;
+  --color-line: #3a3026;
+  --color-line-strong: #8a7a62;
+  --color-signal: #f0e7d3;
+  --color-signal-ink: #14100c;
+  --color-parchment: #f3ecdc;
+  --color-ink: #1f1912;
+  --color-gilt: #c9a45c;
+  --color-accent: #b4483e;
   --font-sans: "Public Sans", "Segoe UI", sans-serif;
-  --font-display: "Fraunces", Georgia, serif;
+  --font-display: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
 }
 
 @layer base {
@@ -47,8 +67,8 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-signal);
-    outline-offset: 2px;
+    outline: 2px solid var(--color-gilt);
+    outline-offset: 3px;
   }
 
   ::selection {
@@ -110,4 +130,13 @@ input[type="range"]::-moz-range-thumb {
   .live-dot {
     animation: none;
   }
+}
+
+/* Small caps for eyebrows. The engraved sheet's .kicker colour is the muted bone. */
+.kicker {
+  font-family: var(--font-display);
+  font-variant-caps: all-small-caps;
+  font-size: 0.8125rem;
+  letter-spacing: 0.18em;
+  color: var(--color-muted);
 }

@@ -26,6 +26,8 @@ import { Emblem } from "@/components/board/emblem";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
+import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
+import { useEngravedDocument } from "@/components/board/engraved-ground";
 
 const NAV = [
   { id: "week", label: "This week", icon: CalendarDays },
@@ -63,6 +65,14 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const art = artSection({
+    entered,
+    section,
+    signingIn: server.mode === "live" && !entered,
+  });
+  const hero = heroLabel(art);
+  const margin = showsHero(art);
+  useEngravedDocument(art);
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -105,8 +115,23 @@ function BoardShell() {
     void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
+  const page = (
+    <>
+      {waiting ? <p className="card px-4 py-3 text-sm text-muted">Checking the server.</p> : null}
+      {!waiting && !entered && <Door />}
+      {entered && section === "week" && <WeekView />}
+      {entered && section === "rooms" && <RoomView />}
+      {entered && section === "find" && <FindView />}
+      {entered && section === "civic" && <QuorumPanel />}
+      {entered && section === "messages" && <DmView />}
+      {entered && section === "profile" && <ProfileView />}
+      {entered && section === "about" && <AboutView />}
+    </>
+  );
+
   return (
-    <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
+    <div className="min-h-screen overflow-x-hidden text-fg" style={themeVars(theme)}>
+      {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
@@ -195,16 +220,16 @@ function BoardShell() {
           </div>
         </div>
       ) : null}
+      {hero ? <div className="hero-band" role="img" aria-label={hero} /> : null}
       <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
-        {waiting ? <p className="text-sm text-muted">Checking the server.</p> : null}
-        {!waiting && !entered && <Door />}
-        {entered && section === "week" && <WeekView />}
-        {entered && section === "rooms" && <RoomView />}
-        {entered && section === "find" && <FindView />}
-        {entered && section === "civic" && <QuorumPanel />}
-        {entered && section === "messages" && <DmView />}
-        {entered && section === "profile" && <ProfileView />}
-        {entered && section === "about" && <AboutView />}
+        {margin ? (
+          <div className="with-margin">
+            <div className="min-w-0">{page}</div>
+            <aside className="margin-art" aria-hidden="true" />
+          </div>
+        ) : (
+          page
+        )}
       </main>
       {entered ? <SessionLine /> : null}
     </div>

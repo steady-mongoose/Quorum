@@ -132,7 +132,7 @@ export function LevelSwitch({
 
 export function Kicker({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-xs font-semibold tracking-widest text-signal uppercase", className)}>{children}</p>
+    <p className={cn("kicker", className)}>{children}</p>
   );
 }
 
