@@ -78,6 +78,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0008_board.sql",
       "0010_moderation.sql",
       "0011_places.sql",
+      "0012_theme_groups.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -107,6 +108,28 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.equal(sql.includes("like_count"), false);
   assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
+});
+
+test("0012 anonymizes group names on its own trigger", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0012_theme_groups.sql"), "utf8");
+  assert.equal(/create or replace function anonymize_board_user/i.test(sql), false);
+  assert.match(sql, /create or replace function anonymize_theme_group_user/i);
+  assert.match(sql, /create trigger anonymize_theme_group_user/i);
+  assert.match(sql, /execute function anonymize_theme_group_user/i);
+  const body = sql.slice(sql.toLowerCase().indexOf("function anonymize_theme_group_user"));
+  for (const table of [
+    "theme_group_post",
+    "theme_group_mark",
+    "theme_group_removal",
+    "theme_group_request",
+    "theme_group_appeal",
+    "theme_group_admin",
+    "theme_group_steward",
+    "theme_group_log",
+  ]) {
+    assert.match(body, new RegExp(`update ${table}\\b`, "i"), table);
+  }
+  assert.equal(/update board_/i.test(body), false);
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {

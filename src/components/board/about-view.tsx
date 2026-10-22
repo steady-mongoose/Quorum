@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { cn } from "@/lib/cn";
 import type { HomeAccessRow } from "@/lib/board/home";
 import type { AccessInput, ZipCorrectionInput } from "@/lib/board/client";
 import {
@@ -70,8 +72,12 @@ export function AboutView() {
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
   const remote = useBoard((state) => state.remote);
+  const sample = useBoard((state) => state.sample);
   const loadSample = useBoard((state) => state.loadSample);
-  const clearBoard = useBoard((state) => state.clearBoard);
+  const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
+  const undoClear = useBoard((state) => state.undoClear);
+  const undoClearBoard = useBoard((state) => state.undoClearBoard);
+  const [confirmClear, setConfirmClear] = useState(false);
   const createRoom = useBoard((state) => state.createRoom);
   const home = useBoard((state) => state.home);
   const changeAccess = useBoard((state) => state.changeAccess);
@@ -180,13 +186,43 @@ export function AboutView() {
         ) : (
           <>
             <div className="mt-6 flex flex-wrap gap-2">
-              <button type="button" className={btnSignal} onClick={loadSample}>
+              <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={loadSample}>
                 Load the sample week
               </button>
-              <button type="button" className={btnGhost} onClick={clearBoard}>
+              <button
+                type="button"
+                className={cn(btnGhost, "min-h-[44px]")}
+                onClick={() => setConfirmClear(true)}
+              >
                 Clear the board
               </button>
             </div>
+            <ConfirmDialog
+              open={confirmClear}
+              title={sample ? "Clear the sample week?" : "Clear the board?"}
+              description="Everything here will be removed."
+              confirmLabel="Clear it"
+              cancelLabel="Keep it"
+              onConfirm={() => {
+                setConfirmClear(false);
+                clearLocalBoard();
+              }}
+              onCancel={() => setConfirmClear(false)}
+            />
+            {undoClear ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <p className="max-w-prose text-sm text-muted">
+                  The board was cleared. You can still put it back.
+                </p>
+                <button
+                  type="button"
+                  className={cn(btnGhost, "min-h-[44px]")}
+                  onClick={() => undoClearBoard()}
+                >
+                  Put the board back
+                </button>
+              </div>
+            ) : null}
             <p className="mt-2 max-w-prose text-sm text-muted">
               The sample is six invented people and a week of meetings, for trying the app. It
               replaces whatever is here, and you become "Josh."
@@ -341,7 +377,11 @@ function RoleTools({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           Member email
-          <input className={fieldClass} value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input
+            className={fieldClass}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Room id
@@ -387,8 +427,8 @@ function RoleTools({
           type="button"
           className={btnSignal}
           onClick={() => {
-            void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then((result) =>
-              report(result, "Steward granted."),
+            void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then(
+              (result) => report(result, "Steward granted."),
             );
           }}
         >
@@ -554,7 +594,9 @@ function AdminTools({
         className={btnGhost}
         onClick={() => {
           void correctZip({ zip, name: town, state: stateCode, clear: clearZip }).then((result) => {
-            setMessage(result.ok ? "The ZIP is corrected." : (result.error ?? "That ZIP was not corrected."));
+            setMessage(
+              result.ok ? "The ZIP is corrected." : (result.error ?? "That ZIP was not corrected."),
+            );
           });
         }}
       >
