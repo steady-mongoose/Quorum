@@ -32,7 +32,8 @@ export type WorkerDeps = {
 async function deleteKeys(store: ObjectStore, keys: string[]): Promise<void> {
   for (const key of keys) {
     // Held evidence lives under csam-hold/ and is deleted only by the hold sweep.
-    if (!key || key.startsWith("csam-hold/")) continue;
+    // Held evidence lives under csam-hold/. csam-held: is a database tombstone, not an object.
+    if (!key || key.startsWith("csam-hold/") || key.startsWith("csam-held:")) continue;
     await store.delete(key);
   }
 }

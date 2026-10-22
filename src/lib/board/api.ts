@@ -289,6 +289,12 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
 }
 
 export const apiBoardClient: BoardClient = {
+  async listAppeals() {
+    const response = await send("/api/appeals");
+    if (!response.ok) return failure(response.json, "Those appeals did not load.");
+    const body = response.json as { appeals?: unknown } | null;
+    return { ok: true, appeals: appealsFrom(body?.appeals) };
+  },
   async load(query) {
     const params = new URLSearchParams();
     if (query?.room) params.set("room", query.room);

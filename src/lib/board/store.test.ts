@@ -29,6 +29,7 @@ function client(over: Partial<BoardClient> = {}): BoardClient {
     changeAccess: idle,
     setCouncil: async () => ({ ok: false, error: "unused" }),
     appeal: idle,
+    listAppeals: async () => ({ ok: true, appeals: [] }),
     decideAppeal: async () => ({ ok: false, error: "unused" }),
     ...over,
   };
@@ -402,6 +403,40 @@ test("a live board keeps the server home order", async () => {
   );
   assert.equal(useBoard.getState().council, true);
   assert.equal(useBoard.getState().home?.sections[0]?.label, "What you've joined");
+});
+
+test("a banned member still sees the status of their own appeal", async () => {
+  reset();
+  setBoardClient(
+    client({
+      load: async () => ({ ok: false, error: "banned" }),
+      listAppeals: async () => ({
+        ok: true,
+        appeals: [
+          {
+            id: "appeal-1",
+            room: "shop",
+            postId: "post-1",
+            author: "Maria",
+            kind: "removal",
+            reason: "The post did not threaten anyone.",
+            decision: "uphold",
+            decisionNote: "The removal stays.",
+            decidedBy: "Tom",
+            at: Date.now(),
+            decidedAt: Date.now(),
+            rule: "threat",
+          },
+        ],
+      }),
+    }),
+  );
+  delete process.env.VITE_DEMO;
+  await useBoard.getState().connectRemote();
+  assert.equal(useBoard.getState().boardError, "This account is barred from the board.");
+  assert.equal(useBoard.getState().posts.length, 0);
+  assert.equal(useBoard.getState().appeals.length, 1);
+  assert.equal(useBoard.getState().appeals[0]?.decision, "uphold");
 });
 
 test("a revision keeps a steward mark", async () => {

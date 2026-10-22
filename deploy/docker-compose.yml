@@ -43,6 +43,9 @@ services:
       PORT: "8787"
       CSAM_HOLD_KEY: ${CSAM_HOLD_KEY:-}
       CSAM_HOLD_DAYS: ${CSAM_HOLD_DAYS:-365}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      ADMIN_ALERT_EMAIL: ${ADMIN_ALERT_EMAIL:-}
+      RESEND_FROM: ${RESEND_FROM:-}
       # Caddy's address on the avouch network. X-Forwarded-For is read only from this peer.
       # The request URL is BETTER_AUTH_URL.
       TRUSTED_PROXIES: 172.28.19.10

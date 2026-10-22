@@ -105,6 +105,8 @@ export type BoardClient = {
     kind: "mark" | "removal",
     reason: string,
   ) => Promise<{ ok: true; appeal: AppealRow } | BoardFailure>;
+  /** The signed-in member's own appeals. A bar does not hide this. */
+  listAppeals: () => Promise<{ ok: true; appeals: AppealRow[] } | BoardFailure>;
   decideAppeal: (
     id: string,
     decision: "uphold" | "lift",
