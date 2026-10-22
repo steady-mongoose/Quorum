@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isEnglish } from "../../src/lib/board/text.ts";
+import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
 import { banFromSourceRooms } from "../board/groups.ts";
@@ -9,7 +9,6 @@ import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
 
-const HARD = new Set(["threat", "porn", "csam"]);
 const PAGE = 50;
 const HIDDEN_CAP = 500;
 const BODY_MAX = 2000;
@@ -248,10 +247,13 @@ export async function removeChatMessage(
         : "Only a steward can remove a message.",
     );
   }
-  if (!HARD.has(input.reason)) {
-    return fail(400, "Name the rule: threat, pornography, or child sexual abuse material.");
+  if (!isHardRule(input.reason)) {
+    return fail(
+      400,
+      "Name the rule: threat, pornography, child sexual abuse material, doxxing, or mocking God or Christ.",
+    );
   }
-  const reason = input.reason as BanEntry["reason"];
+  const reason = input.reason;
   const existing = await db.query<{
     id: string;
     author_user_id: string | null;

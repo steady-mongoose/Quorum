@@ -26,6 +26,7 @@ import {
   MARK_LABEL,
   POST_TYPES,
   RULE_LABEL,
+  RULE_SENTENCE,
   authorName,
   activeBan,
   blankDraft,
@@ -60,7 +61,7 @@ import { checklistFor } from "@/lib/board/council";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
-const MARKS: Mark[] = ["unsupported", "sloppy"];
+const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
@@ -70,6 +71,7 @@ export function RoomView() {
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
+  const appeals = useBoard((state) => state.appeals);
   const rooms = useBoard((state) => state.rooms);
   const boardError = useBoard((state) => state.boardError);
   const remote = useBoard((state) => state.remote);
@@ -94,7 +96,7 @@ export function RoomView() {
     () => (meta.parish ? needsFor(cards, room) : []),
     [cards, room, meta.parish],
   );
-  const ban = activeBan(me, removals, Date.now(), bans);
+  const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
 
@@ -166,9 +168,11 @@ export function RoomView() {
           {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
-              {ban.strikes >= 2
-                ? "This account is closed. Second hard removal."
-                : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
+              {ban.reason === "csam"
+                ? "This account is closed."
+                : ban.strikes >= 2
+                  ? "This account is closed. Second hard removal."
+                  : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
             </p>
           ) : canFile ? (
             <Composer me={me} steward={steward} />
@@ -223,10 +227,12 @@ export function RoomView() {
             shelfBlock
           )}
           <MarkLog />
+          <AppealLog />
         </aside>
       </div>
       <div className="lg:hidden">
         <MarkLog />
+        <AppealLog />
       </div>
     </div>
   );
@@ -742,6 +748,8 @@ const PostCard = memo(function PostCard({
   const closeAsked = useBoard((state) => state.closeAsked);
   const mark = useBoard((state) => state.mark);
   const remove = useBoard((state) => state.remove);
+  const appeal = useBoard((state) => state.appeal);
+  const appeals = useBoard((state) => state.appeals);
   const openDm = useBoard((state) => state.openDm);
   const remote = useBoard((state) => state.remote);
   const councilMember = useBoard((state) => state.council);
@@ -762,6 +770,12 @@ const PostCard = memo(function PostCard({
     error: string;
   } | null>(null);
   const [removeError, setRemoveError] = useState("");
+  const [appealDraft, setAppealDraft] = useState("");
+  const [appealError, setAppealError] = useState("");
+  const [appealing, setAppealing] = useState(false);
+  const appealOpen = appeals.some(
+    (row) => row.postId === post.id && row.kind === "mark" && row.decision === null,
+  );
   const type = typeMeta(post.type);
 
   return (
@@ -978,6 +992,14 @@ const PostCard = memo(function PostCard({
             Revise
           </button>
         ) : null}
+        {mine && post.mark && !appealOpen ? (
+          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setAppealing(true)}>
+            Appeal this mark
+          </button>
+        ) : null}
+        {mine && post.mark && appealOpen ? (
+          <span className="self-center text-sm text-muted">Appeal filed with the stewards.</span>
+        ) : null}
       </div>
 
       {steward ? (
@@ -1063,10 +1085,45 @@ const PostCard = memo(function PostCard({
             </label>
           ) : null}
           {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {appealing ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              One sentence to the stewards
+              <input
+                className={fieldClass}
+                value={appealDraft}
+                placeholder="The mark names the side, not the missing reason."
+                onChange={(event) => {
+                  setAppealDraft(event.target.value);
+                  setAppealError("");
+                }}
+              />
+              {appealError ? <span className="text-signal">{appealError}</span> : null}
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSignal}
+                  onClick={() => {
+                    void appeal(post.id, "mark", appealDraft).then((result) => {
+                      if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
+                      else {
+                        setAppealing(false);
+                        setAppealDraft("");
+                      }
+                    });
+                  }}
+                >
+                  File appeal
+                </button>
+                <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
+                  Cancel
+                </button>
+              </span>
+            </label>
+          ) : null}
           {removing ? (
             <p className="text-sm text-muted">
               Removing a post bars the account. The reason stays in the log. A mark never hides a
-              post.
+              post. {RULE_SENTENCE.doxxing} {RULE_SENTENCE.blasphemy}
             </p>
           ) : null}
         </div>
@@ -1074,6 +1131,112 @@ const PostCard = memo(function PostCard({
     </article>
   );
 });
+
+function AppealLog() {
+  const room = useBoard((state) => state.room);
+  const appeals = useBoard((state) => state.appeals);
+  const decideAppeal = useBoard((state) => state.decideAppeal);
+  const steward = useBoard((state) => state.steward);
+  const me = useBoard((state) => authorName(state.me));
+  const rows = appeals.filter((row) => row.room === room).slice(0, 20);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  if (rows.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+        Appeals in this room
+      </h2>
+      <ul className="flex flex-col gap-3 text-sm text-muted">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <p>
+              {row.author} appealed a {row.kind}
+              {row.rule ? ` (${RULE_LABEL[row.rule]})` : ""}: {row.reason} ·{" "}
+              <When at={row.at} format={formatWhen} />
+            </p>
+            {row.decision ? (
+              <p>
+                {row.decidedBy} {row.decision === "lift" ? "lifted" : "upheld"} it
+                {row.decisionNote ? `: ${row.decisionNote}` : ""}
+                {row.decidedAt ? (
+                  <>
+                    {" "}
+                    · <When at={row.decidedAt} format={formatWhen} />
+                  </>
+                ) : null}
+              </p>
+            ) : steward && row.author !== me ? (
+              openId === row.id ? (
+                <label className="mt-2 flex flex-col gap-2">
+                  One sentence
+                  <input
+                    className={fieldClass}
+                    value={note}
+                    onChange={(event) => {
+                      setNote(event.target.value);
+                      setError("");
+                    }}
+                  />
+                  {error ? <span className="text-signal">{error}</span> : null}
+                  <span className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={btnSignal}
+                      onClick={() => {
+                        void decideAppeal(row.id, "uphold", note).then((result) => {
+                          if (!result.ok) setError(result.error ?? "That decision was not saved.");
+                          else setOpenId(null);
+                        });
+                      }}
+                    >
+                      Uphold
+                    </button>
+                    {row.rule === "csam" ? (
+                      <span>This removal stays.</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={btnQuiet}
+                        onClick={() => {
+                          void decideAppeal(row.id, "lift", note).then((result) => {
+                            if (!result.ok)
+                              setError(result.error ?? "That decision was not saved.");
+                            else setOpenId(null);
+                          });
+                        }}
+                      >
+                        Lift
+                      </button>
+                    )}
+                    <button type="button" className={btnQuiet} onClick={() => setOpenId(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                </label>
+              ) : (
+                <button
+                  type="button"
+                  className={cn(btnQuiet, "px-0")}
+                  onClick={() => {
+                    setOpenId(row.id);
+                    setNote("");
+                    setError("");
+                  }}
+                >
+                  Decide
+                </button>
+              )
+            ) : (
+              <p>Waiting on the stewards.</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function MarkLog() {
   const room = useBoard((state) => state.room);
@@ -1090,7 +1253,7 @@ function MarkLog() {
           <li key={row.id}>
             {row.by}{" "}
             {row.mark
-              ? `marked ${row.author}'s post ${row.mark}`
+              ? `marked ${row.author}'s post ${MARK_LABEL[row.mark]}`
               : `cleared a mark on ${row.author}'s post`}
             {row.reason ? `: ${row.reason}` : ""} · <When at={row.at} format={formatWhen} />
           </li>

@@ -9,6 +9,7 @@ import { bindCallEviction } from "./calls/evict.ts";
 import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
+import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -72,6 +73,18 @@ export function startHost(): void {
   });
   const now = () => new Date();
   const mediaConfig = readMediaConfig();
+  const mediaStore = storeFromConfig(mediaConfig);
+  warnMissingHoldKey();
+  const boardDb = pgDb(pool);
+  void reencryptPendingHolds(boardDb, mediaStore).catch((error) => {
+    console.error(
+      JSON.stringify({
+        event: "csam-hold-reseal-failed",
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+  });
+  startHoldSweep(boardDb, mediaStore);
   console.log(
     JSON.stringify({
       event: "media-storage",
@@ -92,14 +105,14 @@ export function startHost(): void {
     }),
   );
   const app = createApp({
-    db: pgDb(pool),
+    db: boardDb,
     origins: config.origins,
     now,
     createAccount: createCredentialAccount(),
     signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
-    media: { config: mediaConfig, store: storeFromConfig(mediaConfig), now },
+    media: { config: mediaConfig, store: mediaStore, now },
     calls: { config: callsConfig, store: callStore, now },
   });
   const server = createServer(async (req, res) => {

@@ -14,9 +14,11 @@ export function bindCallEviction(store: CallStore): void {
 /**
  * Drop a person from live calls on this API process.
  *
- * `banMember` and `removePost` call this after the ban is saved. An admin
- * bar passes no rooms and drops every call. A room steward passes the rooms
- * the bar covers, and each of those calls `store.leave(roomId, userId)`.
+ * `banMember` and `removePost` call this after the ban is saved.
+ * `removePost` evicts before the admin alert email, and that email does not
+ * block the response. An admin bar passes no rooms and drops every call.
+ * A room steward passes the rooms the bar covers, and each of those calls
+ * `store.leave(roomId, userId)`.
  *
  * If the store is not bound, this returns 0 and the ban still stands. The
  * next join, leave, signal, or poll from someone who is no longer in

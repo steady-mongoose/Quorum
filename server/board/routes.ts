@@ -1,6 +1,8 @@
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
+import type { ObjectStore } from "../media/s3.ts";
+import { fileCsamReport } from "./csam.ts";
 import {
   correctZip,
   decideRoom,
@@ -15,7 +17,10 @@ import {
   banMember,
   closeAsked,
   createRoom,
+  decideAppeal,
+  fileAppeal,
   listBoard,
+  listOwnAppeals,
   markPost,
   openBan,
   removePost,
@@ -30,6 +35,8 @@ export type BoardDeps = {
   db: Db;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   now: () => Date;
+  /** Present when picture storage is on. A CSAM removal moves files through it. */
+  store?: ObjectStore | null;
 };
 
 function json(status: number, body: unknown, extra?: Headers): Response {
@@ -129,13 +136,16 @@ export async function handleBoard(
   url: URL,
 ): Promise<Response | null> {
   const postAction =
-    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|council)$/.exec(
+    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|appeal|council)$/.exec(
       url.pathname,
     );
+  const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
+  const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const matched =
     (url.pathname === "/api/board" && request.method === "GET") ||
+    (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
@@ -145,7 +155,9 @@ export async function handleBoard(
     (url.pathname === "/api/bans" && request.method === "POST") ||
     Boolean(roomJoin && (request.method === "POST" || request.method === "DELETE")) ||
     Boolean(decide && request.method === "POST") ||
-    Boolean(postAction && request.method === "POST");
+    Boolean(postAction && request.method === "POST") ||
+    Boolean(appealAction && request.method === "POST") ||
+    Boolean(fileHold && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -155,6 +167,11 @@ export async function handleBoard(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (url.pathname === "/api/appeals" && request.method === "GET") {
+      const appeals = await listOwnAppeals(deps.db, session.id);
+      return json(200, { appeals });
+    }
 
     if (url.pathname === "/api/board") {
       const room = url.searchParams.get("room") ?? "";
@@ -292,6 +309,33 @@ export async function handleBoard(
       return fromResult(201, banned);
     }
 
+    if (fileHold) {
+      return fromResult(
+        200,
+        await fileCsamReport(deps.db, {
+          userId: session.id,
+          name: session.name,
+          holdId: fileHold[1] ?? "",
+          reportId: stringField(body, "reportId"),
+          now,
+        }),
+      );
+    }
+
+    if (appealAction) {
+      return fromResult(
+        200,
+        await decideAppeal(deps.db, {
+          userId: session.id,
+          name: session.name,
+          appealId: appealAction[1] ?? "",
+          decision: stringField(body, "decision"),
+          reason: stringField(body, "reason"),
+          now,
+        }),
+      );
+    }
+
     if (!postAction) return json(404, { error: "Not found." });
     const postId = postAction[1] ?? "";
     const action = postAction[2];
@@ -347,6 +391,19 @@ export async function handleBoard(
         }),
       );
     }
+    if (action === "appeal") {
+      return fromResult(
+        201,
+        await fileAppeal(deps.db, {
+          userId: session.id,
+          name: session.name,
+          postId,
+          kind: stringField(body, "kind"),
+          reason: stringField(body, "reason"),
+          now,
+        }),
+      );
+    }
     return fromResult(
       200,
       await removePost(deps.db, {
@@ -355,6 +412,7 @@ export async function handleBoard(
         postId,
         reason: stringField(body, "reason"),
         now,
+        store: deps.store ?? null,
       }),
     );
   } catch (error) {

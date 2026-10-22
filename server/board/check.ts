@@ -3,6 +3,8 @@ import {
   hasHeadcount,
   hasStreetAddress,
   isEnglish,
+  looksLikeBlasphemy,
+  looksLikeDoxxing,
   looksLikePorn,
   looksLikeThreat,
   oneSentence,
@@ -84,6 +86,8 @@ export function contentStops(input: {
   const text = `${claim}\n${reason}`;
   if (looksLikeThreat(text)) stops.push("That reads as a threat and will not post.");
   if (looksLikePorn(text)) stops.push("That will not post.");
+  if (looksLikeDoxxing(text)) stops.push("That reads as doxxing and will not post.");
+  if (looksLikeBlasphemy(text)) stops.push("That mocks God or Christ and will not post.");
   if (input.mediaCount > 1) stops.push("One picture per post.");
   return stops;
 }
@@ -96,6 +100,8 @@ export function replyStops(claim: string): string[] {
   if (text && !isEnglish(text)) stops.push("Write it in English.");
   if (looksLikeThreat(text)) stops.push("That reads as a threat and will not post.");
   if (looksLikePorn(text)) stops.push("That will not post.");
+  if (looksLikeDoxxing(text)) stops.push("That reads as doxxing and will not post.");
+  if (looksLikeBlasphemy(text)) stops.push("That mocks God or Christ and will not post.");
   return stops;
 }
 

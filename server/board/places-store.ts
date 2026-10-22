@@ -74,8 +74,8 @@ async function openBan(
   for (const row of rows) {
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
-    if (strikes < 2 && until <= now.getTime()) continue;
     const reason = ruleId(row.reason);
+    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
     return { until, strikes, reason };
   }
   return null;

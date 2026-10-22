@@ -28,6 +28,9 @@ function client(over: Partial<BoardClient> = {}): BoardClient {
     correctZip: idle,
     changeAccess: idle,
     setCouncil: async () => ({ ok: false, error: "unused" }),
+    appeal: idle,
+    listAppeals: async () => ({ ok: true, appeals: [] }),
+    decideAppeal: async () => ({ ok: false, error: "unused" }),
     ...over,
   };
 }
@@ -55,6 +58,8 @@ function reset() {
     removals: [],
     markLog: [],
     bans: [],
+    appeals: [],
+    csamReports: [],
     boardError: "",
     undoClear: null,
     localEntry: false,
@@ -148,6 +153,43 @@ test("a live board writes through the API client", async () => {
   assert.equal(check.ok, true);
   assert.equal(useBoard.getState().posts[0]?.id, "server-1");
   assert.equal(useBoard.getState().posts[0]?.removed, false);
+});
+
+test("out of scope stays on the post, and the appeal and the decision are logged", async () => {
+  reset();
+  await useBoard.getState().file(draft());
+  const id = useBoard.getState().posts[0]?.id ?? "";
+  const marked = await useBoard
+    .getState()
+    .mark(id, "out_of_scope", "This belongs in the county room.");
+  assert.equal(marked.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.mark, "out_of_scope");
+  assert.equal(useBoard.getState().posts[0]?.removed, false);
+  const filed = await useBoard.getState().appeal(id, "mark", "The post is about the shop night.");
+  assert.equal(filed.ok, true);
+  assert.equal(useBoard.getState().appeals[0]?.decision, null);
+  useBoard.setState({ me: "Tom" });
+  const lifted = await useBoard
+    .getState()
+    .decideAppeal(useBoard.getState().appeals[0]?.id ?? "", "lift", "The post stays in this room.");
+  assert.equal(lifted.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.mark, null);
+  assert.equal(useBoard.getState().posts[0]?.removed, false);
+  assert.equal(useBoard.getState().appeals[0]?.decision, "lift");
+  assert.equal(useBoard.getState().appeals[0]?.decidedBy, "Tom");
+});
+
+test("a local CSAM removal keeps the words off the post and bans the account", async () => {
+  reset();
+  await useBoard.getState().file(draft());
+  const id = useBoard.getState().posts[0]?.id ?? "";
+  const removed = await useBoard.getState().remove(id, "csam");
+  assert.equal(removed.ok, true);
+  assert.equal(useBoard.getState().posts[0]?.claim, "[removed]");
+  assert.equal(useBoard.getState().posts[0]?.reason, "");
+  assert.equal(useBoard.getState().bans[0]?.reason, "csam");
+  const again = await useBoard.getState().file(draft());
+  assert.equal(again.ok, false);
 });
 
 test("a confirmed clear stays on an empty week and undo puts the board back", () => {
@@ -343,6 +385,8 @@ test("a live board keeps the server home order", async () => {
     marks: [],
     removals: [],
     bans: [],
+    appeals: [],
+    csamReports: [],
     pages: [],
   };
   setBoardClient(
@@ -359,6 +403,40 @@ test("a live board keeps the server home order", async () => {
   );
   assert.equal(useBoard.getState().council, true);
   assert.equal(useBoard.getState().home?.sections[0]?.label, "What you've joined");
+});
+
+test("a banned member still sees the status of their own appeal", async () => {
+  reset();
+  setBoardClient(
+    client({
+      load: async () => ({ ok: false, error: "banned" }),
+      listAppeals: async () => ({
+        ok: true,
+        appeals: [
+          {
+            id: "appeal-1",
+            room: "shop",
+            postId: "post-1",
+            author: "Maria",
+            kind: "removal",
+            reason: "The post did not threaten anyone.",
+            decision: "uphold",
+            decisionNote: "The removal stays.",
+            decidedBy: "Tom",
+            at: Date.now(),
+            decidedAt: Date.now(),
+            rule: "threat",
+          },
+        ],
+      }),
+    }),
+  );
+  delete process.env.VITE_DEMO;
+  await useBoard.getState().connectRemote();
+  assert.equal(useBoard.getState().boardError, "This account is barred from the board.");
+  assert.equal(useBoard.getState().posts.length, 0);
+  assert.equal(useBoard.getState().appeals.length, 1);
+  assert.equal(useBoard.getState().appeals[0]?.decision, "uphold");
 });
 
 test("a revision keeps a steward mark", async () => {

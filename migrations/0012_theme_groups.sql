@@ -9,8 +9,10 @@
 -- Theme groups sit beside the town and congregation rooms from 0008.
 -- The seed is carpentry, gardening, brewing, distilling, and a literary
 -- society. Each group has its own admins. Those admins mark a post sloppy
--- or unsupported, with one sentence, and hard-remove only for a threat,
--- pornography, or child sexual abuse material. The mark stays on the post.
+-- or unsupported, with one sentence, and hard-remove for a threat,
+-- pornography, child sexual abuse material, doxxing, or blasphemy.
+-- 0015 widens a database that already applied the narrower checks.
+-- The mark stays on the post.
 -- It does not move it. Members appeal to stewards. Every action is logged.
 -- Posts are newest first. Nothing here is a like, a reshare, a score, or a rank.
 -- Account bars stay on board_ban. A group admin does not bar the account.
@@ -115,7 +117,7 @@ create table if not exists theme_group_post (
   ),
   mark text check (mark is null or mark in ('sloppy', 'unsupported')),
   removed boolean not null default false,
-  removed_for text check (removed_for is null or removed_for in ('threat', 'porn', 'csam')),
+  removed_for text check (removed_for is null or removed_for in ('threat', 'porn', 'csam', 'doxxing', 'blasphemy')),
   created_at timestamptz not null default now(),
   constraint theme_group_post_removal_pair check (removed = (removed_for is not null))
 );
@@ -151,7 +153,7 @@ create table if not exists theme_group_removal (
   author_name text not null,
   by_user_id text references "user" (id) on delete set null,
   by_name text not null,
-  reason text not null check (reason in ('threat', 'porn', 'csam')),
+  reason text not null check (reason in ('threat', 'porn', 'csam', 'doxxing', 'blasphemy')),
   created_at timestamptz not null default now()
 );
 

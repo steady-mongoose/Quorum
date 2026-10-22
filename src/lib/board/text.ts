@@ -6,6 +6,15 @@ const STREET_ADDRESS =
 const THREAT =
   /\b(i('| wi)ll|we('| wi)ll|gonna|going to|should|let's|lets)\s+(kill|shoot|stab|hang|burn|beat|hurt|bomb|lynch)\b|\b(kill|shoot|hang|burn)\s+(him|her|them|you|that)\b/i;
 const PORN = /\b(porn|pornograph|xxx|onlyfans|nsfw)\b/i;
+/** A private person's contact, published so strangers can find them. */
+const DOXXING =
+  /\bdoxx(?:ed|ing|es)?\b|\b\d{3}-\d{2}-\d{4}\b|\b(?:her|his|their)\s+(?:home\s+address|address|phone|cell|number)\s+is\b|\bcall\s+(?:her|him|them)\s+at\s+\(?\d{3}\b|\blives at\s+\d{1,6}\b|\bhome address\b/i;
+/**
+ * Mockery of God or Christ. Ordinary speech about God ("God is good",
+ * "what is God", "Our Lord") does not match.
+ */
+const BLASPHEMY =
+  /\b(?:fuck|fucking|screw|damn)\s+(?:god|jesus|christ|the lord)\b|\b(?:god|jesus|christ|the lord)\s+is\s+(?:a\s+)?(?:joke|fake|garbage|trash|stupid)\b|\b(?:god|jesus|christ)\s+sucks\b/i;
 const HEADCOUNT =
   /\b\d+\s*(people|folks|came|showed|attended|turned out|of us|guys|men|women)\b|\b(turnout|headcount|attendance)\b/i;
 
@@ -23,6 +32,35 @@ export function looksLikeThreat(value: string): boolean {
 
 export function looksLikePorn(value: string): boolean {
   return PORN.test(value);
+}
+
+export function looksLikeDoxxing(value: string): boolean {
+  return DOXXING.test(value);
+}
+
+export function looksLikeBlasphemy(value: string): boolean {
+  return BLASPHEMY.test(value);
+}
+
+export const HARD_RULES = ["threat", "porn", "csam", "doxxing", "blasphemy"] as const;
+export type HardRuleValue = (typeof HARD_RULES)[number];
+
+export function isHardRule(value: unknown): value is HardRuleValue {
+  return (
+    value === "threat" ||
+    value === "porn" ||
+    value === "csam" ||
+    value === "doxxing" ||
+    value === "blasphemy"
+  );
+}
+
+/** `unsupported` is the stored value. The screen says "No legs". */
+export const MARK_VALUES = ["sloppy", "unsupported", "out_of_scope"] as const;
+export type MarkValue = (typeof MARK_VALUES)[number];
+
+export function isMarkValue(value: unknown): value is MarkValue {
+  return value === "sloppy" || value === "unsupported" || value === "out_of_scope";
 }
 
 export function hasHeadcount(value: string): boolean {
