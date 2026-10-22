@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { createPost, decideAppeal, fileAppeal, removePost } from "./store.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { CLIENT_IP_HEADER } from "../proxy.ts";
@@ -167,6 +168,113 @@ test("a barred member cannot read the board, the invite log, or a picture", asyn
       assert.equal(body.error, "banned", path);
       assert.equal(body.ban?.reason, "threat", path);
     }
+  } finally {
+    await close();
+  }
+});
+
+test("a barred member can read the status of their own appeal", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const josh = randomUUID();
+    const tom = randomUUID();
+    for (const [id, name, email] of [
+      [maria, "Maria", "maria-appeal@example.com"],
+      [josh, "Josh", "josh-appeal@example.com"],
+      [tom, "Tom", "tom-appeal@example.com"],
+    ] as const) {
+      await db.query(
+        `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+         values ($1, $2, $3, true, now(), now())`,
+        [id, name, email],
+      );
+      await db.query(
+        `insert into access_log
+         (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note, at)
+         values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.', $4)`,
+        [randomUUID(), id, name, now],
+      );
+    }
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Josh', 'admin', 'grant', 'test', 'test', 'test', 'Granted for the test.', $3)`,
+      [randomUUID(), josh, now],
+    );
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: {
+        type: "did",
+        claim: "Sharpened the chisels in the shop.",
+        reason: "Tom checked them on Thursday.",
+        on: "2026-10-18",
+      },
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: josh,
+      name: "Josh",
+      postId: posted.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    const filed = await fileAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      postId: posted.value.id,
+      kind: "removal",
+      reason: "The shop post did not threaten anyone.",
+      now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+    const upheld = await decideAppeal(db, {
+      userId: josh,
+      name: "Josh",
+      appealId: filed.value.id,
+      decision: "uphold",
+      reason: "The removal stays on the record.",
+      now,
+    });
+    assert.equal(upheld.ok, true);
+    const handler = app(db);
+    const board = await handler(
+      new Request("http://127.0.0.1:8787/api/board", {
+        headers: { "x-user-id": maria, "x-user-name": "Maria" },
+      }),
+    );
+    assert.equal(board.status, 403);
+    const boardBody = (await board.json()) as { error?: string };
+    assert.equal(boardBody.error, "banned");
+    const appeals = await handler(
+      new Request("http://127.0.0.1:8787/api/appeals", {
+        headers: { "x-user-id": maria, "x-user-name": "Maria" },
+      }),
+    );
+    assert.equal(appeals.status, 200);
+    const body = (await appeals.json()) as {
+      appeals?: Array<{ kind?: string; decision?: string; reason?: string }>;
+    };
+    assert.equal(body.appeals?.length, 1);
+    assert.equal(body.appeals?.[0]?.kind, "removal");
+    assert.equal(body.appeals?.[0]?.decision, "uphold");
+    assert.equal(JSON.stringify(body).includes("Sharpened the chisels"), false);
+    const other = await handler(
+      new Request("http://127.0.0.1:8787/api/appeals", {
+        headers: { "x-user-id": tom, "x-user-name": "Tom" },
+      }),
+    );
+    assert.equal(other.status, 200);
+    const otherBody = (await other.json()) as { appeals?: unknown[] };
+    assert.equal(otherBody.appeals?.length, 0);
+    const signedOut = await handler(new Request("http://127.0.0.1:8787/api/appeals"));
+    assert.equal(signedOut.status, 401);
   } finally {
     await close();
   }

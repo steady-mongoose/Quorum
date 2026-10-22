@@ -17,6 +17,7 @@ import {
   decideAppeal,
   fileAppeal,
   listBoard,
+  listOwnAppeals,
   markPost,
   removePost,
   replyToPost,
@@ -1658,6 +1659,12 @@ test("a successful appeal lifts only that room's ban", async () => {
     });
     assert.equal(filed.ok, true);
     if (!filed.ok) return;
+    const shopPage = await listBoard(db, maria, now, { room: "shop" });
+    assert.equal(shopPage.ok, false);
+    const ownBefore = await listOwnAppeals(db, maria);
+    assert.equal(ownBefore.length, 1);
+    assert.equal(ownBefore[0]?.decision, null);
+    assert.equal((await listOwnAppeals(db, tom)).length, 0);
     const lifted = await decideAppeal(db, {
       userId: tom,
       name: "Tom",
@@ -1668,6 +1675,8 @@ test("a successful appeal lifts only that room's ban", async () => {
     });
     assert.equal(lifted.ok, true);
     if (!lifted.ok) return;
+    const ownAfter = await listOwnAppeals(db, maria);
+    assert.equal(ownAfter[0]?.decision, "lift");
     assert.equal(lifted.value.posts.some((post) => post.id === shop.value.id && !post.removed), true);
     const later = new Date(now.getTime() + 1000);
     const shopAgain = await createPost(db, {

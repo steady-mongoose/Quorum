@@ -76,6 +76,22 @@ export type AdminAlert = {
 
 export type RelocatedFile = { from: string; to: string };
 
+export type HoldAlert = {
+  id: string;
+  kind: "csam_hold" | "csam_pending_seal";
+  holdId: string;
+  roomId: string;
+  postId: string;
+};
+
+/** Loud boot warning. A missing key does not stop the process. */
+export function warnMissingHoldKey(log: (message: string) => void = console.error): void {
+  if (holdKeyError() === null) return;
+  log(
+    "WARNING: CSAM_HOLD_KEY is not set. CSAM text and media stay held, unencrypted, where the board cannot serve them, until a key is set. Set CSAM_HOLD_KEY to a random 32-byte key or a passphrase of at least 16 characters.",
+  );
+}
+
 export function holdDays(raw: string | undefined = process.env.CSAM_HOLD_DAYS): number {
   const parsed = Number(raw?.trim());
   if (!Number.isFinite(parsed) || parsed < STATUTORY_HOLD_DAYS) return STATUTORY_HOLD_DAYS;
@@ -115,7 +131,7 @@ export function holdKey(): Buffer {
 /**
  * Tests serialize CSAM removals so one case can unset the key without
  * racing another case in this process. The server does not call this.
- * The key is read only when a removal is sealed, never at boot.
+ * Boot warns when the key is missing, and encrypts a pending hold when a key is present.
  */
 let holdChain: Promise<unknown> = Promise.resolve();
 
@@ -285,10 +301,35 @@ async function relocateFiles(
   }
 }
 
+function pendingBody(sealed: string): HeldBody | null {
+  if (!sealed.startsWith("{")) return null;
+  try {
+    const body = JSON.parse(sealed) as HeldBody;
+    if (!body || typeof body.claim !== "string") return null;
+    if (!Array.isArray(body.replies)) body.replies = [];
+    if (!Array.isArray(body.files)) body.files = [];
+    return body;
+  } catch {
+    return null;
+  }
+}
+
+/** True when these bytes are already an AES-GCM hold. Plaintext fails the auth tag. */
+function alreadySealed(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 28) return false;
+  try {
+    openBytes(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Hide the post in the caller's transaction. Copy files to `csam-hold/` and,
- * when the key is set, store an encrypted copy of the post. When the key is
- * unset, skip that copy and still record the hold, the alert, and the move.
+ * Hide the post in the caller's transaction. Copy files to `csam-hold/`.
+ * When the key is set, the post text and the files are encrypted. When it is
+ * not, both stay held as plaintext in that unserved place so a later key can
+ * encrypt them. The public post is still `[removed]`.
  * Returns the public object keys to delete after the transaction commits.
  */
 export async function sealCsamHold(
@@ -296,7 +337,7 @@ export async function sealCsamHold(
   store: ObjectStore | null,
   postId: string,
   now: Date,
-): Promise<RelocatedFile[]> {
+): Promise<{ files: RelocatedFile[]; alert: HoldAlert }> {
   const texts = await tx.query<{
     id: string;
     room_id: string;
@@ -334,18 +375,16 @@ export async function sealCsamHold(
       fileKey: sealedObjectKey(holdId, file.id),
     };
   });
-  const sealed = encrypt
-    ? sealHold({
-        claim: parent.claim,
-        reason: parent.reason,
-        replies: texts
-          .filter((row) => row.parent_id)
-          .map((row) => ({ id: row.id, claim: row.claim })),
-        files: heldFiles,
-      })
-    : "";
+  const held: HeldBody = {
+    claim: parent.claim,
+    reason: parent.reason,
+    replies: texts.filter((row) => row.parent_id).map((row) => ({ id: row.id, claim: row.claim })),
+    files: heldFiles,
+  };
+  const sealed = encrypt ? sealHold(held) : JSON.stringify(held);
   const sealStatus = encrypt ? "sealed" : "pending_seal";
   const kind = encrypt ? "csam_hold" : "csam_pending_seal";
+  const alertId = randomUUID();
   await tx.query(
     `insert into board_csam_hold
      (id, post_id, post_ids, room_id, author_user_id, author_name, sealed, seal_status,
@@ -369,7 +408,7 @@ export async function sealCsamHold(
   );
   await tx.query(
     `insert into board_admin_alert (id, kind, hold_id, created_at) values ($1, $2, $3, $4)`,
-    [randomUUID(), kind, holdId, now],
+    [alertId, kind, holdId, now],
   );
   await tx.query(`update board_post set claim = $2, reason = '' where id = $1 or parent_id = $1`, [
     parent.id,
@@ -390,7 +429,47 @@ export async function sealCsamHold(
       postId: parent.id,
     }),
   );
-  return relocated;
+  return {
+    files: relocated,
+    alert: { id: alertId, kind, holdId, roomId: parent.room_id, postId: parent.id },
+  };
+}
+
+/**
+ * Encrypt holds that were stored as plaintext because the key was missing.
+ * A second run does nothing. A missing key does nothing. Routes do not call this.
+ */
+export async function reencryptPendingHolds(
+  db: Db,
+  store: ObjectStore | null,
+): Promise<number> {
+  if (holdKeyError() !== null) return 0;
+  const rows = await db.query<{ id: string; sealed: string }>(
+    `select id, sealed from board_csam_hold
+     where seal_status = 'pending_seal' and purged_at is null and sealed <> ''`,
+  );
+  let done = 0;
+  for (const row of rows) {
+    const body = pendingBody(row.sealed);
+    if (!body) continue;
+    if (store) {
+      for (const file of body.files) {
+        if (!file.fileKey) continue;
+        const bytes = await store.get(file.fileKey);
+        if (!bytes || alreadySealed(bytes)) continue;
+        await store.put(file.fileKey, sealBytes(bytes), "application/octet-stream");
+      }
+    }
+    const updated = await db.query<{ id: string }>(
+      `update board_csam_hold
+       set sealed = $2, seal_status = 'sealed'
+       where id = $1 and seal_status = 'pending_seal'
+       returning id`,
+      [row.id, sealHold(body)],
+    );
+    if (updated[0]) done += 1;
+  }
+  return done;
 }
 
 export async function dropObjectKeys(
@@ -472,6 +551,14 @@ export function startHoldSweep(
   now: () => Date = () => new Date(),
 ): () => void {
   const run = () => {
+    reencryptPendingHolds(db, store).catch((error) => {
+      console.error(
+        JSON.stringify({
+          event: "csam-hold-reseal-failed",
+          message: error instanceof Error ? error.message : "unknown",
+        }),
+      );
+    });
     purgeExpiredHolds(db, now(), store).catch((error) => {
       console.error(
         JSON.stringify({

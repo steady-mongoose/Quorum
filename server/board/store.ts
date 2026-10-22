@@ -8,6 +8,7 @@ import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
+import { sendHoldAlert } from "./alert-mail.ts";
 import {
   CSAM_QUEUE_SQL,
   dropObjectKeys,
@@ -15,6 +16,7 @@ import {
   sealCsamHold,
   type AdminAlert,
   type CsamReport,
+  type HoldAlert,
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
@@ -1127,12 +1129,14 @@ export async function removePost(
   const removalId = randomUUID();
   let publicKeys: string[] = [];
   let sealedKeys: string[] = [];
+  let alert: HoldAlert | null = null;
   try {
     const ban = await db.transaction(async (tx) => {
       if (reason === "csam") {
         const relocated = await sealCsamHold(tx, input.store ?? null, post.id, input.now);
-        publicKeys = relocated.map((item) => item.from);
-        sealedKeys = relocated.map((item) => item.to).filter((key) => key !== "");
+        publicKeys = relocated.files.map((item) => item.from);
+        sealedKeys = relocated.files.map((item) => item.to).filter((key) => key !== "");
+        alert = relocated.alert;
       }
       await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
         post.id,
@@ -1164,6 +1168,7 @@ export async function removePost(
       });
     });
     await dropObjectKeys(input.store ?? null, publicKeys);
+    if (alert) await sendHoldAlert(alert);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
     else evictCallMember(post.author_user_id, [post.room_id]);
@@ -1299,6 +1304,17 @@ const APPEAL_SELECT = `select a.id, a.room_id, a.post_id, a.author_name, a.kind,
   a.decision_note, a.decided_by_name, a.created_at, a.decided_at, r.reason as rule
   from board_appeal a
   left join board_removal r on a.kind = 'removal' and r.id = a.target_id`;
+
+/** The author's own appeals, including when a bar blocks the rest of the board. */
+export async function listOwnAppeals(db: Db, userId: string): Promise<AppealEntry[]> {
+  const actor = await actorRole(db, userId);
+  if (!actor.member) return [];
+  const rows = await db.query<Parameters<typeof appealFrom>[0]>(
+    `${APPEAL_SELECT} where a.author_user_id = $1 order by a.created_at desc limit 50`,
+    [userId],
+  );
+  return rows.map(appealFrom);
+}
 
 export async function fileAppeal(
   db: Db,

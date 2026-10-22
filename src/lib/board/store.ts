@@ -992,8 +992,11 @@ export const useBoard = create<BoardState>()(
         connectRemote: async () => {
           if (readDemoFlag()) return;
           set({ remote: true, sample: false, boardError: "", undoClear: null });
-          const loaded = await (await getBoardClient()).load();
+          const client = await getBoardClient();
+          const loaded = await client.load();
           if (!loaded.ok) {
+            const own =
+              loaded.error === "banned" ? await client.listAppeals() : { ok: false as const };
             set({
               remote: true,
               boardError:
@@ -1002,7 +1005,7 @@ export const useBoard = create<BoardState>()(
               markLog: [],
               removals: [],
               bans: [],
-              appeals: [],
+              appeals: own.ok ? own.appeals : [],
               csamReports: [],
               roomPages: [],
               home: null,

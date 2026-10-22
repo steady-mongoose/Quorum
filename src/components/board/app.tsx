@@ -56,6 +56,7 @@ function BoardShell() {
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
   const boardError = useBoard((state) => state.boardError);
+  const ownAppeals = useBoard((state) => state.appeals);
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
   const server = useServerSession();
@@ -139,9 +140,19 @@ function BoardShell() {
         </div>
       </header>
       {boardError ? (
-        <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
-          {boardError}
-        </p>
+        <div className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
+          <p>{boardError}</p>
+          {boardError === "This account is barred from the board." && ownAppeals.length > 0 ? (
+            <ul className="mt-1 text-muted">
+              {ownAppeals.map((row) => (
+                <li key={row.id}>
+                  Your {row.kind} appeal is{" "}
+                  {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {entered && sample ? (
         <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">

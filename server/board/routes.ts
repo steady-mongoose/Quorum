@@ -20,6 +20,7 @@ import {
   decideAppeal,
   fileAppeal,
   listBoard,
+  listOwnAppeals,
   markPost,
   openBan,
   removePost,
@@ -144,6 +145,7 @@ export async function handleBoard(
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const matched =
     (url.pathname === "/api/board" && request.method === "GET") ||
+    (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
@@ -165,6 +167,11 @@ export async function handleBoard(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (url.pathname === "/api/appeals" && request.method === "GET") {
+      const appeals = await listOwnAppeals(deps.db, session.id);
+      return json(200, { appeals });
+    }
 
     if (url.pathname === "/api/board") {
       const room = url.searchParams.get("room") ?? "";

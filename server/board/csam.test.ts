@@ -18,10 +18,12 @@ import {
   openHold,
   purgeExpiredHolds,
   rawHoldKey,
+  reencryptPendingHolds,
   sealedObjectKey,
+  warnMissingHoldKey,
   withHoldKey,
 } from "./csam.ts";
-import { createPost, decideAppeal, fileAppeal, listBoard, markPost, removePost } from "./store.ts";
+import { createPost, decideAppeal, fileAppeal, listBoard, listOwnAppeals, markPost, removePost } from "./store.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
 
@@ -70,7 +72,7 @@ test("a hold key is a random 32-byte key or an HKDF passphrase", () => {
   assert.equal(holdDays(""), STATUTORY_HOLD_DAYS);
 });
 
-test("an unset hold key still hides the post, records the ban, and skips the encrypted copy", async () => {
+test("an unset hold key keeps the text and media unserved until a key encrypts them", async () => {
   const { db, close } = await openTestDb();
   try {
     const maria = randomUUID();
@@ -110,60 +112,100 @@ test("an unset hold key still hides the post, records the ban, and skips the enc
     const store = createMemoryStore();
     const plain = Uint8Array.of(9, 8, 7, 6);
     await store.put(fileKey, plain, "image/jpeg");
-    const removed = await withHoldKey(undefined, () =>
-      removePost(db, {
+    await withHoldKey(undefined, async () => {
+      const removed = await removePost(db, {
         userId: tom,
         name: "Tom",
         postId: posted.value.id,
         reason: "csam",
         now,
         store,
-      }),
-    );
-    assert.equal(removed.ok, true);
-    if (!removed.ok) return;
-    assert.equal(removed.value.ban.reason, "csam");
-    const stored = await db.query<{ claim: string; removed: boolean }>(
-      `select claim, removed from board_post where id = $1`,
-      [posted.value.id],
-    );
-    assert.equal(stored[0]?.removed, true);
-    assert.equal(stored[0]?.claim, "[removed]");
-    const hold = await db.query<{ sealed: string; seal_status: string }>(
-      `select sealed, seal_status from board_csam_hold where post_id = $1`,
-      [posted.value.id],
-    );
-    assert.equal(hold.length, 1);
-    assert.equal(hold[0]?.sealed, "");
-    assert.equal(hold[0]?.seal_status, "pending_seal");
-    assert.equal(JSON.stringify(hold).includes(claim), false);
-    const alerts = await db.query<{ kind: string }>(
-      `select kind from board_admin_alert`,
-    );
-    assert.equal(alerts.length, 1);
-    assert.equal(alerts[0]?.kind, "csam_pending_seal");
-    assert.equal(store.objects.has(fileKey), false);
-    const moved = [...store.objects.keys()];
-    assert.equal(moved.length, 1);
-    assert.equal(moved[0]?.startsWith("csam-hold/"), true);
-    assert.deepEqual(store.objects.get(moved[0] ?? "")?.bytes, plain);
-    const reading = await readForMember(
-      { db, store, now: () => now, videoEnabled: false },
-      tom,
-      mediaId,
-    );
-    assert.equal(reading.ok, false);
-    const admin = await listBoard(db, josh, now);
-    assert.equal(admin.ok, true);
-    if (!admin.ok) return;
-    assert.equal(admin.value.csamReports[0]?.status, "pending_seal");
-    assert.equal(admin.value.adminAlerts[0]?.kind, "csam_pending_seal");
-    assert.equal(JSON.stringify(admin.value).includes(claim), false);
-    const bans = await db.query<{ reason: string }>(
-      `select reason from board_ban where user_id = $1`,
-      [maria],
-    );
-    assert.equal(bans[0]?.reason, "csam");
+      });
+      assert.equal(removed.ok, true);
+      if (!removed.ok) return;
+      assert.equal(removed.value.ban.reason, "csam");
+      const stored = await db.query<{ claim: string; removed: boolean }>(
+        `select claim, removed from board_post where id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(stored[0]?.removed, true);
+      assert.equal(stored[0]?.claim, "[removed]");
+      const hold = await db.query<{ sealed: string; seal_status: string }>(
+        `select sealed, seal_status from board_csam_hold where post_id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(hold.length, 1);
+      assert.equal(hold[0]?.seal_status, "pending_seal");
+      const pending = JSON.parse(hold[0]?.sealed ?? "") as { claim: string };
+      assert.equal(pending.claim, claim);
+      assert.equal(await reencryptPendingHolds(db, store), 0);
+      const alerts = await db.query<{ kind: string }>(`select kind from board_admin_alert`);
+      assert.equal(alerts.length, 1);
+      assert.equal(alerts[0]?.kind, "csam_pending_seal");
+      assert.equal(store.objects.has(fileKey), false);
+      const moved = [...store.objects.keys()];
+      assert.equal(moved.length, 1);
+      const heldKey = moved[0] ?? "";
+      assert.equal(heldKey.startsWith("csam-hold/"), true);
+      assert.deepEqual(store.objects.get(heldKey)?.bytes, plain);
+      const reading = await readForMember(
+        { db, store, now: () => now, videoEnabled: false },
+        tom,
+        mediaId,
+      );
+      assert.equal(reading.ok, false);
+      const admin = await listBoard(db, josh, now);
+      assert.equal(admin.ok, true);
+      if (!admin.ok) return;
+      assert.equal(admin.value.csamReports[0]?.status, "pending_seal");
+      assert.equal(admin.value.adminAlerts[0]?.kind, "csam_pending_seal");
+      assert.equal(JSON.stringify(admin.value).includes(claim), false);
+      const bans = await db.query<{ reason: string; room_id: string }>(
+        `select reason, room_id from board_ban where user_id = $1`,
+        [maria],
+      );
+      assert.equal(bans[0]?.reason, "csam");
+      assert.equal(bans[0]?.room_id, "");
+
+      process.env.CSAM_HOLD_KEY = "test-hold-key-value";
+      assert.equal(await reencryptPendingHolds(db, store), 1);
+      const encrypted = store.objects.get(heldKey)?.bytes;
+      assert.ok(encrypted);
+      assert.notDeepEqual(encrypted, plain);
+      assert.deepEqual(Array.from(openBytes(encrypted ?? new Uint8Array())), Array.from(plain));
+      const sealed = await db.query<{ sealed: string; seal_status: string }>(
+        `select sealed, seal_status from board_csam_hold where post_id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(sealed[0]?.seal_status, "sealed");
+      assert.equal(sealed[0]?.sealed.startsWith("{"), false);
+      assert.equal(openHold(sealed[0]?.sealed ?? "").claim, claim);
+      assert.equal(await reencryptPendingHolds(db, store), 0);
+      assert.deepEqual(store.objects.get(heldKey)?.bytes, encrypted);
+
+      await db.query(
+        `update board_csam_hold set sealed = $2, seal_status = 'pending_seal' where post_id = $1`,
+        [posted.value.id, hold[0]?.sealed ?? ""],
+      );
+      assert.equal(await reencryptPendingHolds(db, store), 1);
+      assert.deepEqual(store.objects.get(heldKey)?.bytes, encrypted);
+      assert.deepEqual(
+        Array.from(openBytes(store.objects.get(heldKey)?.bytes ?? new Uint8Array())),
+        Array.from(plain),
+      );
+      assert.equal(await reencryptPendingHolds(db, store), 0);
+
+      const after = await listBoard(db, josh, now);
+      assert.equal(after.ok, true);
+      if (!after.ok) return;
+      assert.equal(after.value.csamReports[0]?.status, "prepared");
+      assert.equal(JSON.stringify(after.value).includes(claim), false);
+      const publicPost = await db.query<{ claim: string }>(
+        `select claim from board_post where id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(publicPost[0]?.claim, "[removed]");
+    });
   } finally {
     await close();
   }
@@ -331,6 +373,10 @@ test("CSAM is removed, banned, held for one year, and never returned", async () 
     if (!upheld.ok) return;
     assert.equal(upheld.value.appeal.decision, "uphold");
     assert.equal(upheld.value.posts.length, 0);
+    const ownUpheld = await listOwnAppeals(db, maria);
+    assert.equal(ownUpheld.find((row) => row.kind === "removal")?.decision, "uphold");
+    const stillOut = await listBoard(db, maria, now);
+    assert.equal(stillOut.ok, false);
 
     await assert.rejects(() => db.query(`delete from "user" where id = $1`, [maria]));
     const refused = await fileCsamReport(db, {
@@ -544,6 +590,11 @@ test("appeals and moderation logs stay with the author, that room's stewards, an
       const member = await listBoard(db, sam, now);
       const admin = await listBoard(db, josh, now);
       assert.equal(author.ok, false);
+      const own = await listOwnAppeals(db, maria);
+      const ownRemoval = own.find((row) => row.kind === "removal");
+      assert.equal(ownRemoval?.decision, null);
+      assert.equal(ownRemoval?.rule, "csam");
+      assert.equal((await listOwnAppeals(db, sam)).length, 0);
       assert.equal(shop.ok, true);
       assert.equal(county.ok, true);
       assert.equal(member.ok, true);
@@ -590,7 +641,24 @@ test("the hold key is HKDF or the raw 32 bytes, and the sweep is not the board",
   const host = readFileSync(new URL("../host.ts", import.meta.url), "utf8");
   const source = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(host, /startHoldSweep/);
+  assert.match(host, /warnMissingHoldKey/);
+  assert.match(host, /reencryptPendingHolds/);
   assert.equal(source.includes("purgeExpiredHolds"), false);
+});
+
+test("a missing hold key warns, and a set key stays quiet", async () => {
+  const lines: string[] = [];
+  await withHoldKey(undefined, async () => {
+    warnMissingHoldKey((message) => lines.push(message));
+  });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /WARNING/);
+  assert.match(lines[0] ?? "", /CSAM_HOLD_KEY/);
+  const quiet: string[] = [];
+  await withHoldKey("test-hold-key-value", async () => {
+    warnMissingHoldKey((message) => quiet.push(message));
+  });
+  assert.equal(quiet.length, 0);
 });
 
 test("migration 0010 can be applied twice and keeps its own trigger", async () => {
