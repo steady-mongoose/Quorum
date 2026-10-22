@@ -181,9 +181,9 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
   const removeCard = useBoard((state) => state.removeCard);
   const shown = witnesses.length >= 2;
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card} />
-      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       <p className="mt-1 text-sm text-muted">
         {witnesses.length === 0
@@ -253,13 +253,13 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const going = card.going.includes(rest.me);
 
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </Tags>
-      <h3 className="illum mt-2 text-xl text-fg">{card.name}</h3>
+      <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
       <p className="mt-1 text-sm text-muted">
