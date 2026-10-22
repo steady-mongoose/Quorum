@@ -158,10 +158,10 @@ test("a barred member cannot read the board, the invite log, or a picture", asyn
       "/api/home",
       "/api/invite-log",
       "/api/media/11111111-1111-4111-8111-111111111111",
+      "/api/groups",
+      "/api/groups/carpentry",
     ]) {
-      const response = await handler(
-        new Request(`http://127.0.0.1:8787${path}`, { headers }),
-      );
+      const response = await handler(new Request(`http://127.0.0.1:8787${path}`, { headers }));
       assert.equal(response.status, 403, path);
       const body = (await response.json()) as { error?: string; ban?: { reason?: string } };
       assert.equal(body.error, "banned", path);
