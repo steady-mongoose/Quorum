@@ -5,7 +5,8 @@
 // that group, or a steward of the room it was approved from, hears appeals.
 // A group approved from a room inherits that room's bar: a member barred
 // there cannot read or post in the group. Room chat and room calls use
-// only that room's own bar. A group cannot take a room's id. A seed group
+// only that room's own bar. A group cannot take a room's id, including one
+// named in the code list when that row is missing. A seed group
 // has no approving room. A steward grant with no room does not count.
 // Posts are newest first.
 // English only. No counts.
@@ -13,11 +14,13 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
+import { CODE_ROOM_IDS } from "../../src/lib/board/model.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/text.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
 import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
+import { banOpen } from "./ban.ts";
 import { openBan, type OpenBan, type Result } from "./store.ts";
 import type { RuleId } from "./rule.ts";
 
@@ -278,6 +281,7 @@ async function isJoined(db: Db, groupId: string, userId: string): Promise<boolea
 }
 
 async function roomIdTaken(db: Db, id: string): Promise<boolean> {
+  if (CODE_ROOM_IDS.has(id)) return true;
   const rows = await db.query<{ id: string }>(`select id from room where id = $1`, [id]);
   return Boolean(rows[0]);
 }
@@ -410,38 +414,49 @@ export async function listGroups(
     about: string;
     joined: unknown;
     admin: unknown;
+    ban_reason: string | null;
+    ban_strikes: number | string | null;
+    ban_until: Date | string | null;
   }>(
     `select g.id, g.name, g.about,
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
-            exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin
+            exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
+            b.reason as ban_reason, b.strikes as ban_strikes, b.until_at as ban_until
      from theme_group g
-     where not exists (
-       select 1
-       from theme_group_request r
-       join board_ban b on b.user_id = $1 and b.room_id = r.room_id
-       where r.group_id = g.id
-         and r.status = 'approved'
-         and r.room_id <> ''
-         and (
-           b.reason = 'csam'
-           or b.strikes >= 2
-           or b.until_at > $2::timestamptz
-         )
-     )
+     left join theme_group_request r
+       on r.group_id = g.id and r.status = 'approved' and r.room_id <> ''
+     left join board_ban b on b.user_id = $1 and b.room_id = r.room_id
      order by g.name asc, g.id asc`,
-    [userId, now],
+    [userId],
   );
-  return {
-    ok: true,
-    value: {
-      groups: rows.map((row) => ({
+  const at = now.getTime();
+  const hidden = new Set<string>();
+  const groups: ThemeGroup[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      groups.push({
         id: row.id,
         name: row.name,
         about: row.about,
         joined: flag(row.joined),
         admin: flag(row.admin),
-      })),
-    },
+      });
+    }
+    if (row.ban_reason == null || row.ban_strikes == null || row.ban_until == null) continue;
+    if (
+      banOpen(
+        { reason: row.ban_reason, strikes: Number(row.ban_strikes), until: atMs(row.ban_until) },
+        at,
+      )
+    ) {
+      hidden.add(row.id);
+    }
+  }
+  return {
+    ok: true,
+    value: { groups: groups.filter((group) => !hidden.has(group.id)) },
   };
 }
 

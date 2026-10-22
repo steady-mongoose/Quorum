@@ -1,3 +1,4 @@
+import { CODE_ROOM_IDS } from "../../src/lib/board/model.ts";
 import type { Db } from "../db.ts";
 
 function missingTable(error: unknown): boolean {
@@ -21,7 +22,10 @@ export async function approvedRoomIds(db: Db, groupId: string): Promise<string[]
   }
 }
 
-/** Groups a room steward approved. A room bar covers these calls as well. */
+/**
+ * Groups a room steward approved. A room bar covers these calls as well.
+ * An id that is a room, in the table or in the code list, is not a call to drop.
+ */
 export async function groupsApprovedFrom(db: Db, roomId: string): Promise<string[]> {
   if (!roomId) return [];
   try {
@@ -34,7 +38,7 @@ export async function groupsApprovedFrom(db: Db, roomId: string): Promise<string
          and not exists (select 1 from room m where m.id = r.group_id)`,
       [roomId],
     );
-    return rows.map((row) => row.group_id);
+    return rows.map((row) => row.group_id).filter((id) => !CODE_ROOM_IDS.has(id));
   } catch (error) {
     if (missingTable(error)) return [];
     throw error;
