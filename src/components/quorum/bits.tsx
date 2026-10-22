@@ -70,13 +70,7 @@ export function useCopy() {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      const area = document.createElement("textarea");
-      area.value = text;
-      area.setAttribute("readonly", "");
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+      return;
     }
     setCopied(key);
     window.setTimeout(() => {

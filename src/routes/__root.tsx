@@ -34,7 +34,6 @@ export const Route = createRootRoute({
       { rel: "stylesheet", href: "/backgrounds.css" },
       { rel: "stylesheet", href: "/fluid.css" },
       { rel: "stylesheet", href: "/engraved-adjust.css" },
-      { rel: "stylesheet", href: "/interactions.css" },
       {
         rel: "preload",
         href: "/fonts/EBGaramond-latin.woff2",

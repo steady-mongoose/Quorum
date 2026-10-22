@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Laurel } from "@/components/board/laurel";
 import { btn } from "@/components/quorum/bits";
-import { gatheringShare } from "@/lib/board/gathering";
+import { gatheringShare, SHARE_GATHERINGS } from "@/lib/board/gathering";
 import { cn } from "@/lib/cn";
 import type { MeetingCard } from "@/lib/board/model";
 
 /**
- * "I'll be there" toggles. The laurel and the gold rule run once, because
- * they are the next sibling of the pressed button. Share is a text link
- * with no count, and only after a yes.
+ * "I'll be there" becomes "You're going". The check is not part of the
+ * name, and the button does not also set aria-pressed. The laurel runs
+ * once, as the next sibling of the filled button. Sharing stays off until
+ * a public gathering page is approved.
  */
 export function RsvpControl({
   card,
@@ -25,17 +26,22 @@ export function RsvpControl({
         <button
           type="button"
           className={cn(btn, "btn-rsvp", going ? "btn-primary" : "border border-line bg-transparent text-fg")}
-          aria-pressed={going}
           onClick={onToggle}
         >
-          {going ? "You’re going ✓" : "I'll be there"}
+          {going ? (
+            <>
+              You’re going <span aria-hidden="true">✓</span>
+            </>
+          ) : (
+            "I'll be there"
+          )}
         </button>
         <div className="rsvp-mark" aria-hidden="true">
           <div className="rule" />
           <Laurel />
         </div>
       </div>
-      {going ? <ShareGathering card={card} /> : null}
+      {going && SHARE_GATHERINGS ? <ShareGathering card={card} /> : null}
     </div>
   );
 }
@@ -59,13 +65,7 @@ function ShareGathering({ card }: { card: MeetingCard }) {
     try {
       await navigator.clipboard.writeText(payload.url);
     } catch {
-      const area = document.createElement("textarea");
-      area.value = payload.url;
-      area.setAttribute("readonly", "");
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+      return;
     }
     setCopied(true);
   };

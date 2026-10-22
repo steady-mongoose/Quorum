@@ -30,12 +30,20 @@ type TransitionDocument = Document & {
   startViewTransition?: (update: () => void) => { finished: Promise<void> };
 };
 
-/**
- * Card to page. Reduced motion still calls this: backgrounds.css turns the
- * transition into a 120ms crossfade and drops every other animation.
- */
+/** Drop leftover names so two chips never share one transition. */
+export function clearChipNames(except?: HTMLElement) {
+  if (typeof document === "undefined") return;
+  for (const el of document.querySelectorAll<HTMLElement>("button")) {
+    if (el !== except && el.style.viewTransitionName) el.style.viewTransitionName = "";
+  }
+}
+
 export function withViewTransition(update: () => void) {
-  const finish = () => window.setTimeout(clearArmedRoom, 480);
+  const finish = () =>
+    window.setTimeout(() => {
+      clearArmedRoom();
+      clearChipNames();
+    }, 480);
   const doc = document as TransitionDocument;
   if (typeof doc.startViewTransition === "function") {
     const transition = doc.startViewTransition(() => {

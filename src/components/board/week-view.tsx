@@ -16,7 +16,7 @@ import {
 } from "@/lib/board/model";
 import { HomePanel } from "@/components/board/home-view";
 import { RsvpControl } from "@/components/board/rsvp-control";
-import { armRoom, withViewTransition } from "@/lib/board/motion";
+import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -102,6 +102,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
           type="button"
           className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg"
           onClick={(event) => {
+            clearChipNames(event.currentTarget);
             event.currentTarget.style.viewTransitionName = `card-${card.room}`;
             armRoom(card.room);
             withViewTransition(() => setRoom(card.room));
