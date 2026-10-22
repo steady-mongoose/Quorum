@@ -11,7 +11,7 @@ export function PrimaryHaptic() {
       if (event.pointerType === "mouse") return;
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest(".btn-primary")) return;
+      if (!target.closest(".btn-primary, .btn-rsvp")) return;
       const now = performance.now();
       if (now - last < 400) return;
       last = now;

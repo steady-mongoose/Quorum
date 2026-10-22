@@ -24,14 +24,14 @@ export function RsvpControl({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          className={cn(btn, "btn-primary")}
+          className={cn(btn, "btn-rsvp", going ? "btn-primary" : "border border-line bg-transparent text-fg")}
           aria-pressed={going}
           onClick={onToggle}
         >
           {going ? "You’re going ✓" : "I'll be there"}
         </button>
         <div className="rsvp-mark" aria-hidden="true">
-          <div className="rule" style={{ width: 110 }} />
+          <div className="rule" />
           <Laurel />
         </div>
       </div>
@@ -74,7 +74,7 @@ function ShareGathering({ card }: { card: MeetingCard }) {
     <p className="text-sm">
       <button
         type="button"
-        className="text-fg underline decoration-[var(--gilt)] underline-offset-[3px]"
+        className="text-fg underline decoration-[var(--gold)] underline-offset-[3px]"
         onClick={share}
       >
         Share this gathering

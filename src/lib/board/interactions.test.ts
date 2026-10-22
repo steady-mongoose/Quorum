@@ -109,6 +109,23 @@ test("tap interactions add no count, badge, or feed gesture", () => {
   assert.match(motion, /prefers-reduced-motion:\s*reduce/);
   assert.match(motion, /fade-in/);
   assert.equal(motion.includes("/art/"), false);
+  assert.match(motion, /user-select:\s*none/);
+  assert.match(motion, /-webkit-touch-callout:\s*none/);
+  assert.match(motion, /\.laurel\{width:46px/);
+  assert.equal(motion.includes("#b08d4a"), false);
+  assert.equal(motion.includes("@font-face"), false);
+  const quote = read("../../components/board/quote-card.tsx");
+  assert.match(quote, /quote-hold/);
+  assert.match(quote, /onContextMenu/);
+  assert.match(quote, /#c9a45c/);
+  assert.match(quote, /#14100c/);
+  assert.equal(quote.includes("#b08d4a"), false);
+  const page = read("../../routes/e/$id.tsx");
+  assert.match(page, /townOf\(card\.place\)/);
+  assert.equal(page.includes("card.host"), false);
+  assert.equal(page.includes("card.going"), false);
+  assert.match(rsvp, /btn-primary/);
+  assert.match(rsvp, /bg-transparent/);
 });
 
 function read(path: string): string {

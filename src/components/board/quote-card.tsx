@@ -9,10 +9,10 @@ import {
   type PublicQuote,
 } from "@/lib/board/quote";
 
-const GOLD = "#b08d4a";
-const INK = "#f3efe6";
-const MUTED = "#a6b5a4";
-const ACCENT = "#e9e2c8";
+const GOLD = "#c9a45c";
+const INK = "#f0e7d3";
+const MUTED = "#bcae94";
+const ACCENT = "#b4483e";
 
 /**
  * Long-press the quotation, or use "Make a quote card". The card cites the
@@ -43,10 +43,9 @@ export function QuotePassage({
   return (
     <>
       <p
-        className="mt-2 max-w-prose text-base text-fg"
+        className={quote ? "quote-hold mt-2 max-w-prose text-base text-fg" : "mt-2 max-w-prose text-base text-fg"}
         onPointerDown={(event) => {
           if (!quote || event.button !== 0) return;
-          origin.current = { x: event.clientX, y: event.clientY };
           clear();
           origin.current = { x: event.clientX, y: event.clientY };
           timer.current = window.setTimeout(() => {
@@ -62,6 +61,9 @@ export function QuotePassage({
         }}
         onPointerUp={clear}
         onPointerCancel={clear}
+        onContextMenu={(event) => {
+          if (quote) event.preventDefault();
+        }}
       >
         {claim}
       </p>
@@ -200,8 +202,8 @@ function drawQuoteCard(
   const { width, height } = size;
   const lines = quoteCardLines(quote);
   const gradient = ctx.createRadialGradient(width / 2, 0, 40, width / 2, height * 0.15, width);
-  gradient.addColorStop(0, "#1e3025");
-  gradient.addColorStop(0.72, "#0f1a14");
+  gradient.addColorStop(0, "#241d16");
+  gradient.addColorStop(0.72, "#14100c");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
