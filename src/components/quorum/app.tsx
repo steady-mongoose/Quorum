@@ -31,7 +31,7 @@ export function QuorumPanel() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Kicker>The desk</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
+        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
         <p className="max-w-prose text-base text-muted">
           Scattered emails to every office get ignored. What staff notice is a hundred calls to the one official whose desk a bill is sitting on, in one morning, all asking for the same thing. This page tells you who that official is, what to say, when to call, and lets you record that you called.
         </p>
