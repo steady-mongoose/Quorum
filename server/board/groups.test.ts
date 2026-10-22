@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { roomCallMember } from "../calls/membership.ts";
+import { bindCallEviction } from "../calls/evict.ts";
+import { createCallStore } from "../calls/store.ts";
+import { listChat, sendChat } from "../chat/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
+import { listHome } from "./places-store.ts";
+import { banMember, createPost, openBan } from "./store.ts";
 import {
   appealGroupPost,
   createGroupPost,
@@ -1414,6 +1420,272 @@ test("deleting an account clears that name from the group tables", async () => {
   }
 });
 
+test("a group inherits a ban from the room that approved it", async () => {
+  const { db, close } = await openTestDb();
+  const calls = createCallStore();
+  bindCallEviction(calls);
+  try {
+    const maria = randomUUID();
+    const ruth = randomUUID();
+    const pete = randomUUID();
+    const josh = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-inherit@example.com");
+    await user(db, ruth, "Ruth", "ruth-inherit@example.com");
+    await user(db, pete, "Pete", "pete-inherit@example.com");
+    await user(db, josh, "Josh", "josh-inherit@example.com");
+    await user(db, tom, "Tom", "tom-inherit@example.com");
+    await user(db, ada, "Ada", "ada-inherit@example.com");
+    for (const [id, name] of [
+      [maria, "Maria"],
+      [ruth, "Ruth"],
+      [pete, "Pete"],
+      [josh, "Josh"],
+      [tom, "Tom"],
+      [ada, "Ada"],
+    ] as const) {
+      await grant(db, id, name, "member");
+    }
+    await grant(db, josh, "Josh", "steward", "shop");
+    await grant(db, tom, "Tom", "steward", "county");
+    await stand(db, "shop", maria);
+    await stand(db, "shop", ruth);
+    await stand(db, "shop", pete);
+    await stand(db, "county", ruth);
+    await stand(db, "county", maria);
+
+    const shopAsk = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      groupName: "Beekeeping",
+      about: "Hives and the first spring check.",
+      now,
+    });
+    assert.equal(shopAsk.ok, true);
+    if (!shopAsk.ok) return;
+    const shopYes = await decideGroupRequest(db, {
+      userId: josh,
+      name: "Josh",
+      requestId: shopAsk.value.id,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(1),
+    });
+    assert.equal(shopYes.ok, true);
+
+    const countyAsk = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      groupName: "Weaving",
+      about: "Looms and the next warp.",
+      now: later(2),
+    });
+    assert.equal(countyAsk.ok, true);
+    if (!countyAsk.ok) return;
+    const countyYes = await decideGroupRequest(db, {
+      userId: tom,
+      name: "Tom",
+      requestId: countyAsk.value.id,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(3),
+    });
+    assert.equal(countyYes.ok, true);
+
+    for (const groupId of ["beekeeping", "weaving"]) {
+      const joined = await joinGroup(db, {
+        userId: ruth,
+        name: "Ruth",
+        groupId,
+        now: later(4),
+      });
+      assert.equal(joined.ok, true);
+      const peteJoined = await joinGroup(db, {
+        userId: pete,
+        name: "Pete",
+        groupId,
+        now: later(4),
+      });
+      assert.equal(peteJoined.ok, true);
+    }
+    const before = await createGroupPost(db, {
+      userId: ruth,
+      name: "Ruth",
+      groupId: "beekeeping",
+      body: "The hive is quiet and the frames are straight.",
+      on: "",
+      now: later(5),
+    });
+    assert.equal(before.ok, true);
+    const posted = await createPost(db, {
+      userId: ruth,
+      name: "Ruth",
+      roomId: "shop",
+      body: {
+        type: "did",
+        claim: "Sharpened the chisels in the shop.",
+        reason: "Tom checked them on Thursday.",
+        on: "2026-10-18",
+      },
+      now: later(5),
+    });
+    assert.equal(posted.ok, true);
+
+    const at = later(6).getTime();
+    calls.join("shop", { id: ruth, name: "Ruth" }, at);
+    calls.join("county", { id: ruth, name: "Ruth" }, at);
+    calls.join("beekeeping", { id: ruth, name: "Ruth" }, at);
+    calls.join("weaving", { id: ruth, name: "Ruth" }, at);
+
+    const barred = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "ruth-inherit@example.com",
+      reason: "threat",
+      roomId: "shop",
+      now: later(6),
+    });
+    assert.equal(barred.ok, true);
+    if (!barred.ok) return;
+    assert.equal(barred.value.reason, "threat");
+    assert.equal(calls.poll("shop", ruth, 0, at + 1).ok, false);
+    assert.equal(calls.poll("beekeeping", ruth, 0, at + 1).ok, false);
+    assert.equal(calls.poll("county", ruth, 0, at + 1).ok, true);
+    assert.equal(calls.poll("weaving", ruth, 0, at + 1).ok, true);
+
+    const directory = await listGroups(db, ruth, later(7));
+    assert.equal(directory.ok, true);
+    if (!directory.ok) return;
+    const ids = directory.value.groups.map((group) => group.id);
+    assert.equal(ids.includes("beekeeping"), false);
+    assert.equal(ids.includes("weaving"), true);
+    assert.equal(ids.includes("carpentry"), true);
+
+    const shopGroup = await listGroup(db, ruth, "beekeeping", later(7));
+    assert.equal(shopGroup.ok, false);
+    if (shopGroup.ok) return;
+    assert.equal(shopGroup.status, 403);
+    assert.equal(shopGroup.error, "banned");
+    assert.equal(shopGroup.ban?.reason, "threat");
+    const shopPost = await createGroupPost(db, {
+      userId: ruth,
+      name: "Ruth",
+      groupId: "beekeeping",
+      body: "One more note on the hive.",
+      on: "",
+      now: later(7),
+    });
+    assert.equal(shopPost.ok, false);
+    if (shopPost.ok) return;
+    assert.equal(shopPost.error, "banned");
+    const shopJoin = await joinGroup(db, {
+      userId: ruth,
+      name: "Ruth",
+      groupId: "beekeeping",
+      now: later(7),
+    });
+    assert.equal(shopJoin.ok, false);
+    if (shopJoin.ok) return;
+    assert.equal(shopJoin.error, "banned");
+
+    const countyGroup = await listGroup(db, ruth, "weaving", later(7));
+    assert.equal(countyGroup.ok, true);
+    const countyPost = await createGroupPost(db, {
+      userId: ruth,
+      name: "Ruth",
+      groupId: "weaving",
+      body: "The warp is on and the shuttle is ready.",
+      on: "",
+      now: later(7),
+    });
+    assert.equal(countyPost.ok, true);
+    const seed = await listGroup(db, ruth, "carpentry", later(7));
+    assert.equal(seed.ok, true);
+
+    const shopChat = await listChat(db, { userId: ruth, roomId: "beekeeping", now: later(7) });
+    assert.equal(shopChat.ok, false);
+    if (shopChat.ok) return;
+    assert.equal(shopChat.error, "That room is not here.");
+    const shopSend = await sendChat(db, {
+      userId: ruth,
+      name: "Ruth",
+      roomId: "beekeeping",
+      text: "The hive is still quiet.",
+      now: later(7),
+    });
+    assert.equal(shopSend.ok, false);
+    if (shopSend.ok) return;
+    assert.notEqual(shopSend.error, "banned");
+    const roomChat = await listChat(db, { userId: ruth, roomId: "shop", now: later(7) });
+    assert.equal(roomChat.ok, false);
+    if (roomChat.ok) return;
+    assert.equal(roomChat.error, "banned");
+    const countyChat = await listChat(db, { userId: ruth, roomId: "county", now: later(7) });
+    assert.equal(countyChat.ok, true);
+    const otherChat = await listChat(db, { userId: pete, roomId: "beekeeping", now: later(7) });
+    assert.equal(otherChat.ok, false);
+    if (otherChat.ok) return;
+    assert.notEqual(otherChat.error, "banned");
+
+    assert.equal((await roomCallMember(db, ruth, "beekeeping", later(7))).kind, "outsider");
+    assert.equal((await roomCallMember(db, ruth, "shop", later(7))).kind, "banned");
+    assert.equal((await roomCallMember(db, ruth, "county", later(7))).kind, "member");
+    assert.equal((await roomCallMember(db, pete, "beekeeping", later(7))).kind, "outsider");
+
+    const still = await listGroup(db, pete, "beekeeping", later(7));
+    assert.equal(still.ok, true);
+    const petePost = await createGroupPost(db, {
+      userId: pete,
+      name: "Pete",
+      groupId: "beekeeping",
+      body: "I checked the entrance and it is clear.",
+      on: "",
+      now: later(7),
+    });
+    assert.equal(petePost.ok, true);
+
+    const home = await listHome(db, ruth, later(7));
+    assert.equal(home.ok, true);
+    const asked = await requestGroup(db, {
+      userId: ruth,
+      name: "Ruth",
+      roomId: "shop",
+      groupName: "Soapmaking",
+      about: "Lye, fat, and a cure time.",
+      now: later(8),
+    });
+    assert.equal(asked.ok, false);
+    if (asked.ok) return;
+    assert.equal(asked.error, "banned");
+
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Ada', 'porn', 'Josh', 2, $3, '', $4)`,
+      [randomUUID(), ada, new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000), later(9)],
+    );
+    const adaGroups = await listGroups(db, ada, later(9));
+    assert.equal(adaGroups.ok, false);
+    if (adaGroups.ok) return;
+    assert.equal(adaGroups.error, "banned");
+    const adaSeed = await listGroup(db, ada, "carpentry", later(9));
+    assert.equal(adaSeed.ok, false);
+    if (adaSeed.ok) return;
+    assert.equal(adaSeed.error, "banned");
+    await stand(db, "county", ada);
+    assert.equal((await roomCallMember(db, ada, "county", later(9))).kind, "banned");
+    const adaChat = await listChat(db, { userId: ada, roomId: "county", now: later(9) });
+    assert.equal(adaChat.ok, false);
+    if (adaChat.ok) return;
+    assert.equal(adaChat.error, "banned");
+  } finally {
+    bindCallEviction(createCallStore());
+    await close();
+  }
+});
+
 test("a group removal can name doxxing or blasphemy", async () => {
   const { db, close } = await openTestDb();
   try {
@@ -1472,6 +1744,376 @@ test("a group removal can name doxxing or blasphemy", async () => {
     });
     assert.equal(blasphemy.ok, true);
   } finally {
+    await close();
+  }
+});
+
+test("Coop cannot be a group, and a shop bar does not close the Coop room", async () => {
+  const { db, close } = await openTestDb();
+  const calls = createCallStore();
+  bindCallEviction(calls);
+  try {
+    const maria = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-coop@example.com");
+    await user(db, josh, "Josh", "josh-coop@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
+    await stand(db, "shop", maria);
+    await stand(db, "coop", maria);
+
+    const asked = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      groupName: "Coop",
+      about: "Eggs, feed, and the morning round.",
+      now,
+    });
+    assert.equal(asked.ok, false);
+    if (asked.ok) return;
+    assert.equal(asked.error, "That name is already a room.");
+    const filed = await db.query<{ id: string }>(
+      `select id from theme_group_request where group_id = 'coop'`,
+    );
+    assert.equal(filed.length, 0);
+
+    const openId = randomUUID();
+    await db.query(
+      `insert into theme_group_request
+       (id, group_id, name, about, by_user_id, by_name, room_id, status, open_key, created_at)
+       values ($1, 'coop', 'Coop', 'Eggs, feed, and the morning round.', $2, 'Maria', 'shop', 'open', 'coop', $3)`,
+      [openId, maria, now],
+    );
+    const approved = await decideGroupRequest(db, {
+      userId: josh,
+      name: "Josh",
+      requestId: openId,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(1),
+    });
+    assert.equal(approved.ok, false);
+    if (approved.ok) return;
+    assert.equal(approved.error, "That name is already a room.");
+    const created = await db.query<{ id: string }>(`select id from theme_group where id = 'coop'`);
+    assert.equal(created.length, 0);
+
+    await db.query(
+      `insert into theme_group (id, name, about, created_at) values ('coop', 'Coop', 'A leftover collision.', $1)`,
+      [later(2)],
+    );
+    await db.query(
+      `update theme_group_request
+       set status = 'approved', open_key = null, note = 'Left over from before the check.'
+       where id = $1`,
+      [openId],
+    );
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: {
+        type: "did",
+        claim: "Sharpened the chisels in the shop.",
+        reason: "Tom checked them on Thursday.",
+        on: "2026-10-18",
+      },
+      now: later(3),
+    });
+    assert.equal(posted.ok, true);
+    const at = later(4).getTime();
+    calls.join("shop", { id: maria, name: "Maria" }, at);
+    calls.join("coop", { id: maria, name: "Maria" }, at);
+    const barred = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "maria-coop@example.com",
+      reason: "threat",
+      roomId: "shop",
+      now: later(4),
+    });
+    assert.equal(barred.ok, true);
+    assert.equal(calls.poll("shop", maria, 0, at + 1).ok, false);
+    assert.equal(calls.poll("coop", maria, 0, at + 1).ok, true);
+
+    const chat = await listChat(db, { userId: maria, roomId: "coop", now: later(5) });
+    assert.equal(chat.ok, true);
+    assert.equal((await roomCallMember(db, maria, "coop", later(5))).kind, "member");
+    const shopChat = await listChat(db, { userId: maria, roomId: "shop", now: later(5) });
+    assert.equal(shopChat.ok, false);
+    if (shopChat.ok) return;
+    assert.equal(shopChat.error, "banned");
+    const group = await listGroup(db, maria, "coop", later(5));
+    assert.equal(group.ok, false);
+    if (group.ok) return;
+    assert.equal(group.error, "banned");
+  } finally {
+    bindCallEviction(createCallStore());
+    await close();
+  }
+});
+
+test("the group list reads room bars in one query", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const pete = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-list@example.com");
+    await user(db, pete, "Pete", "pete-list@example.com");
+    await user(db, josh, "Josh", "josh-list@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, pete, "Pete", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
+    await stand(db, "shop", maria);
+    for (const [name, about, at] of [
+      ["Beekeeping", "Hives and the first spring check.", 1],
+      ["Soapmaking", "Lye, fat, and a cure time.", 2],
+      ["Knifemaking", "Blades and handles, not a shop voucher.", 3],
+    ] as const) {
+      const asked = await requestGroup(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        groupName: name,
+        about,
+        now: later(at),
+      });
+      assert.equal(asked.ok, true);
+      if (!asked.ok) return;
+      const decided = await decideGroupRequest(db, {
+        userId: josh,
+        name: "Josh",
+        requestId: asked.value.id,
+        decision: "approved",
+        note: "Members asked for this group.",
+        now: later(at),
+      });
+      assert.equal(decided.ok, true);
+    }
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Pete', 'threat', 'Josh', 1, $3, 'shop', $4)`,
+      [randomUUID(), pete, new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), later(4)],
+    );
+    const query = db.query.bind(db);
+    let banQueries = 0;
+    db.query = async <T>(text: string, params?: unknown[]) => {
+      if (text.includes("board_ban")) banQueries += 1;
+      return query<T>(text, params);
+    };
+    const listed = await listGroups(db, pete, later(5));
+    assert.equal(listed.ok, true);
+    if (!listed.ok) return;
+    const ids = listed.value.groups.map((group) => group.id);
+    assert.equal(ids.includes("beekeeping"), false);
+    assert.equal(ids.includes("soapmaking"), false);
+    assert.equal(ids.includes("knifemaking"), false);
+    assert.equal(ids.includes("carpentry"), true);
+    assert.equal(banQueries, 2);
+  } finally {
+    await close();
+  }
+});
+
+test("the group list hides a group exactly when openBan would", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const pete = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-rule@example.com");
+    await user(db, pete, "Pete", "pete-rule@example.com");
+    await user(db, josh, "Josh", "josh-rule@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, pete, "Pete", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
+    await stand(db, "shop", maria);
+    const asked = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      groupName: "Candles",
+      about: "Tallow and the next pour.",
+      now,
+    });
+    assert.equal(asked.ok, true);
+    if (!asked.ok) return;
+    const decided = await decideGroupRequest(db, {
+      userId: josh,
+      name: "Josh",
+      requestId: asked.value.id,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(1),
+    });
+    assert.equal(decided.ok, true);
+    const at = later(10);
+    const cases: { strikes: number; until: Date; reason: string; open: boolean }[] = [
+      { strikes: 1, until: new Date(at.getTime() + 1), reason: "threat", open: true },
+      { strikes: 1, until: at, reason: "threat", open: false },
+      { strikes: 1, until: new Date(at.getTime() - 1), reason: "threat", open: false },
+      { strikes: 2, until: new Date(at.getTime() - 1), reason: "threat", open: true },
+      { strikes: 1, until: new Date(at.getTime() - 1), reason: "csam", open: true },
+      { strikes: 1, until: new Date(at.getTime() - 1), reason: "porn", open: false },
+      { strikes: 1, until: new Date(at.getTime() - 1), reason: "doxxing", open: false },
+      { strikes: 1, until: new Date(at.getTime() - 1), reason: "blasphemy", open: false },
+    ];
+    for (const item of cases) {
+      await db.query(`delete from board_ban where user_id = $1`, [pete]);
+      await db.query(
+        `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+         values ($1, $2, 'Pete', $3, 'Josh', $4, $5, 'shop', $6)`,
+        [randomUUID(), pete, item.reason, item.strikes, item.until, later(2)],
+      );
+      const ban = await openBan(db, pete, at, "shop");
+      const listed = await listGroups(db, pete, at);
+      assert.equal(listed.ok, true);
+      if (!listed.ok) return;
+      const hidden = !listed.value.groups.some((group) => group.id === "candles");
+      assert.equal(ban !== null, item.open, item.reason);
+      assert.equal(hidden, ban !== null, item.reason);
+    }
+    await db.query(`delete from board_ban where user_id = $1`, [pete]);
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Pete', 'threat', 'Josh', 2, $3, 'shop', $4)`,
+      [randomUUID(), pete, new Date(at.getTime() - 1), later(2)],
+    );
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Pete', 'threat', 'Josh', 1, $3, 'shop', $4)`,
+      [randomUUID(), pete, at, later(3)],
+    );
+    const older = await openBan(db, pete, at, "shop");
+    const listed = await listGroups(db, pete, at);
+    assert.equal(listed.ok, true);
+    if (!listed.ok) return;
+    assert.notEqual(older, null);
+    assert.equal(
+      listed.value.groups.some((group) => group.id === "candles"),
+      false,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a group cannot take a room id that lives only in the code list", async () => {
+  const { db, close } = await openTestDb();
+  const calls = createCallStore();
+  bindCallEviction(calls);
+  try {
+    const maria = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-code-room@example.com");
+    await user(db, josh, "Josh", "josh-code-room@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "steward", "shop");
+    await stand(db, "shop", maria);
+    await db.query(`delete from room where id = 'dispatch'`);
+    const gone = await db.query<{ id: string }>(`select id from room where id = 'dispatch'`);
+    assert.equal(gone.length, 0);
+
+    const asked = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      groupName: "Dispatch",
+      about: "Notices that are not the steward bulletin.",
+      now,
+    });
+    assert.equal(asked.ok, false);
+    if (asked.ok) return;
+    assert.equal(asked.error, "That name is already a room.");
+    const filed = await db.query<{ id: string }>(
+      `select id from theme_group_request where group_id = 'dispatch'`,
+    );
+    assert.equal(filed.length, 0);
+
+    const openId = randomUUID();
+    await db.query(
+      `insert into theme_group_request
+       (id, group_id, name, about, by_user_id, by_name, room_id, status, open_key, created_at)
+       values ($1, 'dispatch', 'Dispatch', 'Notices that are not the steward bulletin.', $2, 'Maria', 'shop', 'open', 'dispatch', $3)`,
+      [openId, maria, now],
+    );
+    const approved = await decideGroupRequest(db, {
+      userId: josh,
+      name: "Josh",
+      requestId: openId,
+      decision: "approved",
+      note: "Members asked for this group.",
+      now: later(1),
+    });
+    assert.equal(approved.ok, false);
+    if (approved.ok) return;
+    assert.equal(approved.error, "That name is already a room.");
+
+    await db.query(
+      `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order)
+       values ('mill', 'The Mill', 'Grain and the weekly grind.', array['did'], array['noted'], array['meeting'], 'Meeting', false, false, 40)`,
+    );
+    const mill = await requestGroup(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      groupName: "Mill",
+      about: "Grain and the weekly grind, as a group.",
+      now: later(2),
+    });
+    assert.equal(mill.ok, false);
+    if (mill.ok) return;
+    assert.equal(mill.error, "That name is already a room.");
+
+    await db.query(
+      `insert into theme_group (id, name, about, created_at) values ('dispatch', 'Dispatch', 'A leftover collision.', $1)`,
+      [later(3)],
+    );
+    await db.query(
+      `update theme_group_request
+       set status = 'approved', open_key = null, note = 'Left over from before the check.'
+       where id = $1`,
+      [openId],
+    );
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: {
+        type: "did",
+        claim: "Sharpened the chisels in the shop.",
+        reason: "Tom checked them on Thursday.",
+        on: "2026-10-18",
+      },
+      now: later(4),
+    });
+    assert.equal(posted.ok, true);
+    const at = later(5).getTime();
+    calls.join("dispatch", { id: maria, name: "Maria" }, at);
+    calls.join("shop", { id: maria, name: "Maria" }, at);
+    const barred = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "maria-code-room@example.com",
+      reason: "threat",
+      roomId: "shop",
+      now: later(5),
+    });
+    assert.equal(barred.ok, true);
+    assert.equal(calls.poll("shop", maria, 0, at + 1).ok, false);
+    assert.equal(calls.poll("dispatch", maria, 0, at + 1).ok, true);
+    const group = await listGroup(db, maria, "dispatch", later(6));
+    assert.equal(group.ok, false);
+    if (group.ok) return;
+    assert.equal(group.error, "banned");
+  } finally {
+    bindCallEviction(createCallStore());
     await close();
   }
 });

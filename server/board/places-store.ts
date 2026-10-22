@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { queryBanTable } from "./ban-check.ts";
+import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -61,7 +62,8 @@ function atMs(value: Date | string | number): number {
 
 /**
  * Home, vouching, a ZIP correction, and a room request look at site-wide bars only.
- * A room bar does not block those. A theme group does not inherit a room bar.
+ * A room bar does not block those. A theme group approved from a room inherits
+ * that room's bar on the group itself.
  */
 async function openBan(
   db: Db,
@@ -79,7 +81,7 @@ async function openBan(
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
     const reason = ruleId(row.reason);
-    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
+    if (!banOpen({ reason, strikes, until }, now.getTime())) continue;
     return { until, strikes, reason };
   }
   return null;

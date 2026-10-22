@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
+import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
@@ -311,7 +312,11 @@ export async function removeChatMessage(
   if (!saved) return fail(404, "That message is not here.");
   if (message.author_user_id) {
     if (saved.siteWide) evictCallMember(message.author_user_id);
-    else evictCallMember(message.author_user_id, [input.roomId]);
+    else
+      evictCallMember(message.author_user_id, [
+        input.roomId,
+        ...(await groupsApprovedFrom(db, input.roomId)),
+      ]);
   }
   console.log(JSON.stringify({ event: "chat-removed", messageId: message.id, reason }));
   return {

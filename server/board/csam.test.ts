@@ -26,7 +26,16 @@ import {
   warnMissingHoldKey,
   withHoldKey,
 } from "./csam.ts";
-import { createPost, decideAppeal, fileAppeal, listBoard, listOwnAppeals, markPost, removePost } from "./store.ts";
+import {
+  createPost,
+  decideAppeal,
+  fileAppeal,
+  listBoard,
+  listOwnAppeals,
+  markPost,
+  removePost,
+  setRemovePostAfterSaveForTests,
+} from "./store.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
 
@@ -395,6 +404,138 @@ test("a failed CSAM removal deletes the hold copies and leaves the post public",
       assert.equal(bans.length, 0);
       assert.deepEqual(store.objects.get(media.fileKey)?.bytes, plain);
       assert.equal([...store.objects.keys()].some((key) => key.startsWith("csam-hold/")), false);
+    } finally {
+      await close();
+    }
+  });
+});
+
+test("a committed hold stays when a later step throws", async () => {
+  await withHoldKey("test-hold-key-value", async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const maria = randomUUID();
+      const tom = randomUUID();
+      await user(db, maria, "Maria", "maria-later@example.com");
+      await user(db, tom, "Tom", "tom-later@example.com");
+      await grant(db, maria, "Maria", "member");
+      await grant(db, tom, "Tom", "member");
+      await grant(db, tom, "Tom", "steward", "shop");
+      const posted = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { type: "did", claim, reason: "Tom checked them on Thursday.", on: "2026-10-18" },
+        now,
+      });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const store = createMemoryStore();
+      const plain = Uint8Array.of(3, 1, 4, 1);
+      const media = await attachImage(db, store, maria, posted.value.id, plain);
+      setRemovePostAfterSaveForTests(() => {
+        throw new Error("after the save");
+      });
+      try {
+        await assert.rejects(
+          () =>
+            removePost(db, {
+              userId: tom,
+              name: "Tom",
+              postId: posted.value.id,
+              reason: "csam",
+              now,
+              store,
+            }),
+          /after the save/,
+        );
+      } finally {
+        setRemovePostAfterSaveForTests(undefined);
+      }
+      const stored = await db.query<{ claim: string; removed: boolean }>(
+        `select claim, removed from board_post where id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(stored[0]?.removed, true);
+      assert.equal(stored[0]?.claim, "[removed]");
+      assert.equal(store.objects.has(media.fileKey), false);
+      const held = [...store.objects.keys()].filter((key) => key.startsWith("csam-hold/"));
+      assert.equal(held.length, 1);
+      assert.deepEqual(
+        Array.from(openBytes(store.objects.get(held[0] ?? "")?.bytes ?? new Uint8Array())),
+        Array.from(plain),
+      );
+    } finally {
+      await close();
+    }
+  });
+});
+
+test("a reseal logs and leaves the hold when the lock is already held", async () => {
+  await withHoldKey(undefined, async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const maria = randomUUID();
+      const tom = randomUUID();
+      await user(db, maria, "Maria", "maria-lock@example.com");
+      await user(db, tom, "Tom", "tom-lock@example.com");
+      await grant(db, maria, "Maria", "member");
+      await grant(db, tom, "Tom", "member");
+      await grant(db, tom, "Tom", "steward", "shop");
+      const posted = await createPost(db, {
+        userId: maria,
+        name: "Maria",
+        roomId: "shop",
+        body: { type: "did", claim, reason: "Tom checked them on Thursday.", on: "2026-10-18" },
+        now,
+      });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const store = createMemoryStore();
+      const plain = Uint8Array.of(2, 2, 2, 2);
+      await attachImage(db, store, maria, posted.value.id, plain);
+      const removed = await removePost(db, {
+        userId: tom,
+        name: "Tom",
+        postId: posted.value.id,
+        reason: "csam",
+        now,
+        store,
+      });
+      assert.equal(removed.ok, true);
+      process.env.CSAM_HOLD_KEY = "test-hold-key-value";
+      const seen: string[] = [];
+      const watching: Db = {
+        async query<T>(text: string, params?: unknown[]) {
+          seen.push(text);
+          if (text.includes("pg_try_advisory_lock")) return [{ locked: false }] as T[];
+          return db.query<T>(text, params);
+        },
+        transaction: (fn) => db.transaction(fn),
+        session: (fn) => fn(watching),
+      };
+      const lines: string[] = [];
+      const original = console.log;
+      console.log = (message?: unknown, ...rest: unknown[]) => {
+        lines.push(String(message));
+        original(message, ...rest);
+      };
+      try {
+        assert.equal(await reencryptPendingHolds(watching, store), 0);
+      } finally {
+        console.log = original;
+      }
+      assert.equal(lines.some((line) => line.includes("csam-hold-reseal-skipped")), true);
+      assert.equal(lines.some((line) => line.includes("lock-held")), true);
+      assert.equal(seen.some((sql) => sql.includes("pg_advisory_unlock")), false);
+      assert.equal(seen.some((sql) => sql.includes("update board_csam_hold")), false);
+      const heldKey = [...store.objects.keys()].find((key) => key.startsWith("csam-hold/")) ?? "";
+      assert.deepEqual(store.objects.get(heldKey)?.bytes, plain);
+      const pending = await db.query<{ seal_status: string }>(
+        `select seal_status from board_csam_hold where post_id = $1`,
+        [posted.value.id],
+      );
+      assert.equal(pending[0]?.seal_status, "pending_seal");
     } finally {
       await close();
     }

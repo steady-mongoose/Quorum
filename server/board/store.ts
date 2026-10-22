@@ -21,6 +21,8 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
+import { groupsApprovedFrom } from "./group-rooms.ts";
+import { banOpen } from "./ban.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
@@ -325,7 +327,7 @@ export async function openBan(
     const strikes = Number(row.strikes);
     const until = atMs(row.until_at);
     const reason = ruleId(row.reason);
-    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
+    if (!banOpen({ reason, strikes, until }, now.getTime())) continue;
     return { until, strikes, reason };
   }
   return null;
@@ -1083,6 +1085,13 @@ export async function markPost(
   };
 }
 
+/** Tests throw from here after a removal commits. Production leaves this unset. */
+let afterRemovePostSaved: (() => void) | undefined;
+
+export function setRemovePostAfterSaveForTests(hook: (() => void) | undefined): void {
+  afterRemovePostSaved = hook;
+}
+
 export async function removePost(
   db: Db,
   input: {
@@ -1160,11 +1169,18 @@ export async function removePost(
         roomId: siteWide ? "" : post.room_id,
       });
     });
+    // The save committed. Drop the rollback list so a later error cannot delete the evidence.
+    heldKeys.length = 0;
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
-    else evictCallMember(post.author_user_id, [post.room_id]);
+    else
+      evictCallMember(post.author_user_id, [
+        post.room_id,
+        ...(await groupsApprovedFrom(db, post.room_id)),
+      ]);
     if (alert) scheduleHoldAlert(alert);
+    afterRemovePostSaved?.();
     return {
       ok: true,
       value: {
@@ -1270,7 +1286,7 @@ export async function banMember(
     roomId: siteWide ? "" : roomId,
   });
   if (siteWide) evictCallMember(person.id);
-  else evictCallMember(person.id, [roomId]);
+  else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
 }
 
