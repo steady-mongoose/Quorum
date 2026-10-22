@@ -57,7 +57,8 @@ function atMs(value: Date | string | number): number {
 
 /**
  * Home, vouching, a ZIP correction, and a room request look at site-wide bars only.
- * A room bar does not block those. A theme group does not inherit a room bar.
+ * A room bar does not block those. A theme group approved from a room inherits
+ * that room's bar on the group itself.
  */
 async function openBan(
   db: Db,

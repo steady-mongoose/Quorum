@@ -3,7 +3,10 @@
 // admin. Each group can have more than one admin. Admins mark and remove
 // only that group's posts, under the same rules as the board. A steward of
 // that group, or a steward of the room it was approved from, hears appeals.
-// A steward grant with no room does not count. Posts are newest first.
+// A group approved from a room inherits that room's bar: a member barred
+// there cannot read, post, chat, or call in the group. A seed group has
+// no approving room. A steward grant with no room does not count.
+// Posts are newest first.
 // English only. No counts.
 
 import { randomUUID } from "node:crypto";
@@ -13,7 +16,8 @@ import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/text.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
 import { sentenceOrStop } from "./check.ts";
-import { openBan, type Result } from "./store.ts";
+import { approvedRoomIds } from "./group-rooms.ts";
+import { openBan, type OpenBan, type Result } from "./store.ts";
 import type { RuleId } from "./rule.ts";
 
 const PAGE_DEFAULT = 40;
@@ -199,10 +203,52 @@ function decodeCursor(value: string): { at: Date; id: string } | null {
 async function gate(db: Db, userId: string, now: Date): Promise<Gate> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can do that.");
-  // A room bar does not carry into a theme group. That inheritance is still open.
+  // Site-wide only. A room bar is checked against the group that room approved.
   const ban = await openBan(db, userId, now);
   if (ban) return fail(403, "banned", ban);
   return { ok: true, actor };
+}
+
+/**
+ * An open bar on a room that approved this group.
+ * A seed group has no approving room, so a room bar does not reach it.
+ * A site-wide bar matches too, because that bar applies in every room.
+ */
+export async function banFromSourceRooms(
+  db: Db,
+  userId: string,
+  groupId: string,
+  now: Date,
+): Promise<OpenBan | null> {
+  let rooms: string[] = [];
+  try {
+    rooms = await approvedRoomIds(db, groupId);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "42P01") return null;
+    throw error;
+  }
+  for (const roomId of rooms) {
+    try {
+      const ban = await openBan(db, userId, now, roomId);
+      if (ban) return ban;
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "42P01") return null;
+      throw error;
+    }
+  }
+  return null;
+}
+
+async function gateGroup(db: Db, userId: string, groupId: string, now: Date): Promise<Gate> {
+  const gated = await gate(db, userId, now);
+  if (!gated.ok) return gated;
+  const ban = await banFromSourceRooms(db, userId, groupId, now);
+  if (ban) return fail(403, "banned", ban);
+  return gated;
 }
 
 async function isGroupAdmin(db: Db, groupId: string, userId: string): Promise<boolean> {
@@ -235,15 +281,6 @@ async function isGroupSteward(db: Db, groupId: string, userId: string): Promise<
     [groupId, userId],
   );
   return Boolean(rows[0]);
-}
-
-async function approvedRoomIds(db: Db, groupId: string): Promise<string[]> {
-  const rows = await db.query<{ room_id: string }>(
-    `select distinct room_id from theme_group_request
-     where group_id = $1 and status = 'approved' and room_id <> ''`,
-    [groupId],
-  );
-  return rows.map((row) => row.room_id);
 }
 
 /**
@@ -366,18 +403,18 @@ export async function listGroups(
      order by g.name asc, g.id asc`,
     [userId],
   );
-  return {
-    ok: true,
-    value: {
-      groups: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        about: row.about,
-        joined: flag(row.joined),
-        admin: flag(row.admin),
-      })),
-    },
-  };
+  const groups: ThemeGroup[] = [];
+  for (const row of rows) {
+    if (await banFromSourceRooms(db, userId, row.id, now)) continue;
+    groups.push({
+      id: row.id,
+      name: row.name,
+      about: row.about,
+      joined: flag(row.joined),
+      admin: flag(row.admin),
+    });
+  }
+  return { ok: true, value: { groups } };
 }
 
 export async function listGroup(
@@ -395,7 +432,7 @@ export async function listGroup(
     next: string | null;
   }>
 > {
-  const gated = await gate(db, userId, now);
+  const gated = await gateGroup(db, userId, groupId, now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
   const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -512,7 +549,7 @@ export async function joinGroup(
   db: Db,
   input: { userId: string; name: string; groupId: string; now: Date },
 ): Promise<Result<{ joined: true }>> {
-  const gated = await gate(db, input.userId, input.now);
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const who = input.name.trim() || "Member";
@@ -571,7 +608,7 @@ export async function createGroupPost(
     id?: string;
   },
 ): Promise<Result<GroupPost>> {
-  const gated = await gate(db, input.userId, input.now);
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const admin = await isGroupAdmin(db, input.groupId, input.userId);
@@ -626,7 +663,7 @@ export async function setGroupAdmin(
     now: Date;
   },
 ): Promise<Result<{ action: "grant" | "revoke" }>> {
-  const gated = await gate(db, input.userId, input.now);
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   if (input.action !== "grant" && input.action !== "revoke")
@@ -649,7 +686,9 @@ export async function setGroupAdmin(
   const target = await actorRole(db, person.id);
   if (!target.member) return fail(400, "That person is not a member.");
   if (input.action === "grant") {
-    const barred = await openBan(db, person.id, input.now);
+    const barred =
+      (await openBan(db, person.id, input.now)) ||
+      (await banFromSourceRooms(db, person.id, input.groupId, input.now));
     if (barred) return fail(400, "That account is barred.");
     if (!(await isJoined(db, input.groupId, person.id)))
       return fail(400, "They have to join the group first.");
@@ -705,7 +744,7 @@ export async function setGroupSteward(
     now: Date;
   },
 ): Promise<Result<{ action: "grant" | "revoke" }>> {
-  const gated = await gate(db, input.userId, input.now);
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   if (input.action !== "grant" && input.action !== "revoke")
@@ -724,7 +763,9 @@ export async function setGroupSteward(
   const target = await actorRole(db, person.id);
   if (!target.member) return fail(400, "That person is not a member.");
   if (input.action === "grant") {
-    const barred = await openBan(db, person.id, input.now);
+    const barred =
+      (await openBan(db, person.id, input.now)) ||
+      (await banFromSourceRooms(db, person.id, input.groupId, input.now));
     if (barred) return fail(400, "That account is barred.");
     if (!(await isJoined(db, input.groupId, person.id)))
       return fail(400, "They have to join the group first.");
@@ -807,6 +848,8 @@ export async function requestGroup(
     [roomId, input.userId],
   );
   if (!standing[0]) return fail(400, "Ask from a room you have joined.");
+  const roomBan = await openBan(db, input.userId, input.now, roomId);
+  if (roomBan) return fail(403, "banned", roomBan);
   const groupId = groupIdFor(titled.text);
   if (!groupId || !ROOM_ID.test(groupId)) return fail(400, "Name the group.");
   if (await groupExists(db, groupId)) return fail(409, "That group is already here.");
@@ -892,7 +935,7 @@ export async function decideGroupRequest(
     return fail(403, "A steward of that room decides a group.");
   if (request.by_user_id === input.userId) return fail(403, "Someone else decides a group.");
   if (input.decision === "approved" && request.by_user_id) {
-    const barred = await openBan(db, request.by_user_id, input.now);
+    const barred = await openBan(db, request.by_user_id, input.now, request.room_id);
     if (barred) return fail(400, "That account is barred.");
   }
   const who = input.name.trim() || "Steward";
@@ -1039,6 +1082,8 @@ export async function markGroupPost(
     return fail(400, "A mark is sloppy or unsupported.");
   const post = await loadPost(db, input.postId);
   if (!post || post.removed) return fail(404, "That post is not here.");
+  const barred = await banFromSourceRooms(db, input.userId, post.group_id, input.now);
+  if (barred) return fail(403, "banned", barred);
   if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
     return fail(403, "Only a group admin or a steward of that group can mark a post.");
   const id = randomUUID();
@@ -1115,6 +1160,8 @@ export async function removeGroupPost(
   const reason = input.reason as GroupRemoval["reason"];
   const post = await loadPost(db, input.postId);
   if (!post || post.removed) return fail(404, "That post is not here.");
+  const barred = await banFromSourceRooms(db, input.userId, post.group_id, input.now);
+  if (barred) return fail(403, "banned", barred);
   if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
     return fail(403, "Only a group admin or a steward of that group can remove a post.");
   if (post.author_user_id) {
@@ -1266,6 +1313,8 @@ export async function decideGroupAppeal(
   );
   const appeal = rows[0];
   if (!appeal || appeal.status !== "open") return fail(404, "That appeal is not open.");
+  const barred = await banFromSourceRooms(db, input.userId, appeal.group_id, input.now);
+  if (barred) return fail(403, "banned", barred);
   if (!(await stewardOfGroup(db, gated.actor, input.userId, appeal.group_id)))
     return fail(403, "Only a steward can decide an appeal.");
   if (appeal.by_user_id === input.userId)
@@ -1401,7 +1450,7 @@ export async function listGroupLog(
   groupId: string,
   now: Date,
 ): Promise<Result<{ entries: GroupLogRow[] }>> {
-  const gated = await gate(db, userId, now);
+  const gated = await gateGroup(db, userId, groupId, now);
   if (!gated.ok) return gated;
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
   const admin = await isGroupAdmin(db, groupId, userId);

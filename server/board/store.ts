@@ -9,6 +9,7 @@ import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { orderPosts } from "./order.ts";
+import { groupsApprovedFrom } from "./group-rooms.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1021,7 +1022,11 @@ export async function removePost(
     });
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
     if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
-    else evictCallMember(post.author_user_id, [post.room_id]);
+    else
+      evictCallMember(post.author_user_id, [
+        post.room_id,
+        ...(await groupsApprovedFrom(db, post.room_id)),
+      ]);
     return {
       ok: true,
       value: {
@@ -1113,7 +1118,7 @@ export async function banMember(
     roomId: siteWide ? "" : roomId,
   });
   if (siteWide) evictCallMember(person.id);
-  else evictCallMember(person.id, [roomId]);
+  else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
 }
 

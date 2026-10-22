@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
+import { banFromSourceRooms } from "../board/groups.ts";
+import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
@@ -65,6 +67,8 @@ export async function requireRoomMember(
   if (!actor.member) return fail(403, "Only a member can read this room.");
   const ban = await openBan(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
+  const inherited = await banFromSourceRooms(db, userId, roomId, now);
+  if (inherited) return { ok: false, status: 403, error: "banned", ban: inherited };
   const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
     roomId,
   ]);
@@ -309,7 +313,11 @@ export async function removeChatMessage(
   if (!saved) return fail(404, "That message is not here.");
   if (message.author_user_id) {
     if (saved.siteWide) evictCallMember(message.author_user_id);
-    else evictCallMember(message.author_user_id, [input.roomId]);
+    else
+      evictCallMember(message.author_user_id, [
+        input.roomId,
+        ...(await groupsApprovedFrom(db, input.roomId)),
+      ]);
   }
   console.log(JSON.stringify({ event: "chat-removed", messageId: message.id, reason }));
   return {
