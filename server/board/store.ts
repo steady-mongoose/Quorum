@@ -2,14 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
-import {
-  isEnglish,
-  isHardRule,
-  isMarkValue,
-  type HardRuleValue,
-  type MarkValue,
-} from "../../src/lib/board/text.ts";
+import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
+import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
@@ -23,6 +18,7 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
+import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BAN_MS = 30 * DAY_MS;
@@ -31,10 +27,6 @@ const CLOSED_MS = 100 * 365 * DAY_MS;
 const RULE_ERROR =
   "Name the rule: threat, pornography, child sexual abuse material, doxxing, or mocking God or Christ.";
 const MARK_ERROR = "A mark is sloppy, No legs, or out of scope.";
-
-function asRule(value: string): HardRuleValue {
-  return isHardRule(value) ? value : "threat";
-}
 
 export type BoardPost = {
   id: string;
@@ -91,14 +83,16 @@ export type RemovalEntry = {
   id: string;
   postId: string;
   author: string;
-  reason: HardRuleValue;
+  reason: RuleId;
   at: number;
+  /** Set when the row is a room chat line. A post leaves this off. */
+  roomChat?: boolean;
 };
 
 export type BanEntry = {
   id: string;
   author: string;
-  reason: HardRuleValue;
+  reason: RuleId;
   until: number;
   strikes: number;
   at: number;
@@ -116,7 +110,7 @@ export type AppealEntry = {
   decidedBy: string;
   at: number;
   decidedAt: number | null;
-  rule: HardRuleValue | null;
+  rule: RuleId | null;
 };
 
 export type RoomPage = { room: string; next: string | null };
@@ -128,7 +122,9 @@ export type BoardPayload = {
     admin: boolean;
     council: boolean;
     councilChair: boolean;
-    ban: { until: number; strikes: number; reason: HardRuleValue } | null;
+    /** Rooms with a live steward grant. An admin is not listed here. */
+    stewardRooms: string[];
+    ban: { until: number; strikes: number; reason: RuleId } | null;
   };
   rooms: BoardRoom[];
   posts: BoardPost[];
@@ -153,7 +149,7 @@ type Err = {
   status: number;
   error: string;
   stops?: string[];
-  ban?: { until: number; strikes: number; reason: HardRuleValue };
+  ban?: { until: number; strikes: number; reason: RuleId };
 };
 export type Result<T> = Ok<T> | Err;
 
@@ -302,28 +298,46 @@ async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
 
 export type OpenBan = { until: number; strikes: number; reason: BanEntry["reason"] };
 
-export async function openBan(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
+/**
+ * An open bar that applies here.
+ * An empty room id checks site-wide bars only. A room id also checks that room.
+ * A newer expired bar does not hide an older one that is still in force.
+ */
+export async function openBan(
+  db: Db,
+  userId: string,
+  now: Date,
+  roomId = "",
+): Promise<OpenBan | null> {
   const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
-    `select strikes, until_at, reason from board_ban where user_id = $1 order by created_at desc limit 1`,
-    [userId],
+    `select strikes, until_at, reason
+     from board_ban
+     where user_id = $1 and (room_id = '' or room_id = $2)
+     order by created_at desc`,
+    [userId, roomId],
   );
-  const row = rows[0];
-  if (!row) return null;
-  const strikes = Number(row.strikes);
-  const until = atMs(row.until_at);
-  const reason = asRule(row.reason);
-  if (reason === "csam") return { until, strikes, reason };
-  if (strikes < 2 && until <= now.getTime()) return null;
-  return { until, strikes, reason };
+  for (const row of rows) {
+    const strikes = Number(row.strikes);
+    const until = atMs(row.until_at);
+    const reason = ruleId(row.reason);
+    if (reason !== "csam" && strikes < 2 && until <= now.getTime()) continue;
+    return { until, strikes, reason };
+  }
+  return null;
 }
 
 /**
  * The ban, or none when the board tables are not in this database yet.
  * A missing `board_ban` is not a ban. Any other failure still throws.
  */
-export async function openBanOrNone(db: Db, userId: string, now: Date): Promise<OpenBan | null> {
+export async function openBanOrNone(
+  db: Db,
+  userId: string,
+  now: Date,
+  roomId = "",
+): Promise<OpenBan | null> {
   try {
-    return await openBan(db, userId, now);
+    return await openBan(db, userId, now, roomId);
   } catch (error) {
     const code =
       error && typeof error === "object" && "code" in error ? String(error.code) : "";
@@ -442,7 +456,16 @@ export async function listBoard(
             scope_kind, town_id, congregation_id, region_id
      from room where name <> '' order by sort_order asc, name asc`,
   );
-  const rooms = roomRows.map(toRoom);
+  const openRooms: BoardRoom[] = [];
+  for (const room of roomRows.map(toRoom)) {
+    const roomBan = await openBan(db, userId, now, room.id);
+    if (!roomBan) {
+      openRooms.push(room);
+      continue;
+    }
+    if (query.room === room.id) return { ok: false, status: 403, error: "banned", ban: roomBan };
+  }
+  const rooms = openRooms;
   const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
@@ -491,12 +514,24 @@ export async function listBoard(
     reason: string;
     created_at: Date | string;
     room_id: string;
+    room_chat: boolean;
   }>(
-    `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id
-     from board_removal r
-     join board_post p on p.id = r.post_id
-     order by r.created_at desc
-     limit 500`,
+    (await roomChatReady(db))
+      ? `select id, post_id, author_name, reason, created_at, room_id, room_chat from (
+           select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+           from board_removal r
+           join board_post p on p.id = r.post_id
+           union all
+           select id, message_id, author_name, reason, created_at, room_id, true as room_chat
+           from room_chat_removal
+         ) logged
+         order by created_at desc
+         limit 500`
+      : `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+         from board_removal r
+         join board_post p on p.id = r.post_id
+         order by r.created_at desc
+         limit 500`,
   );
   const banRows = await db.query<{
     id: string;
@@ -505,13 +540,11 @@ export async function listBoard(
     strikes: number;
     until_at: Date | string;
     created_at: Date | string;
-    room_id: string | null;
+    room_id: string;
   }>(
-    `select b.id, b.name, b.reason, b.strikes, b.until_at, b.created_at, p.room_id
-     from board_ban b
-     left join board_removal r on r.id = b.removal_id
-     left join board_post p on p.id = r.post_id
-     order by b.created_at desc
+    `select id, name, reason, strikes, until_at, created_at, room_id
+     from board_ban
+     order by created_at desc
      limit 500`,
   );
   const appealRows = await db.query<{
@@ -577,7 +610,8 @@ export async function listBoard(
     });
   }
   const seesRoom = (roomId: string | null) =>
-    actor.admin || (roomId !== null && actor.stewardRooms.includes(roomId));
+    actor.admin ||
+    (roomId !== null && roomId !== "" && actor.stewardRooms.includes(roomId));
   const visibleAppeals = appealRows.filter(
     (row) =>
       actor.admin || row.author_user_id === userId || actor.stewardRooms.includes(row.room_id),
@@ -591,6 +625,7 @@ export async function listBoard(
         admin: actor.admin,
         council: flags.council,
         councilChair: flags.chair,
+        stewardRooms: actor.stewardRooms,
         ban: null,
       },
       rooms,
@@ -611,15 +646,16 @@ export async function listBoard(
           id: row.id,
           postId: row.post_id,
           author: row.author_name,
-          reason: asRule(row.reason),
+          reason: ruleId(row.reason),
           at: atMs(row.created_at),
+          ...(row.room_chat ? { roomChat: true } : {}),
         })),
       bans: banRows
         .filter((row) => seesRoom(row.room_id))
         .map((row) => ({
           id: row.id,
           author: row.name,
-          reason: asRule(row.reason),
+          reason: ruleId(row.reason),
           until: atMs(row.until_at),
           strikes: Number(row.strikes),
           at: atMs(row.created_at),
@@ -650,7 +686,7 @@ export async function listBoard(
   };
 }
 
-async function writeBan(
+export async function writeBan(
   tx: Db,
   input: {
     userId: string;
@@ -660,26 +696,51 @@ async function writeBan(
     byName: string;
     removalId: string | null;
     now: Date;
+    /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
+    roomId: string;
+    /**
+     * The new hard removal is already stored. A room chat line sets this
+     * because its row lives in room_chat_removal, not board_removal.
+     */
+    removalAlreadyCounted?: boolean;
   },
 ): Promise<BanEntry> {
   const prior = await tx.query<{ strikes: number }>(
-    `select strikes from board_ban where user_id = $1 order by created_at desc limit 1`,
-    [input.userId],
+    `select strikes from board_ban
+     where user_id = $1 and room_id = $2
+     order by created_at desc limit 1`,
+    [input.userId, input.roomId],
   );
-  const removals = await tx.query<{ id: string }>(
-    `select id from board_removal where author_user_id = $1`,
-    [input.userId],
-  );
-  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length);
-  const strikes = input.removalId ? Math.max(counted, 1) : counted + 1;
+  const removals = input.roomId
+    ? await tx.query<{ id: string }>(
+        `select r.id from board_removal r
+         join board_post p on p.id = r.post_id
+         where r.author_user_id = $1 and p.room_id = $2`,
+        [input.userId, input.roomId],
+      )
+    : await tx.query<{ id: string }>(
+        `select id from board_removal where author_user_id = $1`,
+        [input.userId],
+      );
+  const chatRemovals = (await roomChatReady(tx))
+    ? await tx.query<{ id: string }>(
+        input.roomId
+          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2`
+          : `select id from room_chat_removal where author_user_id = $1`,
+        input.roomId ? [input.userId, input.roomId] : [input.userId],
+      )
+    : [];
+  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
+  const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
+  const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
   const until = new Date(
     input.now.getTime() + (input.reason === "csam" || strikes >= 2 ? CLOSED_MS : BAN_MS),
   );
   const id = randomUUID();
   await tx.query(
     `insert into board_ban
-     (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, removal_id, created_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+     (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, removal_id, room_id, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       id,
       input.userId,
@@ -690,6 +751,7 @@ async function writeBan(
       strikes,
       until,
       input.removalId,
+      input.roomId,
       input.now,
     ],
   );
@@ -718,10 +780,10 @@ export async function createPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  const ban = await openBan(db, input.userId, input.now);
-  if (ban) return fail(403, "This account cannot post right now.");
   const room = await roomById(db, input.roomId);
   if (!room) return fail(400, "Choose a room.");
+  const ban = await openBan(db, input.userId, input.now, room.id);
+  if (ban) return fail(403, "This account cannot post right now.");
   const type = field(input.body, "type").trim();
   const claim = field(input.body, "claim");
   const reason = field(input.body, "reason");
@@ -830,8 +892,6 @@ export async function replyToPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
-    return fail(403, "This account cannot post right now.");
   const stops = replyStops(input.claim);
   if (stops.length > 0) return fail(400, stops[0] ?? "That reply was not filed.", stops);
   const parents = await db.query<{
@@ -845,7 +905,9 @@ export async function replyToPost(
   if (!parent || parent.removed || parent.parent_id) return fail(404, "That post is not here.");
   const room = await roomById(db, parent.room_id);
   if (!room) return fail(404, "That post is not here.");
-  const allowed = stewardsRoom(actor, parent.room_id)
+  if (await openBan(db, input.userId, input.now, room.id))
+    return fail(403, "This account cannot post right now.");
+  const allowed = stewardsRoom(actor, room.id)
     ? [...room.takes, ...room.stewardTakes]
     : room.takes;
   if (!allowed.includes(parent.type)) {
@@ -887,8 +949,6 @@ export async function revisePost(
 ): Promise<Result<{ post: BoardPost; mark: MarkEntry | null }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
-    return fail(403, "This account cannot post right now.");
   const existing = await db.query<PostRow & { author_user_id: string }>(
     `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
@@ -897,6 +957,8 @@ export async function revisePost(
   );
   const post = existing[0];
   if (!post || post.removed) return fail(404, "That post is not here.");
+  if (await openBan(db, input.userId, input.now, post.room_id))
+    return fail(403, "This account cannot post right now.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can revise a post.");
   const room = await roomById(db, post.room_id);
   if (!room) return fail(404, "That post is not here.");
@@ -932,7 +994,11 @@ export async function closeAsked(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
-  if (await openBan(db, input.userId, input.now))
+  const found = await db.query<{ room_id: string }>(
+    `select room_id from board_post where id = $1`,
+    [input.postId],
+  );
+  if (await openBan(db, input.userId, input.now, found[0]?.room_id ?? ""))
     return fail(403, "This account cannot post right now.");
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
@@ -1085,6 +1151,7 @@ export async function removePost(
           input.now,
         ],
       );
+      const siteWide = actor.admin || reason === "csam";
       return writeBan(tx, {
         userId: post.author_user_id,
         name: post.author_name,
@@ -1093,11 +1160,13 @@ export async function removePost(
         byName: by,
         removalId,
         now: input.now,
+        roomId: siteWide ? "" : post.room_id,
       });
     });
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    evictCallMember(post.author_user_id);
+    if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
+    else evictCallMember(post.author_user_id, [post.room_id]);
     return {
       ok: true,
       value: {
@@ -1118,9 +1187,23 @@ export async function removePost(
   }
 }
 
+async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<boolean> {
+  const posts = await db.query<{ id: string }>(
+    `select id from board_post where author_user_id = $1 and room_id = $2 limit 1`,
+    [userId, roomId],
+  );
+  if (posts[0]) return true;
+  if (!(await roomChatReady(db))) return false;
+  const lines = await db.query<{ id: string }>(
+    `select id from room_chat_message where author_user_id = $1 and room_id = $2 limit 1`,
+    [userId, roomId],
+  );
+  return Boolean(lines[0]);
+}
+
 export async function banMember(
   db: Db,
-  input: { userId: string; name: string; email: string; reason: string; now: Date },
+  input: { userId: string; name: string; email: string; reason: string; roomId?: string; now: Date },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin && actor.stewardRooms.length === 0) {
@@ -1140,25 +1223,42 @@ export async function banMember(
   if (!target.member) return fail(400, "That person is not a member.");
   const blocked = moderationStop(actor, target);
   if (blocked) return fail(403, blocked);
-  if (!actor.admin) {
-    const posted = await db.query<{ room_id: string }>(
-      `select distinct room_id from board_post where author_user_id = $1`,
-      [person.id],
-    );
-    if (!posted.some((row) => actor.stewardRooms.includes(row.room_id))) {
-      return fail(403, "A steward can bar a member only for a post in a room they steward.");
-    }
+  const byName = input.name.trim() || "Steward";
+  if (actor.admin) {
+    const ban = await writeBan(db, {
+      userId: person.id,
+      name: person.name,
+      reason,
+      byUserId: input.userId,
+      byName,
+      removalId: null,
+      now: input.now,
+      roomId: "",
+    });
+    evictCallMember(person.id);
+    return { ok: true, value: ban };
   }
+  const roomId = input.roomId?.trim() ?? "";
+  if (!roomId) return fail(400, "Name the room this bar is for.");
+  if (!actor.stewardRooms.includes(roomId)) {
+    return fail(403, "A steward can bar a member only in a room they steward.");
+  }
+  if (!(await offendedInRoom(db, person.id, roomId))) {
+    return fail(403, "A steward can bar a member only for a post in a room they steward.");
+  }
+  const siteWide = reason === "csam";
   const ban = await writeBan(db, {
     userId: person.id,
     name: person.name,
     reason,
     byUserId: input.userId,
-    byName: input.name.trim() || "Steward",
+    byName,
     removalId: null,
     now: input.now,
+    roomId: siteWide ? "" : roomId,
   });
-  evictCallMember(person.id);
+  if (siteWide) evictCallMember(person.id);
+  else evictCallMember(person.id, [roomId]);
   return { ok: true, value: ban };
 }
 
@@ -1328,10 +1428,11 @@ export async function decideAppeal(
         await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [
           appeal.post_id,
         ]);
-        await tx.query(`update board_ban set until_at = $2 where removal_id = $1 and strikes < 2`, [
-          appeal.target_id,
-          input.now,
-        ]);
+        await tx.query(
+          `update board_ban set until_at = $2
+           where removal_id = $1 and strikes < 2 and (room_id = '' or room_id = $3)`,
+          [appeal.target_id, input.now, appeal.room_id],
+        );
       }
       if (input.decision === "lift" && appeal.kind === "mark") {
         await tx.query(`update board_post set mark = null where id = $1 and removed = false`, [

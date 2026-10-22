@@ -562,12 +562,13 @@ test("appeals and moderation logs stay with the author, that room's stewards, an
         "csam",
       );
       assert.equal(shop.value.removals.length, 1);
-      assert.equal(shop.value.bans.length, 1);
+      assert.equal(shop.value.bans.length, 0);
       assert.equal(county.value.removals.length, 0);
       assert.equal(county.value.bans.length, 0);
       assert.equal(member.value.removals.length, 0);
       assert.equal(member.value.bans.length, 0);
       assert.equal(admin.value.removals.length, 1);
+      assert.equal(admin.value.bans.length, 1);
       assert.equal(admin.value.csamReports.length, 1);
       assert.equal(shop.value.csamReports.length, 0);
     } finally {
@@ -609,6 +610,7 @@ test("migration 0010 can be applied twice and keeps its own trigger", async () =
     assert.equal(names.includes("anonymize_moderation_user"), true);
     assert.equal(names.includes("anonymize_board_user"), true);
     assert.equal(names.includes("anonymize_theme_group_user"), true);
+    assert.equal(names.includes("anonymize_room_chat_user"), true);
     const widen = readFileSync(
       new URL("../../migrations/0015_hard_rules.sql", import.meta.url),
       "utf8",
@@ -622,6 +624,13 @@ test("migration 0010 can be applied twice and keeps its own trigger", async () =
     );
     assert.match(check.rows[0]?.def ?? "", /doxxing/);
     assert.match(check.rows[0]?.def ?? "", /blasphemy/);
+    const chat = await pg.query<{ def: string }>(
+      `select pg_get_constraintdef(oid) as def
+       from pg_constraint
+       where conname = 'room_chat_removal_reason_check'`,
+    );
+    assert.match(chat.rows[0]?.def ?? "", /doxxing/);
+    assert.match(chat.rows[0]?.def ?? "", /blasphemy/);
   } finally {
     await close();
   }

@@ -296,6 +296,7 @@ export async function handleBoard(
         name: session.name,
         email: stringField(body, "email"),
         reason: stringField(body, "reason"),
+        roomId: stringField(body, "roomId"),
         now,
       });
       return fromResult(201, banned);

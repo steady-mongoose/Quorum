@@ -1175,6 +1175,7 @@ test("deleting an account clears that name from the group tables", async () => {
         "anonymize_board_user",
         "anonymize_moderation_user",
         "anonymize_places_user",
+        "anonymize_room_chat_user",
         "anonymize_theme_group_user",
       ],
     );

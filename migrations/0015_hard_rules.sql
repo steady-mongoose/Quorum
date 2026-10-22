@@ -3,9 +3,9 @@
 -- decision from merging. The API process does not apply migrations.
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
--- Numbered 0015. 0014 is reserved for the room-ban migration. This file
--- runs after 0012 (theme groups) and after 0013 (room chat) when that
--- table exists. Dropping the old check and adding it again makes a second
+-- Numbered 0015. 0014 is the room-ban migration (board_ban.room_id).
+-- This file runs after that, after 0012 (theme groups), and after 0013
+-- (room chat) when that table exists. Dropping the old check and adding it again makes a second
 -- run safe. If room chat is added after this file has already been applied,
 -- that later migration has to allow these five rules itself: an applied
 -- file does not run again. 0010 carries the same block for a database

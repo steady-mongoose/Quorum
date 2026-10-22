@@ -77,6 +77,8 @@ type BoardState = {
   /** A council member can label a candidate or business post, once. */
   council: boolean;
   councilChair: boolean;
+  /** Rooms this person stewards. An admin is not listed; they can moderate every room. */
+  stewardRooms: string[];
   /** Server Home. Null in the sample week. The array order is the server's. */
   home: HomePayload | null;
   /** True while this browser is writing rooms and posts to the API. */
@@ -399,6 +401,7 @@ export const useBoard = create<BoardState>()(
           admin: board.me.admin,
           council: board.me.council,
           councilChair: board.me.councilChair,
+          stewardRooms: board.me.stewardRooms,
           member: true,
         });
       };
@@ -437,6 +440,7 @@ export const useBoard = create<BoardState>()(
         admin: false,
         council: false,
         councilChair: false,
+        stewardRooms: [],
         home: null,
         remote: false,
         boardError: "",
@@ -1004,6 +1008,7 @@ export const useBoard = create<BoardState>()(
               home: null,
               council: false,
               councilChair: false,
+              stewardRooms: [],
             });
             return;
           }
@@ -1051,6 +1056,7 @@ export const useBoard = create<BoardState>()(
             steward: false,
             council: false,
             councilChair: false,
+            stewardRooms: [],
             home: null,
             member: false,
             boardError: "",
@@ -1077,6 +1083,7 @@ export const useBoard = create<BoardState>()(
             admin: false,
             council: false,
             councilChair: false,
+            stewardRooms: [],
             home: null,
             boardError: "",
             sample: true,

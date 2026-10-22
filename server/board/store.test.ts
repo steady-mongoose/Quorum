@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { bindCallEviction } from "../calls/evict.ts";
+import { roomCallMember } from "../calls/membership.ts";
 import { createCallStore } from "../calls/store.ts";
+import { removeChatMessage, sendChat } from "../chat/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { withHoldKey } from "./csam.ts";
+import { ruleId } from "./rule.ts";
 import {
   banMember,
   closeAsked,
@@ -45,6 +48,15 @@ async function grant(
     [randomUUID(), userId, name, role, roomId, now],
   );
 }
+
+test("doxxing and blasphemy stay their own rule ids", () => {
+  assert.equal(ruleId("doxxing"), "doxxing");
+  assert.equal(ruleId("blasphemy"), "blasphemy");
+  assert.equal(ruleId("csam"), "csam");
+  assert.equal(ruleId("porn"), "porn");
+  assert.equal(ruleId("threat"), "threat");
+  assert.equal(ruleId("other"), "threat");
+});
 
 const did = {
   type: "did",
@@ -240,17 +252,24 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       now,
     });
     assert.equal(blocked.ok, false);
+    const countyDuring = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(countyDuring.ok, true);
     const later = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
     const again = await createPost(db, {
       userId: maria,
       name: "Maria",
-      roomId: "county",
+      roomId: "shop",
       body: did,
       now: later,
     });
     assert.equal(again.ok, true);
     if (!again.ok) return;
-    await grant(db, tom, "Tom", "steward", "county");
     const second = await removePost(db, {
       userId: tom,
       name: "Tom",
@@ -269,6 +288,14 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       now: new Date(later.getTime() + 40 * 24 * 60 * 60 * 1000),
     });
     assert.equal(still.ok, false);
+    const countyAfter = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now: new Date(later.getTime() + 40 * 24 * 60 * 60 * 1000),
+    });
+    assert.equal(countyAfter.ok, true);
   } finally {
     await close();
   }
@@ -431,6 +458,7 @@ test("a barred member cannot revise or close, and a revision keeps the mark", as
       name: "Tom",
       email: "maria@example.com",
       reason: "threat",
+      roomId: "shop",
       now,
     });
     const blockedRevise = await revisePost(db, {
@@ -498,11 +526,39 @@ test("only a steward sees ban and removal logs", async () => {
     assert.deepEqual(member.value.bans, []);
     assert.equal(member.value.me.ban, null);
     const barred = await listBoard(db, maria, now);
-    assert.equal(barred.ok, false);
-    if (barred.ok) return;
-    assert.equal(barred.status, 403);
-    assert.equal(barred.error, "banned");
-    assert.equal(barred.ban?.reason, "threat");
+    assert.equal(barred.ok, true);
+    if (!barred.ok) return;
+    assert.equal(barred.value.me.ban, null);
+    assert.equal(
+      barred.value.rooms.some((room) => room.id === "shop"),
+      false,
+    );
+    assert.equal(
+      barred.value.posts.some((post) => post.room === "shop"),
+      false,
+    );
+    const shopPage = await listBoard(db, maria, now, { room: "shop" });
+    assert.equal(shopPage.ok, false);
+    if (shopPage.ok) return;
+    assert.equal(shopPage.status, 403);
+    assert.equal(shopPage.error, "banned");
+    assert.equal(shopPage.ban?.reason, "threat");
+    const shopAgain = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(shopAgain.ok, false);
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(county.ok, true);
   } finally {
     await close();
   }
@@ -840,7 +896,7 @@ test("a steward cannot bar the owner, an admin, or another steward", async () =>
   }
 });
 
-test("a ban and a removal drop that person from every live call", async () => {
+test("a room bar drops that room's call, and an admin bar drops every live call", async () => {
   const { db, close } = await openTestDb();
   const calls = createCallStore();
   bindCallEviction(calls);
@@ -893,7 +949,7 @@ test("a ban and a removal drop that person from every live call", async () => {
     });
     assert.equal(removed.ok, true);
     assert.equal(calls.poll("shop", member, 0, at + 1).ok, false);
-    assert.equal(calls.poll("county", member, 0, at + 1).ok, false);
+    assert.equal(calls.poll("county", member, 0, at + 1).ok, true);
     assert.equal(calls.poll("shop", other, 0, at + 1).ok, true);
 
     const ruthPost = await createPost(db, {
@@ -909,12 +965,24 @@ test("a ban and a removal drop that person from every live call", async () => {
       name: "Tom",
       email: "ruth-call@example.com",
       reason: "porn",
+      roomId: "shop",
       now,
     });
     assert.equal(banned.ok, true);
     assert.equal(calls.poll("shop", other, 0, at + 2).ok, false);
-    assert.equal(calls.poll("county", other, 0, at + 2).ok, false);
+    assert.equal(calls.poll("county", other, 0, at + 2).ok, true);
     assert.equal(calls.poll("shop", owner, 0, at + 2).ok, true);
+
+    const site = await banMember(db, {
+      userId: owner,
+      name: "Josh",
+      email: "ruth-call@example.com",
+      reason: "csam",
+      now,
+    });
+    assert.equal(site.ok, true);
+    assert.equal(calls.poll("county", other, 0, at + 3).ok, false);
+    assert.equal(calls.poll("shop", owner, 0, at + 3).ok, true);
   } finally {
     bindCallEviction(createCallStore());
     await close();
@@ -995,6 +1063,7 @@ test("a steward of one room cannot mark, remove, or bar in another", async () =>
       name: "Tom",
       email: "dale-room@example.com",
       reason: "threat",
+      roomId: "shop",
       now,
     });
     assert.equal(barred.ok, false);
@@ -1018,6 +1087,316 @@ test("a steward of one room cannot mark, remove, or bar in another", async () =>
       now,
     });
     assert.equal(adminRemoved.ok, true);
+    const scope = await db.query<{ room_id: string }>(
+      `select room_id from board_ban where user_id = $1`,
+      [dale],
+    );
+    assert.deepEqual(
+      scope.map((row) => row.room_id),
+      [""],
+    );
+  } finally {
+    await close();
+  }
+});
+
+const noted = {
+  type: "noted",
+  claim: "The county posts the agenda packet the Friday before.",
+  reason: "It is on the county site, and I read it in March.",
+};
+
+test("a shop steward cannot file a steward post in the county or in dispatch", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const tom = randomUUID();
+    const luis = randomUUID();
+    await user(db, tom, "Tom", "tom-noted@example.com");
+    await user(db, luis, "Luis", "luis-noted@example.com");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, luis, "Luis", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, luis, "Luis", "steward", "dispatch");
+
+    const countyNoted = await createPost(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "county",
+      body: noted,
+      now,
+    });
+    assert.equal(countyNoted.ok, false);
+    if (countyNoted.ok) return;
+    assert.equal(countyNoted.error, "Only a steward can post that.");
+
+    const dispatchSaw = await createPost(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "dispatch",
+      body: {
+        type: "saw",
+        claim: "One lane closed on Bloomingdale at Lithia Pinecrest.",
+        reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound.",
+        on: "2026-10-19",
+        attested: true,
+      },
+      now,
+    });
+    assert.equal(dispatchSaw.ok, false);
+    if (dispatchSaw.ok) return;
+    assert.equal(dispatchSaw.error, "Only a steward can post that.");
+
+    const shopNoted = await createPost(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "shop",
+      body: noted,
+      now,
+    });
+    assert.equal(shopNoted.ok, true);
+    if (!shopNoted.ok) return;
+    const revised = await revisePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shopNoted.value.id,
+      claim: "The shop posts the agenda packet the Friday before.",
+      reason: "It is on the shop board, and I read it in March.",
+      now,
+    });
+    assert.equal(revised.ok, true);
+
+    await grant(db, tom, "Tom", "steward", "county");
+    const filed = await createPost(db, {
+      userId: tom,
+      name: "Tom",
+      roomId: "county",
+      body: noted,
+      now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Tom', 'steward', 'county', 'revoke', 'test', 'test', 'test', 'Revoked for the test.', $3)`,
+      [randomUUID(), tom, new Date(now.getTime() + 1000)],
+    );
+    const countyRevise = await revisePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: filed.value.id,
+      claim: "The county posts the full packet the Friday before.",
+      reason: "It is on the county site, and I read it in March.",
+      now: new Date(now.getTime() + 2000),
+    });
+    assert.equal(countyRevise.ok, false);
+    if (countyRevise.ok) return;
+    assert.equal(countyRevise.error, "Only a steward can post that.");
+
+    const notice = await createPost(db, {
+      userId: luis,
+      name: "Luis",
+      roomId: "dispatch",
+      body: {
+        type: "saw",
+        claim: "One lane closed on Bloomingdale at Lithia Pinecrest.",
+        reason: "4:40pm, Bloomingdale and Lithia Pinecrest, eastbound.",
+        on: "2026-10-19",
+        attested: true,
+      },
+      now,
+    });
+    assert.equal(notice.ok, true);
+    if (!notice.ok) return;
+    const reply = await replyToPost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: notice.value.id,
+      claim: "The lane was still closed at five.",
+      now,
+    });
+    assert.equal(reply.ok, false);
+    if (reply.ok) return;
+    assert.equal(reply.status, 403);
+    assert.equal(reply.error, "Only a steward can post that.");
+    const stewardReply = await replyToPost(db, {
+      userId: luis,
+      name: "Luis",
+      postId: notice.value.id,
+      claim: "The lane opened again before five.",
+      now,
+    });
+    assert.equal(stewardReply.ok, true);
+  } finally {
+    await close();
+  }
+});
+
+test("a room steward's bar covers that room, and an admin's bar covers the site", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const josh = randomUUID();
+    await user(db, maria, "Maria", "maria-scope@example.com");
+    await user(db, tom, "Tom", "tom-scope@example.com");
+    await user(db, josh, "Josh", "josh-scope@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "admin");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, tom, "Tom", "steward", "county");
+    const shop = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(shop.ok, true);
+    assert.equal(county.ok, true);
+    const unnamed = await banMember(db, {
+      userId: tom,
+      name: "Tom",
+      email: "maria-scope@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(unnamed.ok, false);
+    if (unnamed.ok) return;
+    assert.equal(unnamed.error, "Name the room this bar is for.");
+    const barred = await banMember(db, {
+      userId: tom,
+      name: "Tom",
+      email: "maria-scope@example.com",
+      reason: "threat",
+      roomId: "shop",
+      now,
+    });
+    assert.equal(barred.ok, true);
+    if (!barred.ok) return;
+    assert.equal(barred.value.strikes, 1);
+    const rows = await db.query<{ room_id: string }>(
+      `select room_id from board_ban where user_id = $1 order by room_id`,
+      [maria],
+    );
+    assert.deepEqual(
+      rows.map((row) => row.room_id),
+      ["shop"],
+    );
+    const board = await listBoard(db, maria, now);
+    assert.equal(board.ok, true);
+    const shopPost = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(shopPost.ok, false);
+    const countyPost = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(countyPost.ok, true);
+    const shopCall = await roomCallMember(db, maria, "shop", now);
+    const countyCall = await roomCallMember(db, maria, "county", now);
+    assert.equal(shopCall.kind, "banned");
+    assert.equal(countyCall.kind, "member");
+
+    const site = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "maria-scope@example.com",
+      reason: "csam",
+      now,
+    });
+    assert.equal(site.ok, true);
+    const siteRows = await db.query<{ room_id: string }>(
+      `select room_id from board_ban where user_id = $1 and by_user_id = $2`,
+      [maria, josh],
+    );
+    assert.deepEqual(
+      siteRows.map((row) => row.room_id),
+      [""],
+    );
+    const hidden = await listBoard(db, maria, now);
+    assert.equal(hidden.ok, false);
+    if (hidden.ok) return;
+    assert.equal(hidden.error, "banned");
+    const countyBlocked = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(countyBlocked.ok, false);
+    const countyCallAfter = await roomCallMember(db, maria, "county", now);
+    assert.equal(countyCallAfter.kind, "banned");
+  } finally {
+    await close();
+  }
+});
+
+test("a CSAM removal is never room-scoped", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-csam@example.com");
+    await user(db, tom, "Tom", "tom-csam@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    const posted = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: posted.value.id,
+      reason: "csam",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    assert.equal(removed.value.ban.reason, "csam");
+    const rows = await db.query<{ room_id: string; reason: string }>(
+      `select room_id, reason from board_ban where user_id = $1`,
+      [maria],
+    );
+    assert.deepEqual(rows, [{ room_id: "", reason: "csam" }]);
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: did,
+      now,
+    });
+    assert.equal(county.ok, false);
+    const board = await listBoard(db, maria, now);
+    assert.equal(board.ok, false);
+    if (board.ok) return;
+    assert.equal(board.error, "banned");
+    assert.equal(board.ban?.reason, "csam");
   } finally {
     await close();
   }
@@ -1214,6 +1593,239 @@ test("a roomless steward cannot remove, and doxxing can be removed in that room"
     assert.equal(removed.ok, true);
     if (!removed.ok) return;
     assert.equal(removed.value.removal.reason, "doxxing");
+  } finally {
+    await close();
+  }
+});
+
+test("a successful appeal lifts only that room's ban", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-lift@example.com");
+    await user(db, tom, "Tom", "tom-lift@example.com");
+    await user(db, ada, "Ada", "ada-lift@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, ada, "Ada", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "steward", "county");
+    const shop = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: { ...did, claim: "Called the county office about the agenda." },
+      now,
+    });
+    assert.equal(shop.ok, true);
+    assert.equal(county.ok, true);
+    if (!shop.ok || !county.ok) return;
+    const shopRemoved = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shop.value.id,
+      reason: "threat",
+      now,
+    });
+    const countyRemoved = await removePost(db, {
+      userId: ada,
+      name: "Ada",
+      postId: county.value.id,
+      reason: "doxxing",
+      now,
+    });
+    assert.equal(shopRemoved.ok, true);
+    assert.equal(countyRemoved.ok, true);
+    if (!shopRemoved.ok || !countyRemoved.ok) return;
+    assert.equal(shopRemoved.value.ban.reason, "threat");
+    assert.equal(countyRemoved.value.ban.reason, "doxxing");
+    const filed = await fileAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      postId: shop.value.id,
+      kind: "removal",
+      reason: "The shop post did not threaten anyone.",
+      now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+    const lifted = await decideAppeal(db, {
+      userId: tom,
+      name: "Tom",
+      appealId: filed.value.id,
+      decision: "lift",
+      reason: "The shop bar ends and the county bar stays.",
+      now,
+    });
+    assert.equal(lifted.ok, true);
+    if (!lifted.ok) return;
+    assert.equal(lifted.value.posts.some((post) => post.id === shop.value.id && !post.removed), true);
+    const later = new Date(now.getTime() + 1000);
+    const shopAgain = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: { ...did, claim: "Sharpened the chisels again after the appeal." },
+      now: later,
+    });
+    assert.equal(shopAgain.ok, true);
+    const countyAgain = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: { ...did, claim: "Called the county office a second time." },
+      now: later,
+    });
+    assert.equal(countyAgain.ok, false);
+    const bars = await db.query<{ room_id: string; until_at: Date | string; reason: string }>(
+      `select room_id, until_at, reason from board_ban where user_id = $1 order by room_id`,
+      [maria],
+    );
+    assert.deepEqual(
+      bars.map((row) => row.room_id),
+      ["county", "shop"],
+    );
+    const shopBar = bars.find((row) => row.room_id === "shop");
+    const countyBar = bars.find((row) => row.room_id === "county");
+    assert.equal(shopBar?.reason, "threat");
+    assert.equal(countyBar?.reason, "doxxing");
+    assert.ok(shopBar && new Date(shopBar.until_at).getTime() <= later.getTime());
+    assert.ok(countyBar && new Date(countyBar.until_at).getTime() > later.getTime());
+  } finally {
+    await close();
+  }
+});
+
+test("a steward sees removals and bans only in rooms they steward", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    const josh = randomUUID();
+    const ruth = randomUUID();
+    const sam = randomUUID();
+    await user(db, maria, "Maria", "maria-log@example.com");
+    await user(db, tom, "Tom", "tom-log@example.com");
+    await user(db, ada, "Ada", "ada-log@example.com");
+    await user(db, josh, "Josh", "josh-log@example.com");
+    await user(db, ruth, "Ruth", "ruth-log@example.com");
+    await user(db, sam, "Sam", "sam-log@example.com");
+    for (const [id, name] of [
+      [maria, "Maria"],
+      [tom, "Tom"],
+      [ada, "Ada"],
+      [josh, "Josh"],
+      [ruth, "Ruth"],
+      [sam, "Sam"],
+    ] as const) {
+      await grant(db, id, name, "member");
+    }
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "steward", "county");
+    await grant(db, josh, "Josh", "admin");
+    const shop = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(shop.ok, true);
+    if (!shop.ok) return;
+    const removed = await removePost(db, {
+      userId: tom,
+      name: "Tom",
+      postId: shop.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(removed.ok, true);
+    const county = await createPost(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      body: { ...did, claim: "Called the county office about the agenda." },
+      now,
+    });
+    assert.equal(county.ok, true);
+    const stood = await createPost(db, {
+      userId: ada,
+      name: "Ada",
+      roomId: "county",
+      body: { ...did, claim: "Read the county agenda before the meeting." },
+      now,
+    });
+    assert.equal(stood.ok, true);
+    const line = await sendChat(db, {
+      userId: maria,
+      name: "Maria",
+      roomId: "county",
+      text: "The agenda packet is on the county site.",
+      now,
+    });
+    assert.equal(line.ok, true);
+    if (!line.ok) return;
+    const chatRemoved = await removeChatMessage(db, {
+      userId: ada,
+      name: "Ada",
+      roomId: "county",
+      messageId: line.value.id,
+      reason: "doxxing",
+      now,
+    });
+    assert.equal(chatRemoved.ok, true, chatRemoved.ok ? "" : chatRemoved.error);
+    const shopLog = await listBoard(db, tom, now);
+    const countyLog = await listBoard(db, ada, now);
+    const adminLog = await listBoard(db, josh, now);
+    const memberLog = await listBoard(db, sam, now);
+    assert.equal(shopLog.ok, true);
+    assert.equal(countyLog.ok, true);
+    assert.equal(adminLog.ok, true);
+    assert.equal(memberLog.ok, true);
+    if (!shopLog.ok || !countyLog.ok || !adminLog.ok || !memberLog.ok) return;
+    assert.deepEqual(
+      shopLog.value.removals.map((row) => row.roomChat ?? false),
+      [false],
+    );
+    assert.deepEqual(
+      countyLog.value.removals.map((row) => row.roomChat ?? false),
+      [true],
+    );
+    assert.equal(shopLog.value.removals[0]?.reason, "threat");
+    assert.equal(countyLog.value.removals[0]?.reason, "doxxing");
+    assert.equal(shopLog.value.bans.length, 1);
+    assert.equal(countyLog.value.bans.length, 1);
+    assert.equal(shopLog.value.bans[0]?.author, "Maria");
+    assert.equal(countyLog.value.bans[0]?.reason, "doxxing");
+    assert.equal(adminLog.value.removals.length, 2);
+    assert.equal(adminLog.value.bans.length, 2);
+    assert.deepEqual(memberLog.value.removals, []);
+    assert.deepEqual(memberLog.value.bans, []);
+    const site = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "ruth-log@example.com",
+      reason: "threat",
+      now,
+    });
+    assert.equal(site.ok, true);
+    const shopAfter = await listBoard(db, tom, now);
+    const adminAfter = await listBoard(db, josh, now);
+    assert.equal(shopAfter.ok, true);
+    assert.equal(adminAfter.ok, true);
+    if (!shopAfter.ok || !adminAfter.ok) return;
+    assert.equal(shopAfter.value.bans.length, 1);
+    assert.equal(adminAfter.value.bans.length, 3);
   } finally {
     await close();
   }
