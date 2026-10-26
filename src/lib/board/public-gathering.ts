@@ -35,7 +35,7 @@ export const INVITE_LINE =
 export const PRIVACY_LINE =
   "This page shows the title, the date, the time, and the town. It does not show who is coming, a street, or what was written afterwards.";
 export const PUBLIC_TIME_NOTE =
-  "The time won't appear on the public page unless it's a plain clock time.";
+  "Only a plain time like 7:00 a.m. appears on the shared page.";
 
 const CLOCK_24 = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const CLOCK_12 = /^(0?[1-9]|1[0-2]):([0-5]\d)\s*([ap])\.?m\.?$/i;

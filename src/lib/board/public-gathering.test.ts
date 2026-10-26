@@ -5,6 +5,7 @@ import {
   acceptPublicGathering,
   GATHERING_OG_IMAGE,
   isGatheringId,
+  PUBLIC_TIME_NOTE,
   publicClock,
   publicDateLabel,
   publicGatheringHtml,
@@ -245,6 +246,7 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.match(client, /AbortSignal\.timeout/);
   assert.match(client, /JSON\.stringify\(\{ shared: input\.shared \}\)/);
   assert.match(share, /loadGathering/);
+  assert.equal(PUBLIC_TIME_NOTE, "Only a plain time like 7:00 a.m. appears on the shared page.");
   assert.match(share, /PUBLIC_TIME_NOTE/);
   assert.match(share, /publicClock\(card\.time\)/);
   assert.match(http, /handlePublicGathering/);
