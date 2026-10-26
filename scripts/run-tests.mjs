@@ -12,6 +12,7 @@ const appTests = [
   "src/lib/account-api.test.ts",
   "src/lib/board/design-review.test.ts",
   "src/lib/board/design-followup.test.ts",
+  "src/lib/board/design-critic.test.ts",
   "src/lib/app-data/app-data.test.ts",
   "src/lib/app-data/readiness-schedule.test.ts",
   "src/lib/auth/gate-identity.test.ts",

@@ -195,7 +195,8 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
 
 test("the composer announces one error and ignores a second click", () => {
   const room = source("../../components/board/room-view.tsx");
-  assert.equal(room.match(/role="alert"/g)?.length, 1);
+  const composer = room.slice(room.indexOf("function Composer"), room.indexOf("function Name"));
+  assert.equal(composer.match(/role="alert"/g)?.length, 1);
   assert.match(room, /const latestError = visible\?\.stops\.at\(-1\)/);
   assert.match(room, /role="alert" className="sr-only"/);
   assert.match(room, /if \(pendingRef\.current\) return/);

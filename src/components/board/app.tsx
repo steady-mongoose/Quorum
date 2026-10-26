@@ -37,6 +37,28 @@ const NAV = [
   { id: "about", label: "About", icon: BookOpen },
 ] satisfies { id: Section; label: string; icon: typeof CalendarDays }[];
 
+const MOBILE_NAV = NAV.filter(
+  (item) =>
+    item.id === "week" ||
+    item.id === "rooms" ||
+    item.id === "find" ||
+    item.id === "messages" ||
+    item.id === "profile",
+);
+
+function BoardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3" aria-hidden="true">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className="h-28 animate-pulse rounded-lg bg-raised motion-reduce:animate-none"
+        />
+      ))}
+    </div>
+  );
+}
+
 export function BoardApp() {
   return (
     <ServerSessionProvider>
@@ -59,10 +81,12 @@ function BoardShell() {
   const ownAppeals = useBoard((state) => state.appeals);
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
+  const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const busy = waiting || boardLoading;
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -102,11 +126,24 @@ function BoardShell() {
     if (next.me !== name || !next.member || next.sample) {
       useBoard.setState({ member: true, me: name, sample: false });
     }
-    void useBoard.getState().connectRemote();
+    let cancel = false;
+    setBoardLoading(true);
+    void useBoard.getState().connectRemote().finally(() => {
+      if (!cancel) setBoardLoading(false);
+    });
+    return () => {
+      cancel = true;
+    };
   }, [server.mode, server.user]);
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
+      >
+        Skip to content
+      </a>
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
@@ -118,6 +155,7 @@ function BoardShell() {
           </div>
           {entered ? (
             <IconNav
+              className="hidden md:flex"
               items={NAV}
               current={section}
               onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
@@ -127,7 +165,7 @@ function BoardShell() {
           {server.user ? (
             <button
               type="button"
-              className="self-start text-sm text-signal underline"
+              className="inline-flex min-h-[44px] items-center self-start text-sm text-signal underline"
               onClick={() => {
                 void server.signOut().then(() => {
                   useBoard.getState().disconnectRemote();
@@ -195,17 +233,53 @@ function BoardShell() {
           </div>
         </div>
       ) : null}
-      <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
-        {waiting ? <p className="text-sm text-muted">Checking the server.</p> : null}
-        {!waiting && !entered && <Door />}
-        {entered && section === "week" && <WeekView />}
-        {entered && section === "rooms" && <RoomView />}
-        {entered && section === "find" && <FindView />}
-        {entered && section === "civic" && <QuorumPanel />}
-        {entered && section === "messages" && <DmView />}
-        {entered && section === "profile" && <ProfileView />}
-        {entered && section === "about" && <AboutView />}
+      <main
+        id="main"
+        tabIndex={-1}
+        aria-busy={busy || undefined}
+        className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-28 md:pb-24"
+      >
+        {busy ? (
+          <>
+            <p className="sr-only">Checking the server.</p>
+            <BoardSkeleton />
+          </>
+        ) : null}
+        {!busy && !entered && <Door />}
+        {!busy && entered && section === "week" && <WeekView />}
+        {!busy && entered && section === "rooms" && <RoomView />}
+        {!busy && entered && section === "find" && <FindView />}
+        {!busy && entered && section === "civic" && <QuorumPanel />}
+        {!busy && entered && section === "messages" && <DmView />}
+        {!busy && entered && section === "profile" && <ProfileView />}
+        {!busy && entered && section === "about" && <AboutView />}
       </main>
+      {entered ? (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+          aria-label="Sections"
+        >
+          {MOBILE_NAV.map((item) => {
+            const Icon = item.icon;
+            const current = section === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={current ? "page" : undefined}
+                onClick={() => (item.id === "profile" ? view(me.trim()) : setSection(item.id))}
+                className={cn(
+                  "inline-flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-1 text-[13px] font-semibold",
+                  current ? "text-fg" : "text-muted",
+                )}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      ) : null}
       {entered ? <SessionLine /> : null}
     </div>
   );

@@ -165,7 +165,11 @@ export function RoomView() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
-          {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
+          {boardError ? (
+            <p className="text-sm text-danger" role="alert">
+              {boardError}
+            </p>
+          ) : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
               {ban.reason === "csam"
@@ -213,7 +217,7 @@ export function RoomView() {
                 Older posts
               </button>
             ) : (
-              <p className="py-6 text-sm text-muted">
+              <p className="py-6 text-sm text-muted" role="status">
                 {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
               </p>
             )}
@@ -241,7 +245,7 @@ export function RoomView() {
 function FieldError({ id, messages }: { id: string; messages: string[] }) {
   if (messages.length === 0) return null;
   return (
-    <p id={id} className="text-sm text-[#f0b4a4]">
+    <p id={id} className="text-sm text-danger">
       {messages.join(" ")}
     </p>
   );
@@ -1060,7 +1064,11 @@ const PostCard = memo(function PostCard({
                   setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
                 }
               />
-              {markDraft.error ? <span className="text-signal">{markDraft.error}</span> : null}
+              {markDraft.error ? (
+                <span className="text-danger" role="alert">
+                  {markDraft.error}
+                </span>
+              ) : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1084,7 +1092,11 @@ const PostCard = memo(function PostCard({
               </span>
             </label>
           ) : null}
-          {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {removeError ? (
+            <p className="text-sm text-danger" role="alert">
+              {removeError}
+            </p>
+          ) : null}
           {appealing ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
               One sentence to the stewards
@@ -1097,7 +1109,11 @@ const PostCard = memo(function PostCard({
                   setAppealError("");
                 }}
               />
-              {appealError ? <span className="text-signal">{appealError}</span> : null}
+              {appealError ? (
+                <span className="text-danger" role="alert">
+                  {appealError}
+                </span>
+              ) : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1179,7 +1195,11 @@ function AppealLog() {
                       setError("");
                     }}
                   />
-                  {error ? <span className="text-signal">{error}</span> : null}
+                  {error ? (
+                    <span className="text-danger" role="alert">
+                      {error}
+                    </span>
+                  ) : null}
                   <span className="flex flex-wrap gap-2">
                     <button
                       type="button"

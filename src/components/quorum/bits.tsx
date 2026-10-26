@@ -16,14 +16,22 @@ export function IconNav<T extends string>({
   current,
   onSelect,
   label,
+  className,
 }: {
   items: { id: T; label: string; icon?: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }> }[];
   current: T;
   onSelect: (id: T) => void;
   label: string;
+  className?: string;
 }) {
   return (
-    <nav className="flex gap-2 overflow-x-auto lg:flex-wrap lg:justify-end lg:overflow-visible" aria-label={label}>
+    <nav
+      className={cn(
+        "flex gap-2 overflow-x-auto lg:flex-wrap lg:justify-end lg:overflow-visible",
+        className,
+      )}
+      aria-label={label}
+    >
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -44,7 +52,7 @@ export function IconNav<T extends string>({
 }
 
 export const btn =
-  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-transform duration-150 ease-out active:scale-95 disabled:opacity-50";
+  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out motion-safe:active:scale-95 disabled:opacity-50";
 
 export const btnSignal = cn(btn, "bg-signal text-signal-ink");
 export const btnGhost = cn(btn, "border border-line bg-surface text-fg");

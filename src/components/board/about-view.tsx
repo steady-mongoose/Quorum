@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { cn } from "@/lib/cn";
@@ -33,7 +33,7 @@ const HOW = [
   },
   {
     title: "Who can see you",
-    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted.",
+    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people and kept 30 days. The words are not encrypted. A picture is encrypted on this device before it is sent.",
   },
   {
     title: "Room chat",
@@ -339,7 +339,11 @@ function RemovalAppeal({
           setError("");
         }}
       />
-      {error ? <span className="text-signal">{error}</span> : null}
+      {error ? (
+        <span className="text-danger" role="alert">
+          {error}
+        </span>
+      ) : null}
       <span className="flex gap-2">
         <button
           type="button"
@@ -374,8 +378,24 @@ function RoleTools({
   const [stewardEmail, setStewardEmail] = useState("");
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
   const [message, setMessage] = useState("");
+  const [messageOk, setMessageOk] = useState(true);
+  const [pending, setPending] = useState<null | "grant-steward" | "revoke">(null);
   const report = (result: { ok: boolean; error?: string }, ok: string) => {
+    setMessageOk(result.ok);
     setMessage(result.ok ? ok : (result.error ?? "That role was not changed."));
+  };
+  const runPending = () => {
+    const action = pending;
+    setPending(null);
+    if (action === "grant-steward") {
+      void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then((result) =>
+        report(result, "Steward granted."),
+      );
+    } else if (action === "revoke") {
+      void changeAccess({ action: "revoke", email, role, roomId }).then((result) =>
+        report(result, "Role revoked."),
+      );
+    }
   };
 
   return (
@@ -435,15 +455,7 @@ function RoleTools({
         >
           Grant member
         </button>
-        <button
-          type="button"
-          className={btnSignal}
-          onClick={() => {
-            void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then(
-              (result) => report(result, "Steward granted."),
-            );
-          }}
-        >
+        <button type="button" className={btnSignal} onClick={() => setPending("grant-steward")}>
           Grant steward
         </button>
         {admin ? (
@@ -460,12 +472,17 @@ function RoleTools({
           </button>
         ) : null}
       </div>
+      <p className="max-w-prose text-sm text-muted">
+        Grant adds a role. Revoke takes one away. A steward can mark and remove posts in one room.
+        An admin is a heavier grant and stays on its own button.
+      </p>
       {admin ? (
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             Role to revoke
             <select
-              className={fieldClass}
+              className={cn(fieldClass, "min-h-[44px]")}
+              aria-label="Role to revoke"
               value={role}
               onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
             >
@@ -476,18 +493,34 @@ function RoleTools({
           </label>
           <button
             type="button"
-            className={btnGhost}
-            onClick={() => {
-              void changeAccess({ action: "revoke", email, role, roomId }).then((result) =>
-                report(result, "Role revoked."),
-              );
-            }}
+            className={cn(btnQuiet, "min-h-[44px] text-danger")}
+            onClick={() => setPending("revoke")}
           >
             Revoke
           </button>
         </div>
       ) : null}
-      {message ? <p className="text-sm text-muted">{message}</p> : null}
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending === "revoke" ? "Revoke this role?" : "Grant steward?"}
+        description={
+          pending === "revoke"
+            ? `Revoke the ${role} role from ${email.trim() || "this person"}? That access goes away.`
+            : `Make ${email.trim() || "this person"} a steward${roomId.trim() ? ` of ${roomId.trim()}` : ""}? A steward can mark and remove posts in that room.`
+        }
+        confirmLabel={pending === "revoke" ? "Revoke" : "Grant steward"}
+        cancelLabel="Keep it"
+        onConfirm={runPending}
+        onCancel={() => setPending(null)}
+      />
+      {message ? (
+        <p
+          role={messageOk ? "status" : "alert"}
+          className={messageOk ? "text-sm text-muted" : "text-sm text-danger"}
+        >
+          {message}
+        </p>
+      ) : null}
     </section>
   );
 }

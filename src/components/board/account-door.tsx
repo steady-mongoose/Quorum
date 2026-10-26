@@ -108,7 +108,7 @@ export function AccountDoor() {
             />
           </label>
           {codeError ? (
-            <p id={INVITE_CODE_ERROR_ID} role="alert" className="text-sm text-[#f0b4a4]">
+            <p id={INVITE_CODE_ERROR_ID} role="alert" className="text-sm text-danger">
               {codeError}
             </p>
           ) : null}

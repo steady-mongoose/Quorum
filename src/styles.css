@@ -10,12 +10,14 @@
   --color-line-strong: #857c6f;
   --color-signal: #e9e2c8;
   --color-signal-ink: #14251a;
+  --color-danger: #f0b4a4;
   --font-sans: "Public Sans", "Segoe UI", sans-serif;
   --font-display: "Fraunces", Georgia, serif;
 }
 
 @layer base {
   html {
+    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     /* Everything is in rem, so this one line scales the app with the window:
