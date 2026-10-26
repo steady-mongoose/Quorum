@@ -106,6 +106,16 @@ function councilFrom(value: unknown): Post["council"] {
   };
 }
 
+function genderPolicyFrom(value: unknown): BoardSnapshot["genderPolicy"] {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const setBy = row.setBy === "inviter" || row.setBy === "steward" ? row.setBy : "self";
+  return {
+    setBy,
+    requiresConfirmation: row.requiresConfirmation === true,
+    changeBy: "steward",
+  };
+}
+
 function roomFrom(value: unknown): Room | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -128,6 +138,10 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    ...(row.audience === "men" || row.audience === "women" || row.audience === "all"
+      ? { audience: row.audience }
+      : {}),
+    ...(row.host === true ? { host: true } : {}),
   };
 }
 
@@ -257,7 +271,10 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         ? who.stewardRooms.filter((item): item is string => typeof item === "string" && item !== "")
         : [],
       ban,
+      gender: who.gender === "man" || who.gender === "woman" ? who.gender : null,
+      genderConfirmed: who.genderConfirmed === true,
     },
+    genderPolicy: genderPolicyFrom(body.genderPolicy),
     rooms,
     posts,
     marks,
@@ -372,6 +389,21 @@ export const apiBoardClient: BoardClient = {
     const room = roomFrom(response.json);
     if (!room) return { ok: false, error: "The room was not added." };
     return { ok: true, room };
+  },
+  async setRoomAudience(roomId, audience) {
+    const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/audience`, { audience });
+    if (!response.ok) return failure(response.json, "That was not saved.");
+    return { ok: true };
+  },
+  async setGender(input) {
+    const response = await send("/api/gender", input);
+    if (!response.ok) return failure(response.json, "That was not saved.");
+    return { ok: true };
+  },
+  async confirmGender(email) {
+    const response = await send("/api/gender/confirm", { email });
+    if (!response.ok) return failure(response.json, "That was not confirmed.");
+    return { ok: true };
   },
   async appointSteward(input) {
     const response = await send("/api/access", input);

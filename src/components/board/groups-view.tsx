@@ -19,6 +19,7 @@ import {
 import type { HomePayload } from "@/lib/board/home";
 import { MARK_LABEL, RULE_LABEL, RULE_SENTENCE, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { RoomAudienceMark } from "@/components/board/audience";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
@@ -148,6 +149,7 @@ function GroupList({
             >
               {group.name}
             </button>
+            <RoomAudienceMark audience={group.audience} />
             <p className="mt-2 max-w-prose text-base text-muted">{group.about}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -437,6 +439,7 @@ function GroupDetailView({
         <>
           <header className="flex flex-col gap-2">
             <h2 className="text-3xl text-fg">{detail.group.name}</h2>
+            <RoomAudienceMark audience={detail.group.audience} />
             <p className="max-w-prose text-base text-muted">{detail.group.about}</p>
             {line ? <p className="text-[0.8125rem] text-muted">{line}</p> : null}
           </header>

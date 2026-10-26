@@ -63,6 +63,7 @@ function fromResult(status: number, result: Result<unknown>): Response {
       error: result.error,
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
+      ...(result.code ? { code: result.code } : {}),
     });
   }
   return json(status, result.value);

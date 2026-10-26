@@ -19,6 +19,7 @@ import {
   removeGathering,
   saveGathering,
 } from "./gathering-record.ts";
+import { confirmMemberGender, setMemberGender, setRoomAudience } from "./audience.ts";
 import {
   banMember,
   closeAsked,
@@ -120,6 +121,7 @@ function fromResult(status: number, result: Result<unknown>): Response {
       error: result.error,
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
+      ...(result.code ? { code: result.code } : {}),
     });
   }
   return json(status, result.value);
@@ -148,6 +150,7 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
+  const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const gatheringOne =
     /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
@@ -161,6 +164,9 @@ export async function handleBoard(
     (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
+    (url.pathname === "/api/gender" && request.method === "POST") ||
+    (url.pathname === "/api/gender/confirm" && request.method === "POST") ||
+    Boolean(roomAudience && request.method === "POST") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
@@ -270,9 +276,61 @@ export async function handleBoard(
         id: stringField(body, "id"),
         name: stringField(body, "name"),
         what: stringField(body, "what"),
+        audience: body.audience,
         now,
       });
       return fromResult(201, created);
+    }
+
+    if (roomAudience && request.method === "POST") {
+      const saved = await setRoomAudience(deps.db, {
+        userId: session.id,
+        roomId: roomAudience[1] ?? "",
+        audience: body.audience,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
+    }
+
+    if (url.pathname === "/api/gender" && request.method === "POST") {
+      const email = stringField(body, "email").trim().toLowerCase();
+      let subjectUserId = session.id;
+      if (email) {
+        const people = await deps.db.query<{ id: string }>(
+          `select id from "user" where lower(email) = $1`,
+          [email],
+        );
+        const person = people[0];
+        if (!person) return json(404, { error: "No member has that email." });
+        subjectUserId = person.id;
+      }
+      const saved = await setMemberGender(deps.db, {
+        actorUserId: session.id,
+        subjectUserId,
+        gender: body.gender,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
+    }
+
+    if (url.pathname === "/api/gender/confirm" && request.method === "POST") {
+      const email = stringField(body, "email").trim().toLowerCase();
+      if (!email) return json(400, { error: "Name the member." });
+      const people = await deps.db.query<{ id: string }>(
+        `select id from "user" where lower(email) = $1`,
+        [email],
+      );
+      const person = people[0];
+      if (!person) return json(404, { error: "No member has that email." });
+      const saved = await confirmMemberGender(deps.db, {
+        actorUserId: session.id,
+        subjectUserId: person.id,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
     }
 
     if (url.pathname === "/api/place") {

@@ -39,6 +39,7 @@ export type ScopedRoom = {
   congregationId: string;
   regionId: string;
   sortOrder: number;
+  audience?: "all" | "men" | "women";
 };
 
 export type HomeRoomRow = {
@@ -196,7 +197,7 @@ export function orderCouncilPosts<
   return rows;
 }
 
-export type HomeRoom = { id: string; name: string };
+export type HomeRoom = { id: string; name: string; audience?: "men" | "women" };
 export type HomePost = {
   id: string;
   room: string;
@@ -301,7 +302,11 @@ export function parseHomePayload(value: unknown): HomePayload | null {
       if (!room || typeof room !== "object") return null;
       const entry = room as Record<string, unknown>;
       if (typeof entry.id !== "string" || typeof entry.name !== "string") return null;
-      rooms.push({ id: entry.id, name: entry.name });
+      rooms.push({
+        id: entry.id,
+        name: entry.name,
+        ...(entry.audience === "men" || entry.audience === "women" ? { audience: entry.audience } : {}),
+      });
     }
     sections.push({ tier: row.tier, label: row.label, rooms });
   }

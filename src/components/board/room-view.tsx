@@ -62,6 +62,7 @@ import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
+import { RoomAudienceEditor, RoomAudienceMark } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
@@ -100,6 +101,7 @@ export function RoomView() {
     () => (meta.parish ? needsFor(cards, room) : []),
     [cards, room, meta.parish],
   );
+  const setRoomAudience = useBoard((state) => state.setRoomAudience);
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
@@ -148,7 +150,15 @@ export function RoomView() {
         >
           {meta.name}
         </h1>
+        <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        {meta.host ? (
+          <RoomAudienceEditor
+            key={`${meta.id}-${meta.audience ?? "all"}`}
+            audience={meta.audience === "men" || meta.audience === "women" ? meta.audience : "all"}
+            onSave={(audience) => setRoomAudience(meta.id, audience)}
+          />
+        ) : null}
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
       </section>
@@ -166,6 +176,9 @@ export function RoomView() {
             className={pill(item.id === room)}
           >
             {item.name}
+            {item.audience === "men" || item.audience === "women" ? (
+              <RoomAudienceMark audience={item.audience} />
+            ) : null}
           </button>
         ))}
       </nav>

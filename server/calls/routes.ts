@@ -99,6 +99,9 @@ export async function handleCalls(
     runtime.store.evict(session.id);
     return json(403, { error: "banned", ban: member.ban, record: false });
   }
+  if (member.kind === "audience") {
+    return json(403, { error: member.error, code: member.code, record: false });
+  }
   if (member.kind === "outsider") {
     runtime.store.leave(roomId, session.id);
     return json(403, { error: "You have not stood in that room.", record: false });

@@ -317,7 +317,12 @@ async function route(
       },
       deps.now(),
     );
-    if (!minted.ok) return json(minted.status, { error: minted.error });
+    if (!minted.ok) {
+      return json(
+        minted.status,
+        minted.code ? { error: minted.error, code: minted.code } : { error: minted.error },
+      );
+    }
     return json(201, minted.value);
   }
 

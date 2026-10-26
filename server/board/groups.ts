@@ -22,6 +22,8 @@ import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { queryBanTable } from "./ban-check.ts";
+import { filterAudience, guardGroupAudience, guardRoomAudience } from "./audience.ts";
+import { parseAudience } from "../gender-policy.ts";
 import { openBan, type OpenBan, type Result } from "./store.ts";
 import type { RuleId } from "./rule.ts";
 
@@ -35,6 +37,7 @@ export type ThemeGroup = {
   about: string;
   joined: boolean;
   admin: boolean;
+  audience?: "men" | "women";
 };
 
 export type GroupPost = {
@@ -121,6 +124,7 @@ type Err = {
   status: number;
   error: string;
   ban?: { until: number; strikes: number; reason: RuleId };
+  code?: string;
 };
 
 type Gate = { ok: true; actor: BoardActor } | Err;
@@ -411,6 +415,8 @@ export async function listGroups(
     id: string;
     name: string;
     about: string;
+    audience: string;
+    source_room_id: string;
     joined: unknown;
     admin: unknown;
     ban_reason: string | null;
@@ -418,7 +424,7 @@ export async function listGroups(
     ban_until: Date | string | null;
   }>(
     db,
-    `select g.id, g.name, g.about,
+    `select g.id, g.name, g.about, g.audience, g.source_room_id,
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
             b.reason as ban_reason, b.strikes as ban_strikes, b.until_at as ban_until
@@ -431,7 +437,15 @@ export async function listGroups(
   );
   const at = now.getTime();
   const hidden = new Set<string>();
-  const groups: ThemeGroup[] = [];
+  const groups: Array<{
+    id: string;
+    name: string;
+    about: string;
+    joined: boolean;
+    admin: boolean;
+    audience: string;
+    sourceRoomId: string;
+  }> = [];
   const seen = new Set<string>();
   for (const row of rows) {
     if (!seen.has(row.id)) {
@@ -442,6 +456,8 @@ export async function listGroups(
         about: row.about,
         joined: flag(row.joined),
         admin: flag(row.admin),
+        audience: row.audience,
+        sourceRoomId: row.source_room_id,
       });
     }
     if (row.ban_reason == null || row.ban_strikes == null || row.ban_until == null) continue;
@@ -454,9 +470,29 @@ export async function listGroups(
       hidden.add(row.id);
     }
   }
+  const open = groups.filter((group) => !hidden.has(group.id));
+  const split = await filterAudience(db, {
+    userId,
+    actor: gated.actor,
+    rows: open,
+    now,
+    path: "group",
+    moderate: true,
+    roomIdOf: (group) => group.sourceRoomId,
+    detailOf: (group) => group.id,
+  });
   return {
     ok: true,
-    value: { groups: groups.filter((group) => !hidden.has(group.id)) },
+    value: {
+      groups: split.visible.map((group) => ({
+        id: group.id,
+        name: group.name,
+        about: group.about,
+        joined: group.joined,
+        admin: group.admin,
+        ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
+      })),
+    },
   };
 }
 
@@ -477,6 +513,17 @@ export async function listGroup(
 > {
   const gated = await gateGroup(db, userId, groupId, now);
   if (!gated.ok) return gated;
+  const audienceGate = await guardGroupAudience(db, {
+    userId,
+    groupId,
+    now,
+    moderate: true,
+    detail: "read",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
   const cursor = query.cursor ? decodeCursor(query.cursor) : null;
   if (query.cursor && !cursor) return fail(400, "That page is not valid.");
@@ -541,8 +588,8 @@ export async function listGroup(
   const visibleRemovals = seesRemovals
     ? removalRows
     : removalRows.filter((row) => row.author_user_id === userId);
-  const header = await db.query<{ id: string; name: string; about: string }>(
-    `select id, name, about from theme_group where id = $1`,
+  const header = await db.query<{ id: string; name: string; about: string; audience: string }>(
+    `select id, name, about, audience from theme_group where id = $1`,
     [groupId],
   );
   const group = header[0];
@@ -565,6 +612,7 @@ export async function listGroup(
         joined: await isJoined(db, groupId, userId),
         admin,
         admins: adminRows.map((row) => row.name),
+        ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
       },
       posts,
       marks: markRows.map((row) => ({
@@ -594,6 +642,16 @@ export async function joinGroup(
 ): Promise<Result<{ joined: true }>> {
   const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
+  const audienceGate = await guardGroupAudience(db, {
+    userId: input.userId,
+    groupId: input.groupId,
+    now: input.now,
+    detail: "join",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const who = input.name.trim() || "Member";
   if (await isJoined(db, input.groupId, input.userId)) return { ok: true, value: { joined: true } };
@@ -653,6 +711,16 @@ export async function createGroupPost(
 ): Promise<Result<GroupPost>> {
   const gated = await gateGroup(db, input.userId, input.groupId, input.now);
   if (!gated.ok) return gated;
+  const audienceGate = await guardGroupAudience(db, {
+    userId: input.userId,
+    groupId: input.groupId,
+    now: input.now,
+    detail: "post",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const admin = await isGroupAdmin(db, input.groupId, input.userId);
   const joined = await isJoined(db, input.groupId, input.userId);
@@ -891,6 +959,17 @@ export async function requestGroup(
     [roomId, input.userId],
   );
   if (!standing[0]) return fail(400, "Ask from a room you have joined.");
+  const audienceGate = await guardRoomAudience(db, {
+    userId: input.userId,
+    roomId,
+    now: input.now,
+    path: "group",
+    detail: "request",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   const roomBan = await openBan(db, input.userId, input.now, roomId);
   if (roomBan) return fail(403, "banned", roomBan);
   const groupId = groupIdFor(titled.text);
@@ -977,6 +1056,18 @@ export async function decideGroupRequest(
   if (!request || request.status !== "open") return fail(404, "That request is not open.");
   if (!stewardsRoom(gated.actor, request.room_id))
     return fail(403, "A steward of that room decides a group.");
+  const audienceGate = await guardRoomAudience(db, {
+    userId: input.userId,
+    roomId: request.room_id,
+    now: input.now,
+    path: "group",
+    moderate: true,
+    detail: "decide",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   if (request.by_user_id === input.userId) return fail(403, "Someone else decides a group.");
   if (input.decision === "approved" && request.by_user_id) {
     const barred = await openBan(db, request.by_user_id, input.now, request.room_id);
@@ -990,9 +1081,15 @@ export async function decideGroupRequest(
           throw new Stop(400, "That name is already a room.");
         if (await groupExists(tx, request.group_id))
           throw new Stop(409, "That group is already here.");
+        const source = await tx.query<{ audience: string }>(
+          `select audience from room where id = $1`,
+          [request.room_id],
+        );
+        const audience = parseAudience(source[0]?.audience) ?? "all";
         await tx.query(
-          `insert into theme_group (id, name, about, created_at) values ($1, $2, $3, $4)`,
-          [request.group_id, request.name, request.about, input.now],
+          `insert into theme_group (id, name, about, created_at, audience, source_room_id)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [request.group_id, request.name, request.about, input.now, audience, request.room_id],
         );
         if (request.by_user_id) {
           await tx.query(
@@ -1132,6 +1229,17 @@ export async function markGroupPost(
   if (barred) return fail(403, "banned", barred);
   if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
     return fail(403, "Only a group admin or a steward of that group can mark a post.");
+  const audienceGate = await guardGroupAudience(db, {
+    userId: input.userId,
+    groupId: post.group_id,
+    now: input.now,
+    moderate: true,
+    detail: "mark",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   const id = randomUUID();
   const who = input.name.trim() || "Admin";
   let saved: PostRow;
@@ -1213,6 +1321,17 @@ export async function removeGroupPost(
   if (barred) return fail(403, "banned", barred);
   if (!(await moderatesGroup(db, gated.actor, input.userId, post.group_id)))
     return fail(403, "Only a group admin or a steward of that group can remove a post.");
+  const audienceGate = await guardGroupAudience(db, {
+    userId: input.userId,
+    groupId: post.group_id,
+    now: input.now,
+    moderate: true,
+    detail: "remove",
+    actor: gated.actor,
+  });
+  if (!audienceGate.ok) {
+    return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
+  }
   if (post.author_user_id) {
     const target = await actorRole(db, post.author_user_id);
     const groupSteward = await isGroupSteward(db, post.group_id, post.author_user_id);

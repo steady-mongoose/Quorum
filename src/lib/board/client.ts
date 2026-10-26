@@ -21,6 +21,14 @@ export type BoardMe = {
   /** Rooms with a live steward grant. An admin is not listed here. */
   stewardRooms: string[];
   ban: { until: number; strikes: number; reason: HardRule } | null;
+  gender: "man" | "woman" | null;
+  genderConfirmed: boolean;
+};
+
+export type GenderPolicyInfo = {
+  setBy: "self" | "inviter" | "steward";
+  requiresConfirmation: boolean;
+  changeBy: "steward";
 };
 
 export type PlaceInput = { zip: string; congregationId: string };
@@ -54,6 +62,7 @@ export type BoardPage = { room: string; next: string | null };
 
 export type BoardSnapshot = {
   me: BoardMe;
+  genderPolicy: GenderPolicyInfo;
   rooms: Room[];
   posts: Post[];
   marks: MarkRow[];
@@ -94,7 +103,17 @@ export type BoardClient = {
     id: string;
     name: string;
     what: string;
+    audience?: "all" | "men" | "women";
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
+  setRoomAudience: (
+    roomId: string,
+    audience: "all" | "men" | "women",
+  ) => Promise<{ ok: true } | BoardFailure>;
+  setGender: (input: {
+    gender: "man" | "woman";
+    email?: string;
+  }) => Promise<{ ok: true } | BoardFailure>;
+  confirmGender: (email: string) => Promise<{ ok: true } | BoardFailure>;
   appointSteward: (input: {
     email: string;
     action: "grant" | "revoke";

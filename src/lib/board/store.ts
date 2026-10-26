@@ -83,6 +83,11 @@ type BoardState = {
   councilChair: boolean;
   /** Rooms this person stewards. An admin is not listed; they can moderate every room. */
   stewardRooms: string[];
+  /** Null until this member states it. The server is the record. */
+  gender: "man" | "woman" | null;
+  genderConfirmed: boolean;
+  genderSetBy: "self" | "inviter" | "steward";
+  genderNeedsConfirmation: boolean;
   /** Server Home. Null in the sample week. The array order is the server's. */
   home: HomePayload | null;
   /** True while this browser is writing rooms and posts to the API. */
@@ -131,7 +136,18 @@ type BoardState = {
     id: string;
     name: string;
     what: string;
+    audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
+  setRoomAudience: (
+    roomId: string,
+    audience: "all" | "men" | "women",
+  ) => Promise<{ ok: boolean; error?: string }>;
+  setGender: (gender: "man" | "woman") => Promise<{ ok: boolean; error?: string }>;
+  setMemberGender: (input: {
+    gender: "man" | "woman";
+    email: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  confirmGender: (email: string) => Promise<{ ok: boolean; error?: string }>;
   appointSteward: (input: {
     email: string;
     action: "grant" | "revoke";
@@ -519,6 +535,10 @@ export const useBoard = create<BoardState>()(
           councilChair: board.me.councilChair,
           stewardRooms: board.me.stewardRooms,
           member: true,
+          gender: board.me.gender,
+          genderConfirmed: board.me.genderConfirmed,
+          genderSetBy: board.genderPolicy.setBy,
+          genderNeedsConfirmation: board.genderPolicy.requiresConfirmation,
         });
       };
 
@@ -558,6 +578,10 @@ export const useBoard = create<BoardState>()(
         council: false,
         councilChair: false,
         stewardRooms: [],
+        gender: null,
+        genderConfirmed: false,
+        genderSetBy: "self",
+        genderNeedsConfirmation: false,
         home: null,
         remote: false,
         boardError: "",
@@ -1112,6 +1136,37 @@ export const useBoard = create<BoardState>()(
           set({ rooms });
           return { ok: true };
         },
+        setRoomAudience: async (roomId, audience) => {
+          if (!get().remote) return { ok: false, error: "That is saved on the server." };
+          const saved = await (await getBoardClient()).setRoomAudience(roomId, audience);
+          if (!saved.ok) return { ok: false, error: saved.error };
+          const loaded = await (await getBoardClient()).load();
+          if (loaded.ok) applySnapshot(loaded.board);
+          await pullHome();
+          return { ok: true };
+        },
+        setGender: async (gender) => {
+          if (!get().remote) return { ok: false, error: "That is saved on the server." };
+          const saved = await (await getBoardClient()).setGender({ gender });
+          if (!saved.ok) return { ok: false, error: saved.error };
+          const loaded = await (await getBoardClient()).load();
+          if (loaded.ok) applySnapshot(loaded.board);
+          else set({ gender });
+          await pullHome();
+          return { ok: true };
+        },
+        setMemberGender: async (input) => {
+          if (!get().remote) return { ok: false, error: "That is saved on the server." };
+          const saved = await (await getBoardClient()).setGender(input);
+          if (!saved.ok) return { ok: false, error: saved.error };
+          return { ok: true };
+        },
+        confirmGender: async (email) => {
+          if (!get().remote) return { ok: false, error: "That is saved on the server." };
+          const saved = await (await getBoardClient()).confirmGender(email);
+          if (!saved.ok) return { ok: false, error: saved.error };
+          return { ok: true };
+        },
         appointSteward: async (input) => {
           if (!get().remote) return { ok: false, error: "Stewards are appointed on the server." };
           const saved = await (await getBoardClient()).appointSteward(input);
@@ -1199,6 +1254,10 @@ export const useBoard = create<BoardState>()(
             council: false,
             councilChair: false,
             stewardRooms: [],
+            gender: null,
+            genderConfirmed: false,
+            genderSetBy: "self",
+            genderNeedsConfirmation: false,
             home: null,
             member: false,
             boardError: "",
