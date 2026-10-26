@@ -4,7 +4,7 @@ import test from "node:test";
 import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
 import type { HomePayload } from "./home.ts";
 import { blankDraft, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
-import { UNDO_TTL_MS, useBoard } from "./store.ts";
+import { UNDO_TTL_MS, dropSampleWeek, migrateBoardStorage, useBoard } from "./store.ts";
 
 const idle = async () => ({ ok: false as const, error: "unused" });
 
@@ -48,6 +48,36 @@ function draft() {
   };
 }
 
+/** A small local board: one member, two posts. */
+function fillLocalBoard() {
+  const post = (id: string, claim: string): Post => ({
+    id,
+    room: "shop",
+    type: "did",
+    claim,
+    reason: "Tom checked them.",
+    on: todayIso(),
+    next: "",
+    came: [],
+    named: "",
+    author: "Maria",
+    at: 1,
+    parentId: null,
+    closed: false,
+    mark: null,
+    removed: false,
+    media: [],
+  });
+  useBoard.setState({
+    remote: false,
+    member: true,
+    founded: true,
+    me: "Maria",
+    section: "week",
+    posts: [post("l1", "Sharpened the chisels."), post("l2", "Swept the shop.")],
+  });
+}
+
 function reset() {
   setBoardClient(null);
   useBoard.setState({
@@ -56,7 +86,6 @@ function reset() {
     steward: true,
     member: true,
     me: "Maria",
-    sample: false,
     posts: [],
     removals: [],
     markLog: [],
@@ -197,14 +226,13 @@ test("a local CSAM removal keeps the words off the post and bans the account", a
 
 test("a confirmed clear stays on an empty week and undo puts the board back", () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const before = useBoard.getState();
   const posts = before.posts.length;
   const name = before.me;
   assert.ok(posts > 0);
   useBoard.getState().clearLocalBoard();
   const cleared = useBoard.getState();
-  assert.equal(cleared.sample, false);
   assert.equal(cleared.localEntry, true);
   assert.equal(cleared.section, "week");
   assert.equal(cleared.posts.length, 0);
@@ -213,7 +241,6 @@ test("a confirmed clear stays on an empty week and undo puts the board back", ()
   assert.equal(cleared.undoClear?.posts.length, posts);
   useBoard.getState().undoClearBoard();
   const restored = useBoard.getState();
-  assert.equal(restored.sample, true);
   assert.equal(restored.me, name);
   assert.equal(restored.posts.length, posts);
   assert.equal(restored.undoClear, null);
@@ -232,14 +259,14 @@ function persisted(): {
 
 /** Drop the in-memory board, then load whatever was put back in storage. */
 async function reload(raw: string) {
-  useBoard.setState({ posts: [], undoClear: null, me: "", sample: false, member: false });
+  useBoard.setState({ posts: [], undoClear: null, me: "", member: false });
   localStorage.setItem("the-board-v1", raw);
   await useBoard.persist.rehydrate();
 }
 
 test("a reload during the undo window still has the board", async () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const posts = useBoard.getState().posts.length;
   const name = useBoard.getState().me;
   assert.ok(posts > 0);
@@ -254,20 +281,18 @@ test("a reload during the undo window still has the board", async () => {
   await reload(saved);
   const reloaded = useBoard.getState();
   assert.equal(reloaded.posts.length, 0);
-  assert.equal(reloaded.sample, false);
   assert.equal(reloaded.member, true);
   assert.equal(reloaded.undoClear?.posts.length, posts);
   assert.equal(reloaded.undoClear?.me, name);
   useBoard.getState().undoClearBoard();
   assert.equal(useBoard.getState().posts.length, posts);
-  assert.equal(useBoard.getState().sample, true);
   assert.equal(useBoard.getState().me, name);
   assert.equal(useBoard.getState().undoClear, null);
 });
 
 test("an expired undo snapshot is dropped on reload", async () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   useBoard.getState().clearLocalBoard();
   const stored = persisted();
   assert.ok(stored.state.undoClear);
@@ -339,17 +364,79 @@ test("a second file does not post while the first is still sending", async () =>
 
 test("a silent clear and a remote board do not offer undo", () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   useBoard.getState().clearBoard();
   assert.equal(useBoard.getState().undoClear, null);
-  assert.equal(useBoard.getState().sample, false);
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const posts = useBoard.getState().posts.length;
   useBoard.setState({ remote: true });
   useBoard.getState().clearLocalBoard();
   assert.equal(useBoard.getState().remote, true);
   assert.equal(useBoard.getState().posts.length, posts);
   assert.equal(useBoard.getState().undoClear, null);
+});
+
+test("a saved sample week is dropped on load", () => {
+  const sample = dropSampleWeek({
+    sample: true,
+    sampleVersion: 8,
+    me: "Josh",
+    member: true,
+    posts: [{}],
+    room: "shop",
+  });
+  assert.deepEqual(sample, { room: "shop", deskOn: undefined, lineDismissedAt: undefined });
+  const legacy = dropSampleWeek({ cards: [{ id: "s-framing" }], me: "Josh" });
+  assert.equal(legacy.me, undefined);
+  const real = dropSampleWeek({ sample: false, sampleVersion: 0, me: "Maria", posts: [{}] });
+  assert.deepEqual(real, { me: "Maria", posts: [{}] });
+});
+
+test("storage migrations chain: v5 and v6 sample weeks are dropped, real boards kept", () => {
+  const mark = { id: "m1", postId: "p1", by: "Tom", at: 1 };
+  const v5Sample = migrateBoardStorage(
+    {
+      sample: true,
+      sampleVersion: 8,
+      me: "Josh",
+      member: true,
+      posts: [{ id: "s1" }],
+      markLog: [mark],
+      room: "shop",
+    },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Sample.me, undefined);
+  assert.equal(v5Sample.posts, undefined);
+  assert.equal(v5Sample.markLog, undefined);
+  assert.equal(v5Sample.room, "shop");
+
+  const v5Legacy = migrateBoardStorage({ me: "Josh", cards: [{ id: "s-framing" }] }, 5) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(v5Legacy.me, undefined);
+
+  const v5Real = migrateBoardStorage(
+    { sample: false, sampleVersion: 0, me: "Maria", posts: [{ id: "p1" }], markLog: [mark] },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Real.me, "Maria");
+  assert.deepEqual(v5Real.posts, [{ id: "p1" }]);
+  assert.deepEqual(v5Real.markLog, [{ ...mark, reason: "" }]);
+  assert.equal("sample" in v5Real, false);
+  assert.equal("sampleVersion" in v5Real, false);
+
+  const v6Sample = migrateBoardStorage(
+    { sample: true, me: "Josh", posts: [{}], room: "county" },
+    6,
+  ) as Record<string, unknown>;
+  assert.equal(v6Sample.me, undefined);
+  assert.equal(v6Sample.room, "county");
+
+  const v7 = { me: "Maria", posts: [{}] };
+  assert.equal(migrateBoardStorage(v7, 7), v7);
+  assert.deepEqual(migrateBoardStorage({ me: "x" }, 4), {});
 });
 
 test("a live board keeps the server home order", async () => {

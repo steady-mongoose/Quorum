@@ -106,7 +106,7 @@ test("the clear dialog and the post form use the review markup", () => {
   const css = source("../../styles.css");
 
   assert.match(css, /--color-line-strong:\s*#8a7a62/);
-  assert.match(about, /Clear the sample week\?/);
+  assert.match(about, /title="Clear the board\?"/);
   assert.match(about, /Everything here will be removed\./);
   assert.match(about, /confirmLabel="Clear it"/);
   assert.match(about, /cancelLabel="Keep it"/);
@@ -131,7 +131,7 @@ test("the clear dialog and the post form use the review markup", () => {
   assert.equal(room.includes("File {type.label}"), false);
   assert.equal(/\blike\b|\bscore\b|\brank/i.test(room), false);
 
-  assert.match(app, /Boolean\(server\.user\) \|\| sample \|\| localEntry/);
+  assert.match(app, /Boolean\(server\.user\) \|\| localEntry/);
   assert.match(app, /undoClearBoard\(\)/);
   assert.match(app, />\s*Undo\s*</);
   assert.match(week, /The board is cleared, and nothing is on the calendar\./);
@@ -198,7 +198,7 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
   assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
   assert.match(css, /--color-bg:\s*#14100c/);
 
-  assert.match(app, /Clear the sample week…/);
+  assert.equal(/sample week/i.test(app), false);
   assert.equal(app.includes("Clear it under About"), false);
   assert.match(app, /UNDO_BAR_MS/);
   assert.match(app, /UNDO_TTL_MS/);

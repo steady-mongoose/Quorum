@@ -6,7 +6,6 @@ import {
   boardExportDocument,
   canClearBoard,
   clearPhraseMatches,
-  clearPhraseRequired,
   localBoardOwner,
 } from "./store.ts";
 
@@ -19,14 +18,8 @@ test("only an admin or an owner can clear the board", () => {
   assert.equal(canClearBoard({ admin: true, owner: false }), true);
   assert.equal(canClearBoard({ admin: false, owner: true }), true);
   assert.equal(canClearBoard({ admin: true, owner: true }), true);
-  assert.equal(localBoardOwner({ founded: false, sample: false }), false);
-  assert.equal(localBoardOwner({ founded: true, sample: false }), true);
-  assert.equal(localBoardOwner({ founded: false, sample: true }), true);
-});
-
-test("the sample week does not ask for a typed phrase", () => {
-  assert.equal(clearPhraseRequired(true), false);
-  assert.equal(clearPhraseRequired(false), true);
+  assert.equal(localBoardOwner({ founded: false }), false);
+  assert.equal(localBoardOwner({ founded: true }), true);
 });
 
 test("clear stays disabled until the board name or CLEAR is typed", () => {
@@ -46,7 +39,6 @@ test("clear stays disabled until the board name or CLEAR is typed", () => {
 test("export is a JSON snapshot of the board and has no engagement fields", () => {
   const json = boardExportDocument({
     me: "Josh",
-    sample: true,
     profile: { household: "the McMullins", parish: "Epiphany", trade: "" },
     rooms: [{ id: "shop", name: "The Shop" }],
     posts: [
@@ -120,9 +112,7 @@ test("the clear control is gated, typed, and offers export before the wipe", () 
   const dialog = source("../../components/board/confirm-dialog.tsx");
   assert.match(about, /canClearBoard\(\{ admin, owner: localBoardOwner/);
   assert.match(about, /\{mayClear \?/);
-  assert.match(about, /clearPhraseRequired\(sample\)/);
-  assert.match(about, /phraseRequired && !clearPhraseMatches\(clearPhrase, APP_NAME\)/);
-  assert.match(about, /\{phraseRequired \?/);
+  assert.match(about, /!clearPhraseMatches\(clearPhrase, APP_NAME\)/);
   assert.match(about, /Export first/);
   assert.match(about, /invites, bans, marks, removals, appeals, and\s+reports/);
   assert.match(about, /downloadBoardExport\(boardSnapshot\(\)\)/);
@@ -130,8 +120,6 @@ test("the clear control is gated, typed, and offers export before the wipe", () 
   assert.match(about, /clearLocalBoard\(\)/);
   assert.match(about, /undoClearBoard\(\)/);
   assert.match(about, /Type \{APP_NAME\} or CLEAR/);
-  assert.match(app, /canClearBoard\(\{ admin, owner: localBoardOwner/);
-  assert.match(app, /Clear the sample week…/);
   assert.match(app, /undoClearBoard\(\)/);
   assert.match(dialog, /disabled=\{confirmDisabled\}/);
   assert.match(dialog, /min-h-\[44px\]/);
