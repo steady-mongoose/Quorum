@@ -23,6 +23,7 @@ import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
+import { rememberNamedAccounts } from "../dm/store.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -853,9 +854,9 @@ export async function createPost(
           input.userId,
         ]);
       }
-      if (cardId) {
+      if (cardId && type === "hosted") {
         const owners = await tx.query<{ author_user_id: string | null }>(
-          `select author_user_id from board_post where card_id = $1 for update`,
+          `select author_user_id from board_post where card_id = $1 and type = 'hosted' for update`,
           [cardId],
         );
         if (owners.some((row) => row.author_user_id !== input.userId)) {
@@ -890,6 +891,7 @@ export async function createPost(
       );
       const saved = inserted[0];
       if (!saved) throw new Stop(500, "The post was not filed.");
+      if (type === "hosted") await rememberNamedAccounts(tx, saved.id);
       return saved;
     });
     return { ok: true, value: await withCouncil(db, toPost(row)) };

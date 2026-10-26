@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
+import { rememberNamedAccounts } from "./store.ts";
 import type { Db } from "../db.ts";
 import { DM_SEND_LIMIT, consumeLimit } from "../rate-limit.ts";
 import {
@@ -96,12 +97,14 @@ test("two members, two devices, and a restored backup can read ciphertext the se
     assert.equal((await registerDevice(transport(handler, bob), bobVault)).ok, true);
     assert.equal((await publishBackup(transport(handler, alice), aliceVault, PASSPHRASE)).ok, true);
     assert.equal((await publishBackup(transport(handler, bob), bobVault, PASSPHRASE)).ok, true);
+    const postId = randomUUID();
     await db.query(
       `insert into board_post (
          id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
        ) values ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-framing', now())`,
-      [randomUUID(), alice, ["Alice", "Bob"]],
+      [postId, alice, ["Alice", "Bob"]],
     );
+    await rememberNamedAccounts(db, postId);
     assert.equal((await recordAttendance(transport(handler, alice), ["s-framing"])).ok, true);
     assert.equal((await recordAttendance(transport(handler, bob), ["s-framing"])).ok, true);
 
@@ -399,6 +402,162 @@ test("posting came with someone else's meeting card does not make them a peer", 
     assert.equal(leakedIds.includes(friend), false);
     const opened = await openEncryptedThread(transport(handler, mallory), victim);
     assert.equal(opened.ok, false);
+  } finally {
+    await close();
+  }
+});
+
+test("a deleted member's message stays readable, and a second read does not reuse a key", async () => {
+  const { db, close } = await openTestDb();
+  const now = new Date("2026-10-19T12:00:00Z");
+  const handler = createApp({
+    db,
+    origins: ["http://localhost:8080"],
+    now: () => now,
+    createAccount: async () => {
+      throw new Error("unused");
+    },
+    signIn: async () => {
+      throw new Error("unused");
+    },
+    readSession: async (headers) => {
+      const id = headers.get("x-user-id");
+      if (!id) return null;
+      const rows = await db.query<{ id: string; name: string; email: string }>(
+        `select id, name, email from "user" where id = $1`,
+        [id],
+      );
+      const user = rows[0];
+      return user ? { id: user.id, name: user.name, email: user.email } : null;
+    },
+    forwardAuth: async () => new Response(null, { status: 404 }),
+  });
+  try {
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    const aliceVault = memoryVault(await createLocalDevice(alice, "Browser"));
+    const bobVault = memoryVault(await createLocalDevice(bob, "Browser"));
+    assert.equal((await registerDevice(transport(handler, alice), aliceVault)).ok, true);
+    assert.equal((await registerDevice(transport(handler, bob), bobVault)).ok, true);
+    const postId = randomUUID();
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-framing', now())`,
+      [postId, alice, ["Alice", "Bob"]],
+    );
+    await rememberNamedAccounts(db, postId);
+    assert.equal((await recordAttendance(transport(handler, alice), ["s-framing"])).ok, true);
+    assert.equal((await recordAttendance(transport(handler, bob), ["s-framing"])).ok, true);
+    const opened = await openEncryptedThread(transport(handler, alice), bob);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const blocked = await sendEncrypted(
+      transport(handler, alice),
+      aliceVault,
+      opened.thread.id,
+      bob,
+      TEXT,
+    );
+    assert.equal(blocked.ok, false);
+    if (blocked.ok || !blocked.safety) return;
+    confirmSafety(aliceVault, bob, blocked.safety);
+    const bobBlocked = await sendEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      alice,
+      "Noted.",
+    );
+    assert.equal(bobBlocked.ok, false);
+    if (bobBlocked.ok || !bobBlocked.safety) return;
+    confirmSafety(bobVault, alice, bobBlocked.safety);
+    const sent = await sendEncrypted(
+      transport(handler, alice),
+      aliceVault,
+      opened.thread.id,
+      bob,
+      TEXT,
+    );
+    assert.equal(sent.ok, true);
+
+    const first = await readEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      bob,
+      "Bob",
+      "Alice",
+      alice,
+    );
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.equal(first.messages[0]?.text, TEXT);
+    assert.equal(first.warnings.includes("A one-time key was reused."), false);
+
+    const second = await readEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      bob,
+      "Bob",
+      "Alice",
+      alice,
+    );
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.equal(second.messages[0]?.text, TEXT);
+    assert.equal(second.warnings.includes("A one-time key was reused."), false);
+    assert.equal(second.unreadable, 0);
+
+    const identity = aliceVault.read()?.device.identityPublic ?? "";
+    assert.equal(identity.length > 0, true);
+    await db.query(`delete from "user" where id = $1`, [alice]);
+    const deviceId = aliceVault.read()?.device.deviceId ?? "";
+    const devices = await db.query(`select id from dm_device where id = $1`, [deviceId]);
+    assert.equal(devices.length, 0);
+    const envelopes = await db.query(
+      `select id from dm_envelope where recipient_device_id = $1`,
+      [deviceId],
+    );
+    assert.equal(envelopes.length, 0);
+
+    const after = await readEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      bob,
+      "Bob",
+      "Former member",
+    );
+    assert.equal(after.ok, true);
+    if (!after.ok) return;
+    assert.equal(after.messages.some((message) => message.text === TEXT), true);
+    assert.equal(
+      after.messages.find((message) => message.text === TEXT)?.from,
+      "Former member",
+    );
+    const served = await transport(handler, bob).get(
+      `/api/dm/threads/${opened.thread.id}/messages`,
+    );
+    assert.equal(JSON.stringify(served.body).includes(identity), false);
+
+    const broken = bobVault.read();
+    const pin = broken?.pins.find((item) => item.userId === alice);
+    if (pin) pin.identityPublic = "not-the-saved-identity";
+    if (broken) bobVault.write(broken);
+    const refused = await readEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      bob,
+      "Bob",
+      "Former member",
+    );
+    assert.equal(refused.ok, true);
+    if (!refused.ok) return;
+    assert.equal(refused.messages.some((message) => message.text === TEXT), false);
+    assert.equal(refused.unreadable > 0, true);
   } finally {
     await close();
   }

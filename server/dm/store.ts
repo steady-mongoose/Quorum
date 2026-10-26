@@ -85,8 +85,10 @@ export type DeviceRegistration = {
 export type StoredMessage = MessageWire & {
   senderUserId: string;
   senderIdentityPublic: string;
+  /** True when the sender account is gone. The client checks its saved identity key. */
+  former: boolean;
   createdAt: string;
-  sender: PublicDevice;
+  sender: PublicDevice | null;
 };
 
 type DeviceRow = {
@@ -433,9 +435,9 @@ export async function getBackup(
 /**
  * A real meeting is the earliest hosted post for a non-empty card id, in a
  * room that takes meeting cards, and that post is still up. The host counts.
- * Anyone else counts only after they confirm, and only when their account
- * name is the only one with that name and the host named them. A name on the
- * write-up is not attendance. A post id is not a meeting.
+ * Anyone else counts only after they confirm, and only when the host's post
+ * resolved their account at the time it was filed. A later account, or a
+ * later rename onto that name, is not attendance. A post id is not a meeting.
  */
 const REAL_MEETINGS = `
   with first_host as (
@@ -457,16 +459,15 @@ const REAL_MEETINGS = `
       and f.host_id is not null
       and 'meeting' = any (r.card_kinds)
   ),
-  allowlist as (
-    select distinct h.meeting_id, h.host_id, n.name
+  named_accounts as (
+    select distinct h.meeting_id, h.host_id, n.user_id
     from host_cards h
     join board_post p
       on p.card_id = h.meeting_id
      and p.author_user_id = h.host_id
      and p.type = 'hosted'
      and p.removed = false
-    cross join lateral unnest(p.came) as n(name)
-    where n.name <> ''
+    join dm_named_account n on n.post_id = p.id
   )
 `;
 
@@ -475,12 +476,10 @@ const VERIFIED_ATTENDANCE = `
   select h.host_id as user_id, h.meeting_id
   from host_cards h
   union
-  select u.id as user_id, a.meeting_id
-  from allowlist a
-  join "user" u on u.name = a.name
-  join dm_attendance att on att.user_id = u.id and att.meeting_id = a.meeting_id
-  where u.id <> a.host_id
-    and (select count(*)::int from "user" named where named.name = u.name) = 1
+  select n.user_id, n.meeting_id
+  from named_accounts n
+  join dm_attendance att on att.user_id = n.user_id and att.meeting_id = n.meeting_id
+  where n.user_id <> n.host_id
 `;
 
 const CONFIRMABLE = `
@@ -489,13 +488,31 @@ const CONFIRMABLE = `
   from host_cards h
   where h.host_id = $1
   union
-  select a.meeting_id
-  from allowlist a
-  join "user" u on u.id = $1 and u.name = a.name and u.name <> ''
-  where (select count(*)::int from "user" named where named.name = u.name) = 1
+  select n.meeting_id
+  from named_accounts n
+  where n.user_id = $1
 `;
 
 const ATTENDANCE_CARD_CAP = 40;
+
+/** Resolve the names on a hosted post to accounts that exist right now. */
+export async function rememberNamedAccounts(db: Db, postId: string): Promise<void> {
+  const ready = await db.query<{ ready: string | null }>(
+    `select to_regclass('public.dm_named_account') as ready`,
+  );
+  if (!ready[0]?.ready) return;
+  await db.query(
+    `insert into dm_named_account (post_id, user_id)
+     select p.id, u.id
+     from board_post p
+     join "user" u on u.name <> '' and u.name = any(p.came)
+     where p.id = $1
+       and p.type = 'hosted'
+       and (select count(*)::int from "user" named where named.name = u.name) = 1
+     on conflict do nothing`,
+    [postId],
+  );
+}
 
 export async function recordAttendance(
   db: Db,
@@ -1003,31 +1020,48 @@ export async function listMessages(
   const deviceById = new Map(devices.map((device) => [device.id, device]));
   const stored: StoredMessage[] = [];
   for (const message of messages) {
-    if (!message.sender_device_id || !message.sender_identity_public) continue;
-    const sender = deviceById.get(message.sender_device_id);
-    if (!sender) continue;
+    const wire = envelopes
+      .filter((envelope) => envelope.message_id === message.id)
+      .map((envelope) => ({
+        recipientDeviceId: envelope.recipient_device_id,
+        recipientUserBackup: envelope.recipient_user_backup,
+        nonce: envelope.nonce,
+        ciphertext: envelope.ciphertext,
+        ephemeralPublic: envelope.ephemeral_public,
+        prekeyId: envelope.prekey_id,
+        signedPrekeyId: envelope.signed_prekey_id,
+      }));
+    const sender = message.sender_device_id ? deviceById.get(message.sender_device_id) : undefined;
+    if (!message.sender_device_id || !message.sender_identity_public || !sender) {
+      stored.push({
+        messageId: message.id,
+        threadId,
+        senderDeviceId: "",
+        senderUserId: "",
+        senderIdentityPublic: "",
+        former: true,
+        createdAt: iso(message.created_at),
+        sender: null,
+        bodyNonce: message.body_nonce,
+        bodyCiphertext: message.body_ciphertext,
+        bodySig: message.body_sig,
+        envelopes: wire,
+      });
+      continue;
+    }
     stored.push({
       messageId: message.id,
       threadId,
       senderDeviceId: message.sender_device_id,
       senderUserId: message.sender_user_id ?? "",
       senderIdentityPublic: message.sender_identity_public,
+      former: false,
       createdAt: iso(message.created_at),
       sender: asPublic(sender),
       bodyNonce: message.body_nonce,
       bodyCiphertext: message.body_ciphertext,
       bodySig: message.body_sig,
-      envelopes: envelopes
-        .filter((envelope) => envelope.message_id === message.id)
-        .map((envelope) => ({
-          recipientDeviceId: envelope.recipient_device_id,
-          recipientUserBackup: envelope.recipient_user_backup,
-          nonce: envelope.nonce,
-          ciphertext: envelope.ciphertext,
-          ephemeralPublic: envelope.ephemeral_public,
-          prekeyId: envelope.prekey_id,
-          signedPrekeyId: envelope.signed_prekey_id,
-        })),
+      envelopes: wire,
     });
   }
   return { ok: true, value: stored };

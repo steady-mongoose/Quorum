@@ -182,7 +182,15 @@ export function EncryptedMailbox() {
 
   async function loadThread(thread: ThreadSummary) {
     if (!me) return;
-    const read = await readEncrypted(transport, store, thread.id, me.id, me.name, thread.otherName);
+    const read = await readEncrypted(
+      transport,
+      store,
+      thread.id,
+      me.id,
+      me.name,
+      thread.otherName,
+      thread.otherUserId,
+    );
     if (!read.ok) {
       setNotice(read.message);
       return;

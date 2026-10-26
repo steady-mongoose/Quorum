@@ -19,6 +19,7 @@ import {
   openMessage,
   safetyNumber,
   sealMessage,
+  verifyBodySignature,
   verifyDeviceStatement,
   verifyIdentitySignature,
   verifyPrekey,
@@ -34,7 +35,13 @@ import {
   type SealDestination,
 } from "./protocol.ts";
 
-export type PinnedDevice = { deviceId: string; signPublic: string; boxPublic: string };
+export type PinnedDevice = {
+  deviceId: string;
+  signPublic: string;
+  boxPublic: string;
+  statementSig?: string;
+  identitySig?: string;
+};
 
 /** Identity, backup, and the device list the member has already accepted. */
 export type PinRecord = {
@@ -53,6 +60,18 @@ export type VaultState = {
   confirmed: { userId: string; safety: string }[];
   /** One-time prekey ids this device has already opened. A repeat is reported. */
   spentPrekeys: string[];
+  /** Thread to the other account, saved while that account still existed. */
+  peers?: { threadId: string; userId: string }[];
+  /** Messages this device has already decrypted. A repeat does not open the wrap again. */
+  opened?: SavedMessage[];
+};
+
+type SavedMessage = DecodedMessage & {
+  threadId: string;
+  bodyCiphertext: string;
+  senderDeviceId: string;
+  senderUserId: string;
+  envelopes: EnvelopeWire[];
 };
 
 export type VaultStore = {
@@ -530,6 +549,11 @@ export async function sendEncrypted(
   if (!isUuid(threadId) || !isMemberId(otherUserId)) {
     return { ok: false, message: "That conversation was not found." };
   }
+  const noted = vault.read();
+  if (noted) {
+    rememberPeer(noted, threadId, otherUserId);
+    vault.write(noted);
+  }
   const ready = await messageDestinations(transport, vault, otherUserId);
   if (!ready.ok) return ready;
   const sealed = await sealMessage({
@@ -565,12 +589,14 @@ export async function readEncrypted(
   myUserId: string,
   myName: string,
   otherName: string,
+  otherUserId = "",
 ): Promise<
   | { ok: true; messages: DecodedMessage[]; unreadable: number; warnings: string[] }
   | { ok: false; message: string }
 > {
   const state = vault.read();
   if (!state) return { ok: false, message: "Create keys on this device first." };
+  if (otherUserId) rememberPeer(state, threadId, otherUserId);
   const response = await expectOk(
     await transport.get(`/api/dm/threads/${threadId}/messages`),
     "Messages did not load.",
@@ -582,6 +608,8 @@ export async function readEncrypted(
   const seen = new Set<string>();
   let unreadable = 0;
   const consumed: string[] = [];
+  const newly: SavedMessage[] = [];
+  const savedMessages = state.opened ?? [];
   for (const row of rows) {
     if (row.message.threadId !== threadId) {
       unreadable += 1;
@@ -589,6 +617,26 @@ export async function readEncrypted(
     }
     if (seen.has(row.message.messageId)) continue;
     seen.add(row.message.messageId);
+    const saved = savedMessages.find(
+      (item) => item.id === row.message.messageId && item.threadId === threadId,
+    );
+    if (row.former) {
+      const former = await readFormerMessage(state, threadId, row, saved);
+      if (!former) {
+        unreadable += 1;
+        continue;
+      }
+      messages.push(former);
+      continue;
+    }
+    if (saved && saved.bodyCiphertext === row.message.bodyCiphertext) {
+      messages.push({ id: saved.id, from: saved.from, text: saved.text, at: saved.at });
+      continue;
+    }
+    if (!row.sender) {
+      unreadable += 1;
+      continue;
+    }
     const opened = await openMessage({
       message: row.message,
       senderUserId: row.senderUserId,
@@ -606,22 +654,76 @@ export async function readEncrypted(
       continue;
     }
     if (opened.consumedPrekeyId) consumed.push(opened.consumedPrekeyId);
-    messages.push({
+    const decoded = {
       id: row.message.messageId,
       from: row.senderUserId === myUserId ? myName : otherName,
       text: opened.text,
       at: Date.parse(row.createdAt),
+    };
+    messages.push(decoded);
+    newly.push({
+      ...decoded,
+      threadId,
+      bodyCiphertext: row.message.bodyCiphertext,
+      senderDeviceId: row.message.senderDeviceId,
+      senderUserId: row.senderUserId,
+      envelopes: row.message.envelopes,
     });
   }
-  if (consumed.length > 0) {
-    const next = vault.read();
-    if (next) {
+  const next = vault.read();
+  if (next) {
+    if (otherUserId) rememberPeer(next, threadId, otherUserId);
+    else if (state.peers) next.peers = state.peers;
+    if (consumed.length > 0) {
       next.device.prekeys = next.device.prekeys.filter((prekey) => !consumed.includes(prekey.id));
       next.spentPrekeys = [...new Set([...next.spentPrekeys, ...consumed])];
-      vault.write(next);
     }
+    if (newly.length > 0) {
+      const prior = (next.opened ?? []).filter(
+        (item) => !newly.some((added) => added.id === item.id),
+      );
+      next.opened = [...prior, ...newly].slice(-400);
+    }
+    if (consumed.length > 0 || newly.length > 0 || otherUserId) vault.write(next);
   }
   return { ok: true, messages, unreadable, warnings };
+}
+
+function rememberPeer(state: VaultState, threadId: string, userId: string): void {
+  if (!threadId || !userId) return;
+  const peers = state.peers ?? [];
+  state.peers = [...peers.filter((item) => item.threadId !== threadId), { threadId, userId }];
+}
+
+/** A deleted sender is checked against the identity and device keys saved on this device. */
+async function readFormerMessage(
+  state: VaultState,
+  threadId: string,
+  row: MessageRow,
+  saved: SavedMessage | undefined,
+): Promise<DecodedMessage | null> {
+  if (!saved || saved.bodyCiphertext !== row.message.bodyCiphertext) return null;
+  const peerId = (state.peers ?? []).find((item) => item.threadId === threadId)?.userId ?? "";
+  if (!peerId || saved.senderUserId !== peerId) return null;
+  const pin = state.pins.find((item) => item.userId === peerId);
+  const device = pin?.devices.find((item) => item.deviceId === saved.senderDeviceId);
+  if (!pin?.identityPublic || !device?.statementSig || !device.identitySig) return null;
+  const sender: PublicDevice = {
+    deviceId: device.deviceId,
+    signPublic: device.signPublic,
+    boxPublic: device.boxPublic,
+    statementSig: device.statementSig,
+    identitySig: device.identitySig,
+  };
+  const message: MessageWire = {
+    ...row.message,
+    senderDeviceId: saved.senderDeviceId,
+    envelopes: saved.envelopes,
+  };
+  if (!(await verifyIdentitySignature(pin.identityPublic, peerId, sender))) return null;
+  if (!(await verifyDeviceStatement(peerId, sender))) return null;
+  if (!(await verifyBodySignature(message, sender.signPublic))) return null;
+  return { id: saved.id, from: "Former member", text: saved.text, at: saved.at };
 }
 
 /**
@@ -678,6 +780,8 @@ function pinFrom(preview: KeyPreview): PinRecord {
       deviceId: device.deviceId,
       signPublic: device.signPublic,
       boxPublic: device.boxPublic,
+      statementSig: device.statementSig,
+      identitySig: device.identitySig,
     })),
   };
 }
@@ -919,8 +1023,9 @@ function readBackup(body: unknown): { boxPublic: string; cipher: BackupCipher } 
 type MessageRow = {
   senderUserId: string;
   senderIdentityPublic: string;
+  former: boolean;
   createdAt: string;
-  sender: PublicDevice;
+  sender: PublicDevice | null;
   message: MessageWire;
 };
 
@@ -930,12 +1035,13 @@ function readMessageRows(body: unknown): MessageRow[] {
   return body.messages.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const record = item as Record<string, unknown>;
-    const sender = readPublicDevice(record.sender);
+    const former = record.former === true;
+    const sender = former ? null : readPublicDevice(record.sender);
     if (
-      !sender ||
-      typeof record.senderUserId !== "string" ||
-      typeof record.senderIdentityPublic !== "string" ||
-      typeof record.createdAt !== "string"
+      (!former && !sender) ||
+      typeof record.createdAt !== "string" ||
+      (!former &&
+        (typeof record.senderUserId !== "string" || typeof record.senderIdentityPublic !== "string"))
     ) {
       return [];
     }
@@ -957,14 +1063,15 @@ function readMessageRows(body: unknown): MessageRow[] {
     }
     return [
       {
-        senderUserId: record.senderUserId,
-        senderIdentityPublic: record.senderIdentityPublic,
+        senderUserId: former ? "" : (record.senderUserId as string),
+        senderIdentityPublic: former ? "" : (record.senderIdentityPublic as string),
+        former,
         createdAt: record.createdAt,
         sender,
         message: {
           messageId: record.messageId,
           threadId: record.threadId,
-          senderDeviceId: sender.deviceId,
+          senderDeviceId: sender?.deviceId ?? "",
           bodyNonce: record.bodyNonce,
           bodyCiphertext: record.bodyCiphertext,
           bodySig: record.bodySig,
