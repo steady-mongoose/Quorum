@@ -107,8 +107,6 @@ function BoardShell() {
     void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
-  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
       <header className="sticky top-0 z-20 border-b border-line bg-bg">
@@ -163,7 +161,7 @@ function BoardShell() {
           <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom,
           Dale, Maria, Luis, Ruth, Pete) and everything they wrote is invented, to show what the app
           looks like in use.
-          {mayClear ? (
+          {canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) }) ? (
             <>
               {" "}
               <button
