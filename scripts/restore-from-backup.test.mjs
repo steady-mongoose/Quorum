@@ -12,10 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { ageInstalled } from "./age-bin.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
 const SCRIPT = join(projectRoot(), "scripts/restore-from-backup.sh");
+const skipWithoutAge = ageInstalled() ? false : "age-keygen is not installed";
 const PLAIN = "closed-test dump bytes\n";
 
 function writeBins(root, awsBody, relations = "0") {
@@ -57,7 +59,7 @@ async function encryptedDump(root) {
   return { identity, enc };
 }
 
-test("a dry run restores the local dump and does not contact the bucket", async () => {
+test("a dry run restores the local dump and does not contact the bucket", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-restore-dry-"));
   const awsLog = join(root, "aws.log");
   const sink = join(root, "restored");
@@ -90,7 +92,7 @@ test("a dry run restores the local dump and does not contact the bucket", async 
   assert.equal(aws, "");
 });
 
-test("a dry run refuses a database that is not a throwaway", async () => {
+test("a dry run refuses a database that is not a throwaway", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-restore-guard-"));
   const sink = join(root, "restored");
   const bin = writeBins(root, "#!/bin/sh\nexit 99\n");
@@ -115,7 +117,7 @@ test("a dry run refuses a database that is not a throwaway", async () => {
   assert.equal(String(failed.stdout ?? "").includes("super-secret"), false);
 });
 
-test("the bucket restore takes the newest age dump and does not print the secret", async () => {
+test("the bucket restore takes the newest age dump and does not print the secret", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-restore-b2-"));
   const awsLog = join(root, "aws.log");
   const sink = join(root, "restored");
@@ -174,7 +176,7 @@ exit 1
   assert.equal(log.includes("AGE-SECRET-KEY-"), false);
 });
 
-test("a restore refuses a database that is not empty unless --overwrite is set", async () => {
+test("a restore refuses a database that is not empty unless --overwrite is set", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-restore-full-"));
   const sink = join(root, "restored");
   const bin = writeBins(root, "#!/bin/sh\nexit 99\n", "4");
@@ -203,7 +205,7 @@ test("a restore refuses a database that is not empty unless --overwrite is set",
   assert.equal(readFileSync(sink, "utf8"), PLAIN);
 });
 
-test("a dump that does not list is refused before the database is written", async () => {
+test("a dump that does not list is refused before the database is written", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-restore-list-"));
   const sink = join(root, "restored");
   const bin = writeBins(root, "#!/bin/sh\nexit 99\n");

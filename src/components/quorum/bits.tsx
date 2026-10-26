@@ -53,7 +53,7 @@ export function IconNav<T extends string>({
 }
 
 export const btn =
-  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold disabled:opacity-50 btn";
+  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out motion-safe:active:scale-95 disabled:opacity-50 btn";
 
 export const btnSignal = cn(btn, "btn-primary bg-signal text-signal-ink");
 export const btnGhost = cn(btn, "border border-line bg-surface text-fg");

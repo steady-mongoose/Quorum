@@ -527,11 +527,15 @@ export function addDays(iso: string, days: number): string {
   return shiftLocalDate(iso, days);
 }
 
+const CALENDAR_DATE: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+};
+
 export function formatDate(iso: string): string {
   const date = parseIsoDate(iso);
-  return date
-    ? date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-    : iso;
+  return date ? date.toLocaleDateString("en-US", CALENDAR_DATE) : iso;
 }
 
 export function formatWhen(at: number, now: number): string {
@@ -540,7 +544,7 @@ export function formatWhen(at: number, now: number): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return new Date(at).toLocaleDateString();
+  return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
 }
 
 export function newPost(
@@ -905,7 +909,7 @@ export function deskDid(input: DeskContact & { author: string }): Post {
     room: "county",
     type: "did",
     claim: `${input.waveLabel}: ${input.office}, ${input.role}. ${input.title}.`,
-    reason: `Logged on the Quorum desk by ${input.who.trim() || "me"}. Window ${input.window}.`,
+    reason: `Logged on the Avouch desk by ${input.who.trim() || "me"}. Window ${input.window}.`,
     on: todayIso(),
     author: input.author,
     campaignId: input.campaignId,

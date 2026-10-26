@@ -315,7 +315,7 @@ export function DeskView() {
                   <button
                     key={item}
                     type="button"
-                    className="min-h-11 rounded-md border border-line px-3 text-sm text-muted"
+                    className="min-h-[44px] rounded-md border border-line px-3 text-sm text-muted"
                     onClick={() =>
                       updateCampaign(campaign.id, {
                         refuses: campaign.refuses.filter((entry) => entry !== item),
@@ -407,7 +407,7 @@ export function DeskView() {
               aria-selected={channel === item.id}
               onClick={() => setChannel(item.id)}
               className={cn(
-                "inline-flex min-h-11 shrink-0 items-center rounded-md px-3 text-sm font-semibold",
+                "inline-flex min-h-[44px] shrink-0 items-center rounded-md px-3 text-sm font-semibold",
                 channel === item.id ? "bg-signal text-signal-ink" : "border border-line text-muted",
               )}
             >
@@ -549,7 +549,7 @@ export function DeskView() {
         <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
           Who made the contact
           <select
-            className="min-h-11 rounded-md border border-line bg-raised px-3 text-base text-fg"
+            className="min-h-[44px] rounded-md border border-line bg-raised px-3 text-base text-fg"
             value={who}
             onChange={(event) => setWho(event.target.value)}
           >
