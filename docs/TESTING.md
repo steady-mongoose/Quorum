@@ -2,8 +2,7 @@
 
 Prod: https://avouchsocial.com. Use two accounts: **A** (host) and **B** (member), each in a different browser or private window. Check each step at phone width and at desktop width.
 
-> **Blocker found 26 Oct 2026, 5:08 PM EDT:** every `/api/*` call on prod returns `503 {"error":"api-unavailable"}`. The pages load, but nothing that needs the server (signup and everything after it) works until the API is back.
-
+> The API is served from https://api.avouchsocial.com. `avouchsocial.com/api/*` returning 503 is expected and is not a bug.
 ## 1. Landing header and Sign in
 1. Open avouchsocial.com logged out. **Expected:** the gold-framed door page appears, with "Sign in" at top right and the rooms listed under "Open the door" on desktop. There is no blank screen and no "Load the sample week" button.
 2. Tap Sign in. **Expected:** the sign-in form opens, and the button is easy to tap on a phone.
@@ -54,3 +53,9 @@ Prod: https://avouchsocial.com. Use two accounts: **A** (host) and **B** (member
 - Site-code signup cap (#50): blocked.
 - Room categories (#51): waiting on a merge and an OK for its database change.
 - MFA (0023): approved, being built.
+
+## Known issues
+
+- **Removing a gathering doesn't reach the server (CORS).** The card-removal flow ("remove" on a gathering card in Find, plus its 5-second undo) calls `DELETE https://api.avouchsocial.com/api/gatherings/:id` (`removeGathering`, src/lib/board/store.ts:1135). The preflight from https://avouchsocial.com returns 204 with `access-control-allow-methods: GET, POST, OPTIONS`, so the browser blocks the DELETE. The card disappears locally, the error is ignored (`void`), and **the gathering comes back on reload and stays visible to everyone else.** Checked 26 Oct 2026, 5:11 PM EDT. Fix: add DELETE to the API's allowed methods, or switch to a POST route.
+  - Test: as A, remove a gathering you host, wait more than 5 s, then reload. **Today's result:** it comes back. In DevTools > Network, the DELETE shows as a CORS error.
+
