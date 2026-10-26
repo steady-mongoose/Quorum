@@ -16,6 +16,7 @@ const appTests = [
   "src/lib/board/engraved.test.ts",
   "src/lib/board/phone-nav.test.ts",
   "src/lib/board/design-followup.test.ts",
+  "src/lib/board/design-critic.test.ts",
   "src/lib/app-data/app-data.test.ts",
   "src/lib/app-data/readiness-schedule.test.ts",
   "src/lib/auth/gate-identity.test.ts",

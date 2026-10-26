@@ -125,9 +125,7 @@ export function Door() {
         </section>
 
         <section className="card flex flex-col gap-3 p-6">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-            What a typical week looks like
-          </h2>
+          <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
             {WEEK.map((row) => (
               <div key={row.day} className="contents">
@@ -139,7 +137,7 @@ export function Door() {
         </section>
 
         <section className="card flex flex-col gap-2 p-6">
-          <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">The rooms</h2>
+          <h2 className="text-base font-semibold text-fg">The rooms</h2>
           <p className="max-w-prose text-sm text-muted">
             {rooms
               .filter((room) => room.id !== "dispatch")

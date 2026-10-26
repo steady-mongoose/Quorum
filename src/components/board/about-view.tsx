@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { cn } from "@/lib/cn";
@@ -52,7 +52,7 @@ const HOW = [
   },
   {
     title: "Who can see you",
-    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, kept 30 days, and not encrypted.",
+    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people and kept 30 days. The words are not encrypted. A picture is encrypted on this device before it is sent.",
   },
   {
     title: "Room chat",
@@ -421,7 +421,11 @@ function RemovalAppeal({
           setError("");
         }}
       />
-      {error ? <span className="text-danger">{error}</span> : null}
+      {error ? (
+        <span className="text-danger" role="alert">
+          {error}
+        </span>
+      ) : null}
       <span className="flex gap-2">
         <button
           type="button"
@@ -443,6 +447,20 @@ function RemovalAppeal({
   );
 }
 
+function roomTitle(rooms: { id: string; name: string }[], id: string): string {
+  const typed = id.trim();
+  if (!typed) return "";
+  const room = rooms.find((item) => item.id === typed);
+  const named = room?.name.trim();
+  return named || typed;
+}
+
+function roleName(role: string): string {
+  if (role === "member") return "Member";
+  if (role === "admin") return "Admin";
+  return "Steward";
+}
+
 function RoleTools({
   changeAccess,
   admin,
@@ -450,6 +468,7 @@ function RoleTools({
   changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
   admin: boolean;
 }) {
+  const rooms = useBoard((state) => state.rooms);
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">Roles</h2>
@@ -458,7 +477,18 @@ function RoleTools({
         first steward of a room is the inviter plus the council chair. An admin is already a
         steward, plus the role owner's sign-off. Each change is written in the access log.
       </p>
-      <RoleForm title="Add member" onSubmit={(fields) => changeAccess({ action: "grant-member", email: fields.email, roomId: fields.roomId })}>
+      <p className="max-w-prose text-sm text-muted">
+        Grant adds a role. Revoke takes one away. A steward can mark and remove posts in one room.
+        An admin is a heavier grant and stays on its own button.
+      </p>
+      <RoleForm
+        title="Add member"
+        rooms={rooms}
+        done="Member granted."
+        onSubmit={(fields) =>
+          changeAccess({ action: "grant-member", email: fields.email, roomId: fields.roomId })
+        }
+      >
         {(fields) => (
           <>
             <EmailField value={fields.email} onChange={fields.setEmail} />
@@ -468,6 +498,9 @@ function RoleTools({
       </RoleForm>
       <RoleForm
         title="Add steward"
+        rooms={rooms}
+        confirmFirst
+        done="Steward granted."
         onSubmit={(fields) =>
           changeAccess({
             action: "grant-steward",
@@ -495,6 +528,8 @@ function RoleTools({
       {admin ? (
         <RoleForm
           title="Add admin"
+          rooms={rooms}
+          done="Admin granted."
           onSubmit={(fields) =>
             changeAccess({
               action: "grant-admin",
@@ -518,7 +553,7 @@ function RoleTools({
           )}
         </RoleForm>
       ) : null}
-      {admin ? <RevokeRole changeAccess={changeAccess} /> : null}
+      {admin ? <RevokeRole rooms={rooms} changeAccess={changeAccess} /> : null}
     </section>
   );
 }
@@ -543,15 +578,37 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
 
 function RoleForm({
   title,
+  rooms,
+  done,
   onSubmit,
   children,
+  confirmFirst = false,
 }: {
   title: string;
+  rooms: { id: string; name: string }[];
+  done: string;
   onSubmit: (fields: RoleFields) => Promise<{ ok: boolean; error?: string }>;
   children: (fields: RoleFields) => ReactNode;
+  /** Granting a steward asks first. Member and admin grants do not. */
+  confirmFirst?: boolean;
 }) {
   const fields = useRoleFields();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState<null | "grant-steward">(null);
+  const room = roomTitle(rooms, fields.roomId);
+  const who = fields.email.trim() || "this person";
+  const send = () => {
+    setError("");
+    setNotice("");
+    void onSubmit(fields).then((result) => {
+      if (!result.ok) {
+        setError(result.error ?? "That role was not changed.");
+        return;
+      }
+      setNotice(done);
+    });
+  };
   return (
     <details className="rounded-md border border-line p-3">
       <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
@@ -559,10 +616,11 @@ function RoleForm({
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          setError("");
-          void onSubmit(fields).then((result) => {
-            if (!result.ok) setError(result.error ?? "That role was not changed.");
-          });
+          if (confirmFirst) {
+            setPending("grant-steward");
+            return;
+          }
+          send();
         }}
       >
         {children(fields)}
@@ -574,7 +632,27 @@ function RoleForm({
             {error}
           </p>
         ) : null}
+        {notice ? (
+          <p role="status" className="text-sm text-muted">
+            {notice}
+          </p>
+        ) : null}
       </form>
+      {confirmFirst ? (
+        <ConfirmDialog
+          open={pending !== null}
+          title="Grant steward?"
+          description={`Make ${who} a steward${room ? ` of ${room}` : ""}? A steward can mark and remove posts in that room.`}
+          confirmLabel="Grant steward"
+          cancelLabel="Not now"
+          tone="neutral"
+          onConfirm={() => {
+            setPending(null);
+            send();
+          }}
+          onCancel={() => setPending(null)}
+        />
+      ) : null}
     </details>
   );
 }
@@ -599,14 +677,31 @@ function useRoleFields(): RoleFields {
 }
 
 function RevokeRole({
+  rooms,
   changeAccess,
 }: {
+  rooms: { id: string; name: string }[];
   changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [email, setEmail] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState<null | "revoke">(null);
+  const room = roomTitle(rooms, roomId);
+  const who = email.trim() || "this person";
+  const send = () => {
+    setError("");
+    setNotice("");
+    void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+      if (!result.ok) {
+        setError(result.error ?? "That role was not changed.");
+        return;
+      }
+      setNotice("Role revoked.");
+    });
+  };
   return (
     <details className="rounded-md border border-line p-3">
       <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
@@ -616,10 +711,7 @@ function RevokeRole({
         className="mt-3 flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          setError("");
-          void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
-            if (!result.ok) setError(result.error ?? "That role was not changed.");
-          });
+          setPending("revoke");
         }}
       >
         <EmailField value={email} onChange={setEmail} />
@@ -627,7 +719,7 @@ function RevokeRole({
         <label className="flex flex-col gap-2 text-sm text-muted">
           Role to revoke
           <select
-            className={fieldClass}
+            className={cn(fieldClass, "min-h-[44px]")}
             value={role}
             onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
           >
@@ -636,7 +728,7 @@ function RevokeRole({
             <option value="admin">Admin</option>
           </select>
         </label>
-        <button type="submit" className={cn(btnGhost, "self-start")}>
+        <button type="submit" className={cn(btnQuiet, "self-start text-danger")}>
           Revoke
         </button>
         {error ? (
@@ -644,7 +736,24 @@ function RevokeRole({
             {error}
           </p>
         ) : null}
+        {notice ? (
+          <p role="status" className="text-sm text-muted">
+            {notice}
+          </p>
+        ) : null}
       </form>
+      <ConfirmDialog
+        open={pending !== null}
+        title="Revoke this role?"
+        description={`Revoke ${roleName(role)} from ${who}${room ? ` in ${room}` : ""}? That access goes away.`}
+        confirmLabel="Revoke"
+        cancelLabel="Keep it"
+        onConfirm={() => {
+          setPending(null);
+          send();
+        }}
+        onCancel={() => setPending(null)}
+      />
     </details>
   );
 }

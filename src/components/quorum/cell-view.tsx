@@ -99,7 +99,7 @@ export function CellView() {
                 </span>
                 <button
                   type="button"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-muted"
                   aria-label={`Remove ${member.name}`}
                   onClick={() => removeMember(member.id)}
                 >
@@ -118,7 +118,7 @@ export function CellView() {
           <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
             Which desk
             <select
-              className="min-h-11 rounded-md border border-line bg-raised px-3 text-base text-fg"
+              className="min-h-[44px] rounded-md border border-line bg-raised px-3 text-base text-fg"
               value={campaign.id}
               onChange={(event) => setDeskId(event.target.value)}
             >

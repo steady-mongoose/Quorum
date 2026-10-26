@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
+import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
@@ -10,12 +11,45 @@ import { useBoard } from "@/lib/board/store";
  * same meeting as you; everyone else sees a name.
  */
 export function ProfileView() {
-  const me = useBoard((state) => authorName(state.me));
+  const rawMe = useBoard((state) => state.me);
+  const me = authorName(rawMe);
+  const setMe = useBoard((state) => state.setMe);
   const viewing = useBoard((state) => state.viewing);
   const profile = useBoard((state) => state.profile);
   const setProfile = useBoard((state) => state.setProfile);
   const deskOn = useBoard((state) => state.deskOn);
   const setDeskOn = useBoard((state) => state.setDeskOn);
+  const [knownAs, setKnownAs] = useState(rawMe);
+  const [household, setHousehold] = useState(profile.household);
+  const [parish, setParish] = useState(profile.parish);
+  const [trade, setTrade] = useState(profile.trade);
+  const [saved, setSaved] = useState(false);
+  const skipSave = useRef(true);
+
+  useEffect(() => {
+    if (skipSave.current) {
+      skipSave.current = false;
+      return;
+    }
+    setSaved(false);
+    const save = window.setTimeout(() => {
+      setProfile({ household, parish, trade });
+      const next = knownAs.trim();
+      if (next) {
+        const current = useBoard.getState();
+        if (authorName(current.viewing ?? "") === authorName(current.me)) {
+          useBoard.setState({ viewing: next });
+        }
+        setMe(next);
+      }
+      setSaved(true);
+    }, 600);
+    const hide = window.setTimeout(() => setSaved(false), 2600);
+    return () => {
+      window.clearTimeout(save);
+      window.clearTimeout(hide);
+    };
+  }, [household, parish, trade, knownAs, setProfile, setMe]);
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
@@ -48,18 +82,48 @@ export function ProfileView() {
         ) : null}
         {mine ? (
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-3">
+              Name, as people know you
+              <input
+                className={cn(fieldClass, "min-h-[44px]")}
+                placeholder="Josh"
+                autoComplete="name"
+                value={knownAs}
+                onChange={(event) => setKnownAs(event.target.value)}
+              />
+            </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Household
-              <input className={fieldClass} placeholder="the McMullins" value={profile.household} onChange={(event) => setProfile({ household: event.target.value })} />
+              <input
+                className={cn(fieldClass, "min-h-[44px]")}
+                placeholder="the McMullins"
+                value={household}
+                onChange={(event) => setHousehold(event.target.value)}
+              />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Church
-              <input className={fieldClass} placeholder="Epiphany of Our Lord" value={profile.parish} onChange={(event) => setProfile({ parish: event.target.value })} />
+              <input
+                className={cn(fieldClass, "min-h-[44px]")}
+                placeholder="Epiphany of Our Lord"
+                value={parish}
+                onChange={(event) => setParish(event.target.value)}
+              />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Trade
-              <input className={fieldClass} placeholder="Electrician" value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
+              <input
+                className={cn(fieldClass, "min-h-[44px]")}
+                placeholder="Electrician"
+                value={trade}
+                onChange={(event) => setTrade(event.target.value)}
+              />
             </label>
+            {saved ? (
+              <p role="status" className="text-sm text-muted sm:col-span-3">
+                Saved
+              </p>
+            ) : null}
           </div>
         ) : null}
         {mine ? (

@@ -13,7 +13,10 @@ export function SessionLine() {
 
   if (!show) return null;
   return (
-    <div role="status" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-4 py-3">
+    <div
+      role="status"
+      className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface px-4 py-3 md:bottom-0"
+    >
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
         <p className="text-sm text-muted">You have been here twenty minutes.</p>
         <button type="button" className={btnQuiet} onClick={dismiss}>

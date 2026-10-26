@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import {
   btnGhost,
@@ -61,11 +61,20 @@ export function FindView() {
     return out;
   }, [cards, witnesses]);
 
-  const rowProps = { me, steward, peers, clear };
+  const removal = useUndoCardRemoval();
+  const rowProps = { me, steward, peers, clear, onRemove: removal.remove };
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
+        {removal.removed ? (
+          <p role="status" className="flex flex-wrap items-center gap-3 text-sm text-muted">
+            Removed {removal.removed.name}.
+            <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
+              Undo
+            </button>
+          </p>
+        ) : null}
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
           <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
@@ -83,7 +92,9 @@ export function FindView() {
 
         <section className="grid gap-3 xl:grid-cols-2">
           {groups.listed.length === 0 ? (
-            <p className="text-sm text-muted">No card has been visited twice yet.</p>
+            <p className="text-sm text-muted" role="status">
+              No card has been visited twice yet.
+            </p>
           ) : null}
           {groups.listed.map((card) => (
             <MeetingRow key={card.id} card={card} shown {...rowProps} />
@@ -139,11 +150,37 @@ type RowProps = {
   steward: boolean;
   peers: Set<string>;
   clear: Map<string, boolean>;
+  onRemove: (card: MeetingCard) => void;
 };
+
+function useUndoCardRemoval() {
+  const removeCard = useBoard((state) => state.removeCard);
+  const [removed, setRemoved] = useState<MeetingCard | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const id = window.setTimeout(() => setRemoved(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [removed]);
+  return {
+    removed,
+    remove(card: MeetingCard) {
+      removeCard(card.id);
+      setRemoved(card);
+    },
+    undo() {
+      if (!removed) return;
+      const card = removed;
+      setRemoved(null);
+      useBoard.setState((state) => ({
+        cards: state.cards.some((item) => item.id === card.id) ? state.cards : [...state.cards, card],
+      }));
+    },
+  };
+}
 
 function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
+    <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">
         {roomById(card.room).name}
       </span>
@@ -172,14 +209,13 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
     );
   }
   return card.firstTimer ? (
-    <span className="self-center text-xs text-muted">
+    <span className="self-center text-[13px] text-muted">
       After you have been once, you can message the host.
     </span>
   ) : null;
 }
 
 function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[] }) {
-  const removeCard = useBoard((state) => state.removeCard);
   const shown = witnesses.length >= 2;
   return (
     <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
@@ -198,9 +234,10 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
             type="button"
             className={btnQuiet}
             aria-label={`Remove ${card.name}`}
-            onClick={() => removeCard(card.id)}
+            onClick={() => rest.onRemove(card)}
           >
-            <Trash2 className="size-4" />
+            <Trash2 className="size-4" aria-hidden="true" />
+            Remove
           </button>
         ) : null}
       </div>
@@ -240,7 +277,6 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
-  const removeCard = useBoard((state) => state.removeCard);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
@@ -271,7 +307,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             : "No next date yet."}
       </p>
       <div
-        className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"
+        className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-muted"
         aria-label="Last four meetings"
       >
         <span>Last four meetings:</span>
@@ -341,22 +377,28 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 );
               }}
             >
-              <input
-                className={fieldClass}
-                placeholder="How it went, in a line"
-                value={line}
-                onChange={(event) => setLine(event.target.value)}
-              />
-              {card.book ? (
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                How it went
                 <input
-                  className={fieldClass}
-                  placeholder={`What to have read by then (${card.book})`}
-                  value={pages}
-                  onChange={(event) => setPages(event.target.value)}
+                  className={cn(fieldClass, "min-h-[44px]")}
+                  placeholder="One line is enough"
+                  value={line}
+                  onChange={(event) => setLine(event.target.value)}
                 />
+              </label>
+              {card.book ? (
+                <label className="flex flex-col gap-2 text-sm text-muted">
+                  What to have read by then
+                  <input
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    placeholder={card.book}
+                    value={pages}
+                    onChange={(event) => setPages(event.target.value)}
+                  />
+                </label>
               ) : null}
               {refused.length > 0 ? (
-                <ul className="flex flex-col gap-1 text-sm text-danger">
+                <ul className="flex flex-col gap-1 text-sm text-danger" role="alert">
                   {refused.map((stop) => (
                     <li key={stop}>{stop}</li>
                   ))}
@@ -388,14 +430,16 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </div>
               ) : null}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="date"
-                  className={cn(fieldClass, "sm:max-w-xs")}
-                  value={nextDate}
-                  onChange={(event) => setNextDate(event.target.value)}
-                  aria-label="Next date"
-                />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <label className="flex flex-col gap-2 text-sm text-muted">
+                  Next date
+                  <input
+                    type="date"
+                    className={cn(fieldClass, "min-h-[44px] sm:max-w-xs")}
+                    value={nextDate}
+                    onChange={(event) => setNextDate(event.target.value)}
+                  />
+                </label>
                 <button type="submit" value="yes" className={btnSignal}>
                   It happened
                 </button>
@@ -418,9 +462,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             type="button"
             className={btnQuiet}
             aria-label={`Remove ${card.name}`}
-            onClick={() => removeCard(card.id)}
+            onClick={() => rest.onRemove(card)}
           >
-            <Trash2 className="size-4" />
+            <Trash2 className="size-4" aria-hidden="true" />
+            Remove
           </button>
         ) : null}
       </div>
@@ -511,7 +556,8 @@ function AddCard({ me }: { me: string }) {
         <label className="flex flex-col gap-2 text-sm text-muted">
           Room
           <select
-            className={fieldClass}
+            className={cn(fieldClass, "min-h-[44px]")}
+            aria-label="Room"
             value={room}
             onChange={(event) => pickRoom(event.target.value as RoomId)}
           >
@@ -527,7 +573,8 @@ function AddCard({ me }: { me: string }) {
         <label className="flex flex-col gap-2 text-sm text-muted">
           Kind
           <select
-            className={fieldClass}
+            className={cn(fieldClass, "min-h-[44px]")}
+            aria-label="Kind"
             value={kind}
             onChange={(event) => setKind(event.target.value as CardKind)}
           >
@@ -579,7 +626,7 @@ function AddCard({ me }: { me: string }) {
                 <label
                   key={day}
                   className={cn(
-                    "inline-flex min-h-11 cursor-pointer items-center rounded-md border border-line px-3",
+                    "inline-flex min-h-[44px] cursor-pointer items-center rounded-md border border-line px-3",
                     days.includes(day) && "bg-signal text-signal-ink",
                   )}
                 >
