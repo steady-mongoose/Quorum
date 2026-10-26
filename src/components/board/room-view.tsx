@@ -103,7 +103,7 @@ export function RoomView() {
   const shelfBlock = (
     <>
       {shelf.map((card) => (
-        <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
+        <article key={card.id} className="card rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
             {card.kind === "candidate"
@@ -136,8 +136,16 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <section className="plate flex flex-col gap-2">
+        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
+        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
+        <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
+        <RoomChat roomId={room} />
+      </section>
+
       <nav
-        className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        className="relative z-10 flex flex-wrap gap-2 pb-1"
         aria-label="Rooms"
       >
         {rooms.map((item) => (
@@ -152,14 +160,6 @@ export function RoomView() {
           </button>
         ))}
       </nav>
-
-      <section className="flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
-        <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <RoomCall roomId={room} />
-        <RoomChat roomId={room} />
-      </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">
@@ -772,7 +772,7 @@ const PostCard = memo(function PostCard({
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
+    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">

@@ -1,0 +1,158 @@
+/* Fluid space from issue #36 revision 4. Plates stay in backgrounds.css. */
+:root{
+  --step-3:clamp(2.1rem,1.6rem + 2.2vw,3.5rem);
+  --space-1:clamp(.5rem,.45rem + .25vw,.75rem);
+  --space-2:clamp(.75rem,.6rem + .6vw,1.25rem);
+  --space-3:clamp(1rem,.8rem + 1vw,1.75rem);
+  --space-4:clamp(1.5rem,1rem + 2vw,3rem);
+  --content-max:72rem;
+  --side-art:clamp(16rem,22vw,22rem);
+}
+html{-webkit-text-size-adjust:100%}
+body{line-height:1.6;min-height:100dvh;overflow-x:clip}
+
+/* Content column. Outer art fills the margins from 1600px up. */
+.shell{min-height:100dvh}
+.shell-body{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) min(var(--content-max),100%) minmax(0,1fr);
+  width:100%;
+}
+.shell-body > main{
+  grid-column:2;
+  grid-row:1;
+  min-width:0;
+  width:100%;
+  padding:var(--space-3);
+  padding-inline:max(var(--space-3),env(safe-area-inset-left)) max(var(--space-3),env(safe-area-inset-right));
+  padding-bottom:var(--space-4);
+}
+.outer-art,.side-art{display:none}
+@media (min-width:1600px){
+  .outer-art{
+    display:block;
+    position:sticky;
+    top:0;
+    height:100dvh;
+    overflow:hidden;
+    background-repeat:no-repeat;
+    background-size:cover;
+    background-position:var(--focal,50% 30%);
+  }
+  .outer-art.l{
+    grid-column:1;
+    grid-row:1;
+    -webkit-mask-image:linear-gradient(90deg,#000 55%,transparent);
+    mask-image:linear-gradient(90deg,#000 55%,transparent);
+  }
+  .outer-art.r{
+    grid-column:3;
+    grid-row:1;
+    -webkit-mask-image:linear-gradient(270deg,#000 55%,transparent);
+    mask-image:linear-gradient(270deg,#000 55%,transparent);
+  }
+  [data-section="week"] .outer-art{background-image:var(--art-week-side);--focal:62% 40%}
+  [data-section="rooms"] .outer-art{background-image:var(--art-rooms-side);--focal:58% 30%}
+  [data-section="messages"] .outer-art{background-image:var(--art-messages-side);--focal:50% 20%}
+}
+
+/* Side column only between 1100 and 1599. Below that the page is one column. */
+.with-side{display:grid;gap:var(--space-4);grid-template-columns:minmax(0,1fr)}
+.with-side > div{min-width:0;width:100%}
+@media (min-width:1100px) and (max-width:1599px){
+  .with-side{grid-template-columns:minmax(0,1fr) var(--side-art)}
+  .side-art{
+    display:block;
+    position:sticky;
+    top:var(--space-3);
+    align-self:start;
+    height:calc(100dvh - 2*var(--space-3));
+    background:center 20%/contain no-repeat;
+    border-left:1px solid var(--line);
+  }
+  [data-section="week"] .side-art{background-image:var(--art-week-side)}
+  [data-section="rooms"] .side-art{background-image:var(--art-rooms-side)}
+  [data-section="messages"] .side-art{background-image:var(--art-messages-side)}
+}
+
+.hero-band{width:100%;height:clamp(140px,20vw,300px)}
+@media (max-width:767px){.hero-band{height:clamp(140px,46vw,180px)}}
+
+/* The title plate is a block. inline-block shrank it to a narrow column. */
+.plate{display:block;width:100%;container-type:normal}
+
+.cards{display:grid;gap:var(--space-2);grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
+
+/* Phone: five slots in one row. The rest sit in the More sheet. */
+.tabbar{display:none}
+@media (max-width:767px){
+  .topnav{display:none}
+  .tabbar{
+    display:flex;
+    flex-wrap:nowrap;
+    position:fixed;
+    inset:auto 0 0 0;
+    z-index:30;
+    background:var(--surface);
+    border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .tabbar button{
+    flex:1;
+    min-width:44px;
+    min-height:max(44px,56px);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+    padding:6px 4px;
+    border:0;
+    border-top:2px solid transparent;
+    background:transparent;
+    color:var(--muted);
+    font-size:12px;
+    font-weight:500;
+    line-height:1.15;
+    text-align:center;
+    white-space:normal;
+  }
+  .tabbar button svg{width:24px;height:24px}
+  .tabbar button[aria-current="page"]{color:var(--fg);border-top:2px solid var(--gold)}
+  .shell-body > main{padding-bottom:calc(56px + 1rem + env(safe-area-inset-bottom))}
+  .more-sheet[open]{
+    position:fixed;
+    inset:auto 0 0 0;
+    width:100%;
+    max-width:none;
+    margin:0;
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));
+    border:0;
+    border-top:1px solid var(--gold);
+    border-radius:16px 16px 0 0;
+    background:var(--surface);
+    color:var(--fg);
+  }
+  .more-sheet::backdrop{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+  .more-grab{width:2.5rem;height:4px;margin:4px auto 8px;border-radius:999px;background:var(--line-strong)}
+  .more-sheet ul{list-style:none;margin:0;padding:0}
+  .more-row{
+    min-height:max(44px,48px);
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:8px 16px;
+    border:0;
+    background:transparent;
+    color:var(--fg);
+    font-size:1rem;
+    font-weight:500;
+    text-align:left;
+  }
+  .more-row svg{width:24px;height:24px}
+  .more-row[aria-current="page"]{box-shadow:inset 2px 0 0 var(--gold)}
+}
+@media (prefers-reduced-data:reduce){
+  .hero-band,.outer-art,.side-art{background-image:none}
+}
