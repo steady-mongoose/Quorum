@@ -9,10 +9,11 @@ import {
   parseGender,
 } from "./gender-policy.ts";
 
-test("the default is that a member sets a gender once and a steward changes it", () => {
+test("the default is that a member sets a gender once and an admin changes it", () => {
   assert.equal(GENDER_POLICY.GENDER_SET_BY, "self");
   assert.equal(GENDER_POLICY.GENDER_REQUIRES_CONFIRMATION, false);
-  assert.equal(GENDER_POLICY.GENDER_CHANGE_BY, "steward");
+  assert.equal(GENDER_POLICY.GENDER_CHANGE_BY, "admin");
+  assert.equal(GENDER_POLICY.GENDER_CHANGE_ALLOWS_SELF, false);
 });
 
 test("audience decisions name the refusal and let a steward override", () => {
@@ -48,60 +49,81 @@ test("audience decisions name the refusal and let a steward override", () => {
   assert.equal(waiting.code, "gender-unconfirmed");
 });
 
-test("a first gender follows who may set it, and a later change is a steward", () => {
-  const self = genderWriteDecision({
-    current: null,
-    next: "woman",
-    actorIsSubject: true,
+test("a first gender follows who may set it, and a later change is an admin", () => {
+  const base = {
     actorIsInviter: false,
     actorHasNoInviter: true,
     actorIsSteward: false,
+    actorIsAdmin: false,
+  };
+  const self = genderWriteDecision({
+    ...base,
+    current: null,
+    next: "woman",
+    actorIsSubject: true,
   });
   assert.deepEqual(self, { ok: true, kind: "set" });
   const other = genderWriteDecision({
+    ...base,
     current: null,
     next: "woman",
     actorIsSubject: false,
-    actorIsInviter: false,
-    actorHasNoInviter: false,
     actorIsSteward: true,
+    actorHasNoInviter: false,
   });
   assert.equal(other.ok, false);
 
   const same = genderWriteDecision({
+    ...base,
     current: "man",
     next: "man",
     actorIsSubject: true,
-    actorIsInviter: false,
-    actorHasNoInviter: true,
-    actorIsSteward: false,
   });
   assert.deepEqual(same, { ok: true, kind: "same" });
   const changed = genderWriteDecision({
+    ...base,
     current: "man",
     next: "woman",
     actorIsSubject: true,
-    actorIsInviter: false,
-    actorHasNoInviter: true,
-    actorIsSteward: false,
   });
   assert.equal(changed.ok, false);
   if (changed.ok) return;
-  assert.equal(changed.error, "A steward changes this after it is set.");
+  assert.equal(changed.error, "You cannot change this yourself.");
   const steward = genderWriteDecision({
+    ...base,
     current: "man",
     next: "woman",
     actorIsSubject: false,
-    actorIsInviter: false,
-    actorHasNoInviter: false,
     actorIsSteward: true,
+    actorHasNoInviter: false,
   });
-  assert.deepEqual(steward, { ok: true, kind: "change" });
+  assert.equal(steward.ok, false);
+  if (steward.ok) return;
+  assert.equal(steward.error, "An admin changes this after it is set.");
+  const adminSelf = genderWriteDecision({
+    ...base,
+    current: "man",
+    next: "woman",
+    actorIsSubject: true,
+    actorIsAdmin: true,
+  });
+  assert.equal(adminSelf.ok, false);
+  if (adminSelf.ok) return;
+  assert.equal(adminSelf.error, "You cannot change this yourself.");
+  const admin = genderWriteDecision({
+    ...base,
+    current: "man",
+    next: "woman",
+    actorIsSubject: false,
+    actorIsAdmin: true,
+  });
+  assert.deepEqual(admin, { ok: true, kind: "change" });
 
   const invited = {
     GENDER_SET_BY: "inviter" as const,
     GENDER_REQUIRES_CONFIRMATION: false,
     GENDER_CHANGE_BY: "steward" as const,
+    GENDER_CHANGE_ALLOWS_SELF: false,
   };
   const bySelf = genderWriteDecision(
     {
@@ -111,6 +133,7 @@ test("a first gender follows who may set it, and a later change is a steward", (
       actorIsInviter: false,
       actorHasNoInviter: false,
       actorIsSteward: false,
+      actorIsAdmin: false,
     },
     invited,
   );
@@ -123,6 +146,7 @@ test("a first gender follows who may set it, and a later change is a steward", (
       actorIsInviter: true,
       actorHasNoInviter: false,
       actorIsSteward: false,
+      actorIsAdmin: false,
     },
     invited,
   );
@@ -135,6 +159,7 @@ test("a first gender follows who may set it, and a later change is a steward", (
       actorIsInviter: false,
       actorHasNoInviter: true,
       actorIsSteward: false,
+      actorIsAdmin: false,
     },
     invited,
   );

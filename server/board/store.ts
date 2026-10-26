@@ -7,7 +7,14 @@ import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/li
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
-import { filterAudience, guardRoomAudience, statedGender, writeGenderAudit, type AudiencePath } from "./audience.ts";
+import {
+  filterAudience,
+  guardRoomAudience,
+  includeInCatalog,
+  statedGender,
+  writeGenderAudit,
+  type AudiencePath,
+} from "./audience.ts";
 import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
@@ -140,7 +147,11 @@ export type BoardPayload = {
     gender: "man" | "woman" | null;
     genderConfirmed: boolean;
   };
-  genderPolicy: { setBy: "self" | "inviter" | "steward"; requiresConfirmation: boolean; changeBy: "steward" };
+  genderPolicy: {
+    setBy: "self" | "inviter" | "steward";
+    requiresConfirmation: boolean;
+    changeBy: "admin" | "steward";
+  };
   rooms: BoardRoom[];
   posts: BoardPost[];
   marks: MarkEntry[];
@@ -166,6 +177,7 @@ type Err = {
   stops?: string[];
   ban?: { until: number; strikes: number; reason: RuleId };
   code?: string;
+  audience?: "men" | "women";
 };
 export type Result<T> = Ok<T> | Err;
 
@@ -181,13 +193,20 @@ async function audienceBlock(
     now: Date;
     path: AudiencePath;
     moderate?: boolean;
+    record?: boolean;
     detail?: string;
     actor?: BoardActor;
   },
 ): Promise<Err | null> {
   const gate = await guardRoomAudience(db, input);
   if (gate.ok) return null;
-  return { ok: false, status: gate.status, error: gate.error, code: gate.code };
+  return {
+    ok: false,
+    status: gate.status,
+    error: gate.error,
+    ...(gate.code ? { code: gate.code } : {}),
+    ...(gate.audience ? { audience: gate.audience } : {}),
+  };
 }
 
 class Stop extends Error {
@@ -515,13 +534,27 @@ export async function listBoard(
     path: query.room ? "read" : "list",
     moderate: true,
   });
+  const rooms = openRooms.filter((room) => includeInCatalog(audience.denied.get(room.id)));
   if (query.room) {
     const blocked = audience.denied.get(query.room);
-    if (blocked) return blocked;
+    if (blocked?.code) {
+      return {
+        ok: false,
+        status: blocked.status,
+        error: blocked.error,
+        code: blocked.code,
+        ...(blocked.audience ? { audience: blocked.audience } : {}),
+      };
+    }
+    if (!audience.visible.some((room) => room.id === query.room)) {
+      return fail(404, "That room is not here.");
+    }
   }
   const gender = await statedGender(db, userId);
-  const rooms = audience.visible;
-  const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
+  const readable = new Set(audience.visible.map((room) => room.id));
+  const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter((room) =>
+    readable.has(room.id),
+  );
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
   for (const room of targets) {
@@ -1164,6 +1197,7 @@ export async function markPost(
     now: input.now,
     path: "post",
     moderate: true,
+    record: true,
     detail: "mark",
     actor,
   });
@@ -1262,6 +1296,7 @@ export async function removePost(
     now: input.now,
     path: "post",
     moderate: true,
+    record: true,
     detail: "remove",
     actor,
   });
@@ -1418,6 +1453,7 @@ export async function banMember(
     now: input.now,
     path: "post",
     moderate: true,
+    record: true,
     detail: "ban",
     actor,
   });
@@ -1608,6 +1644,7 @@ export async function decideAppeal(
     now: input.now,
     path: "post",
     moderate: true,
+    record: true,
     detail: "appeal",
     actor,
   });

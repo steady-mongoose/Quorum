@@ -9,7 +9,8 @@ export type MemberCheck =
   | { kind: "bad-room" }
   | { kind: "unavailable" }
   | { kind: "banned"; ban: OpenBan }
-  | { kind: "audience"; error: string; code: string };
+  | { kind: "audience"; error: string; code: string }
+  | { kind: "hidden" };
 
 /**
  * Read-only. Membership is the row an invite or a post already wrote.
@@ -42,7 +43,10 @@ export async function roomCallMember(
       now,
       path: "calls",
     });
-    if (!gate.ok) return { kind: "audience", error: gate.error, code: gate.code };
+    if (!gate.ok) {
+      if (!gate.code) return { kind: "hidden" };
+      return { kind: "audience", error: gate.error, code: gate.code };
+    }
     return { kind: "member" };
   } catch {
     return { kind: "unavailable" };

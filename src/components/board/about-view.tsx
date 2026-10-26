@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
-import { MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
+import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -206,7 +206,7 @@ export function AboutView() {
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
 
-      {remote && (steward || admin) ? (
+      {remote && admin ? (
         <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
           <MemberGenderForm />
         </section>
@@ -828,21 +828,14 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
-          Who can be in this room
-          <select
-            className={fieldClass}
+        <div className="sm:col-span-2">
+          <AudienceChoice
+            legend="Who can be in this room"
+            name="create-room-audience"
             value={audience}
-            onChange={(event) => {
-              const next = event.target.value;
-              if (next === "all" || next === "men" || next === "women") setAudience(next);
-            }}
-          >
-            <option value="all">Everyone</option>
-            <option value="men">Men only</option>
-            <option value="women">Women only</option>
-          </select>
-        </label>
+            onChange={setAudience}
+          />
+        </div>
       </div>
       <button
         type="button"

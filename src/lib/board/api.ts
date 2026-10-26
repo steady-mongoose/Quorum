@@ -20,12 +20,21 @@ const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
-  const record = json as { error?: unknown; stops?: unknown };
+  const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
   const error = typeof record.error === "string" && record.error ? record.error : fallback;
   const stops = Array.isArray(record.stops)
     ? record.stops.filter((item): item is string => typeof item === "string")
     : undefined;
-  return stops && stops.length > 0 ? { ok: false, error, stops } : { ok: false, error };
+  const code =
+    record.code === "gender-unstated" || record.code === "gender-unconfirmed" ? record.code : undefined;
+  const audience = record.audience === "men" || record.audience === "women" ? record.audience : undefined;
+  return {
+    ok: false,
+    error,
+    ...(stops && stops.length > 0 ? { stops } : {}),
+    ...(code ? { code } : {}),
+    ...(audience ? { audience } : {}),
+  };
 }
 
 async function send(
@@ -112,7 +121,7 @@ function genderPolicyFrom(value: unknown): BoardSnapshot["genderPolicy"] {
   return {
     setBy,
     requiresConfirmation: row.requiresConfirmation === true,
-    changeBy: "steward",
+    changeBy: row.changeBy === "steward" ? "steward" : "admin",
   };
 }
 

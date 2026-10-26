@@ -92,7 +92,9 @@ export async function handleCalls(
   }
 
   const member = await roomCallMember(db, session.id, roomId, runtime.now());
-  if (member.kind === "bad-room") return json(404, { error: "Not found.", record: false });
+  if (member.kind === "bad-room" || member.kind === "hidden") {
+    return json(404, { error: "Not found.", record: false });
+  }
   if (member.kind === "unavailable")
     return json(503, { error: "Calls are not available.", record: false });
   if (member.kind === "banned") {

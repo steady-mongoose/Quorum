@@ -36,7 +36,6 @@ import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
 import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
-import { GenderGate } from "@/components/board/audience";
 import { useEngravedDocument } from "@/components/board/engraved-ground";
 
 const ICONS = {
@@ -167,7 +166,6 @@ function BoardShell() {
   ) : (
     <>
       {!entered && <Door />}
-      {entered ? <GenderGate /> : null}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
       {entered && shown === "groups" && <GroupsView />}

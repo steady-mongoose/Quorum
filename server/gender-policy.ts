@@ -2,21 +2,26 @@
  * Who may record a gender, and whether a restricted room waits for confirmation.
  * Change this object to change the rule. Do not copy the rule anywhere else.
  *
- * Default: the member sets it once. A steward changes it after that.
+ * Default: the member sets it once. An admin changes it after that.
+ * No one changes their own. A room steward cannot change it.
  * Confirmation is off, so a stated gender counts at once.
  */
 export const GENDER_POLICY = {
   GENDER_SET_BY: "self",
   GENDER_REQUIRES_CONFIRMATION: false,
-  GENDER_CHANGE_BY: "steward",
+  GENDER_CHANGE_BY: "admin",
+  GENDER_CHANGE_ALLOWS_SELF: false,
 } as const;
 
 export type GenderSetBy = "self" | "inviter" | "steward";
+export type GenderChangeBy = "admin" | "steward";
 
 export type GenderPolicy = {
   GENDER_SET_BY: GenderSetBy;
   GENDER_REQUIRES_CONFIRMATION: boolean;
-  GENDER_CHANGE_BY: "steward";
+  GENDER_CHANGE_BY: GenderChangeBy;
+  /** When false, the subject cannot change a gender that is already set. */
+  GENDER_CHANGE_ALLOWS_SELF: boolean;
 };
 
 export type Gender = "man" | "woman";
@@ -42,6 +47,20 @@ export function isRoomHost(input: {
   const createdBy = input.createdBy?.trim() ?? "";
   if (createdBy) return createdBy === input.userId;
   return input.admin;
+}
+
+/**
+ * True when this actor may name another member on POST /api/gender.
+ * Checked before the email lookup, so a refused caller learns nothing about the address.
+ */
+export function mayNameAnotherGender(
+  input: { actorIsAdmin: boolean; actorIsSteward: boolean },
+  policy: GenderPolicy = GENDER_POLICY,
+): boolean {
+  if (policy.GENDER_SET_BY === "inviter") return true;
+  if (policy.GENDER_SET_BY === "steward") return input.actorIsAdmin || input.actorIsSteward;
+  if (policy.GENDER_CHANGE_BY === "admin") return input.actorIsAdmin;
+  return input.actorIsAdmin || input.actorIsSteward;
 }
 
 export function audienceDecision(
@@ -72,7 +91,7 @@ export function audienceDecision(
     return {
       allow: false,
       code: "gender-unconfirmed",
-      error: "A steward has not confirmed that yet.",
+      error: "A steward will confirm this soon. Until then, men's and women's rooms stay closed to you.",
     };
   }
   return {
@@ -90,6 +109,7 @@ export function genderWriteDecision(
     actorIsInviter: boolean;
     actorHasNoInviter: boolean;
     actorIsSteward: boolean;
+    actorIsAdmin: boolean;
   },
   policy: GenderPolicy = GENDER_POLICY,
 ): { ok: true; kind: "same" | "set" | "change" } | { ok: false; status: number; error: string } {
@@ -110,7 +130,16 @@ export function genderWriteDecision(
     if (!input.actorIsSteward) return { ok: false, status: 403, error: "A steward sets this." };
     return { ok: true, kind: "set" };
   }
-  if (policy.GENDER_CHANGE_BY === "steward" && !input.actorIsSteward) {
+  if (input.actorIsSubject && !policy.GENDER_CHANGE_ALLOWS_SELF) {
+    return { ok: false, status: 403, error: "You cannot change this yourself." };
+  }
+  if (policy.GENDER_CHANGE_BY === "admin") {
+    if (!input.actorIsAdmin) {
+      return { ok: false, status: 403, error: "An admin changes this after it is set." };
+    }
+    return { ok: true, kind: "change" };
+  }
+  if (!input.actorIsSteward) {
     return { ok: false, status: 403, error: "A steward changes this after it is set." };
   }
   return { ok: true, kind: "change" };

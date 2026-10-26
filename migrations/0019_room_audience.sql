@@ -4,7 +4,9 @@
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
 -- Numbered 0019. 0006 is reserved by PR #10. 0018 is the public gathering.
--- This file does not create or replace a function.
+-- Deleting an account runs anonymize_gender_user. It clears the gender
+-- words on the audit row and drops the members row. It does not replace
+-- anonymize_board_user or any other anonymize function.
 --
 -- A member may state man or woman once. The columns live on `members`.
 -- A room may be for everyone, men, or women. The rooms list is `room`,
@@ -58,3 +60,22 @@ alter table gender_audit add constraint gender_audit_action_check check (
 );
 
 create index if not exists gender_audit_room_idx on gender_audit (room_id, at desc);
+
+-- Gender words in the audit detail are dropped with the account. The members
+-- row is deleted here as well. This trigger is not anonymize_board_user.
+create or replace function anonymize_gender_user() returns trigger
+language plpgsql
+as $$
+begin
+  delete from members where user_id = old.id;
+  update gender_audit
+    set detail = ''
+    where actor_user_id = old.id or subject_user_id = old.id;
+  return old;
+end;
+$$;
+
+drop trigger if exists anonymize_gender_user on "user";
+create trigger anonymize_gender_user
+  before delete on "user"
+  for each row execute function anonymize_gender_user();

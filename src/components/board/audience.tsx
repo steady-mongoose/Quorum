@@ -3,87 +3,109 @@ import { btnGhost, fieldClass } from "@/components/quorum/bits";
 import { audienceLabel } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
-/** A plain label. Empty when the room is for everyone. */
+const AUDIENCE_OPTIONS = [
+  { value: "all", label: "Everyone", detail: "Any member can join." },
+  { value: "men", label: "Men only", detail: "Only members who've said they're men can join." },
+  { value: "women", label: "Women only", detail: "Only members who've said they're women can join." },
+] as const;
+
+export type AudienceValue = (typeof AUDIENCE_OPTIONS)[number]["value"];
+
+/** Outline badge. The first child is the screen-reader name. */
 export function RoomAudienceMark({ audience }: { audience?: string | null }) {
   const label = audienceLabel(audience);
   if (!label) return null;
-  return <span className="text-[0.8125rem] text-muted">{label}</span>;
-}
-
-export function GenderPrompt({ onSet }: { onSet: (gender: "man" | "woman") => void }) {
   return (
-    <form className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
-      <p className="max-w-prose text-sm text-muted">
-        Say whether you are a man or a woman. A room can be limited to one. You set this once.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={btnGhost} onClick={() => onSet("man")}>
-          I am a man
-        </button>
-        <button type="button" className={btnGhost} onClick={() => onSet("woman")}>
-          I am a woman
-        </button>
-      </div>
-    </form>
+    <span className="ml-2 inline-flex items-center rounded-full border border-[#857c6f] px-2 py-0.5 text-[0.8125rem] text-muted">
+      <span className="sr-only">Audience: </span>
+      {label}
+    </span>
   );
 }
 
-/** Shown when this member still has to state a gender, or a steward must confirm it. */
-export function GenderGate() {
-  const remote = useBoard((state) => state.remote);
-  const member = useBoard((state) => state.member);
-  const gender = useBoard((state) => state.gender);
-  const genderConfirmed = useBoard((state) => state.genderConfirmed);
-  const genderSetBy = useBoard((state) => state.genderSetBy);
-  const needsConfirmation = useBoard((state) => state.genderNeedsConfirmation);
-  const setGender = useBoard((state) => state.setGender);
-  const [error, setError] = useState("");
-  if (!remote || !member) return null;
-  if (!gender && genderSetBy === "self") {
-    return (
-      <div className="mb-6 flex flex-col gap-2">
-        <GenderPrompt
-          onSet={(next) => {
-            setError("");
-            void setGender(next).then((result) => {
-              if (!result.ok) setError(result.error ?? "That was not saved.");
-            });
-          }}
-        />
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
+/** Shown in a restricted room when this member has not stated a gender. */
+export function GenderPrompt({
+  onSet,
+  onDismiss,
+  error,
+}: {
+  onSet: (gender: "man" | "woman") => void;
+  onDismiss: () => void;
+  error?: string;
+}) {
+  return (
+    <fieldset className="plate flex flex-col gap-3 p-4">
+      <legend className="illum font-display text-3xl text-fg">To open men's and women's rooms</legend>
+      <p className="text-sm text-muted max-w-prose">
+        Some rooms are for men or for women only. We ask only so you can enter them. You set this
+        once; after that, an admin can change it for you.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={btnGhost} onClick={() => onSet("man")}>
+          I'm a man
+        </button>
+        <button type="button" className={btnGhost} onClick={() => onSet("woman")}>
+          I'm a woman
+        </button>
+        <button type="button" className={btnGhost} onClick={onDismiss}>
+          Not now
+        </button>
       </div>
-    );
-  }
-  if (!gender && genderSetBy === "inviter") {
-    return (
-      <p className="mb-6 text-sm text-muted">The person who invited you sets whether you are a man or a woman.</p>
-    );
-  }
-  if (!gender && genderSetBy === "steward") {
-    return <p className="mb-6 text-sm text-muted">A steward sets whether you are a man or a woman.</p>;
-  }
-  if (gender && needsConfirmation && !genderConfirmed) {
-    return <p className="mb-6 text-sm text-muted">A steward has not confirmed that yet.</p>;
-  }
-  return null;
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </fieldset>
+  );
+}
+
+export function AudienceChoice({
+  legend,
+  name,
+  value,
+  onChange,
+}: {
+  legend: string;
+  name: string;
+  value: AudienceValue;
+  onChange: (value: AudienceValue) => void;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-sm text-muted">{legend}</legend>
+      {AUDIENCE_OPTIONS.map((option) => (
+        <label key={option.value} className="flex gap-3 min-h-11 items-start">
+          <input
+            type="radio"
+            name={name}
+            value={option.value}
+            checked={value === option.value}
+            onChange={() => onChange(option.value)}
+          />
+          <span>
+            {option.label}
+            <br />
+            <small className="text-muted">{option.detail}</small>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
 }
 
 export function RoomAudienceEditor({
   audience,
   onSave,
 }: {
-  audience: "all" | "men" | "women";
-  onSave: (audience: "all" | "men" | "women") => void | Promise<{ ok: boolean; error?: string } | void>;
+  audience: AudienceValue;
+  onSave: (audience: AudienceValue) => void | Promise<{ ok: boolean; error?: string } | void>;
 }) {
   const [value, setValue] = useState(audience);
   const [error, setError] = useState("");
   return (
     <form
-      className="flex flex-wrap items-end gap-2"
+      className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
         setError("");
@@ -92,21 +114,7 @@ export function RoomAudienceEditor({
         });
       }}
     >
-      <label className="flex flex-col gap-2 text-sm text-muted">
-        Who can be in this room
-        <select
-          className={fieldClass}
-          value={value}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (next === "all" || next === "men" || next === "women") setValue(next);
-          }}
-        >
-          <option value="all">Everyone</option>
-          <option value="men">Men only</option>
-          <option value="women">Women only</option>
-        </select>
-      </label>
+      <AudienceChoice legend="Who can be in this room" name="audience" value={value} onChange={setValue} />
       <button type="submit" className={btnGhost}>
         Save
       </button>
@@ -116,6 +124,56 @@ export function RoomAudienceEditor({
         </p>
       ) : null}
     </form>
+  );
+}
+
+/** A restricted room the member cannot open yet, or a room that is not here. */
+export function RoomHoldPlate({
+  code,
+  onDismiss,
+}: {
+  code: "gender-unstated" | "gender-unconfirmed" | "missing";
+  onDismiss: () => void;
+}) {
+  const setBy = useBoard((state) => state.genderSetBy);
+  const setGender = useBoard((state) => state.setGender);
+  const [error, setError] = useState("");
+  if (code === "missing") {
+    return <p className="plate p-4 text-sm text-muted">That room is not here.</p>;
+  }
+  if (code === "gender-unconfirmed") {
+    return (
+      <p className="plate p-4 text-sm text-muted">
+        A steward will confirm this soon. Until then, men's and women's rooms stay closed to you.
+      </p>
+    );
+  }
+  if (setBy === "inviter") {
+    return (
+      <p className="plate p-4 text-sm text-muted">
+        The person who invited you sets whether you are a man or a woman. Ask a steward if this
+        needs changing.
+      </p>
+    );
+  }
+  if (setBy === "steward") {
+    return (
+      <p className="plate p-4 text-sm text-muted">
+        A steward sets whether you are a man or a woman. Ask a steward if this needs changing.
+      </p>
+    );
+  }
+  return (
+    <GenderPrompt
+      error={error}
+      onDismiss={onDismiss}
+      onSet={(next) => {
+        setError("");
+        void setGender(next).then((result) => {
+          if (!result.ok) setError(result.error ?? "That was not saved.");
+        });
+      }}
+    />
   );
 }
 
@@ -131,7 +189,7 @@ export function MemberGenderForm() {
     setNote("");
     void setMemberGender({ email, gender }).then((result) => {
       if (!result.ok) setError(result.error ?? "That was not saved.");
-      else setNote("Saved.");
+      else setNote(`Saved for ${email}.`);
     });
   };
   return (
@@ -141,9 +199,9 @@ export function MemberGenderForm() {
         event.preventDefault();
       }}
     >
-      <h3 className="text-lg text-fg">A member's gender</h3>
+      <h3 className="text-lg text-fg">Set a member's gender</h3>
       <p className="max-w-prose text-sm text-muted">
-        The member sets it once. A steward changes it after that.
+        The member sets it once. An admin changes it after that. No one changes their own.
       </p>
       <label className="flex flex-col gap-2 text-sm text-muted">
         Email
@@ -156,10 +214,10 @@ export function MemberGenderForm() {
       </label>
       <div className="flex flex-wrap gap-2">
         <button type="button" className={btnGhost} onClick={() => send("man")}>
-          Man
+          Set as man
         </button>
         <button type="button" className={btnGhost} onClick={() => send("woman")}>
-          Woman
+          Set as woman
         </button>
         {needsConfirmation ? (
           <button
@@ -170,7 +228,7 @@ export function MemberGenderForm() {
               setNote("");
               void confirmGender(email).then((result) => {
                 if (!result.ok) setError(result.error ?? "That was not confirmed.");
-                else setNote("Confirmed.");
+                else setNote(`Saved for ${email}.`);
               });
             }}
           >

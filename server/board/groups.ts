@@ -22,7 +22,13 @@ import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { queryBanTable } from "./ban-check.ts";
-import { filterAudience, guardGroupAudience, guardRoomAudience } from "./audience.ts";
+import {
+  displayedGroupAudience,
+  filterGroups,
+  groupFollowsRoom,
+  guardGroupAudience,
+  guardRoomAudience,
+} from "./audience.ts";
 import { parseAudience } from "../gender-policy.ts";
 import { openBan, type OpenBan, type Result } from "./store.ts";
 import type { RuleId } from "./rule.ts";
@@ -38,6 +44,8 @@ export type ThemeGroup = {
   joined: boolean;
   admin: boolean;
   audience?: "men" | "women";
+  /** True when an approved source room supplies the audience. */
+  followsRoom?: boolean;
 };
 
 export type GroupPost = {
@@ -125,6 +133,7 @@ type Err = {
   error: string;
   ban?: { until: number; strikes: number; reason: RuleId };
   code?: string;
+  audience?: "men" | "women";
 };
 
 type Gate = { ok: true; actor: BoardActor } | Err;
@@ -471,14 +480,12 @@ export async function listGroups(
     }
   }
   const open = groups.filter((group) => !hidden.has(group.id));
-  const split = await filterAudience(db, {
+  const split = await filterGroups(db, {
     userId,
     actor: gated.actor,
     rows: open,
     now,
-    path: "group",
     moderate: true,
-    roomIdOf: (group) => group.sourceRoomId,
     detailOf: (group) => group.id,
   });
   return {
@@ -588,12 +595,14 @@ export async function listGroup(
   const visibleRemovals = seesRemovals
     ? removalRows
     : removalRows.filter((row) => row.author_user_id === userId);
-  const header = await db.query<{ id: string; name: string; about: string; audience: string }>(
-    `select id, name, about, audience from theme_group where id = $1`,
+  const header = await db.query<{ id: string; name: string; about: string }>(
+    `select id, name, about from theme_group where id = $1`,
     [groupId],
   );
   const group = header[0];
   if (!group) return fail(404, "That group is not here.");
+  const liveAudience = await displayedGroupAudience(db, groupId);
+  const followsRoom = await groupFollowsRoom(db, groupId);
   const adminRows = await db.query<{ name: string }>(
     `select u.name
      from theme_group_admin a
@@ -612,7 +621,8 @@ export async function listGroup(
         joined: await isJoined(db, groupId, userId),
         admin,
         admins: adminRows.map((row) => row.name),
-        ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
+        followsRoom,
+        ...(liveAudience === "men" || liveAudience === "women" ? { audience: liveAudience } : {}),
       },
       posts,
       marks: markRows.map((row) => ({
@@ -1062,6 +1072,7 @@ export async function decideGroupRequest(
     now: input.now,
     path: "group",
     moderate: true,
+    record: true,
     detail: "decide",
     actor: gated.actor,
   });
@@ -1234,6 +1245,7 @@ export async function markGroupPost(
     groupId: post.group_id,
     now: input.now,
     moderate: true,
+    record: true,
     detail: "mark",
     actor: gated.actor,
   });
@@ -1326,6 +1338,7 @@ export async function removeGroupPost(
     groupId: post.group_id,
     now: input.now,
     moderate: true,
+    record: true,
     detail: "remove",
     actor: gated.actor,
   });

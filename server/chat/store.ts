@@ -61,7 +61,7 @@ export async function requireRoomMember(
   userId: string,
   roomId: string,
   now: Date,
-  access: { moderate?: boolean; detail?: string } = {},
+  access: { moderate?: boolean; record?: boolean; detail?: string } = {},
 ): Promise<ChatResult<BoardActor>> {
   if (!ROOM_ID.test(roomId)) return fail(400, "That room is not here.");
   const actor = await actorRole(db, userId);
@@ -71,7 +71,7 @@ export async function requireRoomMember(
   const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
     roomId,
   ]);
-  if (!rooms[0]) return fail(400, "That room is not here.");
+  if (!rooms[0]) return fail(404, "That room is not here.");
   const members = await db.query<{ user_id: string }>(
     `select user_id from room_member where room_id = $1 and user_id = $2`,
     [roomId, userId],
@@ -83,10 +83,18 @@ export async function requireRoomMember(
     now,
     path: "chat",
     moderate: access.moderate === true,
+    record: access.record === true,
     detail: access.detail ?? "",
     actor,
   });
-  if (!gate.ok) return { ok: false, status: gate.status, error: gate.error, code: gate.code };
+  if (!gate.ok) {
+    return {
+      ok: false,
+      status: gate.status,
+      error: gate.error,
+      ...(gate.code ? { code: gate.code } : {}),
+    };
+  }
   return { ok: true, value: actor };
 }
 
@@ -254,6 +262,7 @@ export async function removeChatMessage(
   if (unavailable) return unavailable;
   const gate = await requireRoomMember(db, input.userId, input.roomId, input.now, {
     moderate: true,
+    record: true,
     detail: "remove",
   });
   if (!gate.ok) return gate;

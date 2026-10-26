@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { actorRole, stewardsRoom, type BoardActor } from "./access.ts";
+import { approvedRoomIds } from "./group-rooms.ts";
 import {
   GENDER_POLICY,
   audienceDecision,
@@ -26,9 +27,12 @@ export type AudiencePath =
 
 export type AudienceDenial = {
   ok: false;
-  status: 403;
+  status: 403 | 404;
   error: string;
-  code: AudienceCode;
+  /** Omitted when the member's gender does not match, so the response matches a missing room. */
+  code?: AudienceCode;
+  /** Present for a prompt the member can answer. Omitted on a mismatch. */
+  audience?: "men" | "women";
 };
 
 export type GenderResult<T> =
@@ -42,8 +46,32 @@ type AuditAction =
   | "set-audience"
   | "audience-override";
 
-function denial(code: AudienceCode, error: string): AudienceDenial {
-  return { ok: false, status: 403, error, code };
+function denial(
+  path: AudiencePath,
+  code: AudienceCode,
+  error: string,
+  audience: Audience,
+): AudienceDenial {
+  if (code === "audience") {
+    return {
+      ok: false,
+      status: 404,
+      error: path === "group" ? "That group is not here." : "That room is not here.",
+    };
+  }
+  return {
+    ok: false,
+    status: 403,
+    error,
+    code,
+    ...(audience === "men" || audience === "women" ? { audience } : {}),
+  };
+}
+
+/** A room stays in the catalog when the member still has to state or confirm a gender. */
+export function includeInCatalog(denial: AudienceDenial | undefined): boolean {
+  if (!denial) return true;
+  return denial.code === "gender-unstated" || denial.code === "gender-unconfirmed";
 }
 
 export async function statedGender(
@@ -95,7 +123,8 @@ async function actorOrLoad(db: Db, userId: string, actor?: BoardActor): Promise<
 
 /**
  * Keep rows the member may see. A steward who does not match is kept only
- * when `moderate` is set, and that pass is written to gender_audit.
+ * when `moderate` is set. That pass is written to gender_audit only when
+ * `record` is set, which is an action taken, not a list.
  * Rooms for everyone skip the member lookup.
  */
 export async function filterAudience<T extends { id: string; audience?: string | null }>(
@@ -106,6 +135,8 @@ export async function filterAudience<T extends { id: string; audience?: string |
     now: Date;
     path: AudiencePath;
     moderate: boolean;
+    /** Write audience-override rows. List and read leave this unset. */
+    record?: boolean;
     actor?: BoardActor;
     roomIdOf?: (row: T) => string;
     detailOf?: (row: T) => string;
@@ -140,18 +171,20 @@ export async function filterAudience<T extends { id: string; audience?: string |
       if (decision.override) overrides.push(row);
       continue;
     }
-    denied.set(row.id, denial(decision.code, decision.error));
+    denied.set(row.id, denial(input.path, decision.code, decision.error, audience));
   }
-  for (const row of overrides) {
-    await writeGenderAudit(db, {
-      actorUserId: input.userId,
-      subjectUserId: input.userId,
-      roomId: roomIdOf(row),
-      action: "audience-override",
-      path: input.path,
-      detail: detailOf(row),
-      now: input.now,
-    });
+  if (input.record) {
+    for (const row of overrides) {
+      await writeGenderAudit(db, {
+        actorUserId: input.userId,
+        subjectUserId: input.userId,
+        roomId: roomIdOf(row),
+        action: "audience-override",
+        path: input.path,
+        detail: detailOf(row),
+        now: input.now,
+      });
+    }
   }
   return { visible, denied };
 }
@@ -165,6 +198,7 @@ export async function guardRoomAudience(
     now: Date;
     path: AudiencePath;
     moderate?: boolean;
+    record?: boolean;
     detail?: string;
     actor?: BoardActor;
     policy?: GenderPolicy;
@@ -183,13 +217,156 @@ export async function guardRoomAudience(
     now: input.now,
     path: input.path,
     moderate: input.moderate === true,
+    record: input.record === true,
     detailOf: () => input.detail ?? "",
     policy: input.policy,
   });
   return split.denied.get(input.roomId) ?? { ok: true };
 }
 
-/** A group created from a room uses the audience copied onto the group. */
+type GroupSource = { roomId: string; audience: Audience };
+
+async function groupFacts(
+  db: Db,
+  groupIds: string[],
+): Promise<Map<string, { column: Audience; sources: GroupSource[] }>> {
+  const facts = new Map<string, { column: Audience; sources: GroupSource[] }>();
+  if (groupIds.length === 0) return facts;
+  const columns = await db.query<{ id: string; audience: string }>(
+    `select id, audience from theme_group where id = any($1::text[])`,
+    [groupIds],
+  );
+  for (const row of columns) {
+    facts.set(row.id, { column: parseAudience(row.audience) ?? "all", sources: [] });
+  }
+  const requests = await db.query<{ group_id: string; room_id: string }>(
+    `select distinct group_id, room_id from theme_group_request
+     where status = 'approved' and room_id <> '' and group_id = any($1::text[])`,
+    [groupIds],
+  );
+  const roomIds = [...new Set(requests.map((row) => row.room_id))];
+  const rooms =
+    roomIds.length === 0
+      ? []
+      : await db.query<{ id: string; audience: string }>(
+          `select id, audience from room where name <> '' and id = any($1::text[])`,
+          [roomIds],
+        );
+  const live = new Map(rooms.map((row) => [row.id, parseAudience(row.audience) ?? "all"]));
+  for (const request of requests) {
+    const fact = facts.get(request.group_id);
+    if (!fact) continue;
+    const audience = live.get(request.room_id);
+    if (!audience) continue;
+    fact.sources.push({ roomId: request.room_id, audience });
+  }
+  return facts;
+}
+
+function displayAudience(column: Audience, sources: GroupSource[]): Audience {
+  if (sources.length === 0) return column;
+  const restricted = [...new Set(sources.map((source) => source.audience).filter((item) => item !== "all"))];
+  if (restricted.length === 1) return restricted[0] ?? "all";
+  return "all";
+}
+
+/**
+ * A group with an approved source room uses that room's audience as it is now.
+ * A group with no source room uses the audience stored on the group, which
+ * defaults to everyone.
+ */
+export async function filterGroups<T extends { id: string }>(
+  db: Db,
+  input: {
+    userId: string;
+    rows: T[];
+    now: Date;
+    moderate: boolean;
+    record?: boolean;
+    actor?: BoardActor;
+    detailOf?: (row: T) => string;
+    policy?: GenderPolicy;
+  },
+): Promise<{ visible: Array<T & { audience: Audience }>; denied: Map<string, AudienceDenial> }> {
+  const denied = new Map<string, AudienceDenial>();
+  const facts = await groupFacts(
+    db,
+    input.rows.map((row) => row.id),
+  );
+  const decorated = input.rows.map((row) => {
+    const fact = facts.get(row.id) ?? { column: "all" as Audience, sources: [] };
+    return { row, fact, audience: displayAudience(fact.column, fact.sources) };
+  });
+  const restricted = decorated.some(
+    (item) => item.audience !== "all" || item.fact.sources.some((source) => source.audience !== "all"),
+  );
+  if (!restricted) {
+    return { visible: decorated.map((item) => ({ ...item.row, audience: item.audience })), denied };
+  }
+  const actor = await actorOrLoad(db, input.userId, input.actor);
+  const gender = await statedGender(db, input.userId);
+  const policy = input.policy ?? GENDER_POLICY;
+  const detailOf = input.detailOf ?? ((row: T) => row.id);
+  const visible: Array<T & { audience: Audience }> = [];
+  for (const item of decorated) {
+    const checks =
+      item.fact.sources.length > 0
+        ? item.fact.sources
+        : [{ roomId: "", audience: item.fact.column }];
+    let blocked: AudienceDenial | null = null;
+    const overrides: GroupSource[] = [];
+    for (const source of checks) {
+      const decision = audienceDecision(
+        {
+          audience: source.audience,
+          stated: gender.stated,
+          confirmed: gender.confirmed,
+          canModerate: input.moderate && stewardsRoom(actor, source.roomId),
+        },
+        policy,
+      );
+      if (!decision.allow) {
+        blocked = denial("group", decision.code, decision.error, source.audience);
+        break;
+      }
+      if (decision.override) overrides.push(source);
+    }
+    if (blocked) {
+      denied.set(item.row.id, blocked);
+      continue;
+    }
+    visible.push({ ...item.row, audience: item.audience });
+    if (input.record) {
+      for (const source of overrides) {
+        await writeGenderAudit(db, {
+          actorUserId: input.userId,
+          subjectUserId: input.userId,
+          roomId: source.roomId,
+          action: "audience-override",
+          path: "group",
+          detail: detailOf(item.row),
+          now: input.now,
+        });
+      }
+    }
+  }
+  return { visible, denied };
+}
+
+/** Live audience of one group. Missing groups return null. */
+export async function displayedGroupAudience(db: Db, groupId: string): Promise<Audience | null> {
+  const facts = await groupFacts(db, [groupId]);
+  const fact = facts.get(groupId);
+  if (!fact) return null;
+  return displayAudience(fact.column, fact.sources);
+}
+
+export async function groupFollowsRoom(db: Db, groupId: string): Promise<boolean> {
+  const sources = await approvedRoomIds(db, groupId);
+  return sources.length > 0;
+}
+
+/** Every path reads the source room now, the same way a ban does. */
 export async function guardGroupAudience(
   db: Db,
   input: {
@@ -197,25 +374,23 @@ export async function guardGroupAudience(
     groupId: string;
     now: Date;
     moderate?: boolean;
+    record?: boolean;
     detail?: string;
     actor?: BoardActor;
     policy?: GenderPolicy;
   },
 ): Promise<{ ok: true } | AudienceDenial> {
-  const rows = await db.query<{ audience: string; source_room_id: string }>(
-    `select audience, source_room_id from theme_group where id = $1`,
-    [input.groupId],
-  );
-  const row = rows[0];
-  if (!row) return { ok: true };
-  const split = await filterAudience(db, {
+  const rows = await db.query<{ id: string }>(`select id from theme_group where id = $1`, [
+    input.groupId,
+  ]);
+  if (!rows[0]) return { ok: true };
+  const split = await filterGroups(db, {
     userId: input.userId,
     actor: input.actor,
-    rows: [{ id: input.groupId, audience: row.audience, sourceRoomId: row.source_room_id }],
+    rows: [{ id: input.groupId }],
     now: input.now,
-    path: "group",
     moderate: input.moderate === true,
-    roomIdOf: (item) => item.sourceRoomId,
+    record: input.record === true,
     detailOf: () => input.detail || input.groupId,
     policy: input.policy,
   });
@@ -270,6 +445,7 @@ export async function setMemberGender(
       actorIsInviter: inviterId !== "" && inviterId === input.actorUserId,
       actorHasNoInviter: invited.length === 0 || inviterId === "",
       actorIsSteward: actor.admin || actor.stewardRooms.length > 0,
+      actorIsAdmin: actor.admin,
     },
     policy,
   );
@@ -363,6 +539,40 @@ export async function setRoomAudience(
       roomId: input.roomId,
       action: "set-audience",
       detail: `${current} -> ${next}`,
+      now: input.now,
+    });
+  });
+  return { ok: true, value: { audience: next } };
+}
+
+/** An admin sets the audience of a group that has no source room. */
+export async function setGroupAudience(
+  db: Db,
+  input: { userId: string; groupId: string; audience: unknown; now: Date },
+): Promise<GenderResult<{ audience: Audience }>> {
+  const next = parseAudience(input.audience);
+  if (!next) return { ok: false, status: 400, error: "Choose everyone, men, or women." };
+  const rows = await db.query<{ id: string; audience: string }>(
+    `select id, audience from theme_group where id = $1`,
+    [input.groupId],
+  );
+  const group = rows[0];
+  if (!group) return { ok: false, status: 404, error: "That group is not here." };
+  const actor = await actorRole(db, input.userId);
+  if (!actor.member) return { ok: false, status: 403, error: "Only a member can do that." };
+  if (!actor.admin) return { ok: false, status: 403, error: "An admin sets who a group is for." };
+  if (await groupFollowsRoom(db, input.groupId)) {
+    return { ok: false, status: 403, error: "That group follows its room." };
+  }
+  const current = parseAudience(group.audience) ?? "all";
+  if (current === next) return { ok: true, value: { audience: next } };
+  await db.transaction(async (tx) => {
+    await tx.query(`update theme_group set audience = $2 where id = $1`, [input.groupId, next]);
+    await writeGenderAudit(tx, {
+      actorUserId: input.userId,
+      roomId: "",
+      action: "set-audience",
+      detail: `${input.groupId} ${current} -> ${next}`,
       now: input.now,
     });
   });

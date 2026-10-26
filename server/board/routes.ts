@@ -20,6 +20,8 @@ import {
   saveGathering,
 } from "./gathering-record.ts";
 import { confirmMemberGender, setMemberGender, setRoomAudience } from "./audience.ts";
+import { actorRole } from "./access.ts";
+import { mayNameAnotherGender } from "../gender-policy.ts";
 import {
   banMember,
   closeAsked,
@@ -122,6 +124,7 @@ function fromResult(status: number, result: Result<unknown>): Response {
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
       ...(result.code ? { code: result.code } : {}),
+      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
     });
   }
   return json(status, result.value);
@@ -297,6 +300,15 @@ export async function handleBoard(
       const email = stringField(body, "email").trim().toLowerCase();
       let subjectUserId = session.id;
       if (email) {
+        const actor = await actorRole(deps.db, session.id);
+        if (
+          !mayNameAnotherGender({
+            actorIsAdmin: actor.admin,
+            actorIsSteward: actor.admin || actor.stewardRooms.length > 0,
+          })
+        ) {
+          return json(403, { error: "You set this once, yourself." });
+        }
         const people = await deps.db.query<{ id: string }>(
           `select id from "user" where lower(email) = $1`,
           [email],

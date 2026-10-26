@@ -28,7 +28,7 @@ export type BoardMe = {
 export type GenderPolicyInfo = {
   setBy: "self" | "inviter" | "steward";
   requiresConfirmation: boolean;
-  changeBy: "steward";
+  changeBy: "admin" | "steward";
 };
 
 export type PlaceInput = { zip: string; congregationId: string };
@@ -73,7 +73,13 @@ export type BoardSnapshot = {
   pages: BoardPage[];
 };
 
-export type BoardFailure = { ok: false; error: string; stops?: string[] };
+export type BoardFailure = {
+  ok: false;
+  error: string;
+  stops?: string[];
+  code?: "gender-unstated" | "gender-unconfirmed";
+  audience?: "men" | "women";
+};
 
 export type BoardClient = {
   load: (query?: {

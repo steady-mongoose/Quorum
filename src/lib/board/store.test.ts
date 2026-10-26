@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
 import type { HomePayload } from "./home.ts";
-import { blankDraft, todayIso, weekFor, type Post } from "./model.ts";
+import { blankDraft, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
 import { UNDO_TTL_MS, useBoard } from "./store.ts";
 
 const idle = async () => ({ ok: false as const, error: "unused" });
@@ -387,7 +387,7 @@ test("a live board keeps the server home order", async () => {
       gender: null,
       genderConfirmed: false,
     },
-    genderPolicy: { setBy: "self", requiresConfirmation: false, changeBy: "steward" },
+    genderPolicy: { setBy: "self", requiresConfirmation: false, changeBy: "admin" },
     rooms: [],
     posts: [],
     marks: [],
@@ -472,4 +472,76 @@ test("a revision keeps a steward mark", async () => {
   });
   assert.equal(useBoard.getState().posts[0]?.mark, "sloppy");
   assert.equal(useBoard.getState().markLog.length, 1);
+});
+
+function meetingCard(): MeetingCard {
+  return {
+    id: "card-1",
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Ada",
+    next: "2026-10-24",
+    lastFour: [],
+    wentBy: [],
+    going: [],
+    pinned: false,
+    unverified: false,
+    firstTimer: false,
+    slots: [],
+    book: "",
+    pages: "",
+  };
+}
+
+test("a remote RSVP checks the room and does not toggle when it is closed", async () => {
+  reset();
+  useBoard.setState({
+    remote: true,
+    me: "Maria",
+    member: true,
+    section: "week",
+    room: "county",
+    cards: [meetingCard()],
+  });
+  setBoardClient(
+    client({
+      load: async () => ({ ok: false, error: "That room is not here." }),
+    }),
+  );
+  useBoard.getState().rsvp("card-1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(useBoard.getState().cards[0]?.going, []);
+  assert.equal(useBoard.getState().roomHold, null);
+
+  setBoardClient(
+    client({
+      load: async () => ({
+        ok: false,
+        error: "Say whether you are a man or a woman before opening this room.",
+        code: "gender-unstated",
+        audience: "women",
+      }),
+    }),
+  );
+  useBoard.getState().rsvp("card-1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(useBoard.getState().cards[0]?.going, []);
+  assert.equal(useBoard.getState().roomHold?.code, "gender-unstated");
+  assert.equal(useBoard.getState().section, "rooms");
+  useBoard.getState().dismissRoomHold();
+  assert.equal(useBoard.getState().roomHold, null);
+  assert.equal(useBoard.getState().section, "week");
+  assert.equal(useBoard.getState().room, "county");
+
+  setBoardClient(
+    client({
+      load: async () => ({ ok: true, board: {} as BoardSnapshot }),
+    }),
+  );
+  useBoard.getState().rsvp("card-1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(useBoard.getState().cards[0]?.going, ["Maria"]);
 });

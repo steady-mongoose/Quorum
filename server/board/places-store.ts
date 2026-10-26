@@ -37,9 +37,9 @@ import {
   planZipCorrection,
 } from "../../src/lib/board/room-requests.ts";
 import { actorRole, councilFlags } from "./access.ts";
-import { filterAudience, guardRoomAudience } from "./audience.ts";
+import { filterAudience, guardRoomAudience, includeInCatalog } from "./audience.ts";
 
-type Err = { ok: false; status: number; error: string; code?: string };
+type Err = { ok: false; status: number; error: string; code?: string; audience?: "men" | "women" };
 type Ok<T> = { ok: true; value: T };
 export type PlaceResult<T> = Ok<T> | Err;
 
@@ -429,7 +429,10 @@ export async function listHome(
     path: "list",
     moderate: true,
   });
-  const visible = new Set(audience.visible.map((room) => room.id));
+  const readable = new Set(audience.visible.map((room) => room.id));
+  const visible = new Set(
+    rooms.filter((room) => includeInCatalog(audience.denied.get(room.id))).map((room) => room.id),
+  );
   const joins = await db.query<{ room_id: string }>(
     `select room_id from room_join where user_id = $1`,
     [userId],
@@ -492,7 +495,7 @@ export async function listHome(
       parentId: row.parent_id,
     })),
     live,
-  ).filter((post) => visible.has(post.room));
+  ).filter((post) => readable.has(post.room));
   const sections: HomeSection[] = [];
   if (lifted.length > 0) {
     sections.push({
@@ -636,7 +639,15 @@ export async function joinRoom(
       path: "join",
       actor,
     });
-    if (!gate.ok) return { ok: false, status: gate.status, error: gate.error, code: gate.code };
+    if (!gate.ok) {
+      return {
+        ok: false,
+        status: gate.status,
+        error: gate.error,
+        ...(gate.code ? { code: gate.code } : {}),
+        ...(gate.audience ? { audience: gate.audience } : {}),
+      };
+    }
   }
   if (input.leave) {
     await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [

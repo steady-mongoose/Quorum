@@ -62,7 +62,7 @@ import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
-import { RoomAudienceEditor, RoomAudienceMark } from "@/components/board/audience";
+import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
@@ -102,6 +102,10 @@ export function RoomView() {
     [cards, room, meta.parish],
   );
   const setRoomAudience = useBoard((state) => state.setRoomAudience);
+  const roomHold = useBoard((state) => state.roomHold);
+  const dismissRoomHold = useBoard((state) => state.dismissRoomHold);
+  const held = roomHold && roomHold.roomId === room ? roomHold : null;
+  const known = rooms.find((item) => item.id === room);
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
@@ -139,6 +143,41 @@ export function RoomView() {
       ))}
     </>
   );
+
+  if (held) {
+    const title = known?.name ?? "This room";
+    const audience = held.code === "missing" ? undefined : (known?.audience ?? held.audience);
+    return (
+      <div className="flex flex-col gap-6">
+        <section className="plate flex flex-col gap-2">
+          {held.code === "missing" ? null : (
+            <>
+              <Kicker>Room</Kicker>
+              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <RoomAudienceMark audience={audience} />
+            </>
+          )}
+          <RoomHoldPlate code={held.code} onDismiss={dismissRoomHold} />
+        </section>
+        <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
+          {rooms.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={item.id === room ? "page" : undefined}
+              onClick={() => setRoom(item.id)}
+              className={pill(item.id === room)}
+            >
+              {item.name}
+              {item.audience === "men" || item.audience === "women" ? (
+                <RoomAudienceMark audience={item.audience} />
+              ) : null}
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">

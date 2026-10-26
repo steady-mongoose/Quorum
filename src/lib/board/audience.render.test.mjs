@@ -39,7 +39,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GenderPrompt, RoomAudienceEditor, RoomAudienceMark } = await import(
+const { AudienceChoice, GenderPrompt, RoomAudienceEditor, RoomAudienceMark } = await import(
   "../../components/board/audience.tsx"
 );
 
@@ -62,6 +62,9 @@ function render(element) {
 test("a room shows a plain men or women label, and the member can state a gender", async () => {
   const men = render(createElement(RoomAudienceMark, { audience: "men" }));
   assert.equal(document.body.textContent?.includes("Men only"), true);
+  assert.equal(document.body.textContent?.includes("Audience:"), true);
+  assert.equal(document.querySelector(".sr-only")?.textContent, "Audience: ");
+  assert.match(document.body.innerHTML, /border-\[#857c6f\]/);
   assert.equal(/\blikes?\b|\bscore\b|\balgorithm\b/i.test(document.body.textContent ?? ""), false);
   men();
 
@@ -76,19 +79,32 @@ test("a room shows a plain men or women label, and the member can state a gender
 
   /** @type {string[]} */
   const stated = [];
+  let dismissed = 0;
   const prompt = render(
     createElement(GenderPrompt, {
       onSet(gender) {
         stated.push(gender);
       },
+      onDismiss() {
+        dismissed += 1;
+      },
     }),
   );
-  assert.match(document.body.textContent ?? "", /Say whether you are a man or a woman/);
-  const man = [...document.querySelectorAll("button")].find((button) => button.textContent === "I am a man");
+  const promptText = document.body.textContent ?? "";
+  assert.match(promptText, /To open men's and women's rooms/);
+  assert.match(promptText, /We ask only so you can enter them/);
+  assert.match(promptText, /an admin can change it for you/);
+  assert.match(document.body.innerHTML, /<fieldset[^>]*class="[^"]*plate/);
+  assert.match(document.body.innerHTML, /<legend[^>]*class="[^"]*illum/);
+  const man = [...document.querySelectorAll("button")].find((button) => button.textContent === "I'm a man");
+  const later = [...document.querySelectorAll("button")].find((button) => button.textContent === "Not now");
   if (!(man instanceof HTMLButtonElement)) throw new Error("The prompt has no way to say man.");
+  if (!(later instanceof HTMLButtonElement)) throw new Error("The prompt has no way to wait.");
   await act(async () => {
+    later.click();
     man.click();
   });
+  assert.equal(dismissed, 1);
   assert.deepEqual(stated, ["man"]);
   prompt();
 
@@ -102,15 +118,16 @@ test("a room shows a plain men or women label, and the member can state a gender
       },
     }),
   );
-  const select = document.querySelector("select");
-  if (!(select instanceof HTMLSelectElement)) throw new Error("The host has no audience choice.");
-  assert.deepEqual(
-    [...select.options].map((option) => option.textContent),
-    ["Everyone", "Men only", "Women only"],
+  assert.equal(document.querySelector("select"), null);
+  const womenRadio = [...document.querySelectorAll("input[type=radio]")].find(
+    (input) => input instanceof HTMLInputElement && input.value === "women",
   );
+  if (!(womenRadio instanceof HTMLInputElement)) throw new Error("The host has no audience choice.");
+  assert.match(document.body.textContent ?? "", /Only members who've said they're women can join/);
+  const row = womenRadio.closest("label");
+  assert.match(row?.className ?? "", /min-h-11/);
   await act(async () => {
-    select.value = "women";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    womenRadio.click();
   });
   const save = [...document.querySelectorAll("button")].find((button) => button.textContent === "Save");
   if (!(save instanceof HTMLButtonElement)) throw new Error("The host cannot save the audience.");
@@ -120,10 +137,39 @@ test("a room shows a plain men or women label, and the member can state a gender
   assert.deepEqual(saved, ["women"]);
   editor();
 
+  /** @type {string[]} */
+  const picked = [];
+  const choice = render(
+    createElement(AudienceChoice, {
+      legend: "Who can be in this room",
+      name: "create-room-audience",
+      value: "all",
+      onChange(audience) {
+        picked.push(audience);
+      },
+    }),
+  );
+  const menOption = [...document.querySelectorAll("input[type=radio]")].find(
+    (input) => input instanceof HTMLInputElement && input.value === "men",
+  );
+  if (!(menOption instanceof HTMLInputElement)) throw new Error("Creating a room has no audience choice.");
+  await act(async () => {
+    menOption.click();
+  });
+  assert.deepEqual(picked, ["men"]);
+  choice();
+
   const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const form = readFileSync(new URL("../../components/board/audience.tsx", import.meta.url), "utf8");
   assert.match(room, /RoomAudienceMark/);
   assert.match(room, /RoomAudienceEditor/);
-  assert.match(app, /GenderGate/);
+  assert.match(room, /RoomHoldPlate/);
+  assert.equal(app.includes("GenderGate"), false);
+  assert.match(form, /Set as man/);
+  assert.match(form, /Set as woman/);
+  assert.match(form, /Saved for \$\{email\}\./);
+  assert.match(form, /That room is not here/);
   assert.equal(/\blikes?\b|\bscore\b|\balgorithm\b/i.test(room), false);
+  assert.equal(/\btext-danger\b/.test(room.match(/held[\s\S]{0,800}/)?.[0] ?? ""), false);
 });
