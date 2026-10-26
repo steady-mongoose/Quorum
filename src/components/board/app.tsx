@@ -4,6 +4,7 @@ import {
   CalendarDays,
   LayoutList,
   MessageSquare,
+  Users,
   Phone,
   Search,
   User,
@@ -18,6 +19,7 @@ import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { DM_SIGNOUT_HISTORY_WARNING } from "@/lib/e2ee/copy";
 import { browserVaultStore } from "@/lib/e2ee/browser";
 import { signOutClearsReadHistory } from "@/lib/e2ee/read-history";
+import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
@@ -27,7 +29,7 @@ import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
-import { Emblem } from "@/components/board/emblem";
+import { DesktopMore } from "@/components/board/desktop-more";
 import { PrimaryHaptic } from "@/components/board/haptics";
 import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
@@ -39,6 +41,7 @@ import { useEngravedDocument } from "@/components/board/engraved-ground";
 const ICONS = {
   week: CalendarDays,
   rooms: LayoutList,
+  groups: Users,
   find: Search,
   civic: Phone,
   messages: MessageSquare,
@@ -165,6 +168,7 @@ function BoardShell() {
       {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
+      {entered && shown === "groups" && <GroupsView />}
       {entered && shown === "find" && <FindView />}
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}
@@ -185,22 +189,41 @@ function BoardShell() {
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-          <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
+        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,2.5rem)] py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+          <div className="flex shrink-0 items-center gap-3">
+            <img
+              src="/flags/appeal-to-heaven-gold.svg"
+              alt="An Appeal to Heaven flag"
+              width={259}
+              height={381}
+              className="h-[var(--flag-h)] w-auto shrink-0"
+            />
             <div>
-              <p className="font-display text-3xl leading-none text-fg lg:text-4xl">{APP_NAME}</p>
-              <p className="mt-2 text-sm text-muted lg:whitespace-nowrap">{TAGLINE}</p>
+              <p className="font-display text-3xl leading-none whitespace-nowrap text-fg lg:text-4xl">{APP_NAME}</p>
+              <p className="mt-1 text-sm leading-none text-muted max-xl:hidden xl:whitespace-nowrap">
+                {TAGLINE}
+              </p>
             </div>
-            <Emblem theme={theme.id} size="header" />
           </div>
           {entered ? (
-            <div className="topnav">
+            <div className="topnav shrink-0">
               <IconNav
+                className="flex-nowrap gap-1"
+                itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                iconClassName="max-[1099px]:hidden"
                 items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
                 current={shown}
                 onSelect={openSection}
                 label="Sections"
-              />
+              >
+                <DesktopMore
+                  current={shown}
+                  deskOn={deskOn}
+                  onSelect={openSection}
+                  itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                  iconClassName="max-[1099px]:hidden"
+                />
+              </IconNav>
             </div>
           ) : null}
           {server.user ? (

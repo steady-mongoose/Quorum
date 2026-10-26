@@ -32,7 +32,7 @@ export type RoomId =
   | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
-export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
+export type Section = "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
 export type HardRule = HardRuleValue;
 
