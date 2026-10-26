@@ -82,6 +82,8 @@ const appTests = [
   "src/lib/board/access-rules.test.ts",
   "src/lib/board/room-requests.test.ts",
   "src/lib/board/council.test.ts",
+  "server/board/account.test.ts",
+  "src/lib/board/delete-post.render.test.mjs",
   "server/board/ban-check.test.ts",
   "server/board/order.test.ts",
   "server/board/store.test.ts",

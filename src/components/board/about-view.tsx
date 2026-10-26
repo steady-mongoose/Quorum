@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
@@ -219,6 +220,8 @@ export function AboutView() {
           accessLog={home?.accessLog ?? []}
         />
       ) : null}
+
+      {remote && admin ? <DeletionRequestQueue /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
 

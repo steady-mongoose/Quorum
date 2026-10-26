@@ -23,6 +23,14 @@ import { confirmMemberGender, setMemberGender, setRoomAudience } from "./audienc
 import { actorRole } from "./access.ts";
 import { mayNameAnotherGender } from "../gender-policy.ts";
 import {
+  deactivateAccount,
+  deleteOwnPost,
+  listDeletionRequests,
+  reactivateAccount,
+  readAccount,
+  requestAccountDeletion,
+} from "./account.ts";
+import {
   banMember,
   closeAsked,
   createRoom,
@@ -147,7 +155,7 @@ export async function handleBoard(
   url: URL,
 ): Promise<Response | null> {
   const postAction =
-    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|appeal|council)$/.exec(
+    /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|appeal|council|delete)$/.exec(
       url.pathname,
     );
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
@@ -175,6 +183,11 @@ export async function handleBoard(
     (url.pathname === "/api/zips" && request.method === "POST") ||
     (url.pathname === "/api/access" && request.method === "POST") ||
     (url.pathname === "/api/bans" && request.method === "POST") ||
+    (url.pathname === "/api/account" && request.method === "GET") ||
+    (url.pathname === "/api/account/deletion-requests" && request.method === "GET") ||
+    (url.pathname === "/api/account/deactivate" && request.method === "POST") ||
+    (url.pathname === "/api/account/reactivate" && request.method === "POST") ||
+    (url.pathname === "/api/account/deletion-request" && request.method === "POST") ||
     Boolean(roomJoin && (request.method === "POST" || request.method === "DELETE")) ||
     Boolean(decide && request.method === "POST") ||
     Boolean(postAction && request.method === "POST") ||
@@ -235,6 +248,16 @@ export async function handleBoard(
       );
     }
 
+    if (url.pathname === "/api/account" && request.method === "GET") {
+      return fromResult(200, await readAccount(deps.db, session.id));
+    }
+
+    if (url.pathname === "/api/account/deletion-requests" && request.method === "GET") {
+      const listed = await listDeletionRequests(deps.db, session.id);
+      if (!listed.ok) return json(listed.status, { error: listed.error });
+      return json(200, { requests: listed.value });
+    }
+
     if (url.pathname === "/api/home") {
       const ban = await openBan(deps.db, session.id, now);
       if (ban) return json(403, { error: "banned", ban });
@@ -254,6 +277,30 @@ export async function handleBoard(
     }
 
     const body = await readJson(request);
+
+    if (url.pathname === "/api/account/deactivate" && request.method === "POST") {
+      return fromResult(
+        200,
+        await deactivateAccount(deps.db, { userId: session.id, name: session.name, now }),
+      );
+    }
+    if (url.pathname === "/api/account/reactivate" && request.method === "POST") {
+      return fromResult(
+        200,
+        await reactivateAccount(deps.db, { userId: session.id, name: session.name, now }),
+      );
+    }
+    if (url.pathname === "/api/account/deletion-request" && request.method === "POST") {
+      return fromResult(
+        200,
+        await requestAccountDeletion(deps.db, {
+          userId: session.id,
+          name: session.name,
+          note: stringField(body, "note"),
+          now,
+        }),
+      );
+    }
 
     if (
       (url.pathname === "/api/gatherings" || gatheringOne) &&
@@ -515,6 +562,12 @@ export async function handleBoard(
           reason: stringField(body, "reason"),
           now,
         }),
+      );
+    }
+    if (action === "delete") {
+      return fromResult(
+        200,
+        await deleteOwnPost(deps.db, { userId: session.id, postId, now }),
       );
     }
     if (action === "appeal") {

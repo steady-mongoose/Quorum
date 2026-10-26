@@ -479,7 +479,12 @@ export async function listHome(
                   p.removed, p.parent_id, p.created_at
            from board_post p
            join room r on r.id = p.room_id
-           where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})`,
+           where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})
+             and p.author_deleted_at is null
+             and not exists (
+               select 1 from "user" u
+               where u.id = p.author_user_id and u.deactivated_at is not null
+             )`,
           liveIds,
         );
   const lifted = orderCouncilPosts(
