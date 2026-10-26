@@ -6,8 +6,9 @@ import { createPool, pgDb } from "./db.ts";
 import { clearOwnerPasswordFile } from "./env-file.ts";
 
 /**
- * Seats Josh once. Refuses to run a second time.
+ * Seats Josh once. A second run prints that he is already seated and exits 0.
  * Requires BOOTSTRAP_OWNER=Josh (or 1 or true), plus email and password.
+ * If a leftover password cannot be cleared from the env file, exits 2.
  */
 export async function seedOwner(): Promise<number> {
   const config = readHostConfig();
@@ -36,11 +37,14 @@ export async function seedOwner(): Promise<number> {
       if (cleared === "cleared") {
         console.log(`Removed BOOTSTRAP_OWNER_PASSWORD from ${envFile}.`);
       } else if (cleared === "failed") {
-        console.log("Remove BOOTSTRAP_OWNER_PASSWORD from deploy/.env, then restart the API.");
+        console.error("Could not remove BOOTSTRAP_OWNER_PASSWORD from the env file.");
+        if (!result.ok) console.error(result.error);
+        return 2;
       }
     }
     if (!result.ok) {
       console.error(result.error);
+      if (result.error.includes("already seated")) return 0;
       return 1;
     }
     console.log("Seated Josh once as founding admin and council chair.");

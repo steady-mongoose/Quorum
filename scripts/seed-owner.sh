@@ -8,14 +8,20 @@
 # that file.
 #
 # If a password was already left in the file, the seed clears that one line
-# (the API mounts deploy/.env) and this script recreates the API so the
-# process does not keep it. A clean run, and a clean re-run, leave the file
-# and the API alone.
+# (the API mounts deploy/.env). This script recreates the API only after that
+# line is gone. If the password is still there, it does not recreate the API
+# and exits non-zero. A clean run leaves the file and the API alone. A second
+# run that finds Josh already seated exits 0.
 #
 # COMPOSE_FILE may name several compose files, separated by
 # COMPOSE_PATH_SEPARATOR (a colon, unless that variable is set).
 # COMPOSE_PROFILES is passed through as `--profile`.
 set -eu
+# pipefail is not POSIX. dash aborts if it is turned on in this process, so
+# the probe runs in a subshell. Shells that support it (bash) turn it on.
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT/deploy/.env}"
@@ -33,7 +39,14 @@ on_interrupt() {
 }
 # The prompt runs in this shell, not a $(...) subshell, so this trap can
 # turn echo back on if the operator hits Ctrl-C while the password is hidden.
-trap restore_echo EXIT
+seed_log=
+cleanup() {
+  restore_echo
+  if [ -n "$seed_log" ]; then
+    rm -f "$seed_log"
+  fi
+}
+trap cleanup EXIT
 trap on_interrupt INT TERM
 
 # Sets one BOOTSTRAP_* variable. Called directly so stty and the trap stay
@@ -160,19 +173,36 @@ fi
 
 # `-e NAME` with no value takes the caller's environment. The password is
 # not placed on the command line, and deploy/.env is not the source.
-# A second run exits 1 once Josh is seated. That is still a clean re-run
-# when no password is left: do not recreate the API on the way out.
+seed_log=$(mktemp)
 set +e
 run_compose exec -T \
   -e BOOTSTRAP_OWNER \
   -e BOOTSTRAP_OWNER_EMAIL \
   -e BOOTSTRAP_OWNER_PASSWORD \
-  api npm run seed:owner
+  api npm run seed:owner >"$seed_log" 2>&1
 seed_status=$?
 set -e
+cat "$seed_log"
+
+already=0
+if grep -q "already seated" "$seed_log"; then
+  already=1
+fi
+
+# Recreate only when the leftover password is actually gone. Recreating while
+# it is still in the mounted file would load it back into the API process.
+if [ "$leftover" -eq 1 ] && password_left; then
+  echo "Could not clear the leftover BOOTSTRAP_OWNER_PASSWORD in $ENV_FILE. The API was not recreated." >&2
+  exit 1
+fi
 
 if [ "$leftover" -eq 1 ]; then
   run_compose up -d --force-recreate --no-deps api
+fi
+
+if [ "$already" -eq 1 ]; then
+  echo "Josh is already seated."
+  exit 0
 fi
 
 if [ "$seed_status" -ne 0 ]; then
