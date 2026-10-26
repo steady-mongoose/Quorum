@@ -87,6 +87,9 @@ const appTests = [
   "server/board/public-gathering.test.ts",
   "server/board/groups.test.ts",
   "server/board/groups-http.test.ts",
+  "server/stats/rollup.test.ts",
+  "server/stats/http.test.ts",
+  "src/components/board/stats-view.test.mjs",
   "server/chat/store.test.ts",
   "server/chat/http.test.ts",
 ];

@@ -1,4 +1,5 @@
 import { allowLocalOrigins, parseOrigins } from "./origins.ts";
+import { activityRetentionDays } from "./stats/config.ts";
 
 export type HostConfig = {
   databaseUrl: string;
@@ -11,6 +12,8 @@ export type HostConfig = {
   bootstrapPassword: string;
   trustedProxies: string[];
   production: boolean;
+  /** Days of per-member activity kept before the nightly stats prune. */
+  activityRetentionDays: number;
 };
 
 function required(name: string): string {
@@ -42,5 +45,6 @@ export function readHostConfig(): HostConfig {
       .map((item) => item.trim())
       .filter(Boolean),
     production,
+    activityRetentionDays: activityRetentionDays(process.env.ACTIVITY_RETENTION_DAYS),
   };
 }

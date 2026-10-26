@@ -204,6 +204,14 @@ export function AboutView() {
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
 
       {remote && admin ? (
+        <p>
+          <a className={btnGhost} href="/admin/stats">
+            Stats
+          </a>
+        </p>
+      ) : null}
+
+      {remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}

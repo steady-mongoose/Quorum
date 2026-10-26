@@ -7,6 +7,8 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { noteAuthenticatedRequest } from "./stats/activity.ts";
+import { handleStats } from "./stats/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
@@ -133,6 +135,21 @@ function clientIp(request: Request): string {
   return rateLimitIp(value || "local");
 }
 
+async function touchActivity(deps: AppDeps, request: Request, url: URL): Promise<void> {
+  try {
+    const session = await deps.readSession(request.headers);
+    if (!session) return;
+    await noteAuthenticatedRequest(deps.db, session.id, deps.now(), url.pathname);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "stats-activity-failed",
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+  }
+}
+
 function tooMany(retryAfter: number): Response {
   return json(
     429,
@@ -206,6 +223,8 @@ async function route(
       return json(503, { ok: false, error: "db-unavailable" });
     }
   }
+
+  await touchActivity(deps, request, url);
 
   if (isOpenSignupPath(url.pathname)) {
     return json(403, {
@@ -405,6 +424,9 @@ async function route(
 
   const gathering = await handlePublicGathering(deps, request, url);
   if (gathering) return gathering;
+
+  const stats = await handleStats(deps, request, url);
+  if (stats) return stats;
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
   return json(404, { error: "Not found." });
