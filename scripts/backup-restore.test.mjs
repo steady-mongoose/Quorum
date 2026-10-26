@@ -12,11 +12,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
+import { ageInstalled } from "./age-bin.mjs";
 import { offsitePlan } from "./backup-offsite.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
 const DUMP = "closed-test dump bytes\n";
+const skipWithoutAge = ageInstalled() ? false : "age-keygen is not installed";
 
 function writeCommands(root) {
   const bin = join(root, "bin");
@@ -58,7 +60,7 @@ async function publicKey(identityPath) {
   return match[1];
 }
 
-test("an age dump restores to the same bytes and stays local until credentials exist", async () => {
+test("an age dump restores to the same bytes and stays local until credentials exist", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-backup-"));
   const bin = writeCommands(root);
   const local = join(root, "local");
@@ -128,7 +130,7 @@ test("an age dump restores to the same bytes and stays local until credentials e
   );
 });
 
-test("credentials upload the ciphertext with object lock and without printing the secret", async () => {
+test("credentials upload the ciphertext with object lock and without printing the secret", { skip: skipWithoutAge }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-backup-"));
   const bin = writeCommands(root);
   const identity = join(root, "identity.txt");
