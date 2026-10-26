@@ -44,6 +44,12 @@ export function Door() {
   const live = server.mode === "live";
   const apiDown = server.configured && server.mode === "demo";
   const [checking, setChecking] = useState(false);
+  const demoNote = apiDown ? null : (
+    <p className="door-demo text-sm text-muted">
+      The server did not answer. This browser is in demo mode. Nothing you type here is saved on
+      the server.
+    </p>
+  );
 
   useEffect(() => {
     const fromUrl = codeFromSearch(window.location.search);
@@ -70,8 +76,12 @@ export function Door() {
             </button>
           </section>
         ) : null}
-        {live ? <AccountDoor /> : null}
-        {live ? null : (
+        {live ? (
+          <>
+            {demoNote}
+            <AccountDoor />
+          </>
+        ) : (
           <form
             id="open-the-door"
             className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-6"
@@ -86,6 +96,7 @@ export function Door() {
               else setOutcome(`You're on the list for ${result.name}, ${formatDate(result.next)}.`);
             }}
           >
+            {demoNote}
             <h2 className="text-2xl text-fg">Open the door</h2>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Your name, as people know you

@@ -96,9 +96,12 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.match(door, /Membership is\s+by invitation only/);
   assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
   assert.match(door, /Invite codes can't be checked right now\. Try again in a moment\./);
-  assert.match(door, /apiDown \?/);
-  assert.equal(door.includes("door-demo"), false);
-  assert.equal(door.includes("This browser is in demo mode"), false);
+  assert.match(door, /const demoNote = apiDown \? null : \(/);
+  assert.match(door, /className="door-demo text-sm text-muted"/);
+  assert.match(
+    door,
+    /The server did not answer\. This browser is in demo mode\. Nothing you type here is saved on\s+the server\./,
+  );
   assert.match(door, /\{live \?/);
   assert.match(session, /const recheck = async \(\) => \{[\s\S]*probeApiMode\(/);
   assert.match(gates, /SIGN_IN_PATH = "\/#sign-in"/);
@@ -114,9 +117,13 @@ test("the door column starts with the invite line", () => {
   assert.equal(door.includes("lg:items-center"), false);
   assert.equal(door.includes("lg:min-h-[70vh]"), false);
   const formAt = door.indexOf('id="open-the-door"');
+  const noteAt = door.indexOf("{demoNote}", formAt);
   const headingAt = door.indexOf(">Open the door</h2>");
-  assert.ok(formAt > 0 && headingAt > formAt);
-  assert.equal(door.includes("door-demo"), false);
+  const liveAt = door.indexOf("{live ? (");
+  const liveNote = door.indexOf("{demoNote}", liveAt);
+  const accountAt = door.indexOf("<AccountDoor />");
+  assert.ok(formAt > 0 && noteAt > formAt && headingAt > noteAt);
+  assert.ok(liveAt > 0 && liveNote > liveAt && accountAt > liveNote);
   assert.match(door, /id="open-the-door"/);
   assert.match(door, /className="door-hero/);
   assert.match(door, /lg:order-last/);
