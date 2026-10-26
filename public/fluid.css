@@ -160,3 +160,5 @@ dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
 @media (prefers-reduced-data:reduce){
   .hero-band,.outer-art,.side-art{background-image:none}
 }
+/* A second plate must not reuse the hero pull-up. */
+.plate.plate-flat{display:block;margin-top:0}

@@ -23,6 +23,7 @@ import {
   type Listing,
 } from "../../src/lib/board/listings.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
+import { readPublicPage, type PageLookup, type PageRequest } from "./public-fetch.ts";
 import { canSeeHiddenRooms, listingColumnsReady } from "./room-visibility.ts";
 
 type Fail = { ok: false; status: number; error: string };
@@ -33,7 +34,6 @@ function fail(status: number, error: string): Fail {
 }
 
 const HOST_NOTE = "Host, claimed this listing.";
-const PAGE_CAP = 65_536;
 const BARRED = "This account cannot claim a listing right now.";
 const NOT_THIS_ROOM = "Only a steward of this listing can decide a claim.";
 const OWN_CLAIM = "A steward does not decide their own claim.";
@@ -361,6 +361,8 @@ export type ClaimDeps = MailDeps & {
     idempotencyKey: string;
   }) => Promise<{ ok: true } | { ok: false; error: string }>;
   fetchPage?: (url: string) => Promise<{ ok: true; body: string } | { ok: false; error: string }>;
+  lookup?: PageLookup;
+  request?: PageRequest;
 };
 
 function claimMail(name: string, code: string): { subject: string; text: string } {
@@ -480,22 +482,51 @@ export async function confirmClaimCode(
 ): Promise<Ok<{ claim: ClaimView }> | Fail> {
   if (!(await listingColumnsReady(db))) return fail(503, "Claims are not available yet.");
   await expireDue(db, input.now);
-  const row = await loadClaim(db, input.claimId);
-  if (!row || row.claimant !== input.userId) return fail(404, "That claim is not here.");
-  if (row.state !== "pending") return fail(400, "That claim is already decided.");
-  if (row.method !== "domain_email") return fail(400, "This claim does not use an email code.");
-  const bar = await barredFrom(db, input.userId, input.now, row.room_id);
-  if (bar) return bar;
-  const evidence = parseEvidence(row.evidence);
-  const expires = evidence.codeExpiresAt ? new Date(evidence.codeExpiresAt).getTime() : 0;
-  if (!evidence.codeHash || !expires || expires <= input.now.getTime()) {
-    return fail(400, "That code has expired.");
-  }
-  if (hashCode(input.code) !== evidence.codeHash) {
-    const attempts = (evidence.attempts ?? 0) + 1;
+  const outcome = await db.transaction(async (tx) => {
+    const locked = await tx.query<ClaimRow>(
+      `select id, room_id, claimant, claimant_name, method, evidence, state, reviewer,
+              created_at, updated_at, decided_at, expires_at
+       from claim_request
+       where id = $1
+       for update`,
+      [input.claimId],
+    );
+    const row = locked[0];
+    if (!row || row.claimant !== input.userId) return fail(404, "That claim is not here.");
+    if (row.state !== "pending") return fail(400, "That claim is already decided.");
+    if (row.method !== "domain_email") return fail(400, "This claim does not use an email code.");
+    const bar = await barredFrom(tx, input.userId, input.now, row.room_id);
+    if (bar) return bar;
+    const evidence = parseEvidence(row.evidence);
+    const expires = evidence.codeExpiresAt ? new Date(evidence.codeExpiresAt).getTime() : 0;
+    if (!evidence.codeHash || !expires || expires <= input.now.getTime()) {
+      return fail(400, "That code has expired.");
+    }
+    const prior = Number.isInteger(evidence.attempts) ? (evidence.attempts ?? 0) : 0;
+    if (prior >= CLAIM_CODE_ATTEMPTS) {
+      await tx.query(
+        `update claim_request
+         set state = 'expired', updated_at = $2, decided_at = $2
+         where id = $1 and state = 'pending'`,
+        [row.id, input.now],
+      );
+      return fail(400, "That code was tried too many times. The claim has expired.");
+    }
+    if (hashCode(input.code) === evidence.codeHash) {
+      evidence.verifiedAt = input.now.toISOString();
+      const saved = await tx.query<{ id: string }>(
+        `update claim_request set evidence = $2, updated_at = $3
+         where id = $1 and state = 'pending'
+         returning id`,
+        [row.id, JSON.stringify(evidence), input.now],
+      );
+      if (!saved[0]) return fail(400, "That claim is already decided.");
+      return { ok: true as const, id: row.id };
+    }
+    const attempts = prior + 1;
     evidence.attempts = attempts;
     if (attempts >= CLAIM_CODE_ATTEMPTS) {
-      await db.query(
+      await tx.query(
         `update claim_request
          set state = 'expired', evidence = $2, updated_at = $3, decided_at = $3
          where id = $1 and state = 'pending'`,
@@ -504,56 +535,17 @@ export async function confirmClaimCode(
       console.log(JSON.stringify({ event: "claim-expired", claimId: row.id, roomId: row.room_id }));
       return fail(400, "That code was tried too many times. The claim has expired.");
     }
-    await db.query(
+    await tx.query(
       `update claim_request set evidence = $2, updated_at = $3 where id = $1 and state = 'pending'`,
       [row.id, JSON.stringify(evidence), input.now],
     );
     return fail(400, "That code does not match.");
-  }
-  evidence.verifiedAt = input.now.toISOString();
-  await db.query(
-    `update claim_request set evidence = $2, updated_at = $3 where id = $1 and state = 'pending'`,
-    [row.id, JSON.stringify(evidence), input.now],
-  );
-  const saved = await loadClaim(db, row.id);
+  });
+  if (!outcome.ok) return outcome;
+  const saved = await loadClaim(db, outcome.id);
   const view = saved ? toView(saved, true, input.userId) : null;
   if (!view) return fail(500, "The claim was not saved.");
   return { ok: true, value: { claim: view } };
-}
-
-async function readPublicPage(
-  url: string,
-  fetchImpl: typeof fetch,
-): Promise<{ ok: true; body: string } | { ok: false; error: string }> {
-  try {
-    const response = await fetchImpl(url, {
-      method: "GET",
-      redirect: "manual",
-      signal: AbortSignal.timeout(4_000),
-      headers: { accept: "text/html, text/plain" },
-    });
-    if (response.status >= 300 && response.status < 400) {
-      return { ok: false, error: "The page did not show the code." };
-    }
-    if (!response.ok || !response.body)
-      return { ok: false, error: "The page did not show the code." };
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let received = 0;
-    while (received <= PAGE_CAP) {
-      const step = await reader.read();
-      if (step.done) break;
-      received += step.value.byteLength;
-      if (received > PAGE_CAP) {
-        await reader.cancel();
-        return { ok: false, error: "The page did not show the code." };
-      }
-      chunks.push(step.value);
-    }
-    return { ok: true, body: new TextDecoder().decode(Buffer.concat(chunks)) };
-  } catch {
-    return { ok: false, error: "The page did not show the code." };
-  }
 }
 
 export async function checkSiteCode(
@@ -581,7 +573,9 @@ export async function checkSiteCode(
   const evidence = parseEvidence(row.evidence);
   if (!evidence.token) return fail(400, "This claim does not use a site code.");
   if (sharedClaimHost(hostOf(row.source_url))) return fail(400, SHARED_HOST);
-  const read = deps.fetchPage ?? ((url: string) => readPublicPage(url, deps.fetch ?? fetch));
+  const read =
+    deps.fetchPage ??
+    ((url: string) => readPublicPage(url, { lookup: deps.lookup, request: deps.request }));
   const page = await read(row.source_url);
   if (!page.ok || !page.body.includes(evidence.token)) {
     return fail(400, "The page did not show the code.");

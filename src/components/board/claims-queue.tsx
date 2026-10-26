@@ -194,7 +194,7 @@ export function ClaimsPanel() {
   return (
     <div className="flex flex-col gap-6">
       {canDecide ? (
-        <section className="plate flex flex-col gap-4" aria-labelledby="queue-h">
+        <section className="plate plate-flat flex flex-col gap-4" aria-labelledby="queue-h">
           <div className="flex flex-col gap-2">
             <Kicker>Claims</Kicker>
             <h3
@@ -375,7 +375,7 @@ export function ClaimsPanel() {
         </section>
       ) : null}
 
-      <section className="plate flex flex-col gap-4">
+      <section className="plate plate-flat flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Kicker>Claim</Kicker>
           <h3 className="illum font-display text-3xl text-fg">Step 1 of 2: which listing?</h3>
@@ -504,7 +504,7 @@ export function ClaimsPanel() {
               />
             </label>
           ) : null}
-          <button type="submit" className={cn(btnSignal, "w-full sm:w-auto")}>
+          <button type="submit" className={cn(btnSignal, "w-full justify-self-start sm:w-auto")}>
             Request the claim
           </button>
         </form>

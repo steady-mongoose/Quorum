@@ -39,7 +39,8 @@ test("claim copy names the code, the email, and the member steps", () => {
   assert.match(queue, /\n\s+Copy\n/);
   assert.match(queue, /Hosting a church or group that's already listed\?/);
   assert.match(queue, /role="alert"/);
-  assert.match(queue, /className="plate/);
+  assert.match(queue, /className="plate plate-flat/);
+  assert.match(queue, /justify-self-start/);
   assert.match(queue, /Claims to review/);
   assert.match(queue, /Nothing to review\. New claims will show up here\./);
   assert.match(queue, /Now hosted/);

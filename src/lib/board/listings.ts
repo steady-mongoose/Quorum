@@ -1,7 +1,9 @@
 // A seeded listing is only the fields that were imported.
 // No description, no meeting time, and no town row is added here.
 
+import { isIP } from "node:net";
 import { ROOM_ID } from "../media/limits.ts";
+import { blockedAddress, normalizedHost, pagePort, rebindingHost } from "./public-page.ts";
 import { isEnglish } from "./text.ts";
 
 export type ListingStatus = "draft" | "unclaimed";
@@ -31,19 +33,9 @@ function textField(
 }
 
 export function blockedHost(host: string): boolean {
-  const name = host.trim().toLowerCase().replace(/\.$/, "");
-  if (!name) return true;
-  if (name === "localhost" || name.endsWith(".localhost") || name.endsWith(".local")) return true;
-  if (name === "0.0.0.0" || name === "::1" || name === "[::1]") return true;
-  const parts = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
-  if (!parts) return false;
-  const a = Number(parts[1]);
-  const b = Number(parts[2]);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
+  const name = normalizedHost(host);
+  if (!name || rebindingHost(name)) return true;
+  if (isIP(name)) return blockedAddress(name);
   return false;
 }
 
@@ -67,7 +59,7 @@ export function acceptSourceUrl(
   if (parsed.username || parsed.password) {
     return { ok: false, error: "The source page is not a web address." };
   }
-  if (blockedHost(parsed.hostname)) {
+  if (blockedHost(parsed.hostname) || pagePort(parsed.protocol, parsed.port) === null) {
     return { ok: false, error: "The source page is not a public address." };
   }
   return { ok: true, url };
