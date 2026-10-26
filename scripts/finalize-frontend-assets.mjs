@@ -6,7 +6,8 @@
  * The client bundle lands in dist/frontend/client (Vite outDir + TanStack's
  * client environment). Wrangler uploads that directory only.
  */
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { externalizeInlineScripts, inlineScripts } from "./externalize-inline-scripts.mjs";
 import { join } from "node:path";
 
 const clientDir = join(process.cwd(), "dist/frontend/client");
@@ -51,6 +52,17 @@ async function main() {
     );
     process.exit(1);
   }
+
+  const shellPath = join(clientDir, "index.html");
+  const { html, files } = externalizeInlineScripts(await readFile(shellPath, "utf8"));
+  await mkdir(join(clientDir, "assets"), { recursive: true });
+  for (const file of files) await writeFile(join(clientDir, file.name), file.body);
+  if (inlineScripts(html).length > 0) {
+    console.error("[frontend] index.html still has inline scripts the CSP would block.");
+    process.exit(1);
+  }
+  await writeFile(shellPath, html);
+  console.log(`[frontend] moved ${files.length} inline script(s) to /assets`);
 
   await mkdir(join(clientDir, "__grok"), { recursive: true });
   await writeFile(
