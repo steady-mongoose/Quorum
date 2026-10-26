@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pgliteDialect } from "../../src/lib/auth/pglite-dialect.ts";
-import { createAccountFactory, createCredentialAccount, createSignIn, readSessionUser } from "../accounts.ts";
+import {
+  createAccountFactory,
+  createCredentialAccount,
+  createSignIn,
+  readSessionUser,
+} from "../accounts.ts";
 import { createClosedAuth } from "../auth.ts";
 import { seatFoundingAdmin } from "./store.ts";
 import { openTestDb } from "./test-db.ts";
@@ -66,6 +71,20 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
     assert.equal(signedIn.status, 200, await signedIn.clone().text());
     const joshCookie = cookieHeader(signedIn);
     assert.match(joshCookie, /session/i);
+
+    const onboarded = await app(
+      new Request(`${baseURL}/api/profile/onboard`, {
+        method: "POST",
+        headers: { origin, cookie: joshCookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Josh",
+          gender: "man",
+          birthdate: "1990-04-02",
+        }),
+      }),
+    );
+    assert.equal(onboarded.status, 200, await onboarded.clone().text());
+    assert.equal((await onboarded.clone().text()).includes("1990-04-02"), false);
 
     const minted = await app(
       new Request(`${baseURL}/api/invites`, {
