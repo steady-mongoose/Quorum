@@ -78,6 +78,14 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(about, /setPending\("grant-steward"\)/);
   assert.match(about, /setPending\("revoke"\)/);
   assert.match(about, /Revoke this role\?/);
+  assert.match(about, /cancelLabel="Not now"/);
+  assert.match(about, /tone="neutral"/);
+  assert.match(about, /of \$\{room\}/);
+  assert.match(about, /in \$\{room\}/);
+  assert.match(about, /room\?\.name/);
+  assert.match(about, /Member granted\./);
+  assert.match(about, /Role revoked\./);
+  assert.match(about, /role="status"/);
   assert.match(profile, /Name, as people know you/);
   assert.match(profile, /role="status"/);
   assert.match(profile, />\s*Saved\s*</);
