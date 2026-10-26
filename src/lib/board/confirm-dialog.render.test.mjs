@@ -75,3 +75,15 @@ test("an open confirm dialog stays fixed in the viewport", () => {
   act(() => root.unmount());
   host.remove();
 });
+
+test("a plate inside a plate does not pull up into the hero", () => {
+  const host = document.createElement("div");
+  host.innerHTML =
+    '<section class="plate" id="outer"><section class="plate" id="inner">Inside</section></section>';
+  document.body.append(host);
+  const outer = getComputedStyle(document.getElementById("outer"));
+  const inner = getComputedStyle(document.getElementById("inner"));
+  assert.equal(inner.marginTop === "0" || inner.marginTop === "0px", true);
+  assert.equal(outer.marginTop === "0" || outer.marginTop === "0px", false);
+  host.remove();
+});
