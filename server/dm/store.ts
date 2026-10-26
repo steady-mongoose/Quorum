@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, type Db } from "../db.ts";
+import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
@@ -430,34 +431,89 @@ export async function getBackup(
 }
 
 /**
- * Attendance the server can prove. A hosted post counts its author, and a
- * member whose account name is the only one with that name and is listed in
- * who came. A meeting id from the client is not attendance.
+ * A real meeting is the earliest hosted post for a non-empty card id, in a
+ * room that takes meeting cards, and that post is still up. The host counts.
+ * Anyone else counts only after they confirm, and only when their account
+ * name is the only one with that name and the host named them. A name on the
+ * write-up is not attendance. A post id is not a meeting.
  */
-const VERIFIED_ATTENDANCE = `
-  select distinct u.id as user_id,
-         coalesce(nullif(p.card_id, ''), p.id) as meeting_id
-  from board_post p
-  join "user" u
-    on u.id = p.author_user_id
-    or (
-      u.name <> ''
-      and u.name = any(p.came)
-      and (select count(*)::int from "user" named where named.name = u.name) = 1
-    )
-  where p.type = 'hosted'
-    and p.removed = false
-    and coalesce(nullif(p.card_id, ''), p.id) <> ''
+const REAL_MEETINGS = `
+  with first_host as (
+    select distinct on (p.card_id)
+      p.card_id as meeting_id,
+      p.author_user_id as host_id,
+      p.removed,
+      p.room_id
+    from board_post p
+    where p.type = 'hosted'
+      and p.card_id <> ''
+    order by p.card_id, p.created_at asc, p.id asc
+  ),
+  host_cards as (
+    select f.meeting_id, f.host_id
+    from first_host f
+    join room r on r.id = f.room_id
+    where f.removed = false
+      and f.host_id is not null
+      and 'meeting' = any (r.card_kinds)
+  ),
+  allowlist as (
+    select distinct h.meeting_id, h.host_id, n.name
+    from host_cards h
+    join board_post p
+      on p.card_id = h.meeting_id
+     and p.author_user_id = h.host_id
+     and p.type = 'hosted'
+     and p.removed = false
+    cross join lateral unnest(p.came) as n(name)
+    where n.name <> ''
+  )
 `;
 
-export async function recordAttendance(db: Db, userId: string, now: Date): Promise<Result<null>> {
+const VERIFIED_ATTENDANCE = `
+  ${REAL_MEETINGS}
+  select h.host_id as user_id, h.meeting_id
+  from host_cards h
+  union
+  select u.id as user_id, a.meeting_id
+  from allowlist a
+  join "user" u on u.name = a.name
+  join dm_attendance att on att.user_id = u.id and att.meeting_id = a.meeting_id
+  where u.id <> a.host_id
+    and (select count(*)::int from "user" named where named.name = u.name) = 1
+`;
+
+const CONFIRMABLE = `
+  ${REAL_MEETINGS}
+  select h.meeting_id
+  from host_cards h
+  where h.host_id = $1
+  union
+  select a.meeting_id
+  from allowlist a
+  join "user" u on u.id = $1 and u.name = a.name and u.name <> ''
+  where (select count(*)::int from "user" named where named.name = u.name) = 1
+`;
+
+const ATTENDANCE_CARD_CAP = 40;
+
+export async function recordAttendance(
+  db: Db,
+  userId: string,
+  now: Date,
+  cardIds: string[] = [],
+): Promise<Result<null>> {
+  const requested = [
+    ...new Set(cardIds.map((id) => id.trim()).filter((id) => OBJECT_ID.test(id))),
+  ].slice(0, ATTENDANCE_CARD_CAP);
   await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
+  if (requested.length === 0) return { ok: true, value: null };
   await db.query(
     `insert into dm_attendance (user_id, meeting_id, recorded_at)
-     select $1, meeting_id, $2
-     from (${VERIFIED_ATTENDANCE}) attended
-     where attended.user_id = $1`,
-    [userId, now],
+     select $1, allowed.meeting_id, $2
+     from (${CONFIRMABLE}) allowed
+     where allowed.meeting_id = any($3::text[])`,
+    [userId, now, requested],
   );
   return { ok: true, value: null };
 }
@@ -901,8 +957,8 @@ export async function listMessages(
   const messages = await db.query<{
     id: string;
     sender_user_id: string | null;
-    sender_device_id: string;
-    sender_identity_public: string;
+    sender_device_id: string | null;
+    sender_identity_public: string | null;
     body_nonce: string;
     body_ciphertext: string;
     body_sig: string;
@@ -916,12 +972,19 @@ export async function listMessages(
     [threadId, now],
   );
   if (messages.length === 0) return { ok: true, value: [] };
-  const deviceIds = [...new Set(messages.map((message) => message.sender_device_id))];
+  const deviceIds = [
+    ...new Set(
+      messages.flatMap((message) => (message.sender_device_id ? [message.sender_device_id] : [])),
+    ),
+  ];
   const messageIds = messages.map((message) => message.id);
-  const devices = await db.query<DeviceRow>(
-    `select * from dm_device where id in (${placeholders(deviceIds.length)})`,
-    deviceIds,
-  );
+  const devices =
+    deviceIds.length === 0
+      ? []
+      : await db.query<DeviceRow>(
+          `select * from dm_device where id in (${placeholders(deviceIds.length)})`,
+          deviceIds,
+        );
   const envelopes = await db.query<{
     message_id: string;
     recipient_device_id: string | null;
@@ -940,8 +1003,9 @@ export async function listMessages(
   const deviceById = new Map(devices.map((device) => [device.id, device]));
   const stored: StoredMessage[] = [];
   for (const message of messages) {
+    if (!message.sender_device_id || !message.sender_identity_public) continue;
     const sender = deviceById.get(message.sender_device_id);
-    if (!sender || !message.sender_identity_public) continue;
+    if (!sender) continue;
     stored.push({
       messageId: message.id,
       threadId,

@@ -28,6 +28,7 @@ import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_ENVELOPES,
   DM_PREKEY_BATCH,
+  SIGNED_PREKEY_HISTORY,
   SIGNED_PREKEY_ROTATE_AFTER_MS,
   WRAP_CIPHER_MAX_BYTES,
   dmTextError,
@@ -61,6 +62,12 @@ export type DeviceRecord = {
   signedPrekey: PrekeySecret;
   /** When this signed prekey was created. Missing means it is due for rotation. */
   signedPrekeyAt?: number;
+  /** Replaced signed prekeys, newest first. The last three still open a message. */
+  previousSignedPrekeys: PrekeySecret[];
+  /**
+   * Older vaults stored one previous key here. New rotations also copy the
+   * newest previous key, so a vault saved before the list still opens.
+   */
   previousSignedPrekey: PrekeySecret | null;
   prekeys: PrekeySecret[];
 };
@@ -337,6 +344,7 @@ export async function createDevice(input: {
       signature: "",
     },
     signedPrekeyAt: Date.now(),
+    previousSignedPrekeys: [],
     previousSignedPrekey: null,
     prekeys: [],
   };
@@ -346,7 +354,25 @@ export async function createDevice(input: {
   return device;
 }
 
-/** A signed prekey older than a week is replaced. The previous one still opens messages. */
+/** Keep the retiring signed prekey, then the newer previous keys, capped at the history. */
+export function retainSignedPrekeys(device: DeviceRecord, retiring: PrekeySecret): PrekeySecret[] {
+  const prior = [
+    retiring,
+    ...(device.previousSignedPrekeys ?? []),
+    ...(device.previousSignedPrekey ? [device.previousSignedPrekey] : []),
+  ];
+  const seen = new Set<string>();
+  const kept: PrekeySecret[] = [];
+  for (const item of prior) {
+    if (!item?.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    kept.push(item);
+    if (kept.length >= SIGNED_PREKEY_HISTORY) break;
+  }
+  return kept;
+}
+
+/** A signed prekey older than a week is replaced. The last three still open messages. */
 export async function rotateSignedPrekeyIfDue(
   device: DeviceRecord,
   now: number,
@@ -354,11 +380,13 @@ export async function rotateSignedPrekeyIfDue(
   const at = device.signedPrekeyAt ?? 0;
   if (now - at < SIGNED_PREKEY_ROTATE_AFTER_MS) return { device, rotated: false };
   const signedPrekey = await createSignedPrekey(device);
+  const previousSignedPrekeys = retainSignedPrekeys(device, device.signedPrekey);
   return {
     rotated: true,
     device: {
       ...device,
-      previousSignedPrekey: device.signedPrekey,
+      previousSignedPrekeys,
+      previousSignedPrekey: previousSignedPrekeys[0] ?? null,
       signedPrekey,
       signedPrekeyAt: now,
     },
@@ -963,12 +991,14 @@ function prekeyOnDevice(
     return { prekey, skip: false, reused: false };
   }
   if (envelope.signedPrekeyId) {
+    const earlier = [
+      ...(device.previousSignedPrekeys ?? []),
+      ...(device.previousSignedPrekey ? [device.previousSignedPrekey] : []),
+    ];
     const prekey =
       device.signedPrekey.id === envelope.signedPrekeyId
         ? device.signedPrekey
-        : device.previousSignedPrekey?.id === envelope.signedPrekeyId
-          ? device.previousSignedPrekey
-          : null;
+        : (earlier.find((item) => item.id === envelope.signedPrekeyId) ?? null);
     if (!prekey) return { prekey: null, skip: true, reused: false };
     return { prekey, skip: false, reused: false };
   }

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { Db } from "../db.ts";
+import { createPost } from "../board/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { DM_MAX_DEVICES } from "../../src/lib/e2ee/limits.ts";
 import {
@@ -101,7 +102,9 @@ async function meet(db: Db, userIds: string[]): Promise<void> {
     [randomUUID(), author.id, author.name, people.map((person) => person.name)],
   );
   for (const userId of userIds) {
-    const saved = await recordAttendance(db, userId, new Date("2026-10-19T12:00:00Z"));
+    const saved = await recordAttendance(db, userId, new Date("2026-10-19T12:00:00Z"), [
+      "s-framing",
+    ]);
     assert.equal(saved.ok, true);
   }
 }
@@ -370,6 +373,10 @@ test("a claimed meeting id is not attendance, and peers do not reveal who went",
       false,
     );
     assert.equal((await listPeers(db, dave)).some((peer) => peer.id === alice), false);
+    assert.equal((await listPeers(db, bob)).some((peer) => peer.id === dave), false);
+    assert.equal((await recordAttendance(db, dave, now, ["s-ham"])).ok, true);
+    assert.equal((await listPeers(db, bob)).some((peer) => peer.id === dave), true);
+    assert.equal((await listPeers(db, alice)).some((peer) => peer.id === dave), false);
 
     await member(db, "Bob");
     assert.equal((await listPeers(db, alice)).some((peer) => peer.name === "Bob"), false);
@@ -409,6 +416,9 @@ test("deleting a member keeps the other person's thread and shows Former member"
     assert.match(sql, /create or replace function anonymize_dm_user/);
     assert.match(sql, /create trigger anonymize_dm_user/);
     assert.match(sql, /Former member/);
+    assert.match(sql, /sender_identity_public = null/);
+    assert.match(sql, /sender_device_id = null/);
+    assert.match(sql, /delete from dm_prekey/);
     assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
 
     const now = new Date("2026-10-19T12:00:00Z");
@@ -437,18 +447,180 @@ test("deleting a member keeps the other person's thread and shows Former member"
     const threads = await listThreads(db, bob);
     assert.equal(threads.length, 1);
     assert.equal(threads[0]?.otherName, "Former member");
-    const kept = await db.query<{ body_ciphertext: string }>(
-      `select body_ciphertext from dm_message where thread_id = $1`,
+    const kept = await db.query<{
+      body_ciphertext: string;
+      sender_device_id: string | null;
+      sender_identity_public: string | null;
+      sender_user_id: string | null;
+    }>(
+      `select body_ciphertext, sender_device_id, sender_identity_public, sender_user_id
+       from dm_message where thread_id = $1`,
       [opened.value.id],
     );
     assert.equal(kept.length, 1);
     assert.equal(kept[0]?.body_ciphertext, sealed.value.bodyCiphertext);
+    assert.equal(kept[0]?.sender_device_id, null);
+    assert.equal(kept[0]?.sender_identity_public, null);
+    assert.equal(kept[0]?.sender_user_id, null);
+    const device = await db.query<{
+      user_id: string | null;
+      label: string;
+      sign_public: string;
+      box_public: string;
+      identity_sig: string;
+      signed_prekey_public: string;
+    }>(
+      `select user_id, label, sign_public, box_public, identity_sig, signed_prekey_public
+       from dm_device where id = $1`,
+      [aliceDevice.deviceId],
+    );
+    assert.equal(device[0]?.user_id, null);
+    assert.equal(device[0]?.label, "");
+    assert.equal(device[0]?.sign_public, "");
+    assert.equal(device[0]?.box_public, "");
+    assert.equal(device[0]?.identity_sig, "");
+    assert.equal(device[0]?.signed_prekey_public, "");
+    const prekeys = await db.query(`select id from dm_prekey where device_id = $1`, [
+      aliceDevice.deviceId,
+    ]);
+    assert.equal(prekeys.length, 0);
     const listed = await listMessages(db, bob, opened.value.id, now);
     assert.equal(listed.ok, true);
     if (!listed.ok) return;
-    assert.equal(listed.value[0]?.bodyCiphertext, sealed.value.bodyCiphertext);
+    assert.equal(listed.value.length, 0);
     const gone = await db.query(`select id from "user" where id = $1`, [alice]);
     assert.equal(gone.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("a reused card does not leak attendees, and a came list is not attendance", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const now = new Date("2026-10-19T12:00:00Z");
+    const victim = await member(db, "Victim");
+    const friend = await member(db, "Friend");
+    const mallory = await member(db, "Mallory");
+    const pat = await member(db, "Pat");
+    const ned = await member(db, "Ned");
+    const willa = await member(db, "Willa");
+    for (const [id, name] of [
+      [victim, "Victim"],
+      [friend, "Friend"],
+      [mallory, "Mallory"],
+      [pat, "Pat"],
+      [ned, "Ned"],
+      [willa, "Willa"],
+    ] as const) {
+      await db.query(
+        `insert into access_log
+         (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
+         values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+        [randomUUID(), id, name],
+      );
+    }
+    const hosted = {
+      type: "hosted",
+      claim: "The framing night went well and the next one is set.",
+      on: "2026-10-19",
+      attested: true,
+    };
+    const filed = await createPost(db, {
+      userId: victim,
+      name: "Victim",
+      roomId: "shop",
+      body: { ...hosted, came: ["Victim", "Friend"], cardId: "s-victim-night" },
+      now,
+    });
+    assert.equal(filed.ok, true);
+    const weekly = await createPost(db, {
+      userId: victim,
+      name: "Victim",
+      roomId: "shop",
+      body: { ...hosted, came: ["Victim", "Friend"], cardId: "s-victim-night" },
+      now: new Date(now.getTime() + 60_000),
+    });
+    assert.equal(weekly.ok, true);
+
+    const own = await createPost(db, {
+      userId: mallory,
+      name: "Mallory",
+      roomId: "shop",
+      body: { ...hosted, came: ["Victim"], cardId: "s-mallory-night" },
+      now,
+    });
+    assert.equal(own.ok, true);
+    assert.deepEqual(await listPeers(db, mallory), []);
+    assert.equal(
+      (await recordAttendance(db, mallory, now, ["s-mallory-night", "s-victim-night"])).ok,
+      true,
+    );
+    assert.equal(
+      (await listPeers(db, mallory)).some((peer) => peer.id === victim || peer.id === friend),
+      false,
+    );
+
+    const reused = await createPost(db, {
+      userId: mallory,
+      name: "Mallory",
+      roomId: "shop",
+      body: { ...hosted, came: ["Victim"], cardId: "s-victim-night" },
+      now,
+    });
+    assert.equal(reused.ok, false);
+    if (reused.ok) return;
+    assert.equal(reused.status, 409);
+
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, on_date, created_at
+       ) values ($1, 'shop', $2, 'Mallory', 'hosted', $3, $4, 's-victim-night', '2026-10-19', $5)`,
+      [
+        randomUUID(),
+        mallory,
+        hosted.claim,
+        ["Victim"],
+        new Date(now.getTime() + 120_000),
+      ],
+    );
+    assert.equal((await recordAttendance(db, victim, now, ["s-victim-night"])).ok, true);
+    assert.equal((await recordAttendance(db, friend, now, ["s-victim-night"])).ok, true);
+    assert.equal((await recordAttendance(db, mallory, now, ["s-victim-night"])).ok, true);
+    assert.equal((await recordAttendance(db, pat, now, ["s-victim-night", "s-mallory-night"])).ok, true);
+    const victimPeers = (await listPeers(db, victim)).map((peer) => peer.id);
+    assert.equal(victimPeers.includes(friend), true);
+    assert.equal(victimPeers.includes(mallory), false);
+    assert.equal(victimPeers.includes(pat), false);
+    const malloryPeers = (await listPeers(db, mallory)).map((peer) => peer.id);
+    assert.equal(malloryPeers.includes(victim), false);
+    assert.equal(malloryPeers.includes(friend), false);
+    assert.equal((await openThread(db, mallory, victim, now)).ok, false);
+    assert.equal((await listPeers(db, friend)).some((peer) => peer.id === mallory), false);
+    assert.deepEqual(await listPeers(db, pat), []);
+
+    assert.equal((await recordAttendance(db, victim, now, ["s-victim-night", "s-mallory-night"])).ok, true);
+    assert.equal((await listPeers(db, mallory)).some((peer) => peer.id === victim), true);
+    assert.equal((await listPeers(db, mallory)).some((peer) => peer.id === friend), false);
+    assert.equal((await listPeers(db, friend)).some((peer) => peer.id === mallory), false);
+
+    const bareId = randomUUID();
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Ned', 'hosted', $3, $4, '', $5)`,
+      [bareId, ned, hosted.claim, ["Willa"], now],
+    );
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'dispatch', $2, 'Ned', 'hosted', $3, $4, 's-road', $5)`,
+      [randomUUID(), ned, hosted.claim, ["Willa"], now],
+    );
+    assert.equal((await recordAttendance(db, ned, now, [bareId, "s-road"])).ok, true);
+    assert.equal((await recordAttendance(db, willa, now, [bareId, "s-road"])).ok, true);
+    assert.deepEqual(await listPeers(db, ned), []);
+    assert.deepEqual(await listPeers(db, willa), []);
   } finally {
     await close();
   }

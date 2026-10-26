@@ -132,7 +132,10 @@ export function EncryptedMailbox() {
     }
     let cancelled = false;
     void (async () => {
-      const recorded = await recordAttendance(transport);
+      const cardIds = cards
+        .filter((card) => card.kind === "meeting" && card.wentBy.includes(gateName))
+        .map((card) => card.id);
+      const recorded = await recordAttendance(transport, cardIds);
       if (cancelled) return;
       if (!recorded.ok) {
         setNotice(recorded.message);

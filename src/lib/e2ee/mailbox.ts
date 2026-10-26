@@ -9,6 +9,7 @@ import {
   createDevice,
   createPrekeys,
   createSignedPrekey,
+  retainSignedPrekeys,
   rotateSignedPrekeyIfDue,
   decryptBackupSecret,
   encryptBackupSecret,
@@ -221,10 +222,13 @@ async function replenishPrekeys(
     : { device: next.device, rotated: false };
   if (!rotated.rotated && low) {
     const signedPrekey = await createSignedPrekey(next.device);
-    next.device.previousSignedPrekey = next.device.signedPrekey;
+    const previousSignedPrekeys = retainSignedPrekeys(next.device, next.device.signedPrekey);
+    next.device.previousSignedPrekeys = previousSignedPrekeys;
+    next.device.previousSignedPrekey = previousSignedPrekeys[0] ?? null;
     next.device.signedPrekey = signedPrekey;
     next.device.signedPrekeyAt = Date.now();
   } else {
+    next.device.previousSignedPrekeys = rotated.device.previousSignedPrekeys;
     next.device.previousSignedPrekey = rotated.device.previousSignedPrekey;
     next.device.signedPrekey = rotated.device.signedPrekey;
     next.device.signedPrekeyAt = rotated.device.signedPrekeyAt;
@@ -620,12 +624,16 @@ export async function readEncrypted(
   return { ok: true, messages, unreadable, warnings };
 }
 
-/** Ask the server to record meetings it already knows. The client does not name them. */
+/**
+ * Confirm meetings this member says they attended. The server keeps a card
+ * only when it is a real meeting and this member is the host or was named.
+ */
 export async function recordAttendance(
   transport: DmTransport,
+  cardIds: string[] = [],
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const response = await expectOk(
-    await transport.post("/api/dm/attendance", {}),
+    await transport.post("/api/dm/attendance", { cardIds }),
     "The meeting was not recorded.",
   );
   return response.ok ? { ok: true } : response;

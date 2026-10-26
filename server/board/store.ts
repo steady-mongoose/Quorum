@@ -853,6 +853,15 @@ export async function createPost(
           input.userId,
         ]);
       }
+      if (cardId) {
+        const owners = await tx.query<{ author_user_id: string | null }>(
+          `select author_user_id from board_post where card_id = $1 for update`,
+          [cardId],
+        );
+        if (owners.some((row) => row.author_user_id !== input.userId)) {
+          throw new Stop(409, "That meeting card already belongs to someone else.");
+        }
+      }
       const inserted = await tx.query<PostRow>(
         `insert into board_post
          (id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,

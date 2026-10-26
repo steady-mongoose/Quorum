@@ -299,8 +299,12 @@ async function dispatch(
   }
 
   if (path === "/api/dm/attendance" && method === "POST") {
-    await readJson(request);
-    const saved = await recordAttendance(deps.db, userId, deps.now());
+    const body = await readJson(request);
+    const claimed = body.cardIds ?? body.meetingIds;
+    const cardIds = Array.isArray(claimed)
+      ? claimed.filter((item): item is string => typeof item === "string")
+      : [];
+    const saved = await recordAttendance(deps.db, userId, deps.now(), cardIds);
     if (!saved.ok) return json(saved.status, { error: saved.error });
     return json(200, { ok: true });
   }

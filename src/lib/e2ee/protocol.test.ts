@@ -328,6 +328,7 @@ test("a signed prekey rotates after a week and the previous one still opens", as
   const due = await rotateSignedPrekeyIfDue(bobBrowser, now);
   assert.equal(due.rotated, true);
   assert.notEqual(due.device.signedPrekey.id, bobBrowser.signedPrekey.id);
+  assert.equal(due.device.previousSignedPrekeys[0]?.id, bobBrowser.signedPrekey.id);
   assert.equal(due.device.previousSignedPrekey?.id, bobBrowser.signedPrekey.id);
 
   const sealed = await sealMessage({
@@ -348,11 +349,68 @@ test("a signed prekey rotates after a week and the previous one still opens", as
     backup: null,
   });
   assert.equal(opened.ok && opened.text, TEXT);
+  const legacy = {
+    ...due.device,
+    previousSignedPrekeys: [],
+    previousSignedPrekey: due.device.previousSignedPrekeys[0] ?? null,
+  };
+  const openedLegacy = await openMessage({
+    message: sealed.value,
+    senderUserId: alice,
+    senderIdentityPublic: aliceBrowser.identityPublic,
+    sender: publicView(aliceBrowser),
+    recipientDevice: legacy,
+    backup: null,
+  });
+  assert.equal(openedLegacy.ok && openedLegacy.text, TEXT);
 
   bobBrowser.signedPrekeyAt = now - SIGNED_PREKEY_MAX_AGE_MS;
   const month = await rotateSignedPrekeyIfDue(bobBrowser, now);
   assert.equal(month.rotated, true);
   assert.notEqual(month.device.signedPrekey.id, bobBrowser.signedPrekey.id);
+});
+
+test("the last three signed prekeys still open and the fourth does not", async () => {
+  const now = Date.parse("2026-10-19T12:00:00Z");
+  const alice = "alice-user-0001";
+  const bob = "bob-user-00000001";
+  const aliceBrowser = await createDevice({ userId: alice, prekeyCount: 0 });
+  let bobDevice = await createDevice({ userId: bob, prekeyCount: 0 });
+  const sealed: { keyId: string; message: Awaited<ReturnType<typeof sealMessage>> }[] = [];
+  for (let step = 0; step < 4; step += 1) {
+    const message = await sealMessage({
+      messageId: crypto.randomUUID(),
+      threadId: crypto.randomUUID(),
+      sender: aliceBrowser,
+      text: TEXT,
+      destinations: [deviceDestination(bob, bobDevice)],
+    });
+    assert.equal(message.ok, true);
+    sealed.push({ keyId: bobDevice.signedPrekey.id, message });
+    bobDevice = { ...bobDevice, signedPrekeyAt: now - SIGNED_PREKEY_ROTATE_AFTER_MS };
+    const rotated = await rotateSignedPrekeyIfDue(bobDevice, now + step);
+    assert.equal(rotated.rotated, true);
+    bobDevice = rotated.device;
+  }
+  assert.equal(bobDevice.previousSignedPrekeys.length, 3);
+  assert.equal(
+    bobDevice.previousSignedPrekeys.some((key) => key.id === sealed[0]?.keyId),
+    false,
+  );
+  for (const [index, item] of sealed.entries()) {
+    assert.equal(item.message.ok, true);
+    if (!item.message.ok) return;
+    const opened = await openMessage({
+      message: item.message.value,
+      senderUserId: alice,
+      senderIdentityPublic: aliceBrowser.identityPublic,
+      sender: publicView(aliceBrowser),
+      recipientDevice: bobDevice,
+      backup: null,
+    });
+    if (index === 0) assert.equal(opened.ok, false);
+    else assert.equal(opened.ok && opened.text, TEXT);
+  }
 });
 
 test("interactive backup parameters match libsodium Argon2id", async () => {

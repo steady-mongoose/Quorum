@@ -6,11 +6,15 @@
 --
 -- Private messages between two members. Rows hold ciphertext and public keys.
 -- Messages are eligible for deletion 30 days after they are stored.
--- One identity key per member signs every device. A shared meeting comes from
--- a hosted board post, not from a meeting id the client sends.
--- Deleting an account runs anonymize_dm_user. The other person's thread and
--- messages stay, and the deleted member is shown as Former member. That
--- trigger does not replace any other anonymize function.
+-- One identity key per member signs every device. A shared meeting is a real
+-- meeting card. The host's write-up names who may confirm. A name on that
+-- list is not attendance until that person confirms. A card id from the
+-- client is only that person's own confirmation.
+-- Deleting an account runs anonymize_dm_user. The other person's thread stays
+-- and the deleted member is shown as Former member. The trigger clears that
+-- member's device label and public keys, deletes their one-time keys, and
+-- clears the sender device and identity on messages they sent. The ciphertext
+-- row stays. That trigger does not replace any other anonymize function.
 
 create table if not exists dm_identity (
   user_id text primary key references "user" ("id") on delete cascade,
@@ -85,8 +89,8 @@ create table if not exists dm_message (
   id text primary key,
   thread_id text not null references dm_thread (id) on delete cascade,
   sender_user_id text references "user" ("id") on delete set null,
-  sender_device_id text not null references dm_device (id) on delete cascade,
-  sender_identity_public text not null,
+  sender_device_id text references dm_device (id) on delete set null,
+  sender_identity_public text,
   body_nonce text not null,
   body_ciphertext text not null,
   body_sig text not null,
@@ -118,18 +122,49 @@ create index if not exists dm_envelope_message_idx on dm_envelope (message_id);
 create index if not exists dm_envelope_recipient_device_idx on dm_envelope (recipient_device_id);
 
 -- Keep the other person's copy of a thread when an account is deleted.
--- This function is only for the private-message tables. It does not replace
--- anonymize_board_user or any later anonymize function.
+-- Clear the deleted member's device label, public keys, one-time keys, and
+-- the sender identity stored on messages, so leftover ciphertext cannot be
+-- tied back to that account. This function is only for the private-message
+-- tables. It does not replace anonymize_board_user or any later anonymize function.
 create or replace function anonymize_dm_user() returns trigger
 language plpgsql
 as $$
+declare
+  device_ids text[];
 begin
+  select coalesce(array_agg(id), array[]::text[]) into device_ids
+    from dm_device
+    where user_id = old.id;
+
   update dm_thread
     set user_a_name = 'Former member'
     where user_a = old.id;
   update dm_thread
     set user_b_name = 'Former member'
     where user_b = old.id;
+
+  update dm_message
+    set sender_device_id = null,
+        sender_identity_public = null
+    where sender_user_id = old.id
+       or sender_device_id = any(device_ids);
+
+  delete from dm_prekey
+    where device_id = any(device_ids);
+
+  update dm_device
+    set user_id = null,
+        label = '',
+        sign_public = '',
+        box_public = '',
+        statement_sig = '',
+        identity_sig = '',
+        signed_prekey_id = '',
+        signed_prekey_public = '',
+        signed_prekey_sig = '',
+        revoked_at = coalesce(revoked_at, now())
+    where id = any(device_ids);
+
   return old;
 end;
 $$;

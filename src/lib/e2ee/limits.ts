@@ -42,6 +42,9 @@ export const SIGNED_PREKEY_ROTATE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 /** Stop offering a signed prekey for new messages after 30 days. */
 export const SIGNED_PREKEY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** How many replaced signed prekeys this device still opens. */
+export const SIGNED_PREKEY_HISTORY = 3;
+
 export const BODY_CIPHER_MAX_BYTES = 16_384;
 export const WRAP_CIPHER_MAX_BYTES = 128;
 

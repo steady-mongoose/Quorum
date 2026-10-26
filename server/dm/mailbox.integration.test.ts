@@ -102,8 +102,8 @@ test("two members, two devices, and a restored backup can read ciphertext the se
        ) values ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-framing', now())`,
       [randomUUID(), alice, ["Alice", "Bob"]],
     );
-    assert.equal((await recordAttendance(transport(handler, alice))).ok, true);
-    assert.equal((await recordAttendance(transport(handler, bob))).ok, true);
+    assert.equal((await recordAttendance(transport(handler, alice), ["s-framing"])).ok, true);
+    assert.equal((await recordAttendance(transport(handler, bob), ["s-framing"])).ok, true);
 
     const opened = await openEncryptedThread(transport(handler, alice), bob);
     assert.equal(opened.ok, true);
@@ -314,6 +314,91 @@ test("a site ban, including an expired CSAM ban, blocks every private-message ro
     }
     const rows = await db.query(`select meeting_id from dm_attendance where user_id = $1`, [alice]);
     assert.equal(rows.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("posting came with someone else's meeting card does not make them a peer", async () => {
+  const { db, close } = await openTestDb();
+  const now = new Date("2026-10-19T12:00:00Z");
+  const handler = createApp({
+    db,
+    origins: ["http://localhost:8080"],
+    now: () => now,
+    createAccount: async () => {
+      throw new Error("unused");
+    },
+    signIn: async () => {
+      throw new Error("unused");
+    },
+    readSession: async (headers) => {
+      const id = headers.get("x-user-id");
+      if (!id) return null;
+      const rows = await db.query<{ id: string; name: string; email: string }>(
+        `select id, name, email from "user" where id = $1`,
+        [id],
+      );
+      const user = rows[0];
+      return user ? { id: user.id, name: user.name, email: user.email } : null;
+    },
+    forwardAuth: async () => new Response(null, { status: 404 }),
+  });
+  try {
+    const victim = await member(db, "Victim");
+    const friend = await member(db, "Friend");
+    const mallory = await member(db, "Mallory");
+    for (const [id, name] of [
+      [victim, "Victim"],
+      [friend, "Friend"],
+      [mallory, "Mallory"],
+    ] as const) {
+      await db.query(
+        `insert into access_log
+         (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
+         values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+        [randomUUID(), id, name],
+      );
+    }
+    const cardId = "s-victim-night";
+    const filed = await transport(handler, victim).post("/api/rooms/shop/posts", {
+      type: "hosted",
+      claim: "The framing night went well and the next one is set.",
+      on: "2026-10-19",
+      came: ["Victim", "Friend"],
+      cardId,
+      attested: true,
+    });
+    assert.equal(filed.status, 201);
+    assert.equal((await recordAttendance(transport(handler, victim), [cardId])).ok, true);
+    assert.equal((await recordAttendance(transport(handler, friend), [cardId])).ok, true);
+    const together = await transport(handler, victim).get("/api/dm/peers");
+    const peerIds = (
+      (together.body as { peers?: { id: string }[] }).peers ?? []
+    ).map((peer) => peer.id);
+    assert.equal(peerIds.includes(friend), true);
+    assert.equal(peerIds.includes(mallory), false);
+
+    const attack = await transport(handler, mallory).post("/api/rooms/shop/posts", {
+      type: "hosted",
+      came: ["Victim"],
+      cardId,
+      attested: true,
+      claim: "The framing night went well and the next one is set.",
+      on: "2026-10-19",
+    });
+    assert.equal(attack.status, 409);
+    assert.match(JSON.stringify(attack.body), /already belongs to someone else/);
+
+    assert.equal((await recordAttendance(transport(handler, mallory), [cardId])).ok, true);
+    const leaked = await transport(handler, mallory).get("/api/dm/peers");
+    const leakedIds = ((leaked.body as { peers?: { id: string; name: string }[] }).peers ?? []).map(
+      (peer) => peer.id,
+    );
+    assert.equal(leakedIds.includes(victim), false);
+    assert.equal(leakedIds.includes(friend), false);
+    const opened = await openEncryptedThread(transport(handler, mallory), victim);
+    assert.equal(opened.ok, false);
   } finally {
     await close();
   }
