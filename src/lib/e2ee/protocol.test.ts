@@ -271,6 +271,13 @@ test("a dropped envelope fails the signature, and a new device changes the safet
     ],
   });
   assert.notEqual(before, after);
+  const backup = await createBackupKey();
+  const withBackup = await safetyNumber(party(aliceBrowser), {
+    ...party(bobBrowser),
+    backupPublic: backup.boxPublic,
+  });
+  assert.notEqual(before, withBackup);
+  assert.equal(await safetyNumber(party(aliceBrowser), { ...party(bobBrowser), backupPublic: "not-a-key" }), null);
 });
 
 test("a signed prekey still opens a message when the one-time keys are gone", async () => {

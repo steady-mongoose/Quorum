@@ -314,10 +314,12 @@ test("safety numbers block a picture before a one-time key is taken", async () =
   const number = await safetyNumber(
     {
       identityPublic: aliceDevice.identityPublic,
+      backupPublic: aliceBackup.boxPublic,
       devices: [{ deviceId: aliceDevice.deviceId, signPublic: aliceDevice.signPublic }],
     },
     {
       identityPublic: bobDevice.identityPublic,
+      backupPublic: bobBackup.boxPublic,
       devices: [{ deviceId: bobDevice.deviceId, signPublic: bobDevice.signPublic }],
     },
   );

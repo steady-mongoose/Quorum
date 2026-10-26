@@ -12,7 +12,7 @@ import {
   type DmMessage,
 } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
-import { MessagePictureNote, SharedMediaFigure } from "@/components/board/media-share";
+import { SharedMediaFigure } from "@/components/board/media-share";
 import { useServerSession } from "@/lib/server-session-state";
 
 function LiveMailbox() {
@@ -103,7 +103,7 @@ export function DmView() {
               {(message.media ?? []).map((item) => (
                 <SharedMediaFigure key={item.id} item={item} />
               ))}
-              <p className="mt-1 text-xs text-muted">
+              <p className="mt-1 text-[0.8125rem] text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
             </li>
@@ -150,7 +150,6 @@ export function DmView() {
           You can message someone you have been on an "I went" list with, or who replied to your
           post. Open one from their post or their card. {DM_DEMO_NOTICE}
         </p>
-        <MessagePictureNote />
       </section>
       {mine.length === 0 ? (
         <p className="text-sm text-muted">No messages yet.</p>
@@ -162,7 +161,8 @@ export function DmView() {
               <li key={item.id}>
                 <button
                   type="button"
-                  className="flex w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
+                  aria-label={`Conversation with ${otherIn(item, me)}`}
+                  className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
                   onClick={() => setOpenThread(item.id)}
                 >
                   <span className="text-base font-semibold text-fg">{otherIn(item, me)}</span>

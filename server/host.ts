@@ -116,10 +116,9 @@ export function startHost(): void {
     media: { config: mediaConfig, store: mediaStore, now },
     calls: { config: callsConfig, store: callStore, now },
   });
-  const database = pgDb(pool);
   const sweep = setInterval(
     () => {
-      void sweepExpired(database, new Date()).catch((error: unknown) => {
+      void sweepExpired(boardDb, new Date()).catch((error: unknown) => {
         console.error(error);
       });
     },

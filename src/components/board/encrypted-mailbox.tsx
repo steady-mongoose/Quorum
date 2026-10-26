@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { DM_ENCRYPTED_NOTICE, DM_SAFETY_HINT } from "@/lib/e2ee/copy";
+import {
+  DM_ENCRYPTED_NOTICE,
+  DM_KEYS_MISSING,
+  DM_PASSPHRASE_WARNING,
+  DM_SAFETY_HINT,
+} from "@/lib/e2ee/copy";
 import { browserTransport, browserVaultStore, loadBrowserVault } from "@/lib/e2ee/browser";
 import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
 import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
@@ -53,7 +58,10 @@ export function EncryptedMailbox() {
   const [draft, setDraft] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [again, setAgain] = useState("");
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [notice, setNotice] = useState("");
+  const mismatchId = useId();
+  const mismatch = again.length > 0 && passphrase !== again;
   const [safety, setSafety] = useState("");
   const [choices, setChoices] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -259,7 +267,8 @@ export function EncryptedMailbox() {
       <div className="flex max-w-xl flex-col gap-4">
         <Kicker>Messages</Kicker>
         <h1 className="font-display text-4xl text-fg">Keys stay on this device</h1>
-        <p className="text-base text-muted">{DM_ENCRYPTED_NOTICE}</p>
+        <p className="text-base text-muted">{DM_KEYS_MISSING}</p>
+        <p className="text-sm text-muted">{DM_PASSPHRASE_WARNING}</p>
         {vault && vault.userId !== me.id ? (
           <p className="text-sm text-muted">
             This browser has keys for another account. Create keys for {me.name}, or restore that
@@ -274,9 +283,10 @@ export function EncryptedMailbox() {
           type="button"
           className={btnSignal}
           disabled={busy}
+          aria-busy={busy}
           onClick={() => void createKeys()}
         >
-          Create keys on this device
+          {busy ? "Saving…" : "Create keys on this device"}
         </button>
         <form
           className="flex flex-col gap-2"
@@ -285,17 +295,26 @@ export function EncryptedMailbox() {
             void restore();
           }}
         >
-          <input
-            className={fieldClass}
-            type="password"
-            autoComplete="current-password"
-            value={passphrase}
-            placeholder="Backup passphrase"
-            aria-label="Backup passphrase"
-            onChange={(event) => setPassphrase(event.target.value)}
-          />
-          <button type="submit" className={btnGhost} disabled={busy}>
-            Restore a backup
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Backup passphrase
+            <input
+              className={fieldClass}
+              type={showPassphrase ? "text" : "password"}
+              autoComplete="current-password"
+              value={passphrase}
+              onChange={(event) => setPassphrase(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className={btnQuiet}
+            aria-pressed={showPassphrase}
+            onClick={() => setShowPassphrase((current) => !current)}
+          >
+            {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+          </button>
+          <button type="submit" className={btnGhost} disabled={busy} aria-busy={busy}>
+            {busy ? "Saving…" : "Restore a backup"}
           </button>
         </form>
         {notice ? <p className="text-sm text-muted">{notice}</p> : null}
@@ -353,7 +372,7 @@ export function EncryptedMailbox() {
               )}
             >
               <p className="text-base text-fg">{message.text}</p>
-              <p className="mt-1 text-xs text-muted">
+              <p className="mt-1 text-[0.8125rem] text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
             </li>
@@ -379,8 +398,8 @@ export function EncryptedMailbox() {
             aria-label={`Message to ${active.otherName}`}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button type="submit" className={btnSignal} disabled={busy}>
-            Send
+          <button type="submit" className={btnSignal} disabled={busy} aria-busy={busy}>
+            {busy ? "Sending…" : "Send"}
           </button>
         </form>
         {notice ? <p className="text-sm text-muted">{notice}</p> : null}
@@ -407,7 +426,8 @@ export function EncryptedMailbox() {
             <li key={thread.id}>
               <button
                 type="button"
-                className="flex w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
+                aria-label={`Conversation with ${thread.otherName}`}
+                className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
                 onClick={() => {
                   setActive(thread);
                   setNotice("");
@@ -444,26 +464,43 @@ export function EncryptedMailbox() {
             void saveBackup();
           }}
         >
-          <input
-            className={fieldClass}
-            type="password"
-            autoComplete="new-password"
-            value={passphrase}
-            placeholder={vaultForAccount.backup ? "New passphrase" : "Passphrase"}
-            aria-label="Backup passphrase"
-            onChange={(event) => setPassphrase(event.target.value)}
-          />
-          <input
-            className={fieldClass}
-            type="password"
-            autoComplete="new-password"
-            value={again}
-            placeholder="Type it again"
-            aria-label="Backup passphrase again"
-            onChange={(event) => setAgain(event.target.value)}
-          />
-          <button type="submit" className={btnGhost} disabled={busy}>
-            {vaultForAccount.backup ? "Change the passphrase" : "Save a key backup"}
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            {vaultForAccount.backup ? "New passphrase" : "Passphrase"}
+            <input
+              className={fieldClass}
+              type={showPassphrase ? "text" : "password"}
+              autoComplete="new-password"
+              value={passphrase}
+              onChange={(event) => setPassphrase(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Type it again
+            <input
+              className={fieldClass}
+              type={showPassphrase ? "text" : "password"}
+              autoComplete="new-password"
+              value={again}
+              aria-invalid={mismatch || undefined}
+              aria-describedby={mismatch ? mismatchId : undefined}
+              onChange={(event) => setAgain(event.target.value)}
+            />
+          </label>
+          {mismatch ? (
+            <p id={mismatchId} role="alert" className="text-sm text-[#f0b4a4]">
+              Type the passphrase the same way twice.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className={btnQuiet}
+            aria-pressed={showPassphrase}
+            onClick={() => setShowPassphrase((current) => !current)}
+          >
+            {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+          </button>
+          <button type="submit" className={btnGhost} disabled={busy} aria-busy={busy}>
+            {busy ? "Saving…" : vaultForAccount.backup ? "Change the passphrase" : "Save a key backup"}
           </button>
         </form>
       </section>
@@ -505,7 +542,8 @@ export function EncryptedMailbox() {
             <li key={peer.id}>
               <button
                 type="button"
-                className="flex w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
+                aria-label={`Conversation with ${peer.name}`}
+                className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
                 onClick={() => void openPeer(peer.id)}
               >
                 <span className="text-base font-semibold text-fg">{peer.name}</span>

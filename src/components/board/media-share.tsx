@@ -260,14 +260,14 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
   );
 }
 
-/** Shown on the messages page. The messaging change turns the real control on. */
+/** Shown where a message can carry a picture. Encryption is on only after keys are registered. */
 export function MessagePictureNote() {
   const ready = getDmMediaCrypto() !== null;
   return (
     <p className="max-w-prose text-sm text-muted">
       {ready
         ? "A picture in a message is encrypted on this device before it is sent."
-        : "A picture in a message is encrypted on this device before it is sent. That step is not in place yet."}
+        : "Pictures in messages are not encrypted yet."}
     </p>
   );
 }

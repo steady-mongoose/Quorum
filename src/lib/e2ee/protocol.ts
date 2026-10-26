@@ -1197,6 +1197,8 @@ export async function backupRecordOk(boxPublic: string, record: BackupCipher): P
 
 export type SafetyParty = {
   identityPublic: string;
+  /** Empty when this person has no backup key. A change here changes the number. */
+  backupPublic?: string | null;
   devices: { deviceId: string; signPublic: string }[];
 };
 
@@ -1204,7 +1206,7 @@ function safetyCanon(party: SafetyParty): string {
   const devices = [...party.devices].sort((left, right) =>
     left.deviceId < right.deviceId ? -1 : left.deviceId > right.deviceId ? 1 : 0,
   );
-  return `${party.identityPublic}\n${devices.map((device) => `${device.deviceId}|${device.signPublic}`).join("\n")}`;
+  return `${party.identityPublic}\n${party.backupPublic ?? ""}\n${devices.map((device) => `${device.deviceId}|${device.signPublic}`).join("\n")}`;
 }
 
 export async function safetyNumber(
@@ -1214,13 +1216,15 @@ export async function safetyNumber(
   const lib = await sodium();
   for (const party of [first, second]) {
     if (!decodeFixed(lib, party.identityPublic, lib.crypto_sign_PUBLICKEYBYTES)) return null;
+    const backup = party.backupPublic ?? "";
+    if (backup && !(await isBoxPublic(backup))) return null;
     for (const device of party.devices) {
       if (!isUuid(device.deviceId)) return null;
       if (!decodeFixed(lib, device.signPublic, lib.crypto_sign_PUBLICKEYBYTES)) return null;
     }
   }
   const [low, high] = [safetyCanon(first), safetyCanon(second)].sort();
-  const hash = lib.crypto_generichash(30, utf8(lib, `avouch-safety-v2\n${low}\n${high}`));
+  const hash = lib.crypto_generichash(30, utf8(lib, `avouch-safety-v3\n${low}\n${high}`));
   const groups: string[] = [];
   for (let i = 0; i < 6; i += 1) {
     let value = 0;

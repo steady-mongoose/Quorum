@@ -1,16 +1,22 @@
 /**
- * English only. These lines are the product rules for messages:
- * two people, plain text, 30 days, no groups, and no ranking.
+ * English only. These lines match the mailbox:
+ * signed-in text is sealed on the device, a demo that is not signed in is not,
+ * messages last 30 days, and there is no feed, like, reshare, or score.
  */
 
 export const DM_DEMO_NOTICE =
-  "This demo keeps messages on this device. Sign in and they are encrypted here before they are sent. The server then stores ciphertext and public keys, not the text. Two people, plain text, deleted after 30 days. No groups.";
+  "This demo keeps messages on this device. They are not encrypted. Sign in and messages are encrypted on your device before they're sent and deleted after 30 days.";
 
 export const DM_ENCRYPTED_NOTICE =
-  "Encrypted on this device before it is sent. The server stores ciphertext and public keys, not the text. Two people, plain text, deleted after 30 days. No groups.";
+  "Messages are encrypted on your device before they're sent and deleted after 30 days.";
+
+export const DM_KEYS_MISSING = "Not yet encrypted.";
+
+export const DM_PASSPHRASE_WARNING =
+  "If you lose this passphrase, old messages can't be recovered. Write it down somewhere safe.";
 
 export const DM_ABOUT_NOTICE =
-  "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people, plain text, encrypted on the device when you are signed in, and deleted after 30 days.";
+  "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are encrypted on your device before they're sent and deleted after 30 days. The server stores ciphertext and public keys, not the text. Two people only.";
 
 export const DM_SAFETY_HINT =
-  "Compare this number with the other person, in person or on a call. A new device changes the number. If it does not match, do not send.";
+  "Compare this number with the other person, in person or on a call. A new device or a new backup key changes the number. If it does not match, do not send.";

@@ -472,6 +472,7 @@ export async function messageDestinations(
 function partyOf(preview: KeyPreview): SafetyParty {
   return {
     identityPublic: preview.identityPublic ?? "",
+    backupPublic: preview.backupPublic,
     devices: preview.devices.map((device) => ({
       deviceId: device.deviceId,
       signPublic: device.signPublic,
