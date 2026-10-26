@@ -400,6 +400,10 @@ export async function listHome(db: Db, userId: string, now: Date): Promise<Place
     at: atMs(row.at),
   }));
   const townId = resolvedTownId(zip, seed, correctionRows);
+  const townRows = townId
+    ? await db.query<{ name: string }>(`select name from town where id = $1`, [townId])
+    : [];
+  const townName = townRows[0]?.name ?? "";
   const rooms = await loadRooms(db);
   const joins = await db.query<{ room_id: string }>(
     `select room_id from room_join where user_id = $1`,
@@ -557,7 +561,7 @@ export async function listHome(db: Db, userId: string, now: Date): Promise<Place
   }
   return {
     ok: true,
-    value: { zip, congregationId, congregations, sections, requests, accessLog },
+    value: { zip, townId, townName, congregationId, congregations, sections, requests, accessLog },
   };
 }
 

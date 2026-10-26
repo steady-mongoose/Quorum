@@ -353,6 +353,8 @@ test("a live board keeps the server home order", async () => {
   reset();
   const home: HomePayload = {
     zip: "33578",
+    townId: "riverview-fl",
+    townName: "Riverview",
     congregationId: "grace",
     congregations: [],
     sections: [

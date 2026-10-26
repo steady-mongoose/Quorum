@@ -65,9 +65,7 @@ function BoardShell() {
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
 
   useEffect(() => {
-    void Promise.resolve(useBoard.persist.rehydrate()).then(() => {
-      useBoard.getState().bootstrapFromEnv();
-    });
+    void useBoard.persist.rehydrate();
     void useQuorum.persist.rehydrate();
   }, []);
 
