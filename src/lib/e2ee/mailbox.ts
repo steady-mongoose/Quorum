@@ -3,12 +3,13 @@
  * private keys in the vault the caller provides (this browser, or a test).
  */
 
-import { DM_PREKEY_BATCH, dmTextError } from "./limits.ts";
+import { DM_PREKEY_BATCH, SIGNED_PREKEY_ROTATE_AFTER_MS, dmTextError } from "./limits.ts";
 import {
   createBackupKey,
   createDevice,
   createPrekeys,
   createSignedPrekey,
+  rotateSignedPrekeyIfDue,
   decryptBackupSecret,
   encryptBackupSecret,
   identityKeyFromSecret,
@@ -70,6 +71,7 @@ export type OwnDevice = {
   label: string;
   createdAt: string;
   prekeysLeft: number;
+  signedPrekeyRotatedAt: string | null;
   current: boolean;
 };
 
@@ -206,15 +208,30 @@ async function replenishPrekeys(
   if (!listed.ok) return listed;
   const devices = readOwnDevices(listed.body, state.device.deviceId);
   const mine = devices.find((device) => device.current);
-  if (!mine || mine.prekeysLeft >= 3) return { ok: true };
-  const extra = await createPrekeys(state.device, DM_PREKEY_BATCH);
-  const signedPrekey = await createSignedPrekey(state.device);
+  const serverAt = mine?.signedPrekeyRotatedAt ? Date.parse(mine.signedPrekeyRotatedAt) : NaN;
+  const at = Number.isFinite(serverAt) ? serverAt : (state.device.signedPrekeyAt ?? 0);
+  const due = Date.now() - at >= SIGNED_PREKEY_ROTATE_AFTER_MS;
+  const low = Boolean(mine && mine.prekeysLeft < 3);
+  if (!due && !low) return { ok: true };
+  const extra = low ? await createPrekeys(state.device, DM_PREKEY_BATCH) : [];
   const next = vault.read();
   if (!next) return { ok: false, message: "Create keys on this device first." };
-  next.device.previousSignedPrekey = next.device.signedPrekey;
-  next.device.signedPrekey = signedPrekey;
+  const rotated = due
+    ? await rotateSignedPrekeyIfDue({ ...next.device, signedPrekeyAt: at }, Date.now())
+    : { device: next.device, rotated: false };
+  if (!rotated.rotated && low) {
+    const signedPrekey = await createSignedPrekey(next.device);
+    next.device.previousSignedPrekey = next.device.signedPrekey;
+    next.device.signedPrekey = signedPrekey;
+    next.device.signedPrekeyAt = Date.now();
+  } else {
+    next.device.previousSignedPrekey = rotated.device.previousSignedPrekey;
+    next.device.signedPrekey = rotated.device.signedPrekey;
+    next.device.signedPrekeyAt = rotated.device.signedPrekeyAt;
+  }
   next.device.prekeys.push(...extra);
   vault.write(next);
+  const signedPrekey = next.device.signedPrekey;
   const response = await expectOk(
     await transport.post(`/api/dm/devices/${next.device.deviceId}/prekeys`, {
       signedPrekey: {
@@ -603,12 +620,12 @@ export async function readEncrypted(
   return { ok: true, messages, unreadable, warnings };
 }
 
+/** Ask the server to record meetings it already knows. The client does not name them. */
 export async function recordAttendance(
   transport: DmTransport,
-  meetingIds: string[],
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const response = await expectOk(
-    await transport.post("/api/dm/attendance", { meetingIds }),
+    await transport.post("/api/dm/attendance", {}),
     "The meeting was not recorded.",
   );
   return response.ok ? { ok: true } : response;
@@ -858,6 +875,8 @@ function readOwnDevices(body: unknown, currentDeviceId: string): OwnDevice[] {
         label: device.label,
         createdAt: device.createdAt,
         prekeysLeft: typeof device.prekeysLeft === "number" ? device.prekeysLeft : 0,
+        signedPrekeyRotatedAt:
+          typeof device.signedPrekeyRotatedAt === "string" ? device.signedPrekeyRotatedAt : null,
         current: device.id === currentDeviceId,
       },
     ];

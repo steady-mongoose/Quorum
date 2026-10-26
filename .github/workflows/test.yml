@@ -55,6 +55,11 @@ jobs:
         if: always()
         run: node scripts/run-tests.mjs app
 
+      - name: Frontend build
+        id: frontend
+        if: always()
+        run: npm run build
+
       - name: Backup restore drill
         id: backup
         if: always()
@@ -68,9 +73,10 @@ jobs:
         run: |
           echo "script tests: ${{ steps.scripts.outcome }}"
           echo "app tests: ${{ steps.app.outcome }}"
+          echo "frontend build: ${{ steps.frontend.outcome }}"
           echo "backup drill: ${{ steps.backup.outcome }}"
           echo "The template script suite already fails on the base branch when .grok is absent. It no longer skips the app suite."
-          if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
+          if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.frontend.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
 

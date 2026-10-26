@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadSodium } from "./sodium.ts";
-import { BACKUP_MEMLIMIT_INTERACTIVE, BACKUP_OPSLIMIT_INTERACTIVE } from "./limits.ts";
+import {
+  BACKUP_MEMLIMIT_INTERACTIVE,
+  BACKUP_OPSLIMIT_INTERACTIVE,
+  SIGNED_PREKEY_MAX_AGE_MS,
+  SIGNED_PREKEY_ROTATE_AFTER_MS,
+} from "./limits.ts";
 import {
   createBackupKey,
   createDevice,
   decryptBackupSecret,
   encryptBackupSecret,
   openMessage,
+  rotateSignedPrekeyIfDue,
   safetyNumber,
   sealMessage,
   verifyDeviceStatement,
@@ -305,6 +311,48 @@ test("a signed prekey still opens a message when the one-time keys are gone", as
     backup: null,
   });
   assert.equal(opened.ok && opened.text, TEXT);
+});
+
+test("a signed prekey rotates after a week and the previous one still opens", async () => {
+  const now = Date.parse("2026-10-19T12:00:00Z");
+  const alice = "alice-user-0001";
+  const bob = "bob-user-00000001";
+  const aliceBrowser = await createDevice({ userId: alice, prekeyCount: 0 });
+  const bobBrowser = await createDevice({ userId: bob, prekeyCount: 0 });
+  bobBrowser.signedPrekeyAt = now - SIGNED_PREKEY_ROTATE_AFTER_MS + 1000;
+  const early = await rotateSignedPrekeyIfDue(bobBrowser, now);
+  assert.equal(early.rotated, false);
+  assert.equal(early.device.signedPrekey.id, bobBrowser.signedPrekey.id);
+
+  bobBrowser.signedPrekeyAt = now - SIGNED_PREKEY_ROTATE_AFTER_MS;
+  const due = await rotateSignedPrekeyIfDue(bobBrowser, now);
+  assert.equal(due.rotated, true);
+  assert.notEqual(due.device.signedPrekey.id, bobBrowser.signedPrekey.id);
+  assert.equal(due.device.previousSignedPrekey?.id, bobBrowser.signedPrekey.id);
+
+  const sealed = await sealMessage({
+    messageId: crypto.randomUUID(),
+    threadId: crypto.randomUUID(),
+    sender: aliceBrowser,
+    text: TEXT,
+    destinations: [deviceDestination(bob, bobBrowser)],
+  });
+  assert.equal(sealed.ok, true);
+  if (!sealed.ok) return;
+  const opened = await openMessage({
+    message: sealed.value,
+    senderUserId: alice,
+    senderIdentityPublic: aliceBrowser.identityPublic,
+    sender: publicView(aliceBrowser),
+    recipientDevice: due.device,
+    backup: null,
+  });
+  assert.equal(opened.ok && opened.text, TEXT);
+
+  bobBrowser.signedPrekeyAt = now - SIGNED_PREKEY_MAX_AGE_MS;
+  const month = await rotateSignedPrekeyIfDue(bobBrowser, now);
+  assert.equal(month.rotated, true);
+  assert.notEqual(month.device.signedPrekey.id, bobBrowser.signedPrekey.id);
 });
 
 test("interactive backup parameters match libsodium Argon2id", async () => {

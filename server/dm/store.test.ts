@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
@@ -16,6 +17,8 @@ import {
 import {
   claimBundle,
   listMessages,
+  listPeers,
+  listThreads,
   openThread,
   postMessage,
   putBackup,
@@ -85,13 +88,20 @@ function destination(userId: string, device: DeviceRecord): SealDestination {
 }
 
 async function meet(db: Db, userIds: string[]): Promise<void> {
+  const people = await db.query<{ id: string; name: string }>(
+    `select id, name from "user" where id in (${userIds.map((_, index) => `$${index + 1}`).join(", ")})`,
+    userIds,
+  );
+  const author = people.find((person) => person.id === userIds[0]);
+  assert.ok(author);
+  await db.query(
+    `insert into board_post (
+       id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+     ) values ($1, 'shop', $2, $3, 'hosted', 'The framing night went well and the next one is set.', $4, 's-framing', now())`,
+    [randomUUID(), author.id, author.name, people.map((person) => person.name)],
+  );
   for (const userId of userIds) {
-    const saved = await recordAttendance(
-      db,
-      userId,
-      ["s-framing"],
-      new Date("2026-10-19T12:00:00Z"),
-    );
+    const saved = await recordAttendance(db, userId, new Date("2026-10-19T12:00:00Z"));
     assert.equal(saved.ok, true);
   }
 }
@@ -319,6 +329,126 @@ test("each one-time prekey is handed out once", async () => {
     if (!first.ok || !second.ok) return;
     assert.equal(first.value.devices[0]?.prekey?.id, device.prekeys[0]?.id);
     assert.equal(second.value.devices[0]?.prekey, null);
+  } finally {
+    await close();
+  }
+});
+
+test("a claimed meeting id is not attendance, and peers do not reveal who went", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const now = new Date("2026-10-19T12:00:00Z");
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    const carol = await member(db, "Carol");
+    const dave = await member(db, "Dave");
+    await db.query(
+      `insert into dm_attendance (user_id, meeting_id, recorded_at) values ($1, 's-framing', $2)`,
+      [carol, now],
+    );
+    assert.deepEqual(await listPeers(db, carol), []);
+    assert.equal((await recordAttendance(db, carol, now)).ok, true);
+    const invented = await db.query(`select meeting_id from dm_attendance where user_id = $1`, [carol]);
+    assert.equal(invented.length, 0);
+    assert.equal((await openThread(db, carol, alice, now)).ok, false);
+
+    await meet(db, [alice, bob]);
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Bob', 'hosted', 'The radio night went well and the next one is set.', $3, 's-ham', now())`,
+      [randomUUID(), bob, ["Bob", "Dave"]],
+    );
+    const peers = await listPeers(db, alice);
+    assert.deepEqual(
+      peers.map((peer) => peer.name),
+      ["Bob"],
+    );
+    assert.deepEqual(Object.keys(peers[0] ?? {}).sort(), ["id", "name"]);
+    assert.equal(
+      (await listPeers(db, alice)).some((peer) => peer.id === dave),
+      false,
+    );
+    assert.equal((await listPeers(db, dave)).some((peer) => peer.id === alice), false);
+
+    await member(db, "Bob");
+    assert.equal((await listPeers(db, alice)).some((peer) => peer.name === "Bob"), false);
+  } finally {
+    await close();
+  }
+});
+
+test("a signed prekey older than 30 days is not offered for a new message", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const now = new Date("2026-10-19T12:00:00Z");
+    const alice = await member(db, "Alice");
+    const device = await createDevice({ userId: alice, prekeyCount: 1 });
+    assert.equal((await registerDevice(db, alice, registration(device))).ok, true);
+    const fresh = await claimBundle(db, alice, alice, now);
+    assert.equal(fresh.ok, true);
+    if (!fresh.ok) return;
+    assert.equal(fresh.value.devices[0]?.signedPrekey?.id, device.signedPrekey.id);
+    await db.query(`update dm_device set signed_prekey_rotated_at = $2 where id = $1`, [
+      device.deviceId,
+      new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000),
+    ]);
+    const stale = await claimBundle(db, alice, alice, now);
+    assert.equal(stale.ok, true);
+    if (!stale.ok) return;
+    assert.equal(stale.value.devices[0]?.signedPrekey, null);
+  } finally {
+    await close();
+  }
+});
+
+test("deleting a member keeps the other person's thread and shows Former member", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
+    assert.match(sql, /create or replace function anonymize_dm_user/);
+    assert.match(sql, /create trigger anonymize_dm_user/);
+    assert.match(sql, /Former member/);
+    assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
+
+    const now = new Date("2026-10-19T12:00:00Z");
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    await meet(db, [alice, bob]);
+    const opened = await openThread(db, alice, bob, now);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const aliceDevice = await createDevice({ userId: alice, prekeyCount: 1 });
+    const bobDevice = await createDevice({ userId: bob, prekeyCount: 1 });
+    assert.equal((await registerDevice(db, alice, registration(aliceDevice))).ok, true);
+    assert.equal((await registerDevice(db, bob, registration(bobDevice))).ok, true);
+    const sealed = await sealMessage({
+      messageId: crypto.randomUUID(),
+      threadId: opened.value.id,
+      sender: aliceDevice,
+      text: TEXT,
+      destinations: [destination(bob, bobDevice)],
+    });
+    assert.equal(sealed.ok, true);
+    if (!sealed.ok) return;
+    assert.equal((await postMessage(db, alice, opened.value.id, sealed.value, now)).ok, true);
+
+    await db.query(`delete from "user" where id = $1`, [alice]);
+    const threads = await listThreads(db, bob);
+    assert.equal(threads.length, 1);
+    assert.equal(threads[0]?.otherName, "Former member");
+    const kept = await db.query<{ body_ciphertext: string }>(
+      `select body_ciphertext from dm_message where thread_id = $1`,
+      [opened.value.id],
+    );
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]?.body_ciphertext, sealed.value.bodyCiphertext);
+    const listed = await listMessages(db, bob, opened.value.id, now);
+    assert.equal(listed.ok, true);
+    if (!listed.ok) return;
+    assert.equal(listed.value[0]?.bodyCiphertext, sealed.value.bodyCiphertext);
+    const gone = await db.query(`select id from "user" where id = $1`, [alice]);
+    assert.equal(gone.length, 0);
   } finally {
     await close();
   }

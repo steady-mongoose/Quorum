@@ -28,6 +28,7 @@ import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_ENVELOPES,
   DM_PREKEY_BATCH,
+  SIGNED_PREKEY_ROTATE_AFTER_MS,
   WRAP_CIPHER_MAX_BYTES,
   dmTextError,
   passphraseError,
@@ -58,6 +59,8 @@ export type DeviceRecord = {
   identitySecret: string;
   identitySig: string;
   signedPrekey: PrekeySecret;
+  /** When this signed prekey was created. Missing means it is due for rotation. */
+  signedPrekeyAt?: number;
   previousSignedPrekey: PrekeySecret | null;
   prekeys: PrekeySecret[];
 };
@@ -333,6 +336,7 @@ export async function createDevice(input: {
       secretKey: "",
       signature: "",
     },
+    signedPrekeyAt: Date.now(),
     previousSignedPrekey: null,
     prekeys: [],
   };
@@ -340,6 +344,25 @@ export async function createDevice(input: {
   device.prekeys = await createPrekeys(device, input.prekeyCount ?? DM_PREKEY_BATCH);
   wipe(lib, sign.privateKey, box.privateKey);
   return device;
+}
+
+/** A signed prekey older than a week is replaced. The previous one still opens messages. */
+export async function rotateSignedPrekeyIfDue(
+  device: DeviceRecord,
+  now: number,
+): Promise<{ device: DeviceRecord; rotated: boolean }> {
+  const at = device.signedPrekeyAt ?? 0;
+  if (now - at < SIGNED_PREKEY_ROTATE_AFTER_MS) return { device, rotated: false };
+  const signedPrekey = await createSignedPrekey(device);
+  return {
+    rotated: true,
+    device: {
+      ...device,
+      previousSignedPrekey: device.signedPrekey,
+      signedPrekey,
+      signedPrekeyAt: now,
+    },
+  };
 }
 
 export async function createSignedPrekey(device: DeviceRecord): Promise<PrekeySecret> {

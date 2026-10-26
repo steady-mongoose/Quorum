@@ -132,17 +132,11 @@ export function EncryptedMailbox() {
     }
     let cancelled = false;
     void (async () => {
-      const meetingIds = cards
-        .filter((card) => card.wentBy.includes(gateName))
-        .map((card) => card.id)
-        .filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id));
-      if (meetingIds.length > 0) {
-        const recorded = await recordAttendance(transport, meetingIds);
-        if (cancelled) return;
-        if (!recorded.ok) {
-          setNotice(recorded.message);
-          return;
-        }
+      const recorded = await recordAttendance(transport);
+      if (cancelled) return;
+      if (!recorded.ok) {
+        setNotice(recorded.message);
+        return;
       }
       const found = await listDmPeers(transport);
       if (cancelled) return;

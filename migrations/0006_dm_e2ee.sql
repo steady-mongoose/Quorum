@@ -6,8 +6,11 @@
 --
 -- Private messages between two members. Rows hold ciphertext and public keys.
 -- Messages are eligible for deletion 30 days after they are stored.
--- One identity key per member signs every device. A shared meeting is recorded
--- by each member before a conversation can be opened.
+-- One identity key per member signs every device. A shared meeting comes from
+-- a hosted board post, not from a meeting id the client sends.
+-- Deleting an account runs anonymize_dm_user. The other person's thread and
+-- messages stay, and the deleted member is shown as Former member. That
+-- trigger does not replace any other anonymize function.
 
 create table if not exists dm_identity (
   user_id text primary key references "user" ("id") on delete cascade,
@@ -17,7 +20,7 @@ create table if not exists dm_identity (
 
 create table if not exists dm_device (
   id text primary key,
-  user_id text not null references "user" ("id") on delete cascade,
+  user_id text references "user" ("id") on delete set null,
   label text not null,
   sign_public text not null,
   box_public text not null,
@@ -26,6 +29,7 @@ create table if not exists dm_device (
   signed_prekey_id text not null,
   signed_prekey_public text not null,
   signed_prekey_sig text not null,
+  signed_prekey_rotated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   revoked_at timestamptz
 );
@@ -66,11 +70,13 @@ create index if not exists dm_attendance_meeting_idx on dm_attendance (meeting_i
 
 create table if not exists dm_thread (
   id text primary key,
-  user_a text not null references "user" ("id") on delete cascade,
-  user_b text not null references "user" ("id") on delete cascade,
+  user_a text references "user" ("id") on delete set null,
+  user_b text references "user" ("id") on delete set null,
+  user_a_name text not null default '',
+  user_b_name text not null default '',
   created_at timestamptz not null default now(),
   unique (user_a, user_b),
-  check (user_a < user_b)
+  check (user_a is null or user_b is null or user_a < user_b)
 );
 
 create index if not exists dm_thread_user_b_idx on dm_thread (user_b);
@@ -78,8 +84,9 @@ create index if not exists dm_thread_user_b_idx on dm_thread (user_b);
 create table if not exists dm_message (
   id text primary key,
   thread_id text not null references dm_thread (id) on delete cascade,
-  sender_user_id text not null references "user" ("id") on delete cascade,
+  sender_user_id text references "user" ("id") on delete set null,
   sender_device_id text not null references dm_device (id) on delete cascade,
+  sender_identity_public text not null,
   body_nonce text not null,
   body_ciphertext text not null,
   body_sig text not null,
@@ -109,3 +116,25 @@ create table if not exists dm_envelope (
 
 create index if not exists dm_envelope_message_idx on dm_envelope (message_id);
 create index if not exists dm_envelope_recipient_device_idx on dm_envelope (recipient_device_id);
+
+-- Keep the other person's copy of a thread when an account is deleted.
+-- This function is only for the private-message tables. It does not replace
+-- anonymize_board_user or any later anonymize function.
+create or replace function anonymize_dm_user() returns trigger
+language plpgsql
+as $$
+begin
+  update dm_thread
+    set user_a_name = 'Former member'
+    where user_a = old.id;
+  update dm_thread
+    set user_b_name = 'Former member'
+    where user_b = old.id;
+  return old;
+end;
+$$;
+
+drop trigger if exists anonymize_dm_user on "user";
+create trigger anonymize_dm_user
+  before delete on "user"
+  for each row execute function anonymize_dm_user();

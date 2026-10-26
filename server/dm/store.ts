@@ -6,6 +6,7 @@ import {
   DM_MAX_ENVELOPES,
   DM_PREKEY_STOCK_MAX,
   DM_RETENTION_MS,
+  SIGNED_PREKEY_MAX_AGE_MS,
   WRAP_CIPHER_MAX_BYTES,
 } from "../../src/lib/e2ee/limits.ts";
 import {
@@ -89,7 +90,7 @@ export type StoredMessage = MessageWire & {
 
 type DeviceRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   label: string;
   sign_public: string;
   box_public: string;
@@ -98,6 +99,7 @@ type DeviceRow = {
   signed_prekey_id: string;
   signed_prekey_public: string;
   signed_prekey_sig: string;
+  signed_prekey_rotated_at: Date | string;
   created_at: Date | string;
   revoked_at: Date | string | null;
 };
@@ -261,6 +263,7 @@ export async function addPrekeys(
   deviceId: string,
   prekeys: PublicPrekey[],
   signedPrekey: PublicPrekey | null = null,
+  now: Date = new Date(),
 ): Promise<Result<null>> {
   if (!isUuid(deviceId)) return fail(400, "That device was not recognized.");
   const rows = await db.query<DeviceRow>(
@@ -269,7 +272,8 @@ export async function addPrekeys(
   );
   const device = rows[0];
   if (!device) return fail(404, "That device was not recognized.");
-  if (!(await prekeysOk(deviceId, device.sign_public, prekeys))) {
+  if (prekeys.length === 0 && !signedPrekey) return fail(400, "That device key was not accepted.");
+  if (prekeys.length > 0 && !(await prekeysOk(deviceId, device.sign_public, prekeys))) {
     return fail(400, "That device key was not accepted.");
   }
   if (signedPrekey && !(await verifySignedPrekey(deviceId, device.sign_public, signedPrekey))) {
@@ -280,8 +284,10 @@ export async function addPrekeys(
     if (!added.ok) return added;
     if (signedPrekey) {
       await tx.query(
-        `update dm_device set signed_prekey_id = $2, signed_prekey_public = $3, signed_prekey_sig = $4 where id = $1`,
-        [deviceId, signedPrekey.id, signedPrekey.publicKey, signedPrekey.signature],
+        `update dm_device
+         set signed_prekey_id = $2, signed_prekey_public = $3, signed_prekey_sig = $4, signed_prekey_rotated_at = $5
+         where id = $1`,
+        [deviceId, signedPrekey.id, signedPrekey.publicKey, signedPrekey.signature, now],
       );
     }
     return { ok: true, value: null };
@@ -308,7 +314,14 @@ export async function listOwnDevices(
   db: Db,
   userId: string,
 ): Promise<
-  { id: string; label: string; createdAt: string; revokedAt: string | null; prekeysLeft: number }[]
+  {
+    id: string;
+    label: string;
+    createdAt: string;
+    revokedAt: string | null;
+    prekeysLeft: number;
+    signedPrekeyRotatedAt: string;
+  }[]
 > {
   const rows = await db.query<DeviceRow & { prekeys_left: number | string }>(
     `select d.*, (
@@ -323,7 +336,18 @@ export async function listOwnDevices(
     createdAt: iso(row.created_at),
     revokedAt: row.revoked_at ? iso(row.revoked_at) : null,
     prekeysLeft: Number(row.prekeys_left ?? 0),
+    signedPrekeyRotatedAt: iso(row.signed_prekey_rotated_at),
   }));
+}
+
+function signedPrekeyFor(row: DeviceRow, now: Date): PublicPrekey | null {
+  const at = new Date(row.signed_prekey_rotated_at).getTime();
+  if (!Number.isFinite(at) || now.getTime() - at > SIGNED_PREKEY_MAX_AGE_MS) return null;
+  return {
+    id: row.signed_prekey_id,
+    publicKey: row.signed_prekey_public,
+    signature: row.signed_prekey_sig,
+  };
 }
 
 export async function putBackup(
@@ -405,48 +429,60 @@ export async function getBackup(
   };
 }
 
-const MEETING_ID = /^[A-Za-z0-9_-]{1,80}$/;
+/**
+ * Attendance the server can prove. A hosted post counts its author, and a
+ * member whose account name is the only one with that name and is listed in
+ * who came. A meeting id from the client is not attendance.
+ */
+const VERIFIED_ATTENDANCE = `
+  select distinct u.id as user_id,
+         coalesce(nullif(p.card_id, ''), p.id) as meeting_id
+  from board_post p
+  join "user" u
+    on u.id = p.author_user_id
+    or (
+      u.name <> ''
+      and u.name = any(p.came)
+      and (select count(*)::int from "user" named where named.name = u.name) = 1
+    )
+  where p.type = 'hosted'
+    and p.removed = false
+    and coalesce(nullif(p.card_id, ''), p.id) <> ''
+`;
 
-export async function recordAttendance(
-  db: Db,
-  userId: string,
-  meetingIds: string[],
-  now: Date,
-): Promise<Result<null>> {
-  if (meetingIds.length < 1 || meetingIds.length > 40)
-    return fail(400, "That meeting was not recorded.");
-  const unique = [...new Set(meetingIds)];
-  if (unique.some((id) => !MEETING_ID.test(id))) return fail(400, "That meeting was not recorded.");
-  for (const meetingId of unique) {
-    await db.query(
-      `insert into dm_attendance (user_id, meeting_id, recorded_at) values ($1, $2, $3)
-       on conflict (user_id, meeting_id) do nothing`,
-      [userId, meetingId, now],
-    );
-  }
+export async function recordAttendance(db: Db, userId: string, now: Date): Promise<Result<null>> {
+  await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
+  await db.query(
+    `insert into dm_attendance (user_id, meeting_id, recorded_at)
+     select $1, meeting_id, $2
+     from (${VERIFIED_ATTENDANCE}) attended
+     where attended.user_id = $1`,
+    [userId, now],
+  );
   return { ok: true, value: null };
 }
 
 export async function listPeers(db: Db, userId: string): Promise<{ id: string; name: string }[]> {
   const rows = await db.query<{ id: string; name: string }>(
-    `select distinct u.id, u.name
-     from dm_attendance mine
-     join dm_attendance theirs
+    `select distinct peer.id, peer.name
+     from (${VERIFIED_ATTENDANCE}) mine
+     join (${VERIFIED_ATTENDANCE}) theirs
        on theirs.meeting_id = mine.meeting_id and theirs.user_id <> mine.user_id
-     join "user" u on u.id = theirs.user_id
+     join "user" peer on peer.id = theirs.user_id
      where mine.user_id = $1
-     order by u.name, u.id`,
+     order by peer.name, peer.id`,
     [userId],
   );
-  return rows;
+  return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
 async function sharesMeeting(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
+  if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
   const rows = await db.query<{ meeting_id: string }>(
     `select mine.meeting_id
-     from dm_attendance mine
-     join dm_attendance theirs
+     from (${VERIFIED_ATTENDANCE}) mine
+     join (${VERIFIED_ATTENDANCE}) theirs
        on theirs.meeting_id = mine.meeting_id and theirs.user_id = $2
      where mine.user_id = $1
      limit 1`,
@@ -523,11 +559,7 @@ export async function claimBundle(
         prekey: prekey
           ? { id: prekey.id, publicKey: prekey.public_key, signature: prekey.signature }
           : null,
-        signedPrekey: {
-          id: device.signed_prekey_id,
-          publicKey: device.signed_prekey_public,
-          signature: device.signed_prekey_sig,
-        },
+        signedPrekey: signedPrekeyFor(device, now),
       });
     }
     return {
@@ -611,15 +643,18 @@ export async function openThread(
   if (!isMemberId(otherUserId) || otherUserId === userId)
     return fail(400, "Messages are between two people.");
   const people = await db.query<{ id: string; name: string }>(
-    `select id, name from "user" where id = $1`,
-    [otherUserId],
+    `select id, name from "user" where id in ($1, $2)`,
+    [userId, otherUserId],
   );
-  const other = people[0];
-  if (!other) return fail(404, "That member was not found.");
+  const other = people.find((person) => person.id === otherUserId);
+  const me = people.find((person) => person.id === userId);
+  if (!other || !me) return fail(404, "That member was not found.");
   if (!(await sharesMeeting(db, userId, otherUserId))) {
     return fail(403, "You can message someone you have been to a meeting with.");
   }
   const [low, high] = userId < otherUserId ? [userId, otherUserId] : [otherUserId, userId];
+  const lowName = low === userId ? me.name : other.name;
+  const highName = high === userId ? me.name : other.name;
   const existing = await db.query<{ id: string }>(
     `select id from dm_thread where user_a = $1 and user_b = $2`,
     [low, high],
@@ -627,12 +662,11 @@ export async function openThread(
   if (existing[0])
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
   const id = randomUUID();
-  await db.query(`insert into dm_thread (id, user_a, user_b, created_at) values ($1, $2, $3, $4)`, [
-    id,
-    low,
-    high,
-    now,
-  ]);
+  await db.query(
+    `insert into dm_thread (id, user_a, user_b, user_a_name, user_b_name, created_at)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [id, low, high, lowName, highName, now],
+  );
   return { ok: true, value: { id, otherUserId, otherName: other.name } };
 }
 
@@ -640,25 +674,33 @@ export async function listThreads(
   db: Db,
   userId: string,
 ): Promise<{ id: string; otherUserId: string; otherName: string }[]> {
-  const rows = await db.query<{ id: string; other_id: string; other_name: string }>(
+  const rows = await db.query<{ id: string; other_id: string | null; other_name: string }>(
     `select t.id,
             case when t.user_a = $1 then t.user_b else t.user_a end as other_id,
-            u.name as other_name
+            case
+              when t.user_a = $1 then coalesce(ub.name, nullif(t.user_b_name, ''), 'Former member')
+              else coalesce(ua.name, nullif(t.user_a_name, ''), 'Former member')
+            end as other_name
      from dm_thread t
-     join "user" u on u.id = case when t.user_a = $1 then t.user_b else t.user_a end
+     left join "user" ua on ua.id = t.user_a
+     left join "user" ub on ub.id = t.user_b
      where t.user_a = $1 or t.user_b = $1
      order by t.created_at`,
     [userId],
   );
-  return rows.map((row) => ({ id: row.id, otherUserId: row.other_id, otherName: row.other_name }));
+  return rows.map((row) => ({
+    id: row.id,
+    otherUserId: row.other_id ?? "",
+    otherName: row.other_name,
+  }));
 }
 
 async function threadFor(
   db: Db,
   threadId: string,
   userId: string,
-): Promise<{ id: string; user_a: string; user_b: string } | null> {
-  const rows = await db.query<{ id: string; user_a: string; user_b: string }>(
+): Promise<{ id: string; user_a: string | null; user_b: string | null } | null> {
+  const rows = await db.query<{ id: string; user_a: string | null; user_b: string | null }>(
     `select id, user_a, user_b from dm_thread where id = $1 and (user_a = $2 or user_b = $2)`,
     [threadId, userId],
   );
@@ -688,7 +730,7 @@ export async function postMessage(
   const thread = await threadFor(db, threadId, userId);
   if (!thread) return fail(404, "That conversation was not found.");
   const otherUserId = thread.user_a === userId ? thread.user_b : thread.user_a;
-  if (!(await sharesMeeting(db, userId, otherUserId))) {
+  if (!otherUserId || !(await sharesMeeting(db, userId, otherUserId))) {
     return fail(403, "You can message someone you have been to a meeting with.");
   }
   const devices = await db.query<DeviceRow>(`select * from dm_device where id = $1`, [
@@ -699,6 +741,12 @@ export async function postMessage(
     return fail(400, "That device was not recognized.");
   if (!(await verifyBodySignature(message, sender.sign_public)))
     return fail(400, "That message was not accepted.");
+  const identity = await db.query<{ sign_public: string }>(
+    `select sign_public from dm_identity where user_id = $1`,
+    [userId],
+  );
+  const senderIdentityPublic = identity[0]?.sign_public;
+  if (!senderIdentityPublic) return fail(400, "That device was not recognized.");
 
   const reachesOther = await envelopesOk(db, message.envelopes, thread, otherUserId);
   if (!reachesOther.ok) return reachesOther;
@@ -708,13 +756,14 @@ export async function postMessage(
     await db.transaction(async (tx) => {
       await tx.query(
         `insert into dm_message (
-           id, thread_id, sender_user_id, sender_device_id, body_nonce, body_ciphertext, body_sig, created_at, expires_at
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           id, thread_id, sender_user_id, sender_device_id, sender_identity_public, body_nonce, body_ciphertext, body_sig, created_at, expires_at
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           message.messageId,
           threadId,
           userId,
           message.senderDeviceId,
+          senderIdentityPublic,
           message.bodyNonce,
           message.bodyCiphertext,
           message.bodySig,
@@ -755,7 +804,7 @@ export async function postMessage(
 async function envelopesOk(
   db: Db,
   envelopes: EnvelopeWire[],
-  thread: { user_a: string; user_b: string },
+  thread: { user_a: string | null; user_b: string | null },
   otherUserId: string,
 ): Promise<Result<null>> {
   let reachesOther = false;
@@ -851,14 +900,15 @@ export async function listMessages(
   if (!thread) return fail(404, "That conversation was not found.");
   const messages = await db.query<{
     id: string;
-    sender_user_id: string;
+    sender_user_id: string | null;
     sender_device_id: string;
+    sender_identity_public: string;
     body_nonce: string;
     body_ciphertext: string;
     body_sig: string;
     created_at: Date | string;
   }>(
-    `select id, sender_user_id, sender_device_id, body_nonce, body_ciphertext, body_sig, created_at
+    `select id, sender_user_id, sender_device_id, sender_identity_public, body_nonce, body_ciphertext, body_sig, created_at
      from (
        select * from dm_message where thread_id = $1 and expires_at > $2 order by created_at desc limit 200
      ) recent
@@ -867,15 +917,10 @@ export async function listMessages(
   );
   if (messages.length === 0) return { ok: true, value: [] };
   const deviceIds = [...new Set(messages.map((message) => message.sender_device_id))];
-  const senderIds = [...new Set(messages.map((message) => message.sender_user_id))];
   const messageIds = messages.map((message) => message.id);
   const devices = await db.query<DeviceRow>(
     `select * from dm_device where id in (${placeholders(deviceIds.length)})`,
     deviceIds,
-  );
-  const identities = await db.query<{ user_id: string; sign_public: string }>(
-    `select user_id, sign_public from dm_identity where user_id in (${placeholders(senderIds.length)})`,
-    senderIds,
   );
   const envelopes = await db.query<{
     message_id: string;
@@ -893,18 +938,16 @@ export async function listMessages(
     messageIds,
   );
   const deviceById = new Map(devices.map((device) => [device.id, device]));
-  const identityByUser = new Map(identities.map((row) => [row.user_id, row.sign_public]));
   const stored: StoredMessage[] = [];
   for (const message of messages) {
     const sender = deviceById.get(message.sender_device_id);
-    const senderIdentityPublic = identityByUser.get(message.sender_user_id);
-    if (!sender || !senderIdentityPublic) continue;
+    if (!sender || !message.sender_identity_public) continue;
     stored.push({
       messageId: message.id,
       threadId,
       senderDeviceId: message.sender_device_id,
-      senderUserId: message.sender_user_id,
-      senderIdentityPublic,
+      senderUserId: message.sender_user_id ?? "",
+      senderIdentityPublic: message.sender_identity_public,
       createdAt: iso(message.created_at),
       sender: asPublic(sender),
       bodyNonce: message.body_nonce,

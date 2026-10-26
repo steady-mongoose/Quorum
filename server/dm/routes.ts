@@ -1,3 +1,4 @@
+import { openBan } from "../board/store.ts";
 import type { AppDeps } from "../http.ts";
 import {
   DM_BUNDLE_LIMIT,
@@ -190,6 +191,8 @@ export async function handleDm(
   if (!url.pathname.startsWith("/api/dm")) return null;
   const session = await deps.readSession(request.headers);
   if (!session) return json(401, { error: "Sign in first." });
+  const ban = await openBan(deps.db, session.id, deps.now());
+  if (ban) return json(403, { error: "banned", ban });
   try {
     await sweepIfDue(deps.db, deps.now());
     return await dispatch(deps, request, url, session.id);
@@ -249,6 +252,7 @@ async function dispatch(
       deviceId,
       prekeys,
       signedPrekey && signedPrekey.id ? signedPrekey : null,
+      deps.now(),
     );
     if (!saved.ok) return json(saved.status, { error: saved.error });
     return json(200, { ok: true });
@@ -295,12 +299,8 @@ async function dispatch(
   }
 
   if (path === "/api/dm/attendance" && method === "POST") {
-    const body = await readJson(request);
-    const meetingIds = Array.isArray(body.meetingIds)
-      ? body.meetingIds.filter((item): item is string => typeof item === "string")
-      : null;
-    if (!meetingIds) return json(400, { error: "That meeting was not recorded." });
-    const saved = await recordAttendance(deps.db, userId, meetingIds, deps.now());
+    await readJson(request);
+    const saved = await recordAttendance(deps.db, userId, deps.now());
     if (!saved.ok) return json(saved.status, { error: saved.error });
     return json(200, { ok: true });
   }

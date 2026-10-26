@@ -96,8 +96,14 @@ test("two members, two devices, and a restored backup can read ciphertext the se
     assert.equal((await registerDevice(transport(handler, bob), bobVault)).ok, true);
     assert.equal((await publishBackup(transport(handler, alice), aliceVault, PASSPHRASE)).ok, true);
     assert.equal((await publishBackup(transport(handler, bob), bobVault, PASSPHRASE)).ok, true);
-    assert.equal((await recordAttendance(transport(handler, alice), ["s-framing"])).ok, true);
-    assert.equal((await recordAttendance(transport(handler, bob), ["s-framing"])).ok, true);
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-framing', now())`,
+      [randomUUID(), alice, ["Alice", "Bob"]],
+    );
+    assert.equal((await recordAttendance(transport(handler, alice))).ok, true);
+    assert.equal((await recordAttendance(transport(handler, bob))).ok, true);
 
     const opened = await openEncryptedThread(transport(handler, alice), bob);
     assert.equal(opened.ok, true);
@@ -250,6 +256,64 @@ test("two members, two devices, and a restored backup can read ciphertext the se
     assert.equal(expired.ok && expired.messages.length, 0);
     const left = await db.query(`select id from dm_message`);
     assert.equal(left.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("a site ban, including an expired CSAM ban, blocks every private-message route", async () => {
+  const { db, close } = await openTestDb();
+  const now = new Date("2026-10-19T12:00:00Z");
+  const handler = createApp({
+    db,
+    origins: ["http://localhost:8080"],
+    now: () => now,
+    createAccount: async () => {
+      throw new Error("unused");
+    },
+    signIn: async () => {
+      throw new Error("unused");
+    },
+    readSession: async (headers) => {
+      const id = headers.get("x-user-id");
+      if (!id) return null;
+      const rows = await db.query<{ id: string; name: string; email: string }>(
+        `select id, name, email from "user" where id = $1`,
+        [id],
+      );
+      const user = rows[0];
+      return user ? { id: user.id, name: user.name, email: user.email } : null;
+    },
+    forwardAuth: async () => new Response(null, { status: 404 }),
+  });
+  try {
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, $2, 'Alice', 'csam', 'Tom', 1, $3, $4)`,
+      [randomUUID(), alice, new Date(now.getTime() - 24 * 60 * 60 * 1000), now],
+    );
+    const calls = [
+      () => transport(handler, alice).get("/api/dm/devices"),
+      () => transport(handler, alice).post("/api/dm/devices", {}),
+      () => transport(handler, alice).get("/api/dm/keys?userId=" + bob),
+      () => transport(handler, alice).post("/api/dm/bundles", { userId: bob }),
+      () => transport(handler, alice).post("/api/dm/attendance", { meetingIds: ["s-framing"] }),
+      () => transport(handler, alice).get("/api/dm/peers"),
+      () => transport(handler, alice).get("/api/dm/threads"),
+      () => transport(handler, alice).post("/api/dm/threads", { userId: bob }),
+      () => transport(handler, alice).post("/api/dm/threads/" + randomUUID() + "/messages", {}),
+      () => transport(handler, alice).get("/api/dm/backup"),
+    ];
+    for (const call of calls) {
+      const response = await call();
+      assert.equal(response.status, 403);
+      assert.equal((response.body as { error?: string }).error, "banned");
+      assert.equal((response.body as { ban?: { reason?: string } }).ban?.reason, "csam");
+    }
+    const rows = await db.query(`select meeting_id from dm_attendance where user_id = $1`, [alice]);
+    assert.equal(rows.length, 0);
   } finally {
     await close();
   }

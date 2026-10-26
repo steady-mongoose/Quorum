@@ -1,11 +1,11 @@
-import core from "@zxcvbn-ts/core";
-import common from "@zxcvbn-ts/language-common";
-import english from "@zxcvbn-ts/language-en";
+import { ZxcvbnFactory } from "@zxcvbn-ts/core";
+import * as common from "@zxcvbn-ts/language-common";
+import * as en from "@zxcvbn-ts/language-en";
 
-const zxcvbn = new core.ZxcvbnFactory({
-  translations: english.translations,
+const zxcvbn = new ZxcvbnFactory({
+  translations: en.translations,
   graphs: common.adjacencyGraphs,
-  dictionary: { ...common.dictionary, ...english.dictionary },
+  dictionary: { ...common.dictionary, ...en.dictionary },
 });
 
 /** Shared mailbox bounds. The 30-day lifetime is the existing message rule. */
@@ -35,6 +35,12 @@ export const BACKUP_MEMLIMIT_INTERACTIVE = 67_108_864;
 
 /** One-time key fetches for a single recipient, on top of the account-wide cap. */
 export const DM_BUNDLE_TARGET_MAX = 4;
+
+/** Replace a signed prekey once it has been in use for a week. */
+export const SIGNED_PREKEY_ROTATE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Stop offering a signed prekey for new messages after 30 days. */
+export const SIGNED_PREKEY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const BODY_CIPHER_MAX_BYTES = 16_384;
 export const WRAP_CIPHER_MAX_BYTES = 128;

@@ -11,6 +11,18 @@ import {
 } from "./copy.ts";
 import { DM_RETENTION_DAYS, DM_TEXT_MAX, dmTextError, passphraseError } from "./limits.ts";
 
+test("the passphrase checker uses the named zxcvbn exports", () => {
+  const source = readFileSync(new URL("./limits.ts", import.meta.url), "utf8");
+  const workflow = readFileSync(new URL("../../../.github/workflows/test.yml", import.meta.url), "utf8");
+  assert.match(source, /import \{ ZxcvbnFactory \} from "@zxcvbn-ts\/core"/);
+  assert.match(source, /import \* as common from "@zxcvbn-ts\/language-common"/);
+  assert.match(source, /import \* as en from "@zxcvbn-ts\/language-en"/);
+  assert.equal(source.includes("import core from"), false);
+  assert.equal(source.includes("import common from"), false);
+  assert.equal(source.includes("import english from"), false);
+  assert.match(workflow, /npm run build/);
+});
+
 test("message limits stay two people, plain text, and 30 days", () => {
   assert.equal(DM_RETENTION_DAYS, 30);
   assert.equal(dmTextError("  "), "Write a message first.");
