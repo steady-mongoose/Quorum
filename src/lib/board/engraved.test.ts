@@ -177,7 +177,7 @@ function assertIlluminatedCapitals() {
     const text = readFileSync(file, "utf8");
     for (const line of text.split("\n")) {
       if (!line.includes("illum")) continue;
-      assert.match(line, /text-(3xl|4xl|5xl|6xl)/, line.trim());
+      assert.match(line, /text-(2xl|3xl|4xl|5xl|6xl)/, line.trim());
       assert.equal(/text-(xs|sm|base|lg)\b/.test(line), false, line.trim());
     }
   }

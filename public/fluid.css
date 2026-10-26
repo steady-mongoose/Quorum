@@ -83,7 +83,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 .plate{display:block;width:100%;container-type:normal}
 /* .plate would otherwise show a closed dialog and stretch it across the page. */
 dialog.plate:not([open]){display:none}
-dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
+dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width:28rem;height:fit-content;margin:auto}
 
 .cards{display:grid;gap:var(--space-2);grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
 

@@ -62,7 +62,7 @@ export function DmView() {
 
   if (!me) {
     return (
-      <div className="plate flex flex-col gap-3">
+      <div className="plate plate--hero flex flex-col gap-3">
         <Kicker>Messages</Kicker>
         <h1 className="illum font-display text-4xl text-fg">Add your name first.</h1>
         <p className="max-w-2xl text-base text-muted">Messages go between two names. Yours is set under About.</p>
@@ -75,7 +75,7 @@ export function DmView() {
     const rows = byThread.get(thread.id) ?? [];
     return (
       <div className="flex flex-col gap-4 lg:max-w-3xl">
-        <div className="plate flex flex-col gap-2">
+        <div className="plate plate--hero flex flex-col gap-2">
           <button type="button" className={cn(btnQuiet, "self-start px-0")} onClick={() => setOpenThread(null)}>
             <ArrowLeft className="size-4" aria-hidden="true" />
             All messages
@@ -135,7 +135,7 @@ export function DmView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="plate flex flex-col gap-3">
+      <section className="plate plate--hero flex flex-col gap-3">
         <Kicker>Messages</Kicker>
         <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
