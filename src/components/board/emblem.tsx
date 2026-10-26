@@ -15,6 +15,22 @@ const SIZE = {
 };
 
 /**
+ * Header mark. The Appeal to Heaven flag, engraved in one colour of gold,
+ * with the white field taken off so the ink ground shows through.
+ */
+export function AppealMark() {
+  return (
+    <img
+      className="mast-flag"
+      src="/flags/appeal-to-heaven-gold.svg"
+      alt="An Appeal to Heaven flag"
+      width={42}
+      height={28}
+    />
+  );
+}
+
+/**
  * The theme's emblem: the real flag file, or the drawn version below if
  * the file does not load.
  */

@@ -24,7 +24,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   min-width:0;
   width:100%;
   padding:var(--space-3);
-  padding-inline:max(var(--space-3),env(safe-area-inset-left)) max(var(--space-3),env(safe-area-inset-right));
+  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
   padding-bottom:var(--space-4);
 }
 .outer-art,.side-art{display:none}
@@ -156,3 +156,87 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 @media (prefers-reduced-data:reduce){
   .hero-band,.outer-art,.side-art{background-image:none}
 }
+
+/* Signed-out header. The bar is the same centred 72rem column as the page. */
+.mast-bar{
+  position:sticky;
+  top:0;
+  z-index:20;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) min(var(--content-max),100%) minmax(0,1fr);
+  width:100%;
+  background:var(--bg);
+  border-bottom:1px solid #c9a45c;
+}
+.mast{
+  grid-column:2;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px 16px;
+  box-sizing:border-box;
+  width:100%;
+  min-width:0;
+  padding:clamp(16px,2vw,28px);
+  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
+}
+.mast-brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex:1 1 0%;
+  min-width:0;
+}
+.mast-titles{min-width:0}
+.mast-name{
+  margin:0;
+  font-family:var(--font-display),"EB Garamond",Georgia,serif;
+  font-size:clamp(1.05rem,0.35rem + 3vw,2.5rem);
+  line-height:1.05;
+  color:var(--fg);
+  overflow-wrap:break-word;
+}
+.mast-tagline{
+  margin:0.25rem 0 0;
+  font-size:0.95rem;
+  line-height:1.35;
+  color:#bcae94;
+  overflow-wrap:break-word;
+}
+.mast-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:12px;
+  margin-left:auto;
+  min-width:0;
+}
+.mast-door{
+  display:inline-flex;
+  align-items:center;
+  flex:none;
+  min-height:44px;
+  padding:0 2px;
+  border:0;
+  background:none;
+  color:#f0e7d3;
+  font:inherit;
+  font-size:1rem;
+  line-height:1.2;
+  text-decoration:underline;
+  text-underline-offset:0.18em;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.mast-flag{
+  display:block;
+  height:28px;
+  width:auto;
+  flex:none;
+  background:none;
+  border:0;
+}
+#open-the-door,#sign-in{scroll-margin-top:6rem}
+/* The door column starts with Invite only, rather than sitting in the vertical centre. */
+.door-columns{align-items:start}

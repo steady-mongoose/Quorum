@@ -23,7 +23,7 @@ import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
-import { Emblem } from "@/components/board/emblem";
+import { AppealMark } from "@/components/board/emblem";
 import { PrimaryHaptic } from "@/components/board/haptics";
 import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
@@ -71,11 +71,12 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const signingIn = server.mode === "live" && !entered;
   const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
     section: shown,
-    signingIn: server.mode === "live" && !entered,
+    signingIn,
   });
   const hero = heroLabel(art);
   const margin = showsHero(art);
@@ -147,38 +148,44 @@ function BoardShell() {
       <PrimaryHaptic />
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
-      <header className="top sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-          <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
-            <div>
-              <p className="font-display text-3xl leading-none text-fg lg:text-4xl">{APP_NAME}</p>
-              <p className="mt-2 text-sm text-muted lg:whitespace-nowrap">{TAGLINE}</p>
+      <header className="top mast-bar">
+        <div className="mast">
+          <div className="mast-brand">
+            <AppealMark />
+            <div className="mast-titles">
+              <p className="mast-name">{APP_NAME}</p>
+              <p className="mast-tagline">{TAGLINE}</p>
             </div>
-            <Emblem theme={theme.id} size="header" />
           </div>
-          {entered ? (
-            <div className="topnav">
-              <IconNav
-                items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
-                current={shown}
-                onSelect={openSection}
-                label="Sections"
-              />
-            </div>
-          ) : null}
-          {server.user ? (
-            <button
-              type="button"
-              className="self-start text-sm text-signal underline"
-              onClick={() => {
-                void server.signOut().then(() => {
-                  useBoard.getState().disconnectRemote();
-                });
-              }}
-            >
-              Sign out
-            </button>
-          ) : null}
+          <div className="mast-actions">
+            {entered ? (
+              <div className="topnav">
+                <IconNav
+                  items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
+                  current={shown}
+                  onSelect={openSection}
+                  label="Sections"
+                />
+              </div>
+            ) : (
+              <a className="mast-door" href={signingIn ? "#sign-in" : "#open-the-door"}>
+                {signingIn ? "Sign in" : "Open the door"}
+              </a>
+            )}
+            {server.user ? (
+              <button
+                type="button"
+                className="mast-door"
+                onClick={() => {
+                  void server.signOut().then(() => {
+                    useBoard.getState().disconnectRemote();
+                  });
+                }}
+              >
+                Sign out
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
       {boardError ? (

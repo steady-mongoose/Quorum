@@ -139,7 +139,7 @@ test("the phone bar and the sheet use the agreed names and the 44px floor", () =
   assert.match(profile, /min-h-\[44px\]/);
   assert.match(store, /deskOn: false/);
   assert.match(store, /deskOn: state\.deskOn/);
-  assert.match(app, /<Emblem theme=\{theme\.id\} size="header" \/>/);
+  assert.match(app, /<AppealMark \/>/);
   assert.match(themes, /id: "appeal"/);
   assert.match(themes, /id: "gadsden"/);
   assert.match(emblem, /appeal-to-heaven\.svg/);
