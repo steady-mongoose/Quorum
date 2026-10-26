@@ -1,5 +1,5 @@
 # Node 22 is required for --experimental-strip-types.
-# The script suite, the app suite, and the backup drill each fail the job.
+# The script suite, the app suite, the frontend build, and the backup drill each fail the job.
 # Later steps still run so one suite cannot hide another. age is required
 # to encrypt and restore the drill dump.
 
@@ -63,6 +63,11 @@ jobs:
         if: always()
         run: node scripts/run-tests.mjs app
 
+      - name: Frontend build
+        id: frontend
+        if: always()
+        run: npm run build
+
       - name: Backup restore drill
         id: backup
         if: always()
@@ -76,8 +81,9 @@ jobs:
         run: |
           echo "script tests: ${{ steps.scripts.outcome }}"
           echo "app tests: ${{ steps.app.outcome }}"
+          echo "frontend build: ${{ steps.frontend.outcome }}"
           echo "backup drill: ${{ steps.backup.outcome }}"
-          if [ "${{ steps.scripts.outcome }}" != "success" ] || [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
+          if [ "${{ steps.scripts.outcome }}" != "success" ] || [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.frontend.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
 

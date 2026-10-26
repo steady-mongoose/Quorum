@@ -63,7 +63,7 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Profiles are four lines** (name, household, parish, trade) plus what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name.
 
-**Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post.
+**Messages** are two names, plain text, deleted after 30 days, no groups. You can message someone you share a "been" list with or who replied to your post. On the demo board the text stays in the browser. When you are signed in, the text is encrypted on the device first. The server stores ciphertext and public keys, not the message.
 
 **Room chat** is one transcript per room, in time order, for people who have stood in that room. The server checks the session and that room's membership on every read and every send. A hard removal or a ban closes that access on the next request. A steward can remove a line only in a room they steward. A grant with no room does not count. An admin can remove a line in every room. The lines are plain text. End-to-end encryption for a room is a later change: a removed member must not be able to read lines sent after they leave, and that needs a new epoch. Private 1:1 messages stay on the design that reserves migration `0006`. This transcript is migration `0013`. Until that file is applied, room chat answers that it is not available yet, and the rest of the board still loads.
 

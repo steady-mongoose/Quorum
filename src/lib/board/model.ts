@@ -42,7 +42,7 @@ export const DAY = 24 * HOUR;
 
 export const BAN_DAYS = 30;
 export const SESSION_LINE_MINUTES = 20;
-export const DM_RETENTION_DAYS = 30;
+export { DM_RETENTION_DAYS, DM_TEXT_MAX, dmTextError } from "../e2ee/limits.ts";
 export const SHELF_DAYS = 14;
 export const SHELF_MAX = 2;
 export const WEEK_DAYS = 7;

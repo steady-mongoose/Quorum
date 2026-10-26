@@ -3,6 +3,7 @@ import { createCredentialAccount, createSignIn, readSessionUser } from "./accoun
 import { createClosedAuth } from "./auth.ts";
 import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
+import { sweepExpired } from "./dm/store.ts";
 import { createApp } from "./http.ts";
 import { readCallsConfig } from "./calls/config.ts";
 import { bindCallEviction } from "./calls/evict.ts";
@@ -115,6 +116,15 @@ export function startHost(): void {
     media: { config: mediaConfig, store: mediaStore, now },
     calls: { config: callsConfig, store: callStore, now },
   });
+  const sweep = setInterval(
+    () => {
+      void sweepExpired(boardDb, new Date()).catch((error: unknown) => {
+        console.error(error);
+      });
+    },
+    60 * 60 * 1000,
+  );
+  sweep.unref();
   const server = createServer(async (req, res) => {
     try {
       await send(res, await app(await toRequest(req, config)));

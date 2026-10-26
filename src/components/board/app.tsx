@@ -15,6 +15,10 @@ import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } fr
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { DM_SIGNOUT_HISTORY_WARNING } from "@/lib/e2ee/copy";
+import { browserVaultStore } from "@/lib/e2ee/browser";
+import { signOutClearsReadHistory } from "@/lib/e2ee/read-history";
 import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
@@ -83,6 +87,7 @@ function BoardShell() {
   const ownAppeals = useBoard((state) => state.appeals);
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
@@ -226,9 +231,17 @@ function BoardShell() {
               type="button"
               className="inline-flex min-h-[44px] items-center self-start text-sm text-signal underline"
               onClick={() => {
-                void server.signOut().then(() => {
-                  useBoard.getState().disconnectRemote();
-                });
+                const leave = () => {
+                  setConfirmSignOut(false);
+                  void server.signOut().finally(() => {
+                    useBoard.getState().disconnectRemote();
+                  });
+                };
+                if (signOutClearsReadHistory(browserVaultStore().read())) {
+                  setConfirmSignOut(true);
+                  return;
+                }
+                leave();
               }}
             >
               Sign out
@@ -316,6 +329,20 @@ function BoardShell() {
       {entered ? (
         <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
       ) : null}
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="Sign out"
+        description={DM_SIGNOUT_HISTORY_WARNING}
+        confirmLabel="Sign out and clear"
+        cancelLabel="Stay signed in"
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void server.signOut().finally(() => {
+            useBoard.getState().disconnectRemote();
+          });
+        }}
+      />
     </div>
   );
 }
