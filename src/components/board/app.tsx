@@ -26,6 +26,7 @@ import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
+import { DesktopMore } from "@/components/board/desktop-more";
 import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
@@ -159,13 +160,24 @@ function BoardShell() {
             <Emblem theme={theme.id} size="header" />
           </div>
           {entered ? (
-            <div className="topnav">
+            <div className="topnav min-w-0">
               <IconNav
+                className="flex-nowrap"
+                itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                iconClassName="max-[1099px]:hidden"
                 items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
                 current={shown}
                 onSelect={openSection}
                 label="Sections"
-              />
+              >
+                <DesktopMore
+                  current={shown}
+                  deskOn={deskOn}
+                  onSelect={openSection}
+                  itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                  iconClassName="max-[1099px]:hidden"
+                />
+              </IconNav>
             </div>
           ) : null}
           {server.user ? (

@@ -18,15 +18,19 @@ export const MORE_ENTRIES = [
   { id: "about", label: "About" },
 ] as const;
 
-/** Desktop keeps the old order, with Groups beside the rooms. The desk drops out until the member opts in. */
+/** Six header items. The desk and About sit in the desktop More menu. */
 export const DESKTOP_NAV = [
   { id: "week", label: "This week" },
   { id: "rooms", label: "Rooms" },
   { id: "groups", label: "Groups" },
   { id: "find", label: "Find" },
-  { id: "civic", label: "The desk" },
   { id: "messages", label: "Messages" },
   { id: "profile", label: "You" },
+] as const;
+
+/** The desk, then About. The desk is listed only when it is on. */
+export const DESKTOP_MORE = [
+  { id: "civic", label: "The desk" },
   { id: "about", label: "About" },
 ] as const;
 
@@ -45,13 +49,39 @@ export function moreEntries(deskOn: boolean) {
   return MORE_ENTRIES.filter((item) => item.id !== "civic" || deskOn);
 }
 
-export function desktopNav(deskOn: boolean) {
-  return DESKTOP_NAV.filter((item) => item.id !== "civic" || deskOn);
+export function desktopNav(_deskOn: boolean) {
+  return DESKTOP_NAV;
 }
 
-/** Groups, You, The desk, and About light the More tab. */
+export function desktopMore(deskOn: boolean) {
+  return DESKTOP_MORE.filter((item) => item.id !== "civic" || deskOn);
+}
+
+/** Groups, You, The desk, and About light the phone More tab. */
 export function moreTabCurrent(section: Section): boolean {
   return section === "groups" || section === "profile" || section === "civic" || section === "about";
+}
+
+/** The desk and About light the desktop More button. */
+export function desktopMoreCurrent(section: Section): boolean {
+  return section === "civic" || section === "about";
+}
+
+/**
+ * Arrow keys move through a menu. Home and End jump to the ends.
+ * A missing focus index starts at the first item going down, and the last going up.
+ */
+export function menuFocusIndex(current: number, count: number, key: string): number | null {
+  if (count <= 0) return null;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (key === "ArrowDown" || key === "ArrowRight") {
+    return current < 0 ? 0 : (current + 1) % count;
+  }
+  if (key === "ArrowUp" || key === "ArrowLeft") {
+    return current < 0 ? count - 1 : (current - 1 + count) % count;
+  }
+  return null;
 }
 
 export function tabAriaCurrent(active: boolean): "page" | undefined {

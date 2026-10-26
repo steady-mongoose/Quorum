@@ -16,14 +16,22 @@ export function IconNav<T extends string>({
   current,
   onSelect,
   label,
+  className,
+  itemClassName,
+  iconClassName,
+  children,
 }: {
   items: { id: T; label: string; icon?: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }> }[];
-  current: T;
+  current: T | string;
   onSelect: (id: T) => void;
   label: string;
+  className?: string;
+  itemClassName?: string;
+  iconClassName?: string;
+  children?: ReactNode;
 }) {
   return (
-    <nav className="flex flex-wrap gap-2 lg:justify-end" aria-label={label}>
+    <nav className={cn("flex flex-wrap gap-2 lg:justify-end", className)} aria-label={label}>
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -32,13 +40,14 @@ export function IconNav<T extends string>({
             type="button"
             aria-current={current === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}
-            className={pill(current === item.id)}
+            className={pill(current === item.id, itemClassName)}
           >
-            {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
+            {Icon ? <Icon className={cn("size-4", iconClassName)} aria-hidden="true" /> : null}
             {item.label}
           </button>
         );
       })}
+      {children}
     </nav>
   );
 }

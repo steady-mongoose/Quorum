@@ -8,8 +8,11 @@ import {
   PHONE_TABS,
   TAB_SLOT_PX,
   TOUCH_MIN_PX,
+  desktopMore,
+  desktopMoreCurrent,
   desktopNav,
   meetsTouchFloor,
+  menuFocusIndex,
   moreEntries,
   moreSheetBackdropTap,
   moreSheetDismisses,
@@ -64,12 +67,57 @@ test("Groups, You, The desk, and About mark the More tab current", () => {
   assert.equal(tabAriaCurrent(false), undefined);
 });
 
-test("the desktop list hides The desk until it is turned on", () => {
-  assert.equal(desktopNav(false).some((item) => item.id === "civic"), false);
+test("the desktop header is six items, and More holds The desk and About", () => {
+  assert.deepEqual(
+    DESKTOP_NAV.map((item) => item.id),
+    ["week", "rooms", "groups", "find", "messages", "profile"],
+  );
+  const headerIds = DESKTOP_NAV.map((item) => item.id as string);
+  assert.equal(headerIds.includes("civic"), false);
+  assert.equal(headerIds.includes("about"), false);
+  assert.deepEqual(
+    desktopNav(false).map((item) => item.id),
+    DESKTOP_NAV.map((item) => item.id),
+  );
   assert.deepEqual(
     desktopNav(true).map((item) => item.id),
     DESKTOP_NAV.map((item) => item.id),
   );
+  assert.deepEqual(
+    desktopMore(false).map((item) => item.label),
+    ["About"],
+  );
+  assert.deepEqual(
+    desktopMore(true).map((item) => item.label),
+    ["The desk", "About"],
+  );
+  assert.equal(desktopMoreCurrent("civic"), true);
+  assert.equal(desktopMoreCurrent("about"), true);
+  assert.equal(desktopMoreCurrent("groups"), false);
+  assert.equal(desktopMoreCurrent("profile"), false);
+  assert.equal(desktopMoreCurrent("week"), false);
+  assert.equal(menuFocusIndex(0, 2, "ArrowDown"), 1);
+  assert.equal(menuFocusIndex(1, 2, "ArrowDown"), 0);
+  assert.equal(menuFocusIndex(0, 2, "ArrowUp"), 1);
+  assert.equal(menuFocusIndex(-1, 2, "ArrowDown"), 0);
+  assert.equal(menuFocusIndex(-1, 2, "ArrowUp"), 1);
+  assert.equal(menuFocusIndex(1, 2, "Home"), 0);
+  assert.equal(menuFocusIndex(0, 2, "End"), 1);
+  assert.equal(menuFocusIndex(0, 2, "Tab"), null);
+  assert.equal(menuFocusIndex(0, 0, "ArrowDown"), null);
+
+  const more = source("../../components/board/desktop-more.tsx");
+  const app = source("../../components/board/app.tsx");
+  assert.match(more, /aria-haspopup="dialog"/);
+  assert.match(more, /aria-expanded=\{open\}/);
+  assert.match(more, /aria-current=\{tabAriaCurrent\(active\)\}/);
+  assert.match(more, /menuFocusIndex/);
+  assert.match(more, /moreRef\.current\?\.focus\(\)/);
+  assert.match(more, /\[aria-current="page"\]/);
+  assert.match(more, /onCancel/);
+  assert.match(app, /flex-nowrap/);
+  assert.match(app, /<DesktopMore/);
+  assert.match(app, /max-\[1099px\]:hidden/);
 });
 
 test("tab slots and More rows stay at or above the 44px floor", () => {
