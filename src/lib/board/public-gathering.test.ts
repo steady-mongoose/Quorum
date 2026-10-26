@@ -35,6 +35,7 @@ test("a shared page is the title, the date, the time, and the town, with noindex
   assert.match(page.body, /07:00/);
   assert.match(page.body, /Riverview/);
   assert.match(page.body, /Avouch is invite-only/);
+  assert.match(page.body, /the title, the date, the time, and the town/);
   assert.match(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
   assert.match(page.body, /data-section="week"/);
@@ -52,14 +53,14 @@ test("preview tags are built from the public fields only", () => {
   assert.match(tags, /property="og:description" content="October 24, 2026 · 07:00 · Riverview"/);
   assert.match(tags, /property="og:type" content="website"/);
   assert.match(tags, /property="og:url" content="https:\/\/avouchsocial\.com\/e\/3f2a9c1e-8241-4c3e-9a11-8241abcd1234"/);
-  assert.match(tags, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.webp"/);
+  assert.match(tags, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.jpg"/);
   assert.match(tags, /property="og:image:alt" content="Gustave Doré, Jacob’s Dream, 1866"/);
   assert.match(tags, /property="og:image:width" content="1200"/);
   assert.match(tags, /property="og:image:height" content="630"/);
   assert.equal(GATHERING_OG_IMAGE.includes(SHARED.title), false);
   assert.equal(GATHERING_OG_IMAGE.includes(ID), false);
   assert.match(tags, /name="twitter:card" content="summary_large_image"/);
-  assert.match(tags, /name="twitter:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.webp"/);
+  assert.match(tags, /name="twitter:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.jpg"/);
   assert.match(tags, /name="twitter:title" content="Saturday lifts"/);
   assert.match(tags, /name="twitter:description" content="October 24, 2026 · 07:00 · Riverview"/);
   for (const tag of metaContents(page.body)) {
@@ -88,15 +89,32 @@ test("an unshared gathering is a 404 and still noindex", () => {
 test("a free-text time never appears on the public page", () => {
   const sentence = "Meet behind the old mill on Route 9";
   assert.equal(publicClock(sentence), "");
-  assert.equal(publicClock("7 a.m."), "");
+  assert.equal(publicClock("Saturdays 7 a.m."), "");
+  assert.equal(publicClock("Saturday, 9:00 AM"), "");
   assert.equal(publicClock("7:00"), "");
   assert.equal(publicClock("24:00"), "");
   assert.equal(publicClock("07:00"), "07:00");
   assert.equal(publicClock("19:05"), "19:05");
+  assert.equal(publicClock("7 a.m."), "7:00 a.m.");
+  assert.equal(publicClock("7am"), "7:00 a.m.");
+  assert.equal(publicClock("7 AM"), "7:00 a.m.");
+  assert.equal(publicClock("9:00 AM"), "9:00 a.m.");
   assert.equal(publicClock("7:00 am"), "7:00 a.m.");
   assert.equal(publicClock("7:00 AM"), "7:00 a.m.");
   assert.equal(publicClock("07:00 pm"), "7:00 p.m.");
   assert.equal(publicClock("12:30 p.m."), "12:30 p.m.");
+  for (const hidden of ["Saturdays 7 a.m.", "Saturday, 9:00 AM"]) {
+    const hiddenPage = publicGatheringHtml({ ...SHARED, time: hidden }, ID);
+    assert.equal(hiddenPage.body.includes(hidden), false);
+    assert.equal(hiddenPage.body.includes("7:00"), false);
+    assert.equal(hiddenPage.body.includes("9:00"), false);
+    const hiddenJson = JSON.stringify(publicGatheringJson({ ...SHARED, time: hidden }));
+    assert.equal(hiddenJson.includes(hidden), false);
+    assert.equal(hiddenJson.includes("7:00"), false);
+  }
+  const bare = publicGatheringHtml({ ...SHARED, time: "7 a.m." }, ID);
+  assert.match(bare.body, /7:00 a\.m\./);
+  assert.equal(bare.body.includes("7 a.m."), false);
   const gathering = { ...SHARED, time: sentence };
   const page = publicGatheringHtml(gathering, ID);
   assert.equal(page.body.includes(sentence), false);
@@ -183,12 +201,27 @@ test("the server page links its CSS, and the preview image is a 1200 by 630 plat
   assert.match(sheet, /\.gathering-links a\s*\{[^}]*padding:\s*12px 4px/);
   assert.match(sheet, /body:has\(\.gathering-page\)::after\s*\{[^}]*content:\s*none/);
   assert.match(sheet, /\.gathering-page::after\s*\{[^}]*position:\s*absolute/);
-  const image = readFileSync(new URL("../../../public/art/dore-og.webp", import.meta.url));
-  assert.equal(image.subarray(0, 4).toString("ascii"), "RIFF");
-  assert.equal(image.subarray(8, 12).toString("ascii"), "WEBP");
-  const kind = image.subarray(12, 16).toString("ascii");
-  const width = kind === "VP8X" ? 1 + image[24] + (image[25] << 8) + (image[26] << 16) : image.readUInt16LE(26) & 0x3fff;
-  const height = kind === "VP8X" ? 1 + image[27] + (image[28] << 8) + (image[29] << 16) : image.readUInt16LE(28) & 0x3fff;
+  const image = readFileSync(new URL("../../../public/art/dore-og.jpg", import.meta.url));
+  assert.ok(image.length <= 150 * 1024, `preview is ${image.length} bytes`);
+  assert.equal(image[0], 0xff);
+  assert.equal(image[1], 0xd8);
+  let offset = 2;
+  let width = 0;
+  let height = 0;
+  while (offset + 8 < image.length && image[offset] === 0xff) {
+    const marker = image[offset + 1] ?? 0;
+    if (marker === 0xd8 || marker === 0xd9) {
+      offset += 2;
+      continue;
+    }
+    const length = image.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      height = image.readUInt16BE(offset + 5);
+      width = image.readUInt16BE(offset + 7);
+      break;
+    }
+    offset += 2 + length;
+  }
   assert.equal(width, 1200);
   assert.equal(height, 630);
 });
@@ -212,6 +245,8 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.match(client, /AbortSignal\.timeout/);
   assert.match(client, /JSON\.stringify\(\{ shared: input\.shared \}\)/);
   assert.match(share, /loadGathering/);
+  assert.match(share, /PUBLIC_TIME_NOTE/);
+  assert.match(share, /publicClock\(card\.time\)/);
   assert.match(http, /handlePublicGathering/);
   assert.match(http, /Sign in first/);
 });

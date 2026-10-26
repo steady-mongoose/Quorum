@@ -33,25 +33,32 @@ const PHONE = /\b(?:\+?1[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}\b/;
 export const INVITE_LINE =
   "Avouch is invite-only. Ask the person who shared this for an invite.";
 export const PRIVACY_LINE =
-  "This page shows the title, the date, the town, and the time when it is a clock. It does not show who is coming, a street, or what was written afterwards.";
+  "This page shows the title, the date, the time, and the town. It does not show who is coming, a street, or what was written afterwards.";
+export const PUBLIC_TIME_NOTE =
+  "The time won't appear on the public page unless it's a plain clock time.";
 
 const CLOCK_24 = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const CLOCK_12 = /^(0?[1-9]|1[0-2]):([0-5]\d)\s*([ap])\.?m\.?$/i;
+const CLOCK_HOUR = /^(0?[1-9]|1[0-2])\s*([ap])\.?m\.?$/i;
 
 /**
- * A strict clock. 24-hour times stay `HH:MM`. A 12-hour time becomes
- * `h:mm a.m.` or `h:mm p.m.`. Anything else, including a place written
- * into the time, is not public.
+ * A plain clock, and nothing else. `07:00` stays `07:00`. `7 a.m.`, `7am`,
+ * `7 AM`, and `9:00 AM` become `h:mm a.m.` or `h:mm p.m.`. A weekday or any
+ * other words stay off the public page.
  */
 export function publicClock(value: string): string {
-  const time = value.trim();
+  const time = value.trim().replace(/\s+/g, " ");
   if (CLOCK_24.test(time)) return time;
-  const match = CLOCK_12.exec(time);
-  if (!match) return "";
-  const hour = String(Number(match[1]));
-  const minute = match[2] ?? "";
-  const meridiem = match[3]?.toLowerCase() === "p" ? "p.m." : "a.m.";
-  return `${hour}:${minute} ${meridiem}`;
+  const withMinutes = CLOCK_12.exec(time);
+  if (withMinutes) return clockLabel(withMinutes[1], withMinutes[2], withMinutes[3]);
+  const hourOnly = CLOCK_HOUR.exec(time);
+  if (!hourOnly) return "";
+  return clockLabel(hourOnly[1], "00", hourOnly[2]);
+}
+
+function clockLabel(hour: string | undefined, minute: string | undefined, meridiem: string | undefined): string {
+  const suffix = meridiem?.toLowerCase() === "p" ? "p.m." : "a.m.";
+  return `${String(Number(hour))}:${minute ?? "00"} ${suffix}`;
 }
 
 function forPublic(gathering: PublicGathering): PublicGathering {
@@ -143,7 +150,7 @@ export type PublicMeta =
   | { property: string; content: string };
 
 /** One public-domain Doré plate. The same file for every gathering, with no card text on it. */
-export const GATHERING_OG_IMAGE = "https://avouchsocial.com/art/dore-og.webp";
+export const GATHERING_OG_IMAGE = "https://avouchsocial.com/art/dore-og.jpg";
 const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
 
 /** Head tags for one gathering. A missing gathering stays noindex and unnamed. */

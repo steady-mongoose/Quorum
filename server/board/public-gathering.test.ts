@@ -193,7 +193,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const html = await page.text();
     assert.match(html, /<meta name="robots" content="noindex">/);
     assert.match(html, /property="og:title" content="Saturday lifts"/);
-    assert.match(html, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.webp"/);
+    assert.match(html, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.jpg"/);
     const head = html.slice(0, html.indexOf("</head>"));
     assert.match(head, /<link rel="stylesheet" href="\/gathering\.css">/);
     assert.match(html, /property="og:description" content="October 24, 2026 · 07:00 · Riverview"/);

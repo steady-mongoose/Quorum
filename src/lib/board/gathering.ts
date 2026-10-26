@@ -36,7 +36,7 @@ export type GatheringShare = {
 /**
  * What may leave the app once the organizer has turned sharing on.
  * Title, date, time, and town. No street, host, attendee, or invite code.
- * The public page shows the title, the date, the town, and a clock.
+ * The public page shows the title, the date, the time, and the town.
  */
 export function gatheringShare(card: {
   id: string;

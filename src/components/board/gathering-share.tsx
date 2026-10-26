@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadGathering, saveGathering, setGatheringShare } from "@/lib/board/gathering-public";
+import { PUBLIC_TIME_NOTE, publicClock } from "@/lib/board/public-gathering";
 import { authorName } from "@/lib/board/model";
 import type { MeetingCard } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -19,6 +20,7 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
   const host = card.host === me;
   const moderator = admin || stewardRooms.includes(card.room);
   const shared = card.sharePublic === true;
+  const plainClock = publicClock(card.time) !== "";
   const mayRead = host || moderator;
   const allowed = host || (moderator && shared);
 
@@ -85,9 +87,12 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
       </label>
       <p className="max-w-prose text-sm text-muted">
         {host
-          ? "Off until you turn it on. The public page shows the title, the date, the town, and the time when it is a clock."
+          ? "Off until you turn it on. The public page shows the title, the date, the time, and the town."
           : "A steward can turn sharing off."}
       </p>
+      {host && card.time.trim() !== "" && !plainClock ? (
+        <p className="max-w-prose text-sm text-muted">{PUBLIC_TIME_NOTE}</p>
+      ) : null}
       {error ? (
         <p className="text-sm text-signal" role="alert">
           {error}
