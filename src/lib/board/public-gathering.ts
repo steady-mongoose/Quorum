@@ -33,7 +33,30 @@ const PHONE = /\b(?:\+?1[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}\b/;
 export const INVITE_LINE =
   "Avouch is invite-only. Ask the person who shared this for an invite.";
 export const PRIVACY_LINE =
-  "This page shows the title, the date, the time, and the town. It does not show who is coming, a street, or what was written afterwards.";
+  "This page shows the title, the date, the town, and the time when it is a clock. It does not show who is coming, a street, or what was written afterwards.";
+
+const CLOCK_24 = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const CLOCK_12 = /^(0?[1-9]|1[0-2]):([0-5]\d)\s*([ap])\.?m\.?$/i;
+
+/**
+ * A strict clock. 24-hour times stay `HH:MM`. A 12-hour time becomes
+ * `h:mm a.m.` or `h:mm p.m.`. Anything else, including a place written
+ * into the time, is not public.
+ */
+export function publicClock(value: string): string {
+  const time = value.trim();
+  if (CLOCK_24.test(time)) return time;
+  const match = CLOCK_12.exec(time);
+  if (!match) return "";
+  const hour = String(Number(match[1]));
+  const minute = match[2] ?? "";
+  const meridiem = match[3]?.toLowerCase() === "p" ? "p.m." : "a.m.";
+  return `${hour}:${minute} ${meridiem}`;
+}
+
+function forPublic(gathering: PublicGathering): PublicGathering {
+  return { ...gathering, time: publicClock(gathering.time) };
+}
 
 export function isGatheringId(id: string): boolean {
   return GATHERING_ID.test(id);
@@ -99,11 +122,13 @@ export function readPublicGathering(value: unknown): PublicGathering | null {
     time: row.time,
     town: row.town,
   });
-  return accepted.ok ? accepted.gathering : null;
+  if (!accepted.ok) return null;
+  return forPublic(accepted.gathering);
 }
 
 export function publicPreview(gathering: PublicGathering): { title: string; description: string } {
-  const description = [publicDateLabel(gathering.date), gathering.time, gathering.town]
+  const shown = forPublic(gathering);
+  const description = [publicDateLabel(shown.date), shown.time, shown.town]
     .filter(Boolean)
     .join(" · ");
   return {
@@ -117,11 +142,15 @@ export type PublicMeta =
   | { name: string; content: string }
   | { property: string; content: string };
 
+/** One public-domain Doré plate. The same file for every gathering, with no card text on it. */
+export const GATHERING_OG_IMAGE = "https://avouchsocial.com/art/dore-og.webp";
+const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
+
 /** Head tags for one gathering. A missing gathering stays noindex and unnamed. */
 export function publicGatheringMeta(gathering: PublicGathering | null, id: string): PublicMeta[] {
   const robots = { name: "robots", content: "noindex" };
   if (!gathering || !isGatheringId(id)) return [robots, { title: "Not found" }];
-  const preview = publicPreview(gathering);
+  const preview = publicPreview(forPublic(gathering));
   const url = gatheringPublicUrl(id);
   return [
     robots,
@@ -130,9 +159,15 @@ export function publicGatheringMeta(gathering: PublicGathering | null, id: strin
     { property: "og:description", content: preview.description },
     { property: "og:type", content: "website" },
     { property: "og:url", content: url },
-    { name: "twitter:card", content: "summary" },
+    { property: "og:image", content: GATHERING_OG_IMAGE },
+    { property: "og:image:alt", content: HERO },
+    { property: "og:image:width", content: "1200" },
+    { property: "og:image:height", content: "630" },
+    { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:title", content: preview.title },
     { name: "twitter:description", content: preview.description },
+    { name: "twitter:image", content: GATHERING_OG_IMAGE },
+    { name: "twitter:image:alt", content: HERO },
   ];
 }
 
@@ -155,8 +190,6 @@ function metaTags(gathering: PublicGathering | null, id: string): string {
     })
     .join("\n");
 }
-
-const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
 
 function documentShell(title: string, gathering: PublicGathering | null, id: string, main: string): string {
   return `<!doctype html>
@@ -206,17 +239,18 @@ export function publicGatheringHtml(
       ),
     };
   }
-  const date = publicDateLabel(gathering.date);
+  const shown = forPublic(gathering);
+  const date = publicDateLabel(shown.date);
   const dateLine = date
-    ? `\n<p class="gathering-line"><time datetime="${escapeHtml(gathering.date)}">${escapeHtml(date)}</time></p>`
+    ? `\n<p class="gathering-line"><time datetime="${escapeHtml(shown.date)}">${escapeHtml(date)}</time></p>`
     : "";
-  const timeLine = gathering.time ? `\n<p class="gathering-line">${escapeHtml(gathering.time)}</p>` : "";
-  const townLine = gathering.town ? `\n<p class="gathering-town">${escapeHtml(gathering.town)}</p>` : "";
+  const timeLine = shown.time ? `\n<p class="gathering-line">${escapeHtml(shown.time)}</p>` : "";
+  const townLine = shown.town ? `\n<p class="gathering-town">${escapeHtml(shown.town)}</p>` : "";
   return {
     status: 200,
     body: documentShell(
-      gathering.title,
-      gathering,
+      shown.title,
+      shown,
       id,
       `<p class="gathering-kicker">Avouch Social</p>
 <h1 class="gathering-title illum">${escapeHtml(gathering.title)}</h1>${dateLine}${timeLine}${townLine}
@@ -230,19 +264,18 @@ export function publicGatheringHtml(
   };
 }
 
-/** JSON for the page. Only the four public fields, or a 404. */
+/** JSON for the page. Title, date, and town, plus a clock when the time is one. */
 export function publicGatheringJson(gathering: PublicGathering | null): {
   status: 200 | 404;
-  body: PublicGathering | { error: "Not found." };
+  body: { title: string; date: string; town: string; time?: string } | { error: "Not found." };
 } {
   if (!gathering) return { status: 404, body: { error: "Not found." } };
-  return {
-    status: 200,
-    body: {
-      title: gathering.title,
-      date: gathering.date,
-      time: gathering.time,
-      town: gathering.town,
-    },
+  const shown = forPublic(gathering);
+  const body: { title: string; date: string; town: string; time?: string } = {
+    title: shown.title,
+    date: shown.date,
+    town: shown.town,
   };
+  if (shown.time) body.time = shown.time;
+  return { status: 200, body };
 }

@@ -1,4 +1,8 @@
-/* Public /e page. The band and plate live in backgrounds.css. This sheet is the type. */
+/* Public /e page. The band and plate live in backgrounds.css. This sheet is the type
+   and the base reset, because the server page does not load the app sheet. */
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
+.gathering-plate p,.gathering-plate h1,.gathering-plate h2{margin:0}
 @font-face {
   font-family: "EB Garamond";
   src: url("/fonts/EBGaramond-latin.woff2") format("woff2");
@@ -10,7 +14,9 @@
   background: var(--bg);
   color: var(--fg);
   min-height: 100dvh;
+  width: 100%;
 }
+.gathering-page .hero-band { width: 100%; margin: 0; }
 .gathering-plate {
   display: flex;
   flex-direction: column;
@@ -36,8 +42,26 @@
 .gathering-links { display: flex; flex-wrap: wrap; gap: 1rem; }
 .gathering-links a {
   color: var(--fg);
+  box-sizing: border-box;
   min-height: 44px;
+  padding: 12px 4px;
   display: inline-flex;
   align-items: center;
   text-decoration: underline;
+}
+/* The desktop gold frame is fixed to the viewport. On this page it would stop
+   partway down and cross Privacy, so the page carries the frame instead. */
+@media (min-width:1024px) {
+  .gathering-page { position: relative; }
+  .gathering-page::after {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    pointer-events: none;
+    z-index: 5;
+    border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+    outline: 1px solid color-mix(in srgb, var(--gold) 25%, transparent);
+    outline-offset: -7px;
+  }
+  body:has(.gathering-page)::after { content: none; }
 }

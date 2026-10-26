@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { INVITE_LINE, PRIVACY_LINE, publicDateLabel, type PublicGathering } from "@/lib/board/public-gathering";
+import {
+  INVITE_LINE,
+  PRIVACY_LINE,
+  publicClock,
+  publicDateLabel,
+  type PublicGathering,
+} from "@/lib/board/public-gathering";
 import { heroLabel } from "@/lib/board/engraved";
 
 const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
@@ -43,6 +49,7 @@ export function PublicGatheringMissing() {
 /** Title, date, time, and town. Nothing else from the gathering is rendered. */
 export function PublicGatheringView({ gathering }: { gathering: PublicGathering }) {
   const date = publicDateLabel(gathering.date);
+  const time = publicClock(gathering.time);
   return (
     <PublicGatheringFrame>
       <p className="gathering-kicker">Avouch Social</p>
@@ -52,7 +59,7 @@ export function PublicGatheringView({ gathering }: { gathering: PublicGathering 
           <time dateTime={gathering.date}>{date}</time>
         </p>
       ) : null}
-      {gathering.time ? <p className="gathering-line">{gathering.time}</p> : null}
+      {time ? <p className="gathering-line">{time}</p> : null}
       {gathering.town ? <p className="gathering-town">{gathering.town}</p> : null}
       <p className="gathering-copy">{INVITE_LINE}</p>
       <p className="gathering-links">

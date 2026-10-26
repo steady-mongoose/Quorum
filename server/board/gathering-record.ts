@@ -154,7 +154,10 @@ export async function saveGathering(
   return { ok: true, gathering: toRecord(saved, input.userId) };
 }
 
-/** The host or a steward of the room. Everyone else is refused. */
+/**
+ * The host turns sharing on or off. A steward of that room can only turn it
+ * off. Everyone else is refused.
+ */
 export async function setGatheringShared(
   db: Db,
   input: { userId: string; id: string; shared: boolean; now: Date },
@@ -164,8 +167,13 @@ export async function setGatheringShared(
   if (!row || (await hidden(db, row, input.now))) return fail(404, "Not found.");
   if (await openBan(db, input.userId, input.now, row.room_id)) return fail(404, "Not found.");
   const actor = await actorRole(db, input.userId);
-  const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
-  if (!allowed) return fail(403, "Only the organizer can change sharing.");
+  const host = row.host_user_id === input.userId;
+  const steward = stewardsRoom(actor, row.room_id);
+  if (input.shared) {
+    if (!host) return fail(403, "Only the organizer can share this gathering.");
+  } else if (!host && !steward) {
+    return fail(403, "Only the organizer can change sharing.");
+  }
   await db.query(
     `update public_gathering set shared = $2, updated_at = now() where id = $1 and removed = false`,
     [row.id, input.shared],

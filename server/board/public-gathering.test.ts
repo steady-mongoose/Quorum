@@ -153,10 +153,20 @@ test("the public page is the live stored gathering, and sharing loads from the s
       roomId: "shop",
       title: "Saturday lifts",
       date: "2026-10-24",
-      time: "7 a.m.",
+      time: "07:00",
       place: "Dale's garage, 1010 E Brandon Blvd, Riverview",
     });
     assert.equal(created.status, 200);
+
+    const stewardOn = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": ruth },
+        body: JSON.stringify({ shared: true }),
+      }),
+    );
+    assert.equal(stewardOn.status, 403);
+    assert.equal((await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`))).status, 404);
 
     const off = await handler(
       new Request(`http://127.0.0.1:8787/api/gatherings/${DALE_ID}`, {
@@ -183,11 +193,14 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const html = await page.text();
     assert.match(html, /<meta name="robots" content="noindex">/);
     assert.match(html, /property="og:title" content="Saturday lifts"/);
-    assert.match(html, /property="og:description" content="October 24, 2026 · 7 a\.m\. · Riverview"/);
+    assert.match(html, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.webp"/);
+    const head = html.slice(0, html.indexOf("</head>"));
+    assert.match(head, /<link rel="stylesheet" href="\/gathering\.css">/);
+    assert.match(html, /property="og:description" content="October 24, 2026 · 07:00 · Riverview"/);
     assert.match(html, /property="og:type" content="website"/);
     assert.match(html, /name="twitter:title" content="Saturday lifts"/);
-    assert.match(html, /name="twitter:description" content="October 24, 2026 · 7 a\.m\. · Riverview"/);
-    assert.match(html, /7 a\.m\./);
+    assert.match(html, /name="twitter:description" content="October 24, 2026 · 07:00 · Riverview"/);
+    assert.match(html, /07:00/);
     assert.match(html, /Riverview/);
     assert.match(html, /hero-band/);
     assert.equal(html.includes("Free prize"), false);
@@ -204,7 +217,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const body = (await jsonPage.json()) as Record<string, unknown>;
     assert.deepEqual(Object.keys(body).sort(), ["date", "time", "title", "town"]);
     assert.equal(body.title, "Saturday lifts");
-    assert.equal(body.time, "7 a.m.");
+    assert.equal(body.time, "07:00");
     assert.equal("place" in body, false);
     assert.equal("host" in body, false);
 
@@ -213,14 +226,14 @@ test("the public page is the live stored gathering, and sharing loads from the s
       roomId: "shop",
       title: "Saturday lifts, later",
       date: "2026-10-31",
-      time: "8 a.m.",
+      time: "8:00 a.m.",
       place: "The shop, Riverview",
     });
     assert.equal(edited.status, 200);
     const live = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
     const liveBody = (await live.json()) as { title: string; time: string; date: string; town: string };
     assert.equal(liveBody.title, "Saturday lifts, later");
-    assert.equal(liveBody.time, "8 a.m.");
+    assert.equal(liveBody.time, "8:00 a.m.");
     assert.equal(liveBody.date, "2026-10-31");
     assert.equal(liveBody.town, "Riverview");
 
@@ -232,6 +245,16 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const loadedBody = (await loaded.json()) as { gathering: { shared: boolean; title: string } };
     assert.equal(loadedBody.gathering.shared, true);
     assert.equal(loadedBody.gathering.title, "Saturday lifts, later");
+
+    const stewardAgain = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": ruth },
+        body: JSON.stringify({ shared: true }),
+      }),
+    );
+    assert.equal(stewardAgain.status, 403);
+    assert.equal((await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`))).status, 200);
 
     const steward = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
@@ -266,6 +289,74 @@ test("the public page is the live stored gathering, and sharing loads from the s
 
     const door = await handler(new Request("http://127.0.0.1:8787/api/invite-log"));
     assert.equal(door.status, 401);
+  } finally {
+    await close();
+  }
+});
+
+test("a free-text time is stored for the host and omitted from the public page", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const dale = await user(db, "Dale");
+    const ruth = await user(db, "Ruth");
+    await grant(db, dale, "Dale", "member");
+    await grant(db, ruth, "Ruth", "member");
+    await grant(db, ruth, "Ruth", "steward", "shop");
+    const handler = app(db);
+    const sentence = "Meet behind the old mill on Route 9";
+    const created = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts",
+      date: "2026-10-24",
+      time: sentence,
+      place: "Riverview",
+    });
+    assert.equal(created.status, 200);
+    const turnedOn = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": ruth },
+        body: JSON.stringify({ shared: true }),
+      }),
+    );
+    assert.equal(turnedOn.status, 403);
+    const hostOn = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": dale },
+        body: JSON.stringify({ shared: true, time: sentence }),
+      }),
+    );
+    assert.equal(hostOn.status, 200);
+    const page = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`));
+    const html = await page.text();
+    assert.equal(html.includes(sentence), false);
+    assert.equal(html.includes("Route"), false);
+    assert.equal(html.includes("mill"), false);
+    const tags = (html.match(/<meta\b[^>]*>/gi) ?? []).join("\n");
+    assert.equal(tags.includes(sentence), false);
+    assert.match(tags, /property="og:description" content="October 24, 2026 · Riverview"/);
+    const jsonPage = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
+    const body = (await jsonPage.json()) as Record<string, unknown>;
+    assert.equal(JSON.stringify(body).includes(sentence), false);
+    assert.equal("time" in body, false);
+    const mine = await handler(
+      new Request(`http://127.0.0.1:8787/api/gatherings/${DALE_ID}`, {
+        headers: { "x-user-id": dale },
+      }),
+    );
+    const stored = (await mine.json()) as { gathering: { time: string } };
+    assert.equal(stored.gathering.time, sentence);
+    const off = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": ruth },
+        body: JSON.stringify({ shared: false }),
+      }),
+    );
+    assert.equal(off.status, 200);
+    assert.equal((await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`))).status, 404);
   } finally {
     await close();
   }

@@ -16,11 +16,14 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
   const stewardRooms = useBoard((state) => state.stewardRooms);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const allowed = card.host === me || admin || stewardRooms.includes(card.room);
+  const host = card.host === me;
+  const moderator = admin || stewardRooms.includes(card.room);
   const shared = card.sharePublic === true;
+  const mayRead = host || moderator;
+  const allowed = host || (moderator && shared);
 
   useEffect(() => {
-    if (!remote || !allowed) return;
+    if (!remote || !mayRead) return;
     let live = true;
     void loadGathering(card.id).then((row) => {
       if (!live || !row) return;
@@ -29,13 +32,17 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
     return () => {
       live = false;
     };
-  }, [allowed, card.id, remote, updateCard]);
+  }, [card.id, mayRead, remote, updateCard]);
 
   if (!allowed) return null;
 
   const change = (next: boolean) => {
     if (!remote) {
       setError("Sharing is saved on the server.");
+      return;
+    }
+    if (next && !host) {
+      setError("Only the organizer can share this gathering.");
       return;
     }
     setPending(true);
@@ -77,7 +84,9 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
         Share this gathering
       </label>
       <p className="max-w-prose text-sm text-muted">
-        Off until you turn it on. The public page shows the title, the date, the time, and the town.
+        {host
+          ? "Off until you turn it on. The public page shows the title, the date, the town, and the time when it is a clock."
+          : "A steward can turn sharing off."}
       </p>
       {error ? (
         <p className="text-sm text-signal" role="alert">
