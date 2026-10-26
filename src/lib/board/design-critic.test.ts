@@ -40,7 +40,8 @@ test("the design follow-ups are in the screens they belong to", () => {
   const account = source("../../components/board/account-door.tsx");
 
   assert.equal(dm.includes("plain text, not encrypted"), false);
-  assert.match(dm, /The words stay in this browser, are not encrypted/);
+  assert.equal(dm.includes("The words stay in this browser, are not encrypted"), false);
+  assert.match(dm, /\{DM_DEMO_NOTICE\}/);
   assert.match(app, /Skip to content/);
   assert.match(app, /id="main"/);
   assert.match(app, /tabIndex=\{-1\}/);

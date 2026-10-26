@@ -74,6 +74,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0003_rate_limit.sql",
       "0004_media.sql",
       "0005_rate_limit_index.sql",
+      "0006_dm_e2ee.sql",
       "0007_media_worker_role.sql",
       "0008_board.sql",
       "0010_moderation.sql",
@@ -84,6 +85,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0015_hard_rules.sql",
       "0017_csam_hold_key.sql",
       "0018_public_gathering.sql",
+      "0020_unclaimed_rooms.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -155,6 +157,17 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
 });
 
+test("migration 0020 adds unclaimed rooms and does not replace anonymize_board_user", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0020_unclaimed_rooms.sql"), "utf8");
+  assert.match(sql, /Numbered 0020/);
+  assert.match(sql, /0019 stays reserved/);
+  assert.match(sql, /create table if not exists claim_request/i);
+  assert.match(sql, /create or replace function anonymize_claim_user/);
+  assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
+  assert.equal(/create or replace function anonymize_dm_user/.test(sql), false);
+  assert.equal(sql.includes("like_count"), false);
+});
+
 test("0014 adds the room bar column and leaves anonymize functions alone", () => {
   const sql = readFileSync(join(projectRoot(), "migrations/0014_board_ban_room.sql"), "utf8");
   assert.match(sql, /Numbered 0014/);
@@ -199,6 +212,16 @@ test("this workspace's auth schema copy is byte-identical to its source", () => 
     pair.source,
     "migrations/0001_auth.sql has been edited — it must stay a verbatim copy of migrations/auth/0001_auth.sql",
   );
+});
+
+test("the private-message migration is flagged for the owner's approval", () => {
+  const text = readFileSync(join(projectRoot(), "migrations/0006_dm_e2ee.sql"), "utf8");
+  assert.match(text, /owner must approve/i);
+  assert.match(text, /ciphertext/i);
+  assert.doesNotMatch(text, /plaintext/i);
+  assert.doesNotMatch(text, /reshare/i);
+  assert.doesNotMatch(text, /\blikes?\b/i);
+  assert.doesNotMatch(text, /\bscore\b/i);
 });
 
 test("the copy check reads both files and catches an edit", () => {

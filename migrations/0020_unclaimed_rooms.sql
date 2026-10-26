@@ -3,9 +3,9 @@
 -- decision from merging. The API process does not apply migrations.
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
--- Numbered 0020. 0019 is reserved by the audience-rooms work. 0006 is taken
--- by PR #10. This file does not create or replace a function that another
--- migration owns.
+-- Numbered 0020. 0019 stays reserved for audience rooms (PR #49).
+-- 0006 has already landed. This file does not create or replace a function
+-- that another migration owns.
 --
 -- A seeded listing is a room with status draft or unclaimed. Existing rooms
 -- stay active. Members do not see a draft or an unclaimed room. A claim is

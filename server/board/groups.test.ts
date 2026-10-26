@@ -1180,6 +1180,7 @@ test("deleting an account clears that name from the group tables", async () => {
       [
         "anonymize_board_user",
         "anonymize_claim_user",
+        "anonymize_dm_user",
         "anonymize_moderation_user",
         "anonymize_places_user",
         "anonymize_room_chat_user",
@@ -1191,8 +1192,11 @@ test("deleting an account clears that name from the group tables", async () => {
     assert.match(claimFn?.prosrc ?? "", /claim_request/);
     assert.equal(claimFn?.prosrc.includes("board_post"), false);
     assert.equal(boardFn?.prosrc.includes("claim_request"), false);
+    const dmFn = functions.find((row) => row.proname === "anonymize_dm_user");
     const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");
     const moderationFn = functions.find((row) => row.proname === "anonymize_moderation_user");
+    assert.match(dmFn?.prosrc ?? "", /Former member/);
+    assert.equal(dmFn?.prosrc.includes("theme_group"), false);
     assert.equal(boardFn?.prosrc.includes("theme_group"), false);
     assert.equal(groupFn?.prosrc.includes("board_post"), false);
     assert.match(moderationFn?.prosrc ?? "", /board_csam_hold/);
@@ -1203,6 +1207,7 @@ test("deleting an account clears that name from the group tables", async () => {
     );
     const triggerNames = triggers.map((row) => row.tgname);
     assert.equal(triggerNames.includes("anonymize_board_user"), true);
+    assert.equal(triggerNames.includes("anonymize_dm_user"), true);
     assert.equal(triggerNames.includes("anonymize_theme_group_user"), true);
 
     const maria = randomUUID();
