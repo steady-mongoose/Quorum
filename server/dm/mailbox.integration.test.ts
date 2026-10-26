@@ -7,6 +7,12 @@ import { rememberNamedAccounts } from "./store.ts";
 import type { Db } from "../db.ts";
 import { DM_SEND_LIMIT, consumeLimit } from "../rate-limit.ts";
 import {
+  browserVaultStore,
+  forgetBrowserVault,
+  loadBrowserVault,
+  settleBrowserVault,
+} from "../../src/lib/e2ee/browser.ts";
+import {
   confirmSafety,
   createLocalDevice,
   createSiblingDevice,
@@ -558,6 +564,222 @@ test("a deleted member's message stays readable, and a second read does not reus
     if (!refused.ok) return;
     assert.equal(refused.messages.some((message) => message.text === TEXT), false);
     assert.equal(refused.unreadable > 0, true);
+  } finally {
+    await close();
+  }
+});
+
+function installMemoryIndexedDb(): void {
+  const databases = new Map<string, { version: number; stores: Map<string, Map<string, unknown>> }>();
+  globalThis.indexedDB = {
+    open(name: string, version: number) {
+      const request: {
+        result?: {
+          objectStoreNames: { contains(store: string): boolean };
+          createObjectStore(store: string): void;
+          transaction(store: string): {
+            objectStore(): {
+              get(id: string): { result?: unknown; onsuccess: (() => void) | null };
+              put(value: unknown, id: string): { onsuccess: (() => void) | null };
+              delete(id: string): { onsuccess: (() => void) | null };
+            };
+          };
+          close(): void;
+        };
+        onsuccess: (() => void) | null;
+        onupgradeneeded: (() => void) | null;
+        onerror: (() => void) | null;
+      } = { onsuccess: null, onupgradeneeded: null, onerror: null };
+      queueMicrotask(() => {
+        let record = databases.get(name);
+        if (!record) {
+          record = { version: 0, stores: new Map() };
+          databases.set(name, record);
+        }
+        const database = {
+          objectStoreNames: {
+            contains(store: string) {
+              return record.stores.has(store);
+            },
+          },
+          createObjectStore(store: string) {
+            record.stores.set(store, new Map());
+          },
+          transaction(store: string) {
+            const saved = record.stores.get(store);
+            if (!saved) throw new Error("missing store");
+            return {
+              objectStore() {
+                return {
+                  get(id: string) {
+                    const getRequest: { result?: unknown; onsuccess: (() => void) | null } = {
+                      onsuccess: null,
+                    };
+                    queueMicrotask(() => {
+                      getRequest.result = saved.get(id);
+                      getRequest.onsuccess?.();
+                    });
+                    return getRequest;
+                  },
+                  put(value: unknown, id: string) {
+                    const putRequest: { onsuccess: (() => void) | null } = { onsuccess: null };
+                    queueMicrotask(() => {
+                      saved.set(id, value);
+                      putRequest.onsuccess?.();
+                    });
+                    return putRequest;
+                  },
+                  delete(id: string) {
+                    const deleteRequest: { onsuccess: (() => void) | null } = { onsuccess: null };
+                    queueMicrotask(() => {
+                      saved.delete(id);
+                      deleteRequest.onsuccess?.();
+                    });
+                    return deleteRequest;
+                  },
+                };
+              },
+            };
+          },
+          close() {},
+        };
+        request.result = database;
+        if (record.version < version) {
+          request.onupgradeneeded?.();
+          record.version = version;
+        }
+        request.onsuccess?.();
+      });
+      return request;
+    },
+  } as unknown as IDBFactory;
+}
+
+test("sign-out keeps the device keys, and sign-in still decrypts a new message", async () => {
+  installMemoryIndexedDb();
+  const nextText = "The next framing night needs the long saw.";
+  const { db, close } = await openTestDb();
+  const now = new Date("2026-10-19T12:00:00Z");
+  const handler = createApp({
+    db,
+    origins: ["http://localhost:8080"],
+    now: () => now,
+    createAccount: async () => {
+      throw new Error("unused");
+    },
+    signIn: async () => {
+      throw new Error("unused");
+    },
+    readSession: async (headers) => {
+      const id = headers.get("x-user-id");
+      if (!id) return null;
+      const rows = await db.query<{ id: string; name: string; email: string }>(
+        `select id, name, email from "user" where id = $1`,
+        [id],
+      );
+      const user = rows[0];
+      return user ? { id: user.id, name: user.name, email: user.email } : null;
+    },
+    forwardAuth: async () => new Response(null, { status: 404 }),
+  });
+  try {
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    const aliceState = await createLocalDevice(alice, "Browser");
+    await loadBrowserVault();
+    const aliceVault = browserVaultStore();
+    aliceVault.write(aliceState);
+    await settleBrowserVault();
+    const bobVault = memoryVault(await createLocalDevice(bob, "Browser"));
+    assert.equal((await registerDevice(transport(handler, alice), aliceVault)).ok, true);
+    assert.equal((await registerDevice(transport(handler, bob), bobVault)).ok, true);
+    const postId = randomUUID();
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-sign-back', now())`,
+      [postId, alice, ["Alice", "Bob"]],
+    );
+    await rememberNamedAccounts(db, postId);
+    assert.equal((await recordAttendance(transport(handler, alice), ["s-sign-back"])).ok, true);
+    assert.equal((await recordAttendance(transport(handler, bob), ["s-sign-back"])).ok, true);
+    const opened = await openEncryptedThread(transport(handler, bob), alice);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const blocked = await sendEncrypted(
+      transport(handler, bob),
+      bobVault,
+      opened.thread.id,
+      alice,
+      TEXT,
+    );
+    assert.equal(blocked.ok, false);
+    if (blocked.ok || !blocked.safety) return;
+    confirmSafety(bobVault, alice, blocked.safety);
+    assert.equal(
+      (
+        await sendEncrypted(
+          transport(handler, bob),
+          bobVault,
+          opened.thread.id,
+          alice,
+          TEXT,
+        )
+      ).ok,
+      true,
+    );
+    const first = await readEncrypted(
+      transport(handler, alice),
+      aliceVault,
+      opened.thread.id,
+      alice,
+      "Alice",
+      "Bob",
+      bob,
+    );
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.equal(first.messages[0]?.text, TEXT);
+    await settleBrowserVault();
+
+    await forgetBrowserVault();
+    const signedOut = aliceVault.read();
+    assert.equal(signedOut?.device.identitySecret, aliceState.device.identitySecret);
+    assert.equal(signedOut?.device.boxSecret, aliceState.device.boxSecret);
+    assert.equal(signedOut?.opened, undefined);
+    const signedIn = await loadBrowserVault();
+    assert.equal(signedIn?.device.deviceId, aliceState.device.deviceId);
+    assert.equal(signedIn?.device.identitySecret, aliceState.device.identitySecret);
+    assert.equal(signedIn?.opened, undefined);
+    const again = await registerDevice(transport(handler, alice), aliceVault);
+    assert.equal(again.ok, true, again.ok ? "" : again.message);
+    assert.equal(
+      (
+        await sendEncrypted(
+          transport(handler, bob),
+          bobVault,
+          opened.thread.id,
+          alice,
+          nextText,
+        )
+      ).ok,
+      true,
+    );
+    const second = await readEncrypted(
+      transport(handler, alice),
+      aliceVault,
+      opened.thread.id,
+      alice,
+      "Alice",
+      "Bob",
+      bob,
+    );
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.equal(
+      second.messages.some((message) => message.text === nextText),
+      true,
+    );
   } finally {
     await close();
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { apiFetch } from "../api-base.ts";
 import {
   browserVaultStore,
   forgetBrowserVault,
@@ -115,29 +116,81 @@ function vault(): VaultState {
   } as VaultState;
 }
 
-test("sign-out deletes the sealed message cache, its key, and the memory copy", async () => {
-  const databases = installMemoryIndexedDb();
-  const source = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
-  assert.match(source, /server\.signOut\(\)\.then/);
-  assert.match(source, /await forgetBrowserVault\(\)/);
+function cipherHasText(saved: Store | undefined, id: string): boolean {
+  const sealed = saved?.get(id) as { ciphertext?: ArrayBuffer } | undefined;
+  const bytes = new Uint8Array(sealed?.ciphertext ?? new ArrayBuffer(0));
+  return new TextDecoder().decode(bytes).includes(TEXT);
+}
 
+test("sign-out deletes only the decrypted-message cache and its key", async () => {
+  const databases = installMemoryIndexedDb();
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const session = readFileSync(new URL("../server-session.tsx", import.meta.url), "utf8");
+  assert.match(app, /server\.signOut\(\)\.finally/);
+  assert.doesNotMatch(app, /forgetBrowserVault/);
+  assert.match(session, /await forgetBrowserVault\(\)[\s\S]*await signOutServer\(\)/);
+  assert.match(session, /response\.status === 401 \|\| \(response\.status === 200 && !session\)/);
+
+  await loadBrowserVault();
   const store = browserVaultStore();
   store.write(vault());
   await settleBrowserVault();
   const loaded = await loadBrowserVault();
   assert.equal(loaded?.opened?.[0]?.text, TEXT);
+  assert.equal(loaded?.device.boxSecret, "device-secret");
   const saved = databases.get("avouch-e2ee")?.stores.get("vault");
-  assert.ok(saved?.has("wrapping-key"));
-  assert.ok(saved?.has("sealed"));
-  const sealed = saved?.get("sealed") as { ciphertext?: ArrayBuffer } | undefined;
-  const bytes = new Uint8Array(sealed?.ciphertext ?? new ArrayBuffer(0));
-  assert.equal(new TextDecoder().decode(bytes).includes(TEXT), false);
+  assert.equal(saved?.has("wrapping-key"), true);
+  assert.equal(saved?.has("sealed"), true);
+  assert.equal(saved?.has("cache-key"), true);
+  assert.equal(saved?.has("message-cache"), true);
+  assert.equal(cipherHasText(saved, "sealed"), false);
+  assert.equal(cipherHasText(saved, "message-cache"), false);
 
+  const raced = browserVaultStore();
+  raced.write(vault());
   await forgetBrowserVault();
-  assert.equal(store.read(), null);
-  assert.equal(browserVaultStore().read(), null);
-  assert.equal(await loadBrowserVault(), null);
-  assert.equal(saved?.has("wrapping-key"), false);
-  assert.equal(saved?.has("sealed"), false);
-  assert.equal(JSON.stringify([...saved?.values() ?? []]).includes(TEXT), false);
+  await settleBrowserVault();
+  assert.equal(raced.read()?.device.boxSecret, "device-secret");
+  assert.equal(raced.read()?.opened, undefined);
+  assert.equal(saved?.has("wrapping-key"), true);
+  assert.equal(saved?.has("sealed"), true);
+  assert.equal(saved?.has("cache-key"), false);
+  assert.equal(saved?.has("message-cache"), false);
+  assert.equal(cipherHasText(saved, "sealed"), false);
+  const signedBackIn = await loadBrowserVault();
+  assert.equal(signedBackIn?.device.boxSecret, "device-secret");
+  assert.equal(signedBackIn?.opened, undefined);
+  assert.equal(JSON.stringify([...(saved?.values() ?? [])]).includes(TEXT), false);
+});
+
+test("a 401 clears the decrypted-message cache and leaves the device keys", async () => {
+  const databases = installMemoryIndexedDb();
+  await loadBrowserVault();
+  const store = browserVaultStore();
+  store.write(vault());
+  await settleBrowserVault();
+  const saved = databases.get("avouch-e2ee")?.stores.get("vault");
+  assert.equal(saved?.has("cache-key"), true);
+  assert.equal(saved?.has("wrapping-key"), true);
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "Sign in first." }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const response = await apiFetch("/api/dm/threads");
+    assert.equal(response.status, 401);
+    await settleBrowserVault();
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.equal(saved?.has("wrapping-key"), true);
+  assert.equal(saved?.has("sealed"), true);
+  assert.equal(saved?.has("cache-key"), false);
+  assert.equal(saved?.has("message-cache"), false);
+  assert.equal(cipherHasText(saved, "sealed"), false);
+  const loaded = await loadBrowserVault();
+  assert.equal(loaded?.device.boxSecret, "device-secret");
+  assert.equal(loaded?.opened, undefined);
 });

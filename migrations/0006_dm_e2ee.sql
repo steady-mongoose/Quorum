@@ -17,8 +17,12 @@
 -- identity on messages they sent, and removes rate-limit rows whose key
 -- contains that account id. The ciphertext row stays. A name on a host
 -- write-up counts only when it matched an account at the time of that post.
--- When this file runs after posts already exist, it records those accounts.
--- A fresh database has no posts yet, so that step records nothing. One hosted
+-- When this file runs after posts already exist, it records an account only
+-- when a name stored at or before that post is the name on the list, and only
+-- one account had that name. That stored name is the post's own author name,
+-- an access-log name, or the author name of an earlier post. An account with
+-- no such record is skipped, including one renamed since the post. A fresh
+-- database has no posts yet, so that step records nothing. One hosted
 -- card has one host, enforced by a unique index on dm_card_host. That trigger
 -- does not replace any other anonymize function.
 
@@ -199,12 +203,50 @@ begin
   if to_regclass('public.board_post') is null then
     return;
   end if;
+  with evidence as (
+    select
+      p.id as post_id,
+      u.id as user_id,
+      p.came,
+      (
+        select source.name
+        from (
+          select self.author_name as name, self.created_at as at
+          from board_post self
+          where self.id = p.id
+            and self.author_user_id = u.id
+            and self.author_name <> ''
+          union all
+          select a.name, a.at
+          from access_log a
+          where a.user_id = u.id
+            and a.at <= p.created_at
+            and a.name <> ''
+          union all
+          select earlier.author_name, earlier.created_at
+          from board_post earlier
+          where earlier.author_user_id = u.id
+            and earlier.created_at <= p.created_at
+            and earlier.author_name <> ''
+        ) source
+        order by source.at desc
+        limit 1
+      ) as known_name
+    from board_post p
+    join "user" u on true
+    where p.type = 'hosted'
+  )
   insert into dm_named_account (post_id, user_id)
-  select p.id, u.id
-  from board_post p
-  join "user" u on u.name <> '' and u.name = any(p.came)
-  where p.type = 'hosted'
-    and (select count(*)::int from "user" named where named.name = u.name) = 1
+  select e.post_id, e.user_id
+  from evidence e
+  where e.known_name is not null
+    and e.known_name = any(e.came)
+    and (
+      select count(*)::int
+      from evidence other
+      where other.post_id = e.post_id
+        and other.known_name = e.known_name
+    ) = 1
   on conflict do nothing;
 end;
 $$;

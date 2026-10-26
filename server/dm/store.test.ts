@@ -746,11 +746,36 @@ test("existing hosted posts are named when the private-message migration runs", 
     const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
     assert.match(sql, /backfill_dm_named_accounts/);
     assert.match(sql, /to_regclass\('public.board_post'\)/);
+    assert.match(sql, /access_log/);
+    assert.match(sql, /a\.at <= p\.created_at/);
+    assert.doesNotMatch(sql, /u\.name = any\(p\.came\)/);
     const now = new Date("2026-10-19T12:00:00Z");
+    const earlier = new Date("2026-10-19T11:00:00Z");
+    const later = new Date("2026-10-20T12:00:00Z");
     const host = await member(db, "Host");
     const willa = await member(db, "Willa");
     const firstBob = await member(db, "Bob");
-    await member(db, "Bob");
+    const secondBob = await member(db, "Bob");
+    const peteThen = await member(db, "Pete");
+    const mallory = await member(db, "Mallory");
+    const peteNow = await member(db, "Pete");
+    const grant = async (userId: string, name: string, at: Date) => {
+      await db.query(
+        `insert into access_log
+         (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note, at)
+         values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.', $4)`,
+        [randomUUID(), userId, name, at],
+      );
+    };
+    await grant(willa, "Willa", earlier);
+    await grant(firstBob, "Bob", earlier);
+    await grant(secondBob, "Bob", earlier);
+    await grant(peteThen, "Pete", earlier);
+    await grant(mallory, "Mallory", earlier);
+    await grant(peteNow, "Pete", later);
+    await db.query(`update "user" set name = 'Hostess' where id = $1`, [host]);
+    await db.query(`update "user" set name = 'Peter' where id = $1`, [peteThen]);
+    await db.query(`update "user" set name = 'Pete' where id = $1`, [mallory]);
     const postId = randomUUID();
     await db.query(
       `insert into board_post (
@@ -766,8 +791,11 @@ test("existing hosted posts are named when the private-message migration runs", 
         [postId],
       )
     ).map((row) => row.user_id);
-    assert.deepEqual(named, [host, willa].sort());
+    assert.deepEqual(named, [host, willa, peteThen].sort());
     assert.equal(named.includes(firstBob), false);
+    assert.equal(named.includes(secondBob), false);
+    assert.equal(named.includes(mallory), false);
+    assert.equal(named.includes(peteNow), false);
     assert.equal((await recordAttendance(db, willa, now, ["s-backfill"])).ok, true);
     assert.equal((await listPeers(db, host)).some((person) => person.id === willa), true);
   } finally {

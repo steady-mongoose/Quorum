@@ -8,7 +8,12 @@ import {
   DM_PASSPHRASE_WARNING,
   DM_SAFETY_HINT,
 } from "@/lib/e2ee/copy";
-import { browserTransport, browserVaultStore, loadBrowserVault } from "@/lib/e2ee/browser";
+import {
+  browserTransport,
+  browserVaultStore,
+  loadBrowserVault,
+  subscribeMessageCache,
+} from "@/lib/e2ee/browser";
 import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
 import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
 import {
@@ -79,6 +84,19 @@ export function EncryptedMailbox() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeMessageCache(() => {
+      setMessages([]);
+      setUnreadable(0);
+      setVault((current) => {
+        if (!current?.opened) return current;
+        const next = { ...current };
+        delete next.opened;
+        return next;
+      });
+    });
   }, []);
 
   useEffect(() => {
