@@ -31,9 +31,15 @@ test("about, privacy, and terms are public routes, outside the signed-in gate", 
   assert.match(app, /\{entered && shown === "about" && <AboutView \/>\}/);
 });
 
-test("privacy and terms are a marked placeholder and not a drafted notice", () => {
-  assert.match(notice, /Placeholder/);
-  assert.match(notice, /This notice is being finalized\./);
+test("privacy and terms say the notice is not published yet", () => {
+  assert.equal(notice.includes("Placeholder"), false);
+  assert.equal(notice.includes("uppercase"), false);
+  assert.match(
+    notice,
+    /We are finishing this notice\. It will be posted here before anyone is asked to agree to it\./,
+  );
+  assert.match(notice, /Last updated: not yet published\./);
+  assert.match(notice, /text-sm text-muted/);
   const drafted = /we collect|personal data|liability|governing law|cookies|gdpr|arbitration/i;
   assert.equal(drafted.test(notice), false);
   assert.equal(drafted.test(privacy), false);
@@ -67,7 +73,10 @@ test("the account form announces an empty or wrong sign-in above the button", ()
   assert.match(account, /Enter your email and password\./);
   assert.match(account, /That email and password don't match an account\./);
   assert.match(account, /Enter the code your host gave you\./);
-  assert.match(account, /text-base sm:text-sm/);
+  assert.match(account, /className="text-base text-muted"/);
+  assert.equal(account.includes("sm:text-sm"), false);
+  assert.match(account, /href="\/terms" className="py-1 text-signal underline"/);
+  assert.match(account, /href="\/privacy" className="py-1 text-signal underline"/);
   assert.match(account, /text-base text-fg/);
   assert.equal(account.includes("There is no open sign-up"), false);
   assert.match(account, /By creating an account you agree to the/);

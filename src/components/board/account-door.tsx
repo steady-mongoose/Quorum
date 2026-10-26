@@ -83,9 +83,7 @@ export function AccountDoor() {
       }}
     >
       <h2 className="text-2xl text-fg">{mode === "sign-in" ? "Sign in" : "Use an invite code"}</h2>
-      {mode === "sign-up" ? (
-        <p className="text-base sm:text-sm text-muted">{CODE_MODE_INTRO}</p>
-      ) : null}
+      {mode === "sign-up" ? <p className="text-base text-muted">{CODE_MODE_INTRO}</p> : null}
       {mode === "sign-up" ? (
         <label className={fieldLabel}>
           Your name, as people know you
@@ -178,11 +176,11 @@ export function AccountDoor() {
       {mode === "sign-up" ? (
         <p className="text-sm text-muted">
           By creating an account you agree to the{" "}
-          <a href="/terms" className="text-signal underline">
+          <a href="/terms" className="py-1 text-signal underline">
             Terms
           </a>{" "}
           and{" "}
-          <a href="/privacy" className="text-signal underline">
+          <a href="/privacy" className="py-1 text-signal underline">
             Privacy notice
           </a>
           .

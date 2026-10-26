@@ -39,7 +39,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { LEGAL_NOTICE_PLACEHOLDER } = await import("../../components/board/legal-notice.tsx");
+const { LEGAL_NOTICE_PLACEHOLDER, LEGAL_NOTICE_UPDATED } =
+  await import("../../components/board/legal-notice.tsx");
 
 /**
  * @param {import("@tanstack/react-router").AnyRoute} route
@@ -89,10 +90,11 @@ test("privacy and terms render the placeholder signed out", async () => {
   const { Route: privacyRoute } = await import("../../routes/privacy.tsx");
   const privacy = renderRoute(privacyRoute);
   try {
-    assert.match(document.body.textContent ?? "", /Placeholder/);
+    assert.equal((document.body.textContent ?? "").includes("Placeholder"), false);
+    assert.match(document.body.textContent ?? "", /We are finishing this notice\./);
     assert.match(
       document.body.textContent ?? "",
-      new RegExp(LEGAL_NOTICE_PLACEHOLDER.replace(".", "\\.")),
+      new RegExp(LEGAL_NOTICE_UPDATED.replace(".", "\\.")),
     );
     assert.match(document.body.textContent ?? "", /Privacy/);
     assert.equal(
@@ -107,8 +109,9 @@ test("privacy and terms render the placeholder signed out", async () => {
   const { Route: termsRoute } = await import("../../routes/terms.tsx");
   const terms = renderRoute(termsRoute);
   try {
-    assert.match(document.body.textContent ?? "", /Placeholder/);
-    assert.match(document.body.textContent ?? "", /This notice is being finalized\./);
+    assert.equal((document.body.textContent ?? "").includes("Placeholder"), false);
+    assert.equal(document.body.textContent?.includes(LEGAL_NOTICE_PLACEHOLDER), true);
+    assert.equal(document.body.textContent?.includes(LEGAL_NOTICE_UPDATED), true);
     assert.match(document.body.textContent ?? "", /Terms/);
     assert.equal(
       /we collect|personal data|liability|governing law/i.test(document.body.textContent ?? ""),

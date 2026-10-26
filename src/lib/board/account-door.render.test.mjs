@@ -162,11 +162,14 @@ test("code mode names the host's code and links the terms", async () => {
       node.textContent?.includes("Enter the code your host gave you."),
     );
     assert.match(intro?.className ?? "", /text-base/);
-    assert.match(intro?.className ?? "", /sm:text-sm/);
+    assert.match(intro?.className ?? "", /text-muted/);
+    assert.equal((intro?.className ?? "").includes("sm:text-sm"), false);
     const terms = document.querySelector('a[href="/terms"]');
     const privacy = document.querySelector('a[href="/privacy"]');
     assert.equal(terms?.textContent, "Terms");
     assert.equal(privacy?.textContent, "Privacy notice");
+    assert.match(terms?.className ?? "", /py-1/);
+    assert.match(privacy?.className ?? "", /py-1/);
     const code = document.querySelector("#invite-code");
     assert.ok(code instanceof HTMLInputElement);
     assert.equal(code.required, true);
