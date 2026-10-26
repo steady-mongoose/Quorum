@@ -13,6 +13,7 @@ import {
   type ZipCorrectionInput,
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
+import { loadGatherings, removeGathering, saveGathering, type StoredGathering } from "./gathering-public.ts";
 import {
   APP_NAME,
   DAY,
@@ -447,6 +448,54 @@ export const useBoard = create<BoardState>()(
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
+      const rememberGathering = (card: MeetingCard) => {
+        void saveGathering({
+          id: card.id,
+          roomId: card.room,
+          title: card.name,
+          date: card.next,
+          time: card.time,
+          place: card.place,
+        }).then((result) => {
+          if (!result.ok) set({ boardError: result.error });
+        });
+      };
+      const mergeGatherings = (rows: StoredGathering[]) => {
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        const mine = authorName(get().me);
+        const seen = new Set<string>();
+        const cards = get().cards.map((card) => {
+          const row = byId.get(card.id);
+          if (!row) return card;
+          seen.add(card.id);
+          return {
+            ...card,
+            name: row.title,
+            next: row.date,
+            time: row.time,
+            place: row.place || card.place,
+            room: row.roomId,
+            sharePublic: row.shared,
+          };
+        });
+        for (const row of rows) {
+          if (seen.has(row.id)) continue;
+          cards.unshift(
+            newCard({
+              id: row.id,
+              room: row.roomId,
+              kind: "meeting",
+              name: row.title,
+              place: row.place,
+              time: row.time,
+              host: row.mine ? mine : "",
+              next: row.date,
+              sharePublic: row.shared,
+            }),
+          );
+        }
+        set({ cards });
+      };
       let posting = false;
 
       const applySnapshot = (board: BoardSnapshot) => {
@@ -912,8 +961,17 @@ export const useBoard = create<BoardState>()(
             wentBy: fields.kind === "meeting" || fields.kind === "candidate" ? [me()] : [],
           });
           set({ cards: [card, ...get().cards] });
+          if (get().remote) rememberGathering(card);
         },
-        updateCard: (id, patch) => patchCard(id, (card) => ({ ...card, ...patch, id })),
+        updateCard: (id, patch) => {
+          patchCard(id, (card) => ({ ...card, ...patch, id }));
+          if (!get().remote) return;
+          if (!("name" in patch || "place" in patch || "time" in patch || "next" in patch || "room" in patch)) {
+            return;
+          }
+          const card = get().cards.find((item) => item.id === id);
+          if (card) rememberGathering(card);
+        },
         closeCard: async (id, happened, next, line, came, pages = "") => {
           const { cards } = get();
           const card = cards.find((item) => item.id === id);
@@ -962,7 +1020,10 @@ export const useBoard = create<BoardState>()(
             unverified: false,
             wentBy: addName(card.wentBy, me()),
           })),
-        removeCard: (id) => set({ cards: get().cards.filter((card) => card.id !== id) }),
+        removeCard: (id) => {
+          set({ cards: get().cards.filter((card) => card.id !== id) });
+          if (get().remote) void removeGathering(id);
+        },
         createInvite: (cardId) => {
           const card = get().cards.find((item) => item.id === cardId);
           if (!card || card.host !== me()) return null;
@@ -1093,6 +1154,8 @@ export const useBoard = create<BoardState>()(
           }
           applySnapshot(loaded.board);
           await pullHome();
+          const listed = await loadGatherings();
+          if (listed.ok) mergeGatherings(listed.gatherings);
         },
         loadOlder: async (room) => {
           if (!get().remote) return;

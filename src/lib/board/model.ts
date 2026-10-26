@@ -127,6 +127,8 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Public /e page. Off until the organizer turns it on. */
+  sharePublic?: boolean;
   /** Host paused the series. It does not fill the week. */
   paused?: boolean;
   /** This meeting was cancelled. */
