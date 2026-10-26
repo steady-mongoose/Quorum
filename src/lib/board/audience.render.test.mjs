@@ -64,7 +64,7 @@ test("a room shows a plain men or women label, and the member can state a gender
   assert.equal(document.body.textContent?.includes("Men only"), true);
   assert.equal(document.body.textContent?.includes("Audience:"), true);
   assert.equal(document.querySelector(".sr-only")?.textContent, "Audience: ");
-  assert.match(document.body.innerHTML, /border-\[#857c6f\]/);
+  assert.match(document.body.innerHTML, /border-muted/);
   assert.equal(/\blikes?\b|\bscore\b|\balgorithm\b/i.test(document.body.textContent ?? ""), false);
   men();
 

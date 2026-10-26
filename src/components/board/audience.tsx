@@ -16,7 +16,7 @@ export function RoomAudienceMark({ audience }: { audience?: string | null }) {
   const label = audienceLabel(audience);
   if (!label) return null;
   return (
-    <span className="ml-2 inline-flex items-center rounded-full border border-[#857c6f] px-2 py-0.5 text-[0.8125rem] text-muted">
+    <span className="ml-2 inline-flex items-center rounded-full border border-muted px-2 py-0.5 text-[0.8125rem] text-muted">
       <span className="sr-only">Audience: </span>
       {label}
     </span>
