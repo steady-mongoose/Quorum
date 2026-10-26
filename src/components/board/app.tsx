@@ -9,7 +9,7 @@ import {
   Search,
   User,
 } from "lucide-react";
-import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
@@ -173,6 +173,20 @@ function BoardShell() {
     </>
   ) : (
     <>
+      {entered && server.mfa === "enroll" ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-prose text-sm text-fg">
+            Turn on an authenticator before you grant a role, approve a reset, or export.
+          </p>
+          <button
+            type="button"
+            className={cn(btnSignal, "w-full sm:w-auto")}
+            onClick={() => openSection("profile")}
+          >
+            Set it up
+          </button>
+        </div>
+      ) : null}
       {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}

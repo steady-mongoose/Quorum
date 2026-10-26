@@ -21,8 +21,9 @@ import {
   type CreateAccount,
   type SignIn,
 } from "./closed-test/store.ts";
+import { annotateAuthBody, enforceMfa, exportAccount, handleMfa } from "./mfa/routes.ts";
 
-export type SessionUser = { id: string; name: string; email: string };
+export type SessionUser = { id: string; name: string; email: string; sessionId?: string };
 
 export type AppDeps = {
   db: Db;
@@ -232,7 +233,13 @@ async function route(
     );
     if (blocked) return blocked;
     if (parseError) throw parseError;
-    return deps.forwardAuth(replay(request, text));
+    const forwarded = await deps.forwardAuth(replay(request, text));
+    return annotateAuthBody(deps, forwarded, "sign-in");
+  }
+
+  if (url.pathname === "/api/auth/get-session" && request.method === "GET") {
+    const forwarded = await deps.forwardAuth(request);
+    return annotateAuthBody(deps, forwarded, "session", request.headers);
   }
 
   if (url.pathname.startsWith("/api/auth/")) {
@@ -276,7 +283,7 @@ async function route(
         result.code ? { error: result.error, code: result.code } : { error: result.error },
       );
     }
-    if (result.value.user.response) return result.value.user.response;
+    if (result.value.user.response) return annotateAuthBody(deps, result.value.user.response, "sign-in");
     return json(200, {
       user: {
         id: result.value.user.id,
@@ -339,6 +346,20 @@ async function route(
     const response = await handleDm(deps, request, url);
     if (response) return response;
   }
+
+  if (url.pathname.startsWith("/api/mfa")) {
+    const mfaResponse = await handleMfa(deps, request, url);
+    if (mfaResponse) return mfaResponse;
+  }
+
+  if (url.pathname === "/api/admin/export" && request.method === "GET") {
+    const blocked = await enforceMfa(deps, request, url);
+    if (blocked) return blocked;
+    return exportAccount(deps, request);
+  }
+
+  const blocked = await enforceMfa(deps, request, url);
+  if (blocked) return blocked;
 
   const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
   if (roomPost && request.method === "POST") {

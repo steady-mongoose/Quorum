@@ -20,8 +20,19 @@ const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
-  const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
-  const error = typeof record.error === "string" && record.error ? record.error : fallback;
+  const record = json as {
+    error?: unknown;
+    message?: unknown;
+    stops?: unknown;
+    code?: unknown;
+    audience?: unknown;
+  };
+  const codeText = typeof record.error === "string" ? record.error : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  const error =
+    (codeText === "mfa_required" || codeText === "mfa_step_up" || codeText === "mfa_locked") && message
+      ? message
+      : codeText || fallback;
   const stops = Array.isArray(record.stops)
     ? record.stops.filter((item): item is string => typeof item === "string")
     : undefined;

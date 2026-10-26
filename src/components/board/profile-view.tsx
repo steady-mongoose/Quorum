@@ -4,6 +4,8 @@ import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { MfaSettings } from "@/components/board/mfa-ui";
+import { useServerSession } from "@/lib/server-session-state";
 
 /**
  * Household, church, trade, plus who you have met, what you host, and
@@ -55,6 +57,7 @@ export function ProfileView() {
   const openDm = useBoard((state) => state.openDm);
   const name = viewing?.trim() || me;
   const mine = name === me;
+  const server = useServerSession();
 
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const allowed = mine || peers.has(name);
@@ -169,6 +172,8 @@ export function ProfileView() {
           </ul>
         </section>
       ) : null}
+
+      {mine && server.mode === "live" ? <MfaSettings /> : null}
 
       {hosts.length > 0 ? (
         <section className="flex flex-col gap-2">

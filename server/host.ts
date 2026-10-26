@@ -11,6 +11,7 @@ import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
+import { warnMissingMfaKey } from "./mfa/secret.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -76,6 +77,7 @@ export function startHost(): void {
   const mediaConfig = readMediaConfig();
   const mediaStore = storeFromConfig(mediaConfig);
   warnMissingHoldKey();
+  warnMissingMfaKey();
   const boardDb = pgDb(pool);
   void reencryptPendingHolds(boardDb, mediaStore).catch((error) => {
     console.error(
