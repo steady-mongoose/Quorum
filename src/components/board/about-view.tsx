@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
@@ -339,7 +339,7 @@ function RemovalAppeal({
           setError("");
         }}
       />
-      {error ? <span className="text-signal">{error}</span> : null}
+      {error ? <span className="text-danger">{error}</span> : null}
       <span className="flex gap-2">
         <button
           type="button"
@@ -368,16 +368,6 @@ function RoleTools({
   changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
   admin: boolean;
 }) {
-  const [email, setEmail] = useState("");
-  const [roomId, setRoomId] = useState("");
-  const [inviterEmail, setInviterEmail] = useState("");
-  const [stewardEmail, setStewardEmail] = useState("");
-  const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
-  const [message, setMessage] = useState("");
-  const report = (result: { ok: boolean; error?: string }, ok: string) => {
-    setMessage(result.ok ? ok : (result.error ?? "That role was not changed."));
-  };
-
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">Roles</h2>
@@ -386,109 +376,194 @@ function RoleTools({
         first steward of a room is the inviter plus the council chair. An admin is already a
         steward, plus the role owner's sign-off. Each change is written in the access log.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Member email
-          <input
-            className={fieldClass}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Room id
-          <input
-            className={fieldClass}
-            value={roomId}
-            placeholder="shop"
-            onChange={(event) => setRoomId(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Inviter email
-          <input
-            className={fieldClass}
-            value={inviterEmail}
-            onChange={(event) => setInviterEmail(event.target.value)}
-          />
-        </label>
-        {admin ? (
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Steward email
-            <input
-              className={fieldClass}
-              value={stewardEmail}
-              onChange={(event) => setStewardEmail(event.target.value)}
-            />
-          </label>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={btnSignal}
-          onClick={() => {
-            void changeAccess({ action: "grant-member", email, roomId }).then((result) =>
-              report(result, "Member granted."),
-            );
-          }}
-        >
-          Grant member
-        </button>
-        <button
-          type="button"
-          className={btnSignal}
-          onClick={() => {
-            void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then(
-              (result) => report(result, "Steward granted."),
-            );
-          }}
-        >
-          Grant steward
-        </button>
-        {admin ? (
-          <button
-            type="button"
-            className={btnSignal}
-            onClick={() => {
-              void changeAccess({ action: "grant-admin", email, stewardEmail }).then((result) =>
-                report(result, "Admin granted."),
-              );
-            }}
-          >
-            Grant admin
-          </button>
-        ) : null}
-      </div>
+      <RoleForm title="Add member" onSubmit={(fields) => changeAccess({ action: "grant-member", email: fields.email, roomId: fields.roomId })}>
+        {(fields) => (
+          <>
+            <EmailField value={fields.email} onChange={fields.setEmail} />
+            <RoomField value={fields.roomId} onChange={fields.setRoomId} />
+          </>
+        )}
+      </RoleForm>
+      <RoleForm
+        title="Add steward"
+        onSubmit={(fields) =>
+          changeAccess({
+            action: "grant-steward",
+            email: fields.email,
+            roomId: fields.roomId,
+            inviterEmail: fields.inviterEmail,
+          })
+        }
+      >
+        {(fields) => (
+          <>
+            <EmailField value={fields.email} onChange={fields.setEmail} />
+            <RoomField value={fields.roomId} onChange={fields.setRoomId} />
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Inviter email
+              <input
+                className={fieldClass}
+                value={fields.inviterEmail}
+                onChange={(event) => fields.setInviterEmail(event.target.value)}
+              />
+            </label>
+          </>
+        )}
+      </RoleForm>
       {admin ? (
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Role to revoke
-            <select
-              className={fieldClass}
-              value={role}
-              onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
-            >
-              <option value="member">Member</option>
-              <option value="steward">Steward</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={() => {
-              void changeAccess({ action: "revoke", email, role, roomId }).then((result) =>
-                report(result, "Role revoked."),
-              );
-            }}
-          >
-            Revoke
-          </button>
-        </div>
+        <RoleForm
+          title="Add admin"
+          onSubmit={(fields) =>
+            changeAccess({
+              action: "grant-admin",
+              email: fields.email,
+              stewardEmail: fields.stewardEmail,
+            })
+          }
+        >
+          {(fields) => (
+            <>
+              <EmailField value={fields.email} onChange={fields.setEmail} />
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                Steward email
+                <input
+                  className={fieldClass}
+                  value={fields.stewardEmail}
+                  onChange={(event) => fields.setStewardEmail(event.target.value)}
+                />
+              </label>
+            </>
+          )}
+        </RoleForm>
       ) : null}
-      {message ? <p className="text-sm text-muted">{message}</p> : null}
+      {admin ? <RevokeRole changeAccess={changeAccess} /> : null}
     </section>
+  );
+}
+
+function EmailField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm text-muted">
+      Member email
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function RoomField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm text-muted">
+      Room id
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function RoleForm({
+  title,
+  onSubmit,
+  children,
+}: {
+  title: string;
+  onSubmit: (fields: RoleFields) => Promise<{ ok: boolean; error?: string }>;
+  children: (fields: RoleFields) => ReactNode;
+}) {
+  const fields = useRoleFields();
+  const [error, setError] = useState("");
+  return (
+    <details className="rounded-md border border-line p-3">
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
+      <form
+        className="mt-3 grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError("");
+          void onSubmit(fields).then((result) => {
+            if (!result.ok) setError(result.error ?? "That role was not changed.");
+          });
+        }}
+      >
+        {children(fields)}
+        <button type="submit" className={cn(btnSignal, "self-start")}>
+          {title}
+        </button>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </details>
+  );
+}
+
+type RoleFields = {
+  email: string;
+  setEmail: (value: string) => void;
+  roomId: string;
+  setRoomId: (value: string) => void;
+  inviterEmail: string;
+  setInviterEmail: (value: string) => void;
+  stewardEmail: string;
+  setStewardEmail: (value: string) => void;
+};
+
+function useRoleFields(): RoleFields {
+  const [email, setEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
+  const [stewardEmail, setStewardEmail] = useState("");
+  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+}
+
+function RevokeRole({
+  changeAccess,
+}: {
+  changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [email, setEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
+  const [error, setError] = useState("");
+  return (
+    <details className="rounded-md border border-line p-3">
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
+        Revoke a role
+      </summary>
+      <form
+        className="mt-3 flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError("");
+          void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+            if (!result.ok) setError(result.error ?? "That role was not changed.");
+          });
+        }}
+      >
+        <EmailField value={email} onChange={setEmail} />
+        <RoomField value={roomId} onChange={setRoomId} />
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Role to revoke
+          <select
+            className={fieldClass}
+            value={role}
+            onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
+          >
+            <option value="member">Member</option>
+            <option value="steward">Steward</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <button type="submit" className={cn(btnGhost, "self-start")}>
+          Revoke
+        </button>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </details>
   );
 }
 
@@ -512,7 +587,9 @@ function AdminTools({
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [clearZip, setClearZip] = useState(false);
-  const [message, setMessage] = useState("");
+  const [roomError, setRoomError] = useState("");
+  const [zipError, setZipError] = useState("");
+  const [zipNote, setZipNote] = useState("");
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -553,9 +630,10 @@ function AdminTools({
         type="button"
         className={btnSignal}
         onClick={() => {
+          setRoomError("");
           void createRoom({ id, name, what }).then((result) => {
-            setMessage(result.ok ? "The room is up." : (result.error ?? "The room was not added."));
-            if (result.ok) {
+            if (!result.ok) setRoomError(result.error ?? "The room was not added.");
+            else {
               setId("");
               setName("");
               setWhat("");
@@ -565,6 +643,11 @@ function AdminTools({
       >
         Add room
       </button>
+      {roomError ? (
+        <p role="alert" className="text-sm text-danger">
+          {roomError}
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           ZIP to correct
@@ -605,15 +688,24 @@ function AdminTools({
         type="button"
         className={btnGhost}
         onClick={() => {
+          setZipError("");
+          setZipNote("");
           void correctZip({ zip, name: town, state: stateCode, clear: clearZip }).then((result) => {
-            setMessage(
-              result.ok ? "The ZIP is corrected." : (result.error ?? "That ZIP was not corrected."),
-            );
+            if (!result.ok) setZipError(result.error ?? "That ZIP was not corrected.");
+            else setZipNote(clearZip ? "That ZIP is cleared." : "The ZIP is corrected.");
           });
         }}
       >
         Correct ZIP
       </button>
+      <p className="text-[0.8125rem] text-muted" aria-live="polite">
+        {zipNote}
+      </p>
+      {zipError ? (
+        <p role="alert" className="text-sm text-danger">
+          {zipError}
+        </p>
+      ) : null}
       {accessLog.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {accessLog.map((row) => (
@@ -625,7 +717,6 @@ function AdminTools({
           ))}
         </ul>
       ) : null}
-      {message ? <p className="text-sm text-muted">{message}</p> : null}
     </section>
   );
 }

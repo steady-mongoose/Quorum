@@ -359,7 +359,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 />
               ) : null}
               {refused.length > 0 ? (
-                <ul className="flex flex-col gap-1 text-sm text-signal">
+                <ul className="flex flex-col gap-1 text-sm text-danger">
                   {refused.map((stop) => (
                     <li key={stop}>{stop}</li>
                   ))}

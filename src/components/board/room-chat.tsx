@@ -122,7 +122,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       <p className="max-w-prose text-sm text-muted">
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
-      {note ? <p className="text-sm text-signal">{note}</p> : null}
+      {note ? <p className="text-sm text-danger">{note}</p> : null}
       {older ? (
         <button
           type="button"
