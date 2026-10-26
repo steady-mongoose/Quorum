@@ -17,8 +17,8 @@
 # COMPOSE_PATH_SEPARATOR (a colon, unless that variable is set).
 # COMPOSE_PROFILES is passed through as `--profile`.
 set -eu
-# pipefail is not POSIX. dash aborts if it is turned on in this process, so
-# the probe runs in a subshell. Shells that support it (bash) turn it on.
+# pipefail is not POSIX. A shell that rejects it can abort this process, so
+# the probe runs in a subshell. When that succeeds, pipefail is turned on.
 if (set -o pipefail) 2>/dev/null; then
   set -o pipefail
 fi

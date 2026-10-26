@@ -180,6 +180,19 @@ test("a leftover password that is still set does not recreate the api", async ()
   assert.equal(trace.includes("\nup\n"), false);
 });
 
+/** A shell supports pipefail when it accepts the option and a failing command earlier in a pipeline makes the pipeline fail. */
+async function shellSupportsPipefail(shell) {
+  const accepts = await execFileAsync(shell, ["-c", "set -o pipefail"]).then(
+    () => true,
+    () => false,
+  );
+  if (!accepts) return false;
+  return execFileAsync(shell, ["-c", "set -o pipefail; false | true"]).then(
+    () => false,
+    (error) => error.code !== 0,
+  );
+}
+
 test("pipefail is turned on only when the shell supports it", async () => {
   const script = readFileSync(join(projectRoot(), "scripts/seed-owner.sh"), "utf8");
   assert.match(script, /if \(set -o pipefail\) 2>\/dev\/null; then/);
@@ -192,10 +205,11 @@ test("pipefail is turned on only when the shell supports it", async () => {
     "  echo off",
     "fi",
   ].join("\n");
-  const dash = await execFileAsync("dash", ["-c", probe]);
-  assert.equal(dash.stdout.trim(), "off");
-  const bash = await execFileAsync("bash", ["-c", probe]);
-  assert.equal(bash.stdout.trim(), "on");
+  for (const shell of ["dash", "bash"]) {
+    const supported = await shellSupportsPipefail(shell);
+    const result = await execFileAsync(shell, ["-c", probe]);
+    assert.equal(result.stdout.trim(), supported ? "on" : "off");
+  }
 });
 
 test("without a terminal the seed refuses to run when BOOTSTRAP_* is unset", async () => {
