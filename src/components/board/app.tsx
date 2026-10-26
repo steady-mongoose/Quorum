@@ -202,12 +202,19 @@ function BoardShell() {
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top mast-bar">
-        <div className="mast">
+        <div className="mast" data-entered={entered ? "true" : undefined}>
           <div className="mast-brand">
             <AppealMark />
             <div className="mast-titles">
               <p className="mast-name">{APP_NAME}</p>
-              <p className="mast-tagline">{TAGLINE}</p>
+              <p
+                className={cn(
+                  "mast-tagline",
+                  entered && "max-xl:hidden xl:whitespace-nowrap",
+                )}
+              >
+                {TAGLINE}
+              </p>
             </div>
           </div>
           <div className="mast-actions">

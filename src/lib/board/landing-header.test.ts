@@ -23,7 +23,10 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast\{[^}]*display:flex/);
   assert.match(css, /\.mast\{[^}]*justify-content:space-between/);
   assert.match(css, /\.mast\{[^}]*align-items:center/);
-  assert.match(css, /\.mast\{[^}]*padding:clamp\(16px,2vw,28px\)/);
+  assert.match(css, /\.mast\{[^}]*padding-block:0\.75rem/);
+  assert.match(css, /\.mast\{[^}]*max-width:72rem/);
+  assert.match(css, /\.mast\{[^}]*margin-inline:auto/);
+  assert.match(css, /\.mast\{[^}]*padding-inline:max\(clamp\(16px,2vw,28px\),env\(safe-area-inset-left\)\)/);
   assert.match(
     css,
     /\.shell-body > main\{[^}]*padding-inline:max\(clamp\(16px,2vw,28px\),env\(safe-area-inset-left\)\)/,
@@ -51,7 +54,9 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /className="mast"/);
   assert.match(app, /<AppealMark \/>/);
   assert.match(app, /className="mast-name">\{APP_NAME\}/);
-  assert.match(app, /className="mast-tagline">\{TAGLINE\}/);
+  assert.match(app, /"mast-tagline"/);
+  assert.match(app, /max-xl:hidden xl:whitespace-nowrap/);
+  assert.match(app, /\{TAGLINE\}/);
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
   assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);

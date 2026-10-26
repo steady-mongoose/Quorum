@@ -182,8 +182,10 @@ dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
   gap:8px 16px;
   box-sizing:border-box;
   width:100%;
+  max-width:72rem;
+  margin-inline:auto;
   min-width:0;
-  padding:clamp(16px,2vw,28px);
+  padding-block:0.75rem;
   padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
 }
 .mast-brand{
@@ -242,6 +244,20 @@ dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
   flex:none;
   background:none;
   border:0;
+}
+/* Signed-in desktop bar. #5's py-3 and a tighter title stack keep it at 96px or less. */
+.mast[data-entered="true"] .mast-name{
+  font-size:clamp(1.875rem,0.35rem + 2vw,2.25rem);
+  line-height:1;
+}
+.mast[data-entered="true"] .mast-tagline{
+  margin-top:0.25rem;
+  font-size:0.875rem;
+  line-height:1;
+  white-space:nowrap;
+}
+@media (max-width:1279px){
+  .mast[data-entered="true"] .mast-tagline{display:none}
 }
 /* Narrow header: two tagline lines, so the bar stays at 94px or less. */
 @container mast (max-width:420px){
