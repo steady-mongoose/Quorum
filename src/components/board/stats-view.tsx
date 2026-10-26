@@ -70,7 +70,7 @@ export function StatsView({
           </select>
         </label>
         <p className="max-w-prose text-[0.85rem] text-muted">
-          The category list does not narrow these counts yet.
+          A category narrows rooms and gatherings. A room in two categories counts in each.
         </p>
       </div>
 

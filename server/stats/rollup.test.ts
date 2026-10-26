@@ -15,6 +15,7 @@ import {
   type StatsPayload,
 } from "../../src/lib/board/stats.ts";
 import { noteAuthenticatedRequest } from "./activity.ts";
+import { startNightlyStats } from "./schedule.ts";
 import { activityRetentionDays } from "./config.ts";
 import { asCount, isoDate } from "./dates.ts";
 import { readStats, readStatsCsv } from "./read.ts";
@@ -359,10 +360,151 @@ test("pruning drops activity older than the retention window and keeps the earli
       left.map((row) => isoDate(row.date)),
       ["2026-10-21", "2026-10-25"],
     );
-    await rollStats(db, NOW, 5);
+    const again = await rollStats(db, NOW, 5);
+    assert.equal(again.pruned, 0);
+    assert.notEqual(again.skipped, true);
     assert.equal(await countOf(db, "wau", "2026-10-25"), 2);
     assert.equal(await countOf(db, "dau", "2026-10-19"), 1);
     assert.equal(await countOf(db, "dau", "2026-10-25"), 1);
+    const aggregates = JSON.stringify(await db.query(`select * from stats_daily`));
+    assert.equal(aggregates.includes(ada), false);
+    assert.equal(aggregates.includes(bob), false);
+  } finally {
+    await close();
+  }
+});
+
+test("ninety days of per-member rows are kept, and the aggregate stays after they go", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-ninety@example.com", "2026-01-01T00:00:00Z");
+    await active(db, ada, "2026-07-27");
+    await active(db, ada, "2026-07-28");
+    const rolled = await rollStats(db, NOW, 90);
+    assert.equal(rolled.pruned, 1);
+    assert.equal(await countOf(db, "dau", "2026-07-27"), 1);
+    assert.equal(await countOf(db, "dau", "2026-07-28"), 1);
+    const left = await db.query<{ date: string }>(
+      `select date::text as date from member_active_days order by date`,
+    );
+    assert.deepEqual(
+      left.map((row) => isoDate(row.date)),
+      ["2026-07-28"],
+    );
+    const again = await rollStats(db, NOW, 90);
+    assert.equal(again.pruned, 0);
+    assert.equal(await countOf(db, "dau", "2026-07-27"), 1);
+    const aggregates = JSON.stringify(await db.query(`select * from stats_daily`));
+    assert.equal(aggregates.includes(ada), false);
+  } finally {
+    await close();
+  }
+});
+
+test("the nightly job rolls on a schedule and does not roll twice the same day", async () => {
+  const { db, close } = await openTestDb();
+  let stop = () => {};
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-nightly@example.com", "2026-01-01T00:00:00Z");
+    const bob = await user(db, "Bob Stone", "bob-nightly@example.com", "2026-01-01T00:00:00Z");
+    await active(db, ada, "2026-10-25");
+    let clock = new Date("2026-10-26T12:00:00Z");
+    stop = startNightlyStats(db, 90, () => clock, 30);
+    await until(async () => (await countOf(db, "dau", "2026-10-25")) === 1);
+    await active(db, bob, "2026-10-25");
+    await delay(80);
+    assert.equal(await countOf(db, "dau", "2026-10-25"), 1);
+    await active(db, ada, "2026-10-26");
+    clock = new Date("2026-10-27T12:00:00Z");
+    await until(async () => (await countOf(db, "dau", "2026-10-26")) === 1);
+    assert.equal(await countOf(db, "dau", "2026-10-25"), 1);
+  } finally {
+    stop();
+    await close();
+  }
+});
+
+test("a room in two categories counts in each filter and once overall", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-cats@example.com", "2026-09-01T15:00:00Z");
+    await db.query(
+      `create table room_categories (
+         room_id text not null references room (id) on delete cascade,
+         category_id text not null,
+         primary key (room_id, category_id)
+       )`,
+    );
+    for (const [id, name] of [
+      ["hall-a", "Hall A"],
+      ["hall-b", "Hall B"],
+      ["hall-c", "Hall C"],
+      ["hall-d", "Hall D"],
+      ["hall-e", "Hall E"],
+      ["hall-f", "Hall F"],
+    ] as const) {
+      await db.query(`insert into room (id, name) values ($1, $2)`, [id, name]);
+      await db.query(`insert into room_categories (room_id, category_id) values ($1, 'churches')`, [
+        id,
+      ]);
+      await post(db, ada, "Ada Lovelace", id, "2026-10-20T15:00:00Z");
+    }
+    await db.query(
+      `insert into room_categories (room_id, category_id) values
+       ('shop', 'business-trades'),
+       ('shop', 'civic'),
+       ('county', 'county')`,
+    );
+    await post(db, ada, "Ada Lovelace", "shop", "2026-10-20T16:00:00Z");
+    await post(db, ada, "Ada Lovelace", "county", "2026-10-20T16:30:00Z");
+    for (let day = 20; day < 26; day += 1) {
+      await hosted(db, {
+        roomId: "shop",
+        authorId: ada,
+        authorName: "Ada Lovelace",
+        on: `2026-10-${day}`,
+        came: [],
+        at: `2026-10-${day}T18:00:00Z`,
+      });
+    }
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values
+       ('2026-10-25'::date, 'dau', '', 6),
+       ('2026-10-19'::date, 'room_posts', 'shop', 10),
+       ('2026-10-19'::date, 'room_posts', 'county', 8)`,
+    );
+    const all = await readStats(db, NOW, { days: 30, category: "all" });
+    const churches = await readStats(db, NOW, { days: 30, category: "churches" });
+    const civic = await readStats(db, NOW, { days: 30, category: "civic" });
+    const trades = await readStats(db, NOW, { days: 30, category: "business-trades" });
+    assert.equal(all.tiles.find((tile) => tile.id === "rooms")?.value, 10);
+    assert.equal(all.roomsByCategory.find((row) => row.id === "churches")?.count, 6);
+    assert.equal(all.roomsByCategory.find((row) => row.id === "civic")?.count, "<5");
+    assert.equal(churches.tiles.find((tile) => tile.id === "rooms")?.value, 6);
+    assert.equal(civic.tiles.find((tile) => tile.id === "rooms")?.value, "<5");
+    assert.equal(trades.tiles.find((tile) => tile.id === "rooms")?.value, "<5");
+    assert.equal(churches.roomsByCategory.length, 1);
+    assert.equal(
+      civic.rooms.rows.some((row) => row.room === "The Shop"),
+      true,
+    );
+    assert.equal(
+      trades.rooms.rows.some((row) => row.room === "The Shop"),
+      true,
+    );
+    assert.equal(
+      churches.rooms.rows.some((row) => row.room === "The Shop"),
+      false,
+    );
+    assert.equal(
+      civic.rooms.rows.some((row) => row.room === "The County"),
+      false,
+    );
+    assert.equal(all.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 18);
+    assert.equal(civic.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 10);
+    assert.equal(churches.tiles.find((tile) => tile.id === "gatherings")?.value, "<5");
+    assert.equal(civic.tiles.find((tile) => tile.id === "gatherings")?.value, 5);
+    assert.equal(all.tiles.find((tile) => tile.id === "members")?.value, churches.tiles[0]?.value);
   } finally {
     await close();
   }
@@ -447,7 +589,11 @@ test("published totals do not let a hidden count be subtracted back", async () =
       weekWindow.tiles.map((tile) => tile.value),
       stats.tiles.map((tile) => tile.value),
     );
-    assert.equal(weekWindow.roomsByCategory.length, stats.roomsByCategory.length);
+    assert.equal(stats.roomsByCategory.length, 7);
+    assert.equal(weekWindow.roomsByCategory.length, 1);
+    assert.equal(weekWindow.roomsByCategory[0]?.id, "churches");
+    assert.equal(weekWindow.tiles[0]?.value, stats.tiles[0]?.value);
+    assert.equal(weekWindow.tiles[1]?.value, stats.tiles[1]?.value);
     assert.deepEqual(parseStatsQuery(new URLSearchParams("days=3&category=nope")), {
       days: 30,
       category: "all",
@@ -476,6 +622,18 @@ test("feature groups under 5 are not named as most or least used", async () => {
     await close();
   }
 });
+
+async function until(check: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (await check()) return;
+    await delay(40);
+  }
+  throw new Error("The nightly stats job did not finish.");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function user(db: Db, name: string, email: string, createdAt: string): Promise<string> {
   const id = randomUUID();

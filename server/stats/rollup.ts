@@ -52,6 +52,7 @@ export async function rollStats(
     ];
     await tx.query(`delete from stats_daily where metric = any($1::text[])`, [REPLACE_METRICS]);
     await insertRows(tx, rows);
+    // Aggregates land before any per-member row is deleted. stats_daily keeps no member id.
     await writeActivity(tx, today, yesterday, cutoff);
     const pruned = await tx.query<{ count: unknown }>(
       `with gone as (

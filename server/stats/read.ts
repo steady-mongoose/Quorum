@@ -4,6 +4,7 @@ import {
   SMALL_COUNT,
   STATS_CATEGORIES,
   endpointLabel,
+  hiddenCellLeaks,
   protectBreakdown,
   roundToFive,
   showCount,
@@ -39,6 +40,8 @@ export async function readStats(
   const today = utcDate(now);
   const stored = await load(db, addUtcDays(today, -400));
   const names = await roomNames(db);
+  const membership = await loadMembership(db);
+  const inCategory = roomIdsFor(membership, filter.category);
   const dauDays = stored.filter((row) => row.metric === "dau").map((row) => row.date);
   const asOf = dauDays.length > 0 ? dauDays[dauDays.length - 1] : null;
   const chartStart = asOf ? addUtcDays(asOf, -(filter.days - 1)) : null;
@@ -50,12 +53,18 @@ export async function readStats(
     : [];
   const active = asOf ? activeSeries(stored, addUtcDays(asOf, -(filter.days - 1)), asOf) : [];
   const roll = rollSeries(stored, inChart);
-  const rooms = roomSeries(stored, names, inChart);
+  const rooms = roomSeries(stored, names, inChart, inCategory);
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
-  const tiles = asOf ? await tilesOf(db, stored, asOf) : blankTiles();
+  const tiles = asOf ? await tilesOf(db, stored, asOf, filter.category, membership) : blankTiles();
   const roomsByCategory = asOf
-    ? await categoriesOf(db, addUtcDays(asOf, -(filter.days - 1)), asOf)
+    ? await categoriesOf(
+        db,
+        addUtcDays(asOf, -(filter.days - 1)),
+        asOf,
+        filter.category,
+        membership,
+      )
     : STATS_CATEGORIES.map((category) => ({
         id: category.id,
         label: category.label,
@@ -140,7 +149,13 @@ function blankTiles(): StatsPayload["tiles"] {
   ];
 }
 
-async function tilesOf(db: Db, stored: Stored[], asOf: string): Promise<StatsPayload["tiles"]> {
+async function tilesOf(
+  db: Db,
+  stored: Stored[],
+  asOf: string,
+  category: string,
+  membership: Map<string, Set<string>>,
+): Promise<StatsPayload["tiles"]> {
   const currentStart = addUtcDays(asOf, -(TILE_DAYS - 1));
   const priorEnd = addUtcDays(asOf, -TILE_DAYS);
   const priorStart = addUtcDays(priorEnd, -(TILE_DAYS - 1));
@@ -156,19 +171,47 @@ async function tilesOf(db: Db, stored: Stored[], asOf: string): Promise<StatsPay
     await redeemed(db, currentStart, asOf),
     await redeemed(db, priorStart, priorEnd),
   );
-  const rooms = compared(
-    "rooms",
-    "Active rooms (30 days)",
-    await categoryParts(db, currentStart, asOf),
-    await categoryParts(db, priorStart, priorEnd),
+  const rooms = roomsTile(
+    await categorySnapshot(db, currentStart, asOf, membership),
+    await categorySnapshot(db, priorStart, priorEnd, membership),
+    category,
   );
+  const inCategory = roomIdsFor(membership, category);
   const gatherings = compared(
     "gatherings",
     "Gatherings held (30 days)",
-    await gatheringParts(db, currentStart, asOf),
-    await gatheringParts(db, priorStart, priorEnd),
+    await gatheringParts(db, currentStart, asOf, inCategory),
+    await gatheringParts(db, priorStart, priorEnd, inCategory),
   );
   return [members, invites, rooms, gatherings];
+}
+
+function roomsTile(
+  current: CategorySnapshot,
+  prior: CategorySnapshot,
+  category: string,
+): StatsTile {
+  return {
+    id: "rooms",
+    label: "Active rooms (30 days)",
+    value: publishedRooms(current, category),
+    change: shownChange(publishedRooms(current, category), publishedRooms(prior, category)),
+  };
+}
+
+/** The same number the category chart publishes, so a filter cannot reveal a hidden bar. */
+function publishedRooms(snapshot: CategorySnapshot, category: string): ShownCount {
+  const protectedParts = protectBreakdown(snapshot.parts);
+  if (category === "all") return protectRoomTotal(snapshot.distinct, snapshot.parts);
+  const index = STATS_CATEGORIES.findIndex((item) => item.id === category);
+  return protectedParts.parts[index] ?? "<5";
+}
+
+function protectRoomTotal(distinct: number, parts: number[]): ShownCount {
+  if (!parts.some((part) => part < SMALL_COUNT)) return showCount(distinct);
+  const rounded = roundToFive(distinct);
+  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded)) return "<5";
+  return rounded;
 }
 
 function compared(
@@ -244,6 +287,7 @@ function roomSeries(
   stored: Stored[],
   names: Map<string, string>,
   inWindow: (date: string) => boolean,
+  inCategory: string[] | null,
 ): StatsPayload["rooms"] {
   const keys = new Map<
     string,
@@ -252,6 +296,7 @@ function roomSeries(
   for (const row of stored) {
     if (row.metric !== "room_posts" && row.metric !== "room_gatherings") continue;
     if (!inWindow(row.date)) continue;
+    if (inCategory && !inCategory.includes(row.dimension)) continue;
     const key = `${row.date}\n${row.dimension}`;
     const current = keys.get(key) ?? {
       week: row.date,
@@ -424,28 +469,113 @@ async function activeRoomIds(db: Db, start: string, end: string): Promise<string
   return rows.map((row) => row.room_id);
 }
 
-/** Seven categories, then uncategorized, so a hidden remainder cannot be subtracted. */
-async function categoryParts(db: Db, start: string, end: string): Promise<number[]> {
+type CategorySnapshot = { parts: number[]; distinct: number };
+
+/**
+ * Seven category counts, then rooms with no browse category.
+ * A room in two categories increments both. The distinct total counts it once.
+ */
+async function categorySnapshot(
+  db: Db,
+  start: string,
+  end: string,
+  membership: Map<string, Set<string>>,
+): Promise<CategorySnapshot> {
   const counts = new Map<string, number>(STATS_CATEGORIES.map((category) => [category.id, 0]));
   let other = 0;
-  for (const roomId of await activeRoomIds(db, start, end)) {
-    const category = ROOM_CATEGORY[roomId];
-    if (category && counts.has(category)) counts.set(category, (counts.get(category) ?? 0) + 1);
-    else other += 1;
+  const rooms = await activeRoomIds(db, start, end);
+  for (const roomId of rooms) {
+    const slugs = [...(membership.get(roomId) ?? [])].filter((slug) => counts.has(slug));
+    if (slugs.length === 0) other += 1;
+    for (const slug of slugs) counts.set(slug, (counts.get(slug) ?? 0) + 1);
   }
-  return [...STATS_CATEGORIES.map((category) => counts.get(category.id) ?? 0), other];
+  return {
+    parts: [...STATS_CATEGORIES.map((category) => counts.get(category.id) ?? 0), other],
+    distinct: rooms.length,
+  };
 }
 
-async function categoriesOf(db: Db, start: string, end: string): Promise<CategoryCount[]> {
-  const parts = protectBreakdown(await categoryParts(db, start, end));
-  return STATS_CATEGORIES.map((category, index) => ({
-    id: category.id,
-    label: category.label,
-    count: parts.parts[index] ?? "<5",
+async function categoriesOf(
+  db: Db,
+  start: string,
+  end: string,
+  category: string,
+  membership: Map<string, Set<string>>,
+): Promise<CategoryCount[]> {
+  const snapshot = await categorySnapshot(db, start, end, membership);
+  const parts = protectBreakdown(snapshot.parts);
+  const bars = STATS_CATEGORIES.map((item, index) => ({
+    id: item.id,
+    label: item.label,
+    count: parts.parts[index] ?? ("<5" as const),
   }));
+  if (category === "all") return bars;
+  return bars.filter((bar) => bar.id === category);
 }
 
-async function gatheringParts(db: Db, start: string, end: string): Promise<number[]> {
+/** Rooms in the selected category. Null means every room. A room may be in more than one. */
+function roomIdsFor(membership: Map<string, Set<string>>, category: string): string[] | null {
+  if (category === "all") return null;
+  const ids: string[] = [];
+  for (const [roomId, slugs] of membership) {
+    if (slugs.has(category)) ids.push(roomId);
+  }
+  return ids;
+}
+
+/**
+ * `room_categories` is the many-to-many list from the categories migration.
+ * Until that table exists, one category on `room` is used, then the seeded map.
+ */
+async function loadMembership(db: Db): Promise<Map<string, Set<string>>> {
+  const map = new Map<string, Set<string>>();
+  const add = (roomId: string, slug: string) => {
+    if (!roomId || !slug) return;
+    const slugs = map.get(roomId) ?? new Set<string>();
+    slugs.add(slug);
+    map.set(roomId, slugs);
+  };
+  if (await relationExists(db, "room_categories")) {
+    const rows = await db.query<{ room_id: string; category_id: string }>(
+      `select room_id, category_id from room_categories`,
+    );
+    for (const row of rows) add(row.room_id, row.category_id);
+    return map;
+  }
+  if (await columnExists(db, "room", "category_id")) {
+    const rows = await db.query<{ id: string; category_id: string }>(
+      `select id, category_id from room`,
+    );
+    for (const row of rows) add(row.id, row.category_id);
+    return map;
+  }
+  for (const [roomId, slug] of Object.entries(ROOM_CATEGORY)) add(roomId, slug);
+  return map;
+}
+
+async function relationExists(db: Db, name: string): Promise<boolean> {
+  const rows = await db.query<{ present: string | null }>(`select to_regclass($1) as present`, [
+    `public.${name}`,
+  ]);
+  return Boolean(rows[0]?.present);
+}
+
+async function columnExists(db: Db, table: string, column: string): Promise<boolean> {
+  const rows = await db.query<{ present: unknown }>(
+    `select 1 as present from information_schema.columns
+     where table_schema = 'public' and table_name = $1 and column_name = $2`,
+    [table, column],
+  );
+  return Boolean(rows[0]);
+}
+
+async function gatheringParts(
+  db: Db,
+  start: string,
+  end: string,
+  roomIds: string[] | null,
+): Promise<number[]> {
+  const narrowed = roomIds !== null;
   const rows = await db.query<{ date: string; count: unknown }>(
     `select day as date, count(*)::int as count from (
        select on_date as day
@@ -454,15 +584,17 @@ async function gatheringParts(db: Db, start: string, end: string): Promise<numbe
          and removed = false
          and on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
          and on_date::date between $1::date and $2::date
+         and ($3::boolean = false or room_id = any($4::text[]))
        union all
        select gather_on as day
        from public_gathering
        where removed = false
          and gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
          and gather_on::date between $1::date and $2::date
+         and ($3::boolean = false or room_id = any($4::text[]))
      ) held
      group by day`,
-    [start, end],
+    [start, end, narrowed, roomIds ?? []],
   );
   const byDay = new Map(rows.map((row) => [isoDate(row.date), asCount(row.count)]));
   return eachDay(start, end).map((date) => byDay.get(date) ?? 0);

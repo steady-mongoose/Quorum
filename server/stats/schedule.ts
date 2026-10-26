@@ -7,6 +7,7 @@ export function startNightlyStats(
   db: Db,
   retentionDays: number,
   now: () => Date = () => new Date(),
+  intervalMs = 60 * 60 * 1000,
 ): () => void {
   let lastDay = "";
   let running = false;
@@ -33,7 +34,7 @@ export function startNightlyStats(
       });
   };
   tick();
-  const timer = setInterval(tick, 60 * 60 * 1000);
+  const timer = setInterval(tick, intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }
