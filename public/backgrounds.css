@@ -34,7 +34,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 [data-section="landing"],[data-section="signin"]{background:var(--bg)}
 .plate-ground{position:sticky;top:0;height:100dvh;margin-bottom:-100dvh;z-index:0;pointer-events:none}
 [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{background:var(--art-landing) center 30%/cover no-repeat}
-.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar){position:relative;z-index:1}
+.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet){position:relative;z-index:1}
 [data-section="landing"] .scrim{position:fixed;inset:0;background:var(--scrim);pointer-events:none;z-index:0}
 @media (max-width:640px){
   [data-section="landing"] .plate-ground{height:62vh;margin-bottom:-62vh;background-size:auto 62vh;background-position:center top}

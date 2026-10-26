@@ -14,6 +14,8 @@ export function ProfileView() {
   const viewing = useBoard((state) => state.viewing);
   const profile = useBoard((state) => state.profile);
   const setProfile = useBoard((state) => state.setProfile);
+  const deskOn = useBoard((state) => state.deskOn);
+  const setDeskOn = useBoard((state) => state.setDeskOn);
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
@@ -59,6 +61,24 @@ export function ProfileView() {
               <input className={fieldClass} placeholder="Electrician" value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
             </label>
           </div>
+        ) : null}
+        {mine ? (
+          <section className="mt-4 flex flex-col gap-2">
+            <h2 className="text-2xl text-fg">The desk</h2>
+            <p className="max-w-prose text-sm text-muted">
+              Optional: coordinated calls to local officials. It stays off until you turn it on.
+              The emblems stay.
+            </p>
+            <label className="inline-flex min-h-[44px] items-center gap-3 text-sm text-fg">
+              <input
+                type="checkbox"
+                className="size-5"
+                checked={deskOn}
+                onChange={(event) => setDeskOn(event.target.checked)}
+              />
+              Show The desk
+            </label>
+          </section>
         ) : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>

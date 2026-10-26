@@ -83,22 +83,24 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 
 .cards{display:grid;gap:var(--space-2);grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
 
-/* Phone: bottom tabs, so the section names are not a sideways scroller. */
+/* Phone: five slots in one row. The rest sit in the More sheet. */
 .tabbar{display:none}
 @media (max-width:767px){
   .topnav{display:none}
   .tabbar{
-    display:grid;
-    grid-template-columns:repeat(4,minmax(0,1fr));
+    display:flex;
+    flex-wrap:nowrap;
     position:fixed;
     inset:auto 0 0 0;
     z-index:30;
     background:var(--surface);
-    border-top:1px solid var(--gold);
+    border-top:1px solid var(--line);
     padding-bottom:env(safe-area-inset-bottom);
   }
   .tabbar button{
-    min-height:56px;
+    flex:1;
+    min-width:44px;
+    min-height:max(44px,56px);
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -106,15 +108,50 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
     gap:2px;
     padding:6px 4px;
     border:0;
+    border-top:2px solid transparent;
     background:transparent;
     color:var(--muted);
-    font-size:.75rem;
+    font-size:12px;
+    font-weight:500;
     line-height:1.15;
     text-align:center;
     white-space:normal;
   }
-  .tabbar button[aria-current="page"]{color:var(--fg)}
-  .shell-body > main{padding-bottom:calc(9rem + env(safe-area-inset-bottom))}
+  .tabbar button svg{width:24px;height:24px}
+  .tabbar button[aria-current="page"]{color:var(--fg);border-top:2px solid var(--gold)}
+  .shell-body > main{padding-bottom:calc(56px + 1rem + env(safe-area-inset-bottom))}
+  .more-sheet[open]{
+    position:fixed;
+    inset:auto 0 0 0;
+    width:100%;
+    max-width:none;
+    margin:0;
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));
+    border:0;
+    border-top:1px solid var(--gold);
+    border-radius:16px 16px 0 0;
+    background:var(--surface);
+    color:var(--fg);
+  }
+  .more-sheet::backdrop{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+  .more-grab{width:2.5rem;height:4px;margin:4px auto 8px;border-radius:999px;background:var(--line-strong)}
+  .more-sheet ul{list-style:none;margin:0;padding:0}
+  .more-row{
+    min-height:max(44px,48px);
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:8px 16px;
+    border:0;
+    background:transparent;
+    color:var(--fg);
+    font-size:1rem;
+    font-weight:500;
+    text-align:left;
+  }
+  .more-row svg{width:24px;height:24px}
+  .more-row[aria-current="page"]{box-shadow:inset 2px 0 0 var(--gold)}
 }
 @media (prefers-reduced-data:reduce){
   .hero-band,.outer-art,.side-art{background-image:none}

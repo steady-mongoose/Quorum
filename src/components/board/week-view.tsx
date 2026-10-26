@@ -29,6 +29,7 @@ export function WeekView() {
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
+  const deskOn = useBoard((state) => state.deskOn);
   const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
@@ -74,7 +75,7 @@ export function WeekView() {
       </div>
 
       <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
-        <TheCall />
+        {deskOn ? <TheCall /> : null}
         {needs.length > 0 ? (
           <section className="flex flex-col gap-3">
             <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">A parish needs</h2>

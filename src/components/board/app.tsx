@@ -19,53 +19,27 @@ import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
+import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
+import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
 import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
 import { useEngravedDocument } from "@/components/board/engraved-ground";
 
-const NAV = [
-  { id: "week", label: "This week", icon: CalendarDays },
-  { id: "rooms", label: "Rooms", icon: LayoutList },
-  { id: "find", label: "Find", icon: Search },
-  { id: "civic", label: "The desk", icon: Phone },
-  { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "profile", label: "You", icon: User },
-  { id: "about", label: "About", icon: BookOpen },
-] satisfies { id: Section; label: string; icon: typeof CalendarDays }[];
-
-/** Phone sections. A wrapping bar, not a row that clips the later names. */
-function SectionTabs({
-  current,
-  onSelect,
-}: {
-  current: Section;
-  onSelect: (id: Section) => void;
-}) {
-  return (
-    <nav className="tabbar" aria-label="Sections">
-      {NAV.map((item) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={current === item.id ? "page" : undefined}
-            onClick={() => onSelect(item.id)}
-          >
-            <Icon className="size-4" aria-hidden="true" />
-            {item.label}
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
+const ICONS = {
+  week: CalendarDays,
+  rooms: LayoutList,
+  find: Search,
+  civic: Phone,
+  messages: MessageSquare,
+  profile: User,
+  about: BookOpen,
+} satisfies Record<Section, typeof CalendarDays>;
 
 export function BoardApp() {
   return (
@@ -78,6 +52,7 @@ export function BoardApp() {
 function BoardShell() {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const deskOn = useBoard((state) => state.deskOn);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
@@ -93,9 +68,10 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
-    section,
+    section: shown,
     signingIn: server.mode === "live" && !entered,
   });
   const hero = heroLabel(art);
@@ -143,17 +119,23 @@ function BoardShell() {
     void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
+  useEffect(() => {
+    if (!deskOn && section === "civic") setSection("week");
+  }, [deskOn, section, setSection]);
+
+  const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
+
   const page = (
     <>
       {waiting ? <p className="card px-4 py-3 text-sm text-muted">Checking the server.</p> : null}
       {!waiting && !entered && <Door />}
-      {entered && section === "week" && <WeekView />}
-      {entered && section === "rooms" && <RoomView />}
-      {entered && section === "find" && <FindView />}
-      {entered && section === "civic" && <QuorumPanel />}
-      {entered && section === "messages" && <DmView />}
-      {entered && section === "profile" && <ProfileView />}
-      {entered && section === "about" && <AboutView />}
+      {entered && shown === "week" && <WeekView />}
+      {entered && shown === "rooms" && <RoomView />}
+      {entered && shown === "find" && <FindView />}
+      {entered && shown === "civic" && deskOn && <QuorumPanel />}
+      {entered && shown === "messages" && <DmView />}
+      {entered && shown === "profile" && <ProfileView />}
+      {entered && shown === "about" && <AboutView />}
     </>
   );
 
@@ -173,9 +155,9 @@ function BoardShell() {
           {entered ? (
             <div className="topnav">
               <IconNav
-                items={NAV}
-                current={section}
-                onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+                items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
+                current={shown}
+                onSelect={openSection}
                 label="Sections"
               />
             </div>
@@ -268,10 +250,7 @@ function BoardShell() {
       </div>
       {entered ? <SessionLine /> : null}
       {entered ? (
-        <SectionTabs
-          current={section}
-          onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
-        />
+        <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
       ) : null}
     </div>
   );
