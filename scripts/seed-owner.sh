@@ -2,16 +2,23 @@
 # Seat Josh once.
 #
 # The API container is already running, so lines added to deploy/.env after
-# `up` are not in its environment and the seed would exit without seating
-# anyone. The three BOOTSTRAP_* values come from the caller, or from a
-# prompt (the password is not echoed). They are passed with `exec -e` and
-# are not written into deploy/.env. A leftover password line is blanked
-# afterwards and the API is recreated so it is not left in the process.
+# `up` are not in its environment. The three BOOTSTRAP_* values come from the
+# caller, or from a prompt (the password is not echoed). They are passed with
+# `exec -e` and are not written into deploy/.env. This script never edits
+# that file.
+#
+# If a password was already left in the file, the seed clears that one line
+# (the API mounts deploy/.env) and this script recreates the API so the
+# process does not keep it. A clean run, and a clean re-run, leave the file
+# and the API alone.
+#
+# COMPOSE_FILE may name several compose files, separated by
+# COMPOSE_PATH_SEPARATOR (a colon, unless that variable is set).
+# COMPOSE_PROFILES is passed through as `--profile`.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT/deploy/.env}"
-COMPOSE_FILE="${COMPOSE_FILE:-$ROOT/deploy/docker-compose.yml}"
 
 STTY_OFF=
 restore_echo() {
@@ -75,18 +82,105 @@ fill() {
   esac
 }
 
+# 0 when deploy/.env holds a non-empty BOOTSTRAP_OWNER_PASSWORD. The value
+# is not printed.
+password_left() {
+  [ -f "$ENV_FILE" ] || return 1
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*BOOTSTRAP_OWNER_PASSWORD=/ {
+      value = substr($0, index($0, "=") + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      q = "\047"
+      if (length(value) >= 2 && substr(value, 1, 1) == "\"" && substr(value, length(value), 1) == "\"")
+        value = substr(value, 2, length(value) - 2)
+      else if (length(value) >= 2 && substr(value, 1, 1) == q && substr(value, length(value), 1) == q)
+        value = substr(value, 2, length(value) - 2)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      if (value != "") found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$ENV_FILE"
+}
+
+# docker compose, with every compose file and every profile the operator set.
+# COMPOSE_FILE is expanded here and unset for the child so it is not applied twice.
+run_compose() {
+  sep="${COMPOSE_PATH_SEPARATOR:-:}"
+  files="${COMPOSE_FILE:-$ROOT/deploy/docker-compose.yml}"
+  profiles="${COMPOSE_PROFILES:-}"
+  _list=$(mktemp)
+  for _arg in "$@"; do
+    printf '%s\n' "$_arg" >> "$_list"
+  done
+  set -- --env-file "$ENV_FILE"
+  _rest=$files
+  while [ -n "$_rest" ]; do
+    _file=${_rest%%"$sep"*}
+    if [ "$_file" = "$_rest" ]; then
+      _rest=
+    else
+      _rest=${_rest#*"$sep"}
+    fi
+    if [ -n "$_file" ]; then
+      set -- "$@" -f "$_file"
+    fi
+  done
+  _rest=$profiles
+  while [ -n "$_rest" ]; do
+    _profile=${_rest%%,*}
+    if [ "$_profile" = "$_rest" ]; then
+      _rest=
+    else
+      _rest=${_rest#*,}
+    fi
+    _profile=${_profile#"${_profile%%[![:space:]]*}"}
+    _profile=${_profile%"${_profile##*[![:space:]]}"}
+    if [ -n "$_profile" ]; then
+      set -- "$@" --profile "$_profile"
+    fi
+  done
+  while IFS= read -r _arg || [ -n "$_arg" ]; do
+    set -- "$@" "$_arg"
+  done < "$_list"
+  rm -f "$_list"
+  env -u COMPOSE_FILE docker compose "$@"
+}
+
 fill BOOTSTRAP_OWNER text
 fill BOOTSTRAP_OWNER_EMAIL text
 fill BOOTSTRAP_OWNER_PASSWORD secret
 export BOOTSTRAP_OWNER BOOTSTRAP_OWNER_EMAIL BOOTSTRAP_OWNER_PASSWORD
 
+# Read before the seed. The seed may clear the mounted file; this script does not.
+leftover=0
+if password_left; then
+  leftover=1
+fi
+
 # `-e NAME` with no value takes the caller's environment. The password is
 # not placed on the command line, and deploy/.env is not the source.
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
+# A second run exits 1 once Josh is seated. That is still a clean re-run
+# when no password is left: do not recreate the API on the way out.
+set +e
+run_compose exec -T \
   -e BOOTSTRAP_OWNER \
   -e BOOTSTRAP_OWNER_EMAIL \
   -e BOOTSTRAP_OWNER_PASSWORD \
   api npm run seed:owner
-node --experimental-strip-types "$ROOT/server/env-file.ts" "$ENV_FILE"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --force-recreate --no-deps api
-echo "Josh is seated. A leftover BOOTSTRAP_OWNER_PASSWORD in $ENV_FILE was cleared, and the API was recreated."
+seed_status=$?
+set -e
+
+if [ "$leftover" -eq 1 ]; then
+  run_compose up -d --force-recreate --no-deps api
+fi
+
+if [ "$seed_status" -ne 0 ]; then
+  exit "$seed_status"
+fi
+
+if [ "$leftover" -eq 1 ]; then
+  echo "Josh is seated. A leftover BOOTSTRAP_OWNER_PASSWORD was in $ENV_FILE, so the API was recreated."
+else
+  echo "Josh is seated."
+fi

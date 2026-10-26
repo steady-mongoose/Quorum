@@ -30,17 +30,20 @@ export async function seedOwner(): Promise<number> {
       },
       createAccountFactory(auth, config.baseURL, "bootstrap"),
     );
+    const envFile = process.env.ENV_FILE;
+    if (envFile) {
+      const cleared = clearOwnerPasswordFile(envFile);
+      if (cleared === "cleared") {
+        console.log(`Removed BOOTSTRAP_OWNER_PASSWORD from ${envFile}.`);
+      } else if (cleared === "failed") {
+        console.log("Remove BOOTSTRAP_OWNER_PASSWORD from deploy/.env, then restart the API.");
+      }
+    }
     if (!result.ok) {
       console.error(result.error);
       return 1;
     }
     console.log("Seated Josh once as founding admin and council chair.");
-    const envFile = process.env.ENV_FILE;
-    if (envFile && clearOwnerPasswordFile(envFile)) {
-      console.log(`Removed BOOTSTRAP_OWNER_PASSWORD from ${envFile}.`);
-    } else {
-      console.log("Remove BOOTSTRAP_OWNER_PASSWORD from deploy/.env, then restart the API.");
-    }
     return 0;
   } finally {
     await pool.end();

@@ -25,9 +25,87 @@ test("the seed passes BOOTSTRAP_* with exec -e and does not put the password on 
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
   const envFile = join(root, ".env");
+  const composeA = join(root, "docker-compose.yml");
+  const composeB = join(root, "extra-compose.yml");
   fakeDocker(bin, log);
-  writeFileSync(envFile, "BOOTSTRAP_OWNER=\nBOOTSTRAP_OWNER_EMAIL=\nBOOTSTRAP_OWNER_PASSWORD=left-behind\nPOSTGRES_PASSWORD=db\n");
+  const original = "BOOTSTRAP_OWNER=\nBOOTSTRAP_OWNER_EMAIL=\nBOOTSTRAP_OWNER_PASSWORD=left-behind\nPOSTGRES_PASSWORD=db\n";
+  writeFileSync(envFile, original);
   const result = await execFileAsync(join(projectRoot(), "scripts/seed-owner.sh"), [], {
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      ENV_FILE: envFile,
+      COMPOSE_FILE: `${composeA}:${composeB}`,
+      COMPOSE_PROFILES: "media, calls",
+      DOCKER_LOG: log,
+      BOOTSTRAP_OWNER: "Josh",
+      BOOTSTRAP_OWNER_EMAIL: "josh@example.com",
+      BOOTSTRAP_OWNER_PASSWORD: PASSWORD,
+    },
+  });
+  assert.match(result.stdout, /API was recreated/);
+  const trace = readFileSync(log, "utf8");
+  assert.match(trace, /exec\n-T\n-e\nBOOTSTRAP_OWNER\n-e\nBOOTSTRAP_OWNER_EMAIL\n-e\nBOOTSTRAP_OWNER_PASSWORD\n/);
+  assert.equal(trace.includes(`${PASSWORD}`), false);
+  assert.equal(trace.includes("BOOTSTRAP_OWNER_PASSWORD="), false);
+  assert.equal(trace.includes("left-behind"), false);
+  assert.ok(trace.includes(`-f\n${composeA}\n-f\n${composeB}\n`));
+  assert.ok(trace.includes("--profile\nmedia\n--profile\ncalls\n"));
+  assert.match(trace, /up\n-d\n--force-recreate\n--no-deps\napi\n/);
+  assert.equal(readFileSync(envFile, "utf8"), original);
+});
+
+test("a clean run does not edit .env or recreate the api, and a re-run still does not", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
+  const bin = join(root, "bin");
+  const log = join(root, "docker.log");
+  const envFile = join(root, ".env");
+  fakeDocker(bin, log);
+  const original = "POSTGRES_PASSWORD=db\nBOOTSTRAP_OWNER_PASSWORD=\n";
+  writeFileSync(envFile, original);
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    ENV_FILE: envFile,
+    COMPOSE_FILE: join(root, "missing-compose.yml"),
+    DOCKER_LOG: log,
+    BOOTSTRAP_OWNER: "Josh",
+    BOOTSTRAP_OWNER_EMAIL: "josh@example.com",
+    BOOTSTRAP_OWNER_PASSWORD: PASSWORD,
+  };
+  const first = await execFileAsync(join(projectRoot(), "scripts/seed-owner.sh"), [], { env });
+  assert.match(first.stdout, /Josh is seated/);
+  assert.equal(first.stdout.includes("recreated"), false);
+  assert.equal(readFileSync(envFile, "utf8"), original);
+  let trace = readFileSync(log, "utf8");
+  assert.match(trace, /exec\n-T\n/);
+  assert.equal(trace.includes("force-recreate"), false);
+  assert.equal(trace.includes("\nup\n"), false);
+
+  const second = await execFileAsync(join(projectRoot(), "scripts/seed-owner.sh"), [], { env });
+  assert.match(second.stdout, /Josh is seated/);
+  assert.equal(second.stdout.includes("recreated"), false);
+  assert.equal(readFileSync(envFile, "utf8"), original);
+  trace = readFileSync(log, "utf8");
+  assert.equal(trace.includes("force-recreate"), false);
+  assert.equal(trace.includes("\nup\n"), false);
+  assert.equal(trace.split("---").filter((part) => part.includes("exec")).length, 2);
+});
+
+test("a clean re-run that finds Josh already seated still does not recreate the api or edit .env", async () => {
+  const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
+  const bin = join(root, "bin");
+  const log = join(root, "docker.log");
+  const envFile = join(root, ".env");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "docker"),
+    "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_LOG\"\necho '---' >> \"$DOCKER_LOG\"\nexit 1\n",
+  );
+  chmodSync(join(bin, "docker"), 0o755);
+  const original = "POSTGRES_PASSWORD=db\n";
+  writeFileSync(envFile, original);
+  const failed = await execFileAsync(join(projectRoot(), "scripts/seed-owner.sh"), [], {
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
@@ -38,18 +116,18 @@ test("the seed passes BOOTSTRAP_* with exec -e and does not put the password on 
       BOOTSTRAP_OWNER_EMAIL: "josh@example.com",
       BOOTSTRAP_OWNER_PASSWORD: PASSWORD,
     },
-  });
-  assert.match(result.stdout, /Josh is seated/);
+  }).then(
+    () => {
+      throw new Error("a second seat should exit 1");
+    },
+    (error) => error,
+  );
+  assert.equal(failed.code, 1);
+  assert.equal(readFileSync(envFile, "utf8"), original);
   const trace = readFileSync(log, "utf8");
-  assert.match(trace, /exec\n-T\n-e\nBOOTSTRAP_OWNER\n-e\nBOOTSTRAP_OWNER_EMAIL\n-e\nBOOTSTRAP_OWNER_PASSWORD\n/);
-  assert.equal(trace.includes(`${PASSWORD}`), false);
-  assert.equal(trace.includes("BOOTSTRAP_OWNER_PASSWORD="), false);
-  assert.equal(trace.includes("left-behind"), false);
-  const stored = readFileSync(envFile, "utf8");
-  assert.match(stored, /^BOOTSTRAP_OWNER_PASSWORD=$/m);
-  assert.equal(stored.includes(PASSWORD), false);
-  assert.equal(stored.includes("left-behind"), false);
-  assert.match(stored, /^POSTGRES_PASSWORD=db$/m);
+  assert.match(trace, /exec\n-T\n/);
+  assert.equal(trace.includes("force-recreate"), false);
+  assert.equal(trace.includes("\nup\n"), false);
 });
 
 test("without a terminal the seed refuses to run when BOOTSTRAP_* is unset", async () => {
