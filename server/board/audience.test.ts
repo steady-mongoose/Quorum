@@ -357,9 +357,17 @@ test("a restricted room is enforced on every path, and a steward override is log
     );
     assert.equal(helenInvite.status, 404);
     assert.equal(helenInvite.code, undefined);
-    const shopInvite = await mintInvite(db, { userId: maria, maxUses: 1, expiresInDays: 7, roomId: "shop" }, now);
+    const shopInvite = await mintInvite(
+      db,
+      { userId: maria, maxUses: 1, expiresInDays: 7, roomId: "shop", attestAdult: true },
+      now,
+    );
     assert.equal(shopInvite.ok, true);
-    const benchInvite = await mintInvite(db, { userId: adam, maxUses: 1, expiresInDays: 7, roomId: "bench" }, now);
+    const benchInvite = await mintInvite(
+      db,
+      { userId: adam, maxUses: 1, expiresInDays: 7, roomId: "bench", attestAdult: true },
+      now,
+    );
     assert.equal(benchInvite.ok, true);
     if (!benchInvite.ok) return;
     const redeemed = await redeemInvite(
@@ -369,6 +377,7 @@ test("a restricted room is enforced on every path, and a steward override is log
         email: "ned@example.com",
         password: "correct-horse",
         code: benchInvite.value.code,
+        adult: true,
         headers,
       },
       createAccount,

@@ -25,6 +25,7 @@ export async function signUpWithInvite(input: {
   email: string;
   password: string;
   inviteCode: string;
+  adult: boolean;
 }): Promise<AccountResult> {
   const response = await postJson("/api/signup", input);
   return parseAccountResult(response.status, response.json);
@@ -50,6 +51,7 @@ export async function signOutServer(): Promise<void> {
 
 export async function createServerInvite(input: {
   maxUses?: number;
+  attestAdult: boolean;
 }): Promise<{ ok: true; code: string } | { ok: false; message: string }> {
   const response = await postJson("/api/invites", input);
   if (response.status < 200 || response.status >= 300) {

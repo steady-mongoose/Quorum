@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, type Db } from "../db.ts";
+import { AGE_INVITE_ERROR, AGE_SIGNUP_ERROR, confirmedAdult } from "../../src/lib/board/age.ts";
 import {
   FOUNDING_ADMIN,
   FOUNDING_ADMIN_NOTE,
@@ -64,6 +65,7 @@ type InviteRecord = {
   expires_at: Date | string;
   created_by: string;
   room_id: string;
+  age_attested_at: Date | string | null;
 };
 
 async function liveRole(db: Db, userId: string, role: AccessRow["role"]): Promise<boolean> {
@@ -101,6 +103,8 @@ export async function mintInvite(
     expiresInDays: unknown;
     note?: unknown;
     roomId?: unknown;
+    /** The inviter confirms the invitee is 18 or older. Required. */
+    attestAdult?: unknown;
   },
   now: Date,
 ): Promise<Result<{ id: string; code: string; maxUses: number; expiresAt: string }>> {
@@ -124,12 +128,14 @@ export async function mintInvite(
     });
     if (!gate.ok) return fail(gate.status, gate.error, gate.code);
   }
+  if (!confirmedAdult(input.attestAdult)) return fail(400, AGE_INVITE_ERROR);
   const code = generateInviteCode();
   const id = randomUUID();
   await db.query(
-    `insert into invite_code (id, code_hash, created_by, max_uses, expires_at, note, room_id)
-     values ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, hashInviteCode(code), input.userId, maxUses.maxUses, expiry.expiresAt, note, roomId],
+    `insert into invite_code
+     (id, code_hash, created_by, max_uses, expires_at, note, room_id, age_attested_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, hashInviteCode(code), input.userId, maxUses.maxUses, expiry.expiresAt, note, roomId, now],
   );
   return {
     ok: true,
@@ -139,21 +145,20 @@ export async function mintInvite(
 
 async function explainBlockedCode(db: Db, code: string, now: Date): Promise<Err> {
   const existing = await db.query<InviteRecord>(
-    `select id, uses, max_uses, expires_at, created_by, room_id
+    `select id, uses, max_uses, expires_at, created_by, room_id, age_attested_at
      from invite_code where code_hash = $1`,
     [hashInviteCode(code)],
   );
   const row = existing[0];
-  return fail(
-    400,
-    inviteBlock(
-      row
-        ? { uses: Number(row.uses), maxUses: Number(row.max_uses), expiresAt: row.expires_at }
-        : null,
-      now,
-    ) ?? "That code is not valid.",
-    INVITE_INVALID,
+  const blocked = inviteBlock(
+    row
+      ? { uses: Number(row.uses), maxUses: Number(row.max_uses), expiresAt: row.expires_at }
+      : null,
+    now,
   );
+  if (blocked) return fail(400, blocked, INVITE_INVALID);
+  if (!row?.age_attested_at) return fail(400, "That code has no age confirmation.", INVITE_INVALID);
+  return fail(400, "That code is not valid.", INVITE_INVALID);
 }
 
 /**
@@ -163,7 +168,15 @@ async function explainBlockedCode(db: Db, code: string, now: Date): Promise<Err>
  */
 export async function redeemInvite(
   db: Db,
-  input: { name: string; email: string; password: string; code: string; headers: Headers },
+  input: {
+    name: string;
+    email: string;
+    password: string;
+    code: string;
+    headers: Headers;
+    /** The new member confirms they are 18 or older. Required. */
+    adult?: unknown;
+  },
   createAccount: CreateAccount,
   signIn: SignIn,
   now: Date,
@@ -175,6 +188,7 @@ export async function redeemInvite(
   if (!validEmail(email)) return fail(400, "Enter an email address.");
   if (!validPassword(input.password)) return fail(400, "Use a password of 8 to 128 characters.");
   if (!code) return fail(400, "Enter the invite code.", INVITE_INVALID);
+  if (!confirmedAdult(input.adult)) return fail(400, AGE_SIGNUP_ERROR);
 
   let reservedId = "";
   let invitedBy = "";
@@ -185,7 +199,8 @@ export async function redeemInvite(
         `update invite_code
          set uses = uses + 1
          where code_hash = $1 and uses < max_uses and expires_at > $2
-         returning id, uses, max_uses, expires_at, created_by, room_id`,
+           and age_attested_at is not null
+         returning id, uses, max_uses, expires_at, created_by, room_id, age_attested_at`,
         [hashInviteCode(code), now],
       );
       const reserved = rows[0];
@@ -195,6 +210,7 @@ export async function redeemInvite(
       ]);
       const invitedByName = inviter[0]?.name ?? "unknown";
       const account = await createAccount(tx, { name, email, password: input.password });
+      await tx.query(`update "user" set age_confirmed_at = $2 where id = $1`, [account.id, now]);
       await tx.query(
         `insert into invite_redemption
          (id, invite_id, invited_user_id, invited_by_user_id, invited_name, invited_by_name)

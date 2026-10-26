@@ -7,6 +7,7 @@ import {
   INVITE_CODE_ERROR_ID,
   inviteCodeError,
 } from "@/lib/board/invite-entry";
+import { AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } from "@/lib/board/age";
 import { useServerSession } from "@/lib/server-session-state";
 
 /** Account door. Shown only when the dedicated-box API answered. */
@@ -19,6 +20,7 @@ export function AccountDoor() {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [outcome, setOutcome] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [adult, setAdult] = useState(false);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -39,12 +41,16 @@ export function AccountDoor() {
           setCodeError(INVITE_CODE_ERROR);
           return;
         }
+        if (mode === "sign-up" && !adult) {
+          setOutcome(AGE_SIGNUP_ERROR);
+          return;
+        }
         setCodeError(null);
         setPending(true);
         const run =
           mode === "sign-in"
             ? server.signIn({ email, password })
-            : server.signUp({ name, email, password, inviteCode: code });
+            : server.signUp({ name, email, password, inviteCode: code, adult: true });
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
@@ -113,6 +119,15 @@ export function AccountDoor() {
               {codeError}
             </p>
           ) : null}
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
+            <input
+              type="checkbox"
+              className="size-5 shrink-0"
+              checked={adult}
+              onChange={(event) => setAdult(event.target.checked)}
+            />
+            {AGE_SIGNUP_LABEL}
+          </label>
         </>
       ) : null}
       <button type="submit" className={cn(btnSignal, "self-start")} disabled={pending}>
