@@ -108,6 +108,10 @@ type BoardState = {
   /** True while this browser is writing rooms and posts to the API. */
   remote: boolean;
   boardError: string;
+  /** Names in the current removal failure, oldest first. Not stored. */
+  failedRemovalNames: string[];
+  /** Removals still inside the undo window, oldest first. Not stored. */
+  undoQueue: MeetingCard[];
   /** A card just put back after a failed removal. Find scrolls it into view. Not stored. */
   scrollCardId: string | null;
   rooms: Room[];
@@ -599,12 +603,39 @@ export const useBoard = create<BoardState>()(
         return { ok: true };
       };
 
-      type PendingRemoval = { card: MeetingCard; index: number; timer: ReturnType<typeof setTimeout> };
+      type PendingRemoval = {
+        card: MeetingCard;
+        timer: ReturnType<typeof setTimeout>;
+        remote: boolean;
+      };
       const pendingRemovals = new Map<string, PendingRemoval>();
-      const restoreRemovedCard = (cards: MeetingCard[], card: MeetingCard, index: number) => {
+      let removalOrder: string[] = [];
+      const syncRemovalOrder = (cards: MeetingCard[]) => {
+        const seen = new Set(removalOrder);
+        for (const card of cards) {
+          if (seen.has(card.id)) continue;
+          removalOrder.push(card.id);
+          seen.add(card.id);
+        }
+      };
+      const placeRemovedCard = (cards: MeetingCard[], card: MeetingCard) => {
         if (cards.some((item) => item.id === card.id)) return cards;
-        const at = Math.min(Math.max(index, 0), cards.length);
-        return [...cards.slice(0, at), card, ...cards.slice(at)];
+        syncRemovalOrder(cards);
+        if (!removalOrder.includes(card.id)) removalOrder.push(card.id);
+        const byId = new Map(cards.map((item) => [item.id, item]));
+        byId.set(card.id, card);
+        const used = new Set<string>();
+        const next: MeetingCard[] = [];
+        for (const id of removalOrder) {
+          const item = byId.get(id);
+          if (!item || used.has(id)) continue;
+          next.push(item);
+          used.add(id);
+        }
+        for (const item of cards) {
+          if (!used.has(item.id)) next.push(item);
+        }
+        return next;
       };
       const settleRemoval = async (pending: PendingRemoval) => {
         let failed = false;
@@ -615,11 +646,19 @@ export const useBoard = create<BoardState>()(
           failed = true;
         }
         if (!failed) return;
-        const message = removalFailedCopy(pending.card.name);
-        set({
-          cards: restoreRemovedCard(get().cards, pending.card, pending.index),
-          boardError: message,
-          scrollCardId: pending.card.id,
+        set((state) => {
+          const prior =
+            state.boardError && state.failedRemovalNames.length > 0 ? state.failedRemovalNames : [];
+          const names = prior.includes(pending.card.name)
+            ? prior
+            : [...prior, pending.card.name];
+          return {
+            cards: placeRemovedCard(state.cards, pending.card),
+            failedRemovalNames: names,
+            boardError: removalFailedCopy(names),
+            scrollCardId: pending.card.id,
+            undoQueue: state.undoQueue.filter((item) => item.id !== pending.card.id),
+          };
         });
       };
 
@@ -646,6 +685,8 @@ export const useBoard = create<BoardState>()(
         home: null,
         remote: false,
         boardError: "",
+        failedRemovalNames: [],
+        undoQueue: [],
         scrollCardId: null,
         rooms: ROOMS,
         posts: [],
@@ -1175,18 +1216,25 @@ export const useBoard = create<BoardState>()(
           if (index < 0) return { ok: true };
           const card = cards[index];
           if (!card) return { ok: true };
+          if (pendingRemovals.size === 0) removalOrder = [];
+          syncRemovalOrder(cards);
+          const remote = get().remote;
           set({
             cards: cards.filter((item) => item.id !== id),
             boardError: "",
+            failedRemovalNames: [],
+            undoQueue: [...get().undoQueue.filter((item) => item.id !== id), card],
           });
-          if (!get().remote) return { ok: true };
           const timer = setTimeout(() => {
             const pending = pendingRemovals.get(id);
             if (!pending) return;
             pendingRemovals.delete(id);
-            void settleRemoval(pending);
+            set((state) => ({
+              undoQueue: state.undoQueue.filter((item) => item.id !== id),
+            }));
+            if (pending.remote) void settleRemoval(pending);
           }, REMOVAL_UNDO_MS);
-          pendingRemovals.set(id, { card, index, timer });
+          pendingRemovals.set(id, { card, timer, remote });
           return { ok: true };
         },
         undoRemoveCard: (id) => {
@@ -1194,14 +1242,24 @@ export const useBoard = create<BoardState>()(
           if (!pending) return false;
           clearTimeout(pending.timer);
           pendingRemovals.delete(id);
-          set({ cards: restoreRemovedCard(get().cards, pending.card, pending.index), boardError: "" });
+          set((state) => ({
+            cards: placeRemovedCard(state.cards, pending.card),
+            boardError: "",
+            failedRemovalNames: [],
+            undoQueue: state.undoQueue.filter((item) => item.id !== id),
+          }));
           return true;
         },
         commitPendingRemovals: (mode) => {
           const waiting = [...pendingRemovals.values()];
           pendingRemovals.clear();
+          const ids = new Set(waiting.map((pending) => pending.card.id));
+          set((state) => ({
+            undoQueue: state.undoQueue.filter((item) => !ids.has(item.id)),
+          }));
           for (const pending of waiting) {
             clearTimeout(pending.timer);
+            if (!pending.remote) continue;
             if (mode === "keepalive") removeGatheringKeepalive(pending.card.id);
             else void settleRemoval(pending);
           }

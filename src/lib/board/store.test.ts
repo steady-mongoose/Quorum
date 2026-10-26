@@ -104,6 +104,8 @@ function reset() {
     appeals: [],
     csamReports: [],
     boardError: "",
+    failedRemovalNames: [],
+    undoQueue: [],
     undoClear: null,
     localEntry: false,
   });
@@ -683,15 +685,147 @@ test("leaving the page during the undo window sends the DELETE", async () => {
   }
 });
 
+test("undo restores the latest removal, and each removal keeps its own timer", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  const first = newCard({
+    id: LIFTS_ID,
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const second = newCard({
+    id: "8c1d0e2a-1111-4b2c-9d00-1111abcd1234",
+    room: "shop",
+    kind: "meeting",
+    name: "Wednesday meal",
+    place: "The shop",
+    time: "6 p.m.",
+    host: "Maria",
+  });
+  useBoard.setState({ remote: true, cards: [other, first, second], section: "find", undoQueue: [] });
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    await useBoard.getState().removeCard(first.id);
+    mock.timers.tick(1000);
+    await useBoard.getState().removeCard(second.id);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(
+      useBoard.getState().undoQueue.map((item) => item.id),
+      [first.id, second.id],
+    );
+    assert.equal(useBoard.getState().undoRemoveCard(second.id), true);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, second.id],
+    );
+    mock.timers.tick(4000);
+    await flushRemoval();
+    assert.deepEqual(calls.map((url) => url.endsWith(`/api/gatherings/${first.id}`)), [true]);
+    assert.equal(useBoard.getState().cards.some((item) => item.id === second.id), true);
+    assert.equal(useBoard.getState().cards.some((item) => item.id === first.id), false);
+    mock.timers.tick(1000);
+    await flushRemoval();
+    assert.equal(calls.length, 1);
+  } finally {
+    useBoard.getState().commitPendingRemovals("keepalive");
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("two failed removals restore both cards and share one message", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  const first = newCard({
+    id: LIFTS_ID,
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const second = newCard({
+    id: "8c1d0e2a-1111-4b2c-9d00-1111abcd1234",
+    room: "shop",
+    kind: "meeting",
+    name: "Wednesday meal",
+    place: "The shop",
+    time: "6 p.m.",
+    host: "Maria",
+  });
+  useBoard.setState({ remote: true, cards: [other, first, second], section: "find" });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "api-unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    await useBoard.getState().removeCard(first.id);
+    await useBoard.getState().removeCard(second.id);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(
+      useBoard.getState().boardError,
+      removalFailedCopy(["Saturday lifts", "Wednesday meal"]),
+    );
+    assert.equal(useBoard.getState().boardError.includes("api-unavailable"), false);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, first.id, second.id],
+    );
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
 test("the removal error is one alert with a dismiss control, and the card can be scrolled back", () => {
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
   assert.match(app, /role="alert"/);
   assert.match(app, /min-h-\[44px\]/);
   assert.match(app, />\s*Dismiss\s*</);
   assert.match(app, /boardError: ""/);
   assert.match(app, /userFacingError/);
+  assert.match(app, /shown !== "find"/);
   assert.equal(find.includes("{boardError ? ("), false);
+  assert.match(find, /lg:bottom-6/);
+  assert.match(find, /env\(safe-area-inset-bottom\)/);
+  assert.match(find, /border-danger text-danger/);
+  assert.match(find, /role="status"/);
+  assert.equal(room.includes("boardError"), false);
   assert.match(find, /scrollRestoredCard/);
   assert.match(find, /id=\{`card-\$\{card\.id\}`\}/);
   assert.match(find, /undoRemoveCard/);

@@ -267,7 +267,7 @@ function BoardShell() {
           </div>
         </div>
       </header>
-      {boardError ? (
+      {boardError && shown !== "find" ? (
         <div
           role="alert"
           className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal"
@@ -279,7 +279,7 @@ function BoardShell() {
             <button
               type="button"
               className={cn(btnQuiet, "min-h-[44px]")}
-              onClick={() => useBoard.setState({ boardError: "" })}
+              onClick={() => useBoard.setState({ boardError: "", failedRemovalNames: [] })}
             >
               Dismiss
             </button>
