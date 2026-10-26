@@ -9,6 +9,7 @@ import {
   imageDemuxer,
   imageFileArgs,
   limitedCommand,
+  profileImageArgs,
   probeArgs,
   spawnCommand,
   thumbArgs,
@@ -69,6 +70,23 @@ test("ffmpeg commands force a local format and drop chapters and side streams", 
   const probe = probeArgs("in.mp4", "mp4");
   assert.equal(probe.includes("-protocol_whitelist"), true);
   assert.equal(probe[probe.indexOf("-threads") + 1], "1");
+});
+
+test("a profile photo is cropped to a square WebP", () => {
+  const file = profileImageArgs("in.jpg", "file.webp", "mjpeg", 512);
+  assert.equal(
+    file[file.indexOf("-vf") + 1],
+    "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
+  );
+  assert.equal(file[file.indexOf("-c:v") + 1], "libwebp");
+  assert.equal(file[file.indexOf("-map_metadata") + 1], "-1");
+  assert.equal(file.includes("-protocol_whitelist"), true);
+  const thumb = profileImageArgs("in.jpg", "thumb.webp", "mjpeg", 128);
+  assert.equal(
+    thumb[thumb.indexOf("-vf") + 1],
+    "scale=128:128:force_original_aspect_ratio=increase,crop=128:128",
+  );
+  assert.equal(thumb[thumb.indexOf("-c:v") + 1], "libwebp");
 });
 
 test("ffmpeg is capped without unshare, which Docker seccomp would block", () => {

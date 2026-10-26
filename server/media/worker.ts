@@ -1,6 +1,6 @@
 import type { Db } from "../db.ts";
 import { imageBounds, ImageBoundsError } from "../../src/lib/media/bounds.ts";
-import { VIDEO_MS } from "../../src/lib/media/limits.ts";
+import { PROFILE_IMAGE_TYPES, VIDEO_MS } from "../../src/lib/media/limits.ts";
 import { stripImageMetadata } from "../../src/lib/media/strip.ts";
 import {
   claimJob,
@@ -56,6 +56,20 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+/**
+ * Square WebP at 512 and 128. This does not set members.photo_media_id.
+ * The member attaches the ready picture with POST /api/profile/photo.
+ */
+async function runProfileImage(deps: WorkerDeps, bytes: Uint8Array, contentType: string) {
+  const tool = deps.tools.processProfileImage;
+  if (!tool) throw new MediaReject("That picture could not be prepared.");
+  const processed = await tool(bytes, contentType);
+  if (processed.fileType !== "image/webp" || processed.thumbType !== "image/webp") {
+    throw new MediaReject("That picture could not be prepared.");
+  }
+  return processed;
 }
 
 /** Delete objects for tombstoned rows, then delete the rows. */
@@ -142,6 +156,14 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
     }
     const raw = await deps.store.get(row.upload_key);
     if (!raw) throw new MediaReject("The upload has not arrived.");
+    if (row.scope === "profile") {
+      if (
+        row.kind !== "image" ||
+        !(PROFILE_IMAGE_TYPES as readonly string[]).includes(row.content_type)
+      ) {
+        throw new MediaReject("Choose a JPEG, PNG, or WebP.");
+      }
+    }
     if (row.kind === "image") {
       let stripped: Uint8Array;
       try {
@@ -154,7 +176,10 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
             : "That file is not a picture we can keep.",
         );
       }
-      const processed = await deps.tools.processImage(stripped, row.content_type);
+      const profile = row.scope === "profile";
+      const processed = profile
+        ? await runProfileImage(deps, stripped, row.content_type)
+        : await deps.tools.processImage(stripped, row.content_type);
       if (sameBytes(processed.file, raw)) {
         throw new MediaReject("That picture could not be prepared.");
       }

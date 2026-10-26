@@ -329,3 +329,128 @@ test("a sweep deletes tombstoned objects and leaves a message the other person s
     await close();
   }
 });
+
+test("a profile photo is stored as WebP and is not attached by the worker", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const josh = randomUUID();
+    await user(db, josh);
+    const store = createMemoryStore();
+    let profileCalls = 0;
+    const tools: MediaTools = {
+      async processImage() {
+        throw new Error("room picture tool should not run");
+      },
+      async processVideo() {
+        throw new Error("video tool should not run");
+      },
+      async processProfileImage(bytes) {
+        profileCalls += 1;
+        assert.equal(new TextDecoder().decode(bytes).includes("GPSLatitude"), false);
+        return {
+          file: Uint8Array.of(9, 9, 9),
+          fileType: "image/webp",
+          thumb: Uint8Array.of(8),
+          thumbType: "image/webp",
+        };
+      },
+    };
+    const id = randomUUID();
+    const raw = jpegWithGps();
+    await insertPending(
+      db,
+      id,
+      josh,
+      {
+        kind: "image",
+        contentType: "image/jpeg",
+        byteSize: raw.byteLength,
+        durationMs: null,
+        scope: "profile",
+        roomId: "",
+        postId: "",
+        peerUserId: "",
+        keyEnvelope: "",
+        encryption: "server-processed",
+        uploadContentType: "image/jpeg",
+      },
+      `incoming/${id}`,
+    );
+    await db.query(`update media_object set status = 'processing' where id = $1`, [id]);
+    await db.query(
+      `insert into media_job (id, media_id, status, run_after) values ($1, $2, 'queued', $3)`,
+      [`job-${id}`, id, now.toISOString()],
+    );
+    await store.put(`incoming/${id}`, raw, "image/jpeg");
+    assert.equal(await runOneMediaJob({ db, store, tools, now: () => now }), "done");
+    assert.equal(profileCalls, 1);
+    const row = await readMedia(db, id);
+    assert.equal(row?.status, "ready");
+    assert.equal(row?.content_type, "image/webp");
+    assert.equal(await store.head(`incoming/${id}`), null);
+    const pointed = await db.query<{ user_id: string }>(
+      `select user_id from members where photo_media_id = $1`,
+      [id],
+    );
+    assert.equal(pointed.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("a profile tool that does not return WebP is rejected", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const josh = randomUUID();
+    await user(db, josh);
+    const store = createMemoryStore();
+    const tools: MediaTools = {
+      async processImage() {
+        throw new Error("no");
+      },
+      async processVideo() {
+        throw new Error("no");
+      },
+      async processProfileImage() {
+        return {
+          file: Uint8Array.of(1),
+          fileType: "image/jpeg",
+          thumb: Uint8Array.of(2),
+          thumbType: "image/jpeg",
+        };
+      },
+    };
+    const id = randomUUID();
+    const raw = jpegWithGps();
+    await insertPending(
+      db,
+      id,
+      josh,
+      {
+        kind: "image",
+        contentType: "image/jpeg",
+        byteSize: raw.byteLength,
+        durationMs: null,
+        scope: "profile",
+        roomId: "",
+        postId: "",
+        peerUserId: "",
+        keyEnvelope: "",
+        encryption: "server-processed",
+        uploadContentType: "image/jpeg",
+      },
+      `incoming/${id}`,
+    );
+    await db.query(`update media_object set status = 'processing' where id = $1`, [id]);
+    await db.query(
+      `insert into media_job (id, media_id, status, run_after) values ($1, $2, 'queued', $3)`,
+      [`job-${id}`, id, now.toISOString()],
+    );
+    await store.put(`incoming/${id}`, raw, "image/jpeg");
+    assert.equal(await runOneMediaJob({ db, store, tools, now: () => now }), "failed");
+    const row = await readMedia(db, id);
+    assert.equal(row?.status, "rejected");
+  } finally {
+    await close();
+  }
+});

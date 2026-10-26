@@ -1,6 +1,6 @@
 import { apiFetch } from "../api-base.ts";
 import { getDmMediaCrypto } from "./e2e.ts";
-import type { MediaKind } from "./limits.ts";
+import { planUpload, type MediaKind } from "./limits.ts";
 import { stripImageMetadata } from "./strip.ts";
 
 export type UploadRequest = {
@@ -8,7 +8,7 @@ export type UploadRequest = {
   contentType: string;
   byteSize: number;
   durationMs?: number;
-  scope: "room" | "dm";
+  scope: "room" | "dm" | "profile";
   roomId?: string;
   postId?: string;
   peerUserId?: string;
@@ -165,4 +165,41 @@ export async function uploadDmCipher(input: {
   });
   if (!result.ok) return result;
   return { ok: true, id: result.id, kind };
+}
+
+/**
+ * Upload a profile photo. The server re-encodes it. This does not attach it.
+ * Call POST /api/profile/photo with the id once the picture is ready.
+ * There is no face rule. GIF, video, and anything over 5 MB are refused here
+ * and again on the server.
+ */
+export async function uploadProfilePhoto(input: {
+  bytes: Uint8Array;
+  contentType: string;
+  fetchImpl?: FetchLike;
+  putImpl?: FetchLike;
+  resolveUrl?: (path: string) => string;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const planned = planUpload(
+    {
+      kind: "image",
+      contentType: input.contentType,
+      byteSize: input.bytes.byteLength,
+      scope: "profile",
+    },
+    { videoEnabled: false, userId: "profile" },
+  );
+  if (!planned.ok) return { ok: false, error: planned.error };
+  return runUpload({
+    request: {
+      kind: "image",
+      contentType: planned.plan.contentType,
+      byteSize: planned.plan.byteSize,
+      scope: "profile",
+    },
+    bytes: input.bytes,
+    fetchImpl: input.fetchImpl ?? ((url, init) => apiFetch(url, init)),
+    putImpl: input.putImpl,
+    resolveUrl: input.resolveUrl ?? ((path) => path),
+  });
 }

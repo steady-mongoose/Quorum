@@ -220,3 +220,62 @@ export function assertKeptMp4(
   if (durationMs > VIDEO_MS) throw new MediaReject("That video is longer than 60 seconds.");
   return { width, height, durationMs };
 }
+
+function u32le(bytes: Uint8Array, offset: number): number {
+  return (
+    (bytes[offset]! |
+      (bytes[offset + 1]! << 8) |
+      (bytes[offset + 2]! << 16) |
+      (bytes[offset + 3]! << 24)) >>>
+    0
+  );
+}
+
+const WEBP_META = new Set(["EXIF", "XMP ", "ICCP"]);
+/** Alpha is allowed. Animation, EXIF, XMP, ICC, and reserved flag bits are not. */
+const WEBP_ALPHA_FLAG = 0x10;
+
+/**
+ * A stored profile photo is a square WebP of exactly `edge` pixels.
+ * EXIF, XMP, and ICCP chunks are refused, and so are the VP8X flags that
+ * announce them. The worker calls this on the file ffmpeg wrote.
+ */
+export function assertKeptWebp(
+  bytes: Uint8Array,
+  maxBytes: number,
+  edge: number,
+): { width: number; height: number } {
+  if (bytes.byteLength < 12 || bytes.byteLength > maxBytes) {
+    throw new MediaReject("That picture is too large.");
+  }
+  if (latin1(bytes, 0, 4) !== "RIFF" || latin1(bytes, 8, 4) !== "WEBP") {
+    throw new MediaReject("That file is not a WebP.");
+  }
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const type = latin1(bytes, offset, 4);
+    const size = u32le(bytes, offset + 4);
+    const payload = offset + 8;
+    if (size < 0 || payload + size > bytes.length) break;
+    if (WEBP_META.has(type)) throw new MediaReject("That picture still has location data.");
+    if (type === "VP8X") {
+      const flags = bytes[payload] ?? 0;
+      if ((flags & ~WEBP_ALPHA_FLAG) !== 0) {
+        throw new MediaReject("That picture still has location data.");
+      }
+    }
+    offset = payload + size + (size % 2);
+  }
+  let bounds;
+  try {
+    bounds = imageBounds(bytes, "image/webp");
+  } catch (error) {
+    throw new MediaReject(
+      error instanceof ImageBoundsError ? error.message : "That file is not a WebP.",
+    );
+  }
+  if (bounds.width !== edge || bounds.height !== edge) {
+    throw new MediaReject("That picture is not the profile size.");
+  }
+  return { width: bounds.width, height: bounds.height };
+}

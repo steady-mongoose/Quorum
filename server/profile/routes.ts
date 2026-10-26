@@ -1,8 +1,10 @@
 import { limitBoard } from "../board/routes.ts";
 import type { Db } from "../db.ts";
+import type { ObjectStore } from "../media/s3.ts";
 import { MIN_PROFILE_AGE } from "./age.ts";
 import { INTERESTS } from "./interests.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER } from "./permissions.ts";
+import { attachProfilePhoto, removeProfilePhoto } from "./photo.ts";
 import { churchSuggestions, saveProfile } from "./store.ts";
 import { COUNTIES, ELSEWHERE_ID, TOWNS } from "./towns.ts";
 import { profileView, type ProfileFailure } from "./view.ts";
@@ -13,6 +15,8 @@ export type ProfileDeps = {
   db: Db;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   now: () => Date;
+  /** Object storage for a CSAM hold. Null when picture storage is off. */
+  store?: ObjectStore | null;
 };
 
 const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -73,7 +77,7 @@ async function options(db: Db) {
   };
 }
 
-/** Own profile, another member's profile, a patch, and onboarding. */
+/** Own profile, another member's profile, a patch, onboarding, and the photo. */
 export async function handleProfile(
   deps: ProfileDeps,
   request: Request,
@@ -81,16 +85,22 @@ export async function handleProfile(
 ): Promise<Response | null> {
   const onboard = url.pathname === "/api/profile/onboard";
   const own = url.pathname === "/api/profile";
+  const photo = url.pathname === "/api/profile/photo";
+  const remove = /^\/api\/profile\/([A-Za-z0-9_-]{1,80})\/photo\/remove$/.exec(url.pathname);
+  const removeId = remove?.[1] ?? "";
   const match = /^\/api\/profile\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
   const otherId = match?.[1] && match[1] !== "onboard" && match[1] !== "photo" ? match[1] : "";
-  if (!own && !onboard && !otherId) return null;
-  if (otherId && !USER_ID.test(otherId))
+  if (!own && !onboard && !photo && !otherId && !removeId) return null;
+  if ((otherId && !USER_ID.test(otherId)) || (removeId && !USER_ID.test(removeId))) {
     return json(404, { error: "That person is not a member." });
+  }
 
   const method = request.method;
   const allowed =
     (own && (method === "GET" || method === "PATCH")) ||
     (onboard && method === "POST") ||
+    (photo && method === "POST") ||
+    (removeId && method === "POST") ||
     (otherId && method === "GET");
   if (!allowed) return json(405, { error: "Not found." });
 
@@ -101,6 +111,27 @@ export async function handleProfile(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (photo) {
+      const body = await readJson(request);
+      const attached = await attachProfilePhoto(deps.db, session.id, body.mediaId, now);
+      if (!attached.ok) return fromFailure(attached);
+      return json(200, attached.body);
+    }
+
+    if (removeId) {
+      const body = await readJson(request);
+      if (body.reason !== "csam") return json(400, { error: "Name csam as the reason." });
+      const removed = await removeProfilePhoto(
+        deps.db,
+        deps.store ?? null,
+        session.id,
+        removeId,
+        now,
+      );
+      if (!removed.ok) return fromFailure(removed);
+      return json(200, removed.body);
+    }
 
     if (otherId && method === "GET") {
       const viewed = await profileView(deps.db, { id: session.id }, { id: otherId }, now);

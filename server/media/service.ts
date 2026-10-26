@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { postIsHeld } from "../board/csam.ts";
+import { actorRole } from "../board/access.ts";
+import { HELD_UPLOAD_PREFIX, postIsHeld } from "../board/csam.ts";
+import { openBan } from "../board/store.ts";
 import type { Db } from "../db.ts";
+import { profileView } from "../profile/view.ts";
 import {
   IMAGE_BYTES,
   PENDING_MS,
@@ -70,6 +73,12 @@ export async function prepareUpload(
   const planned = planUpload(body, { videoEnabled: deps.videoEnabled, userId });
   if (!planned.ok) return planned;
   const plan = planned.plan;
+  if (plan.scope === "profile") {
+    const role = await actorRole(deps.db, userId);
+    if (!role.member) return { ok: false, status: 403, error: "Only a member can do that." };
+    const ban = await openBan(deps.db, userId, deps.now());
+    if (ban) return { ok: false, status: 403, error: "banned", ban };
+  }
   if (plan.scope === "dm" && !(await userExists(deps.db, plan.peerUserId))) {
     return { ok: false, status: 400, error: "Choose the other person." };
   }
@@ -160,7 +169,13 @@ export async function readForMember(
 > {
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
+  if (row.upload_key.startsWith(HELD_UPLOAD_PREFIX)) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
   if (row.post_id && (await postIsHeld(deps.db, row.post_id))) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
+  if (row.scope === "profile" && (await postIsHeld(deps.db, row.id))) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {
@@ -176,6 +191,9 @@ export async function readForMember(
       [row.post_id, row.room_id],
     );
     if (!posts[0]) return { ok: false, status: 404, error: "That file is not here." };
+  } else if (row.scope === "profile") {
+    const visible = await profilePhotoVisible(deps, userId, row.owner_user_id, row.id);
+    if (!visible.ok) return visible;
   } else if (row.owner_user_id !== userId && row.peer_user_id !== userId) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
@@ -216,7 +234,7 @@ export async function readForMember(
     expiresIn: READ_SECONDS,
     now,
     contentType: servedType,
-    filename: attachmentName(servedType),
+    filename: row.scope === "profile" ? "photo.webp" : attachmentName(servedType),
   });
   const body: {
     id: string;
@@ -238,14 +256,41 @@ export async function readForMember(
     expiresIn: READ_SECONDS,
   };
   if (row.thumb_key) {
+    const profile = row.scope === "profile";
     body.thumbUrl = deps.store.presignGet({
       key: row.thumb_key,
       expiresIn: READ_SECONDS,
       now,
-      contentType: "image/jpeg",
-      filename: "thumb.jpg",
+      contentType: profile ? "image/webp" : "image/jpeg",
+      filename: profile ? "thumb.webp" : "thumb.jpg",
     });
   }
   if (row.encryption === "client-e2e") body.keyEnvelope = row.key_envelope;
   return { ok: true, status: 200, body };
+}
+
+/**
+ * The owner can read their own profile picture while it is processing.
+ * Anyone else can read it only when it is the current photo and profileView
+ * includes it. A private photo, a banned viewer, and a photo that is not
+ * attached all come back as not here.
+ */
+async function profilePhotoVisible(
+  deps: MediaServiceDeps,
+  viewerId: string,
+  ownerId: string,
+  mediaId: string,
+): Promise<MediaResult<never> | { ok: true }> {
+  if (viewerId === ownerId) return { ok: true };
+  const rows = await deps.db.query<{ user_id: string }>(
+    `select user_id from members where photo_media_id = $1 and user_id = $2`,
+    [mediaId, ownerId],
+  );
+  if (!rows[0]) return { ok: false, status: 404, error: "That file is not here." };
+  const viewed = await profileView(deps.db, { id: viewerId }, { id: ownerId }, deps.now());
+  if (!viewed.ok) return viewed;
+  if (viewed.profile.photo?.id !== mediaId) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
+  return { ok: true };
 }
