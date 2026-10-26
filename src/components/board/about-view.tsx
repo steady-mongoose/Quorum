@@ -149,7 +149,12 @@ export function AboutView() {
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">What we stand for</h2>
-        <p className="mt-2 text-sm text-muted">[OWNER TO WRITE]</p>
+        <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
+          Avouch exists so you can see what is happening in your community, meet face to face, then
+          log off and go do the work. It is not a replacement for other social media, but a tool to
+          help you get away from the machine. We want to rebuild what our founders assumed and
+          modernity dissolved: the family, the parish, the town, and honest work.
+        </p>
       </section>
 
       <section className="flex flex-col gap-4">
