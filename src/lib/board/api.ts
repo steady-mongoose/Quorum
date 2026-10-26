@@ -19,6 +19,17 @@ import { parseHomePayload } from "./home.ts";
 const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
 const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
+function categoryIdsFrom(row: Record<string, unknown>, roomId: string): string[] {
+  if (Array.isArray(row.categoryIds)) {
+    const listed = row.categoryIds.filter(
+      (item): item is string => typeof item === "string" && item.trim() !== "",
+    );
+    if (listed.length > 0) return listed;
+  }
+  if (typeof row.categoryId === "string" && row.categoryId.trim()) return [row.categoryId.trim()];
+  return [categoryForRoom(roomId)];
+}
+
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
   const record = json as { error?: unknown; stops?: unknown };
@@ -132,10 +143,7 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
-    categoryId:
-      typeof row.categoryId === "string" && row.categoryId.trim()
-        ? row.categoryId
-        : categoryForRoom(row.id),
+    categoryIds: categoryIdsFrom(row, row.id),
     pinOrder:
       typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
     joined: row.joined === true,
@@ -171,7 +179,7 @@ function browseRoomFrom(value: unknown): BrowseRoom | null {
     id: row.id,
     name: row.name,
     what: row.what,
-    categoryId: typeof row.categoryId === "string" ? row.categoryId : "",
+    categoryIds: categoryIdsFrom(row, row.id),
     nextGathering: next,
     pinOrder:
       typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,

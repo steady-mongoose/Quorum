@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardApp } from "@/components/board/app";
+import { roomsIndexMeta } from "@/lib/board/route-heads";
 
 export const Route = createFileRoute("/rooms/")({
-  head: () => ({
-    meta: [{ title: "Rooms · Avouch Social" }, { name: "robots", content: "noindex" }],
-  }),
+  head: () => ({ meta: roomsIndexMeta() }),
   component: RoomsPage,
 });
 

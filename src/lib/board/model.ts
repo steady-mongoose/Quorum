@@ -77,8 +77,8 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
-  /** One category. Audience is a separate field, present only after 0019. */
-  categoryId: string;
+  /** Every category this room is listed in. Audience is separate, after 0019. */
+  categoryIds: string[];
   /** Set when a steward of this room has pinned it. Absent means alphabetical. */
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */
@@ -268,7 +268,7 @@ export const MARK_LABEL: Record<Mark, string> = {
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
-const ROOM_SEED: Omit<Room, "categoryId">[] = [
+const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
     id: "county",
     name: "The County",
@@ -385,7 +385,7 @@ const SAMPLE_JOINED = new Set(["county", "shop"]);
 
 export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
   ...entry,
-  categoryId: categoryForRoom(entry.id),
+  categoryIds: [categoryForRoom(entry.id)],
   pinOrder: null,
   joined: SAMPLE_JOINED.has(entry.id),
 }));

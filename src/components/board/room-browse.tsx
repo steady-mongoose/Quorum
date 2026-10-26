@@ -9,11 +9,12 @@ import {
   categoryEngraving,
   categoryListed,
   groupBrowseRooms,
+  categoryNames,
   hiddenRooms,
   meetsLabel,
   nextGatheringOn,
   orderBrowseRooms,
-  roomCategoryId,
+  roomCategoryIds,
   type BrowseRoom,
   type RoomCategory,
 } from "@/lib/board/categories";
@@ -42,7 +43,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       id: room.id,
       name: room.name,
       what: room.what,
-      categoryId: roomCategoryId(room),
+      categoryIds: roomCategoryIds(room),
       nextGathering: nextGatheringOn(room.id, cards, today),
       pinOrder: room.pinOrder ?? null,
       joined: room.joined === true,
@@ -50,13 +51,14 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
     }));
   }, [rooms, cards, today]);
   const sections = groupBrowseRooms(categories, browseRooms, focusSlug);
-  const parked = hiddenRooms(browseRooms, steward);
+  const parked = hiddenRooms(browseRooms, { admin, stewardRooms });
   const yours = orderBrowseRooms(browseRooms.filter((room) => room.joined));
-  const known = focusSlug ? categoryListed(focusSlug, categories, steward) : true;
+  const known = focusSlug ? categoryListed(focusSlug, categories, admin || steward) : true;
   const focus = focusSlug
     ? categories.find((category) => category.slug === focusSlug)
     : undefined;
-  const showParked = steward && (focusSlug === null || focusSlug === UNCATEGORIZED_SLUG);
+  const showParked =
+    (admin || steward) && (focusSlug === null || focusSlug === UNCATEGORIZED_SLUG);
   const showSections = focusSlug !== UNCATEGORIZED_SLUG;
   const canEdit = (roomId: string) =>
     admin || stewardRooms.includes(roomId) || (steward && !remote);
@@ -66,7 +68,9 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       {focus && known ? (
         <CategoryMast category={focus} />
       ) : (
-        <section className={focusSlug ? "flex flex-col gap-2" : "plate flex flex-col gap-2"}>
+        <section
+          className={focusSlug ? "flex flex-col gap-2" : "plate plate--hero flex flex-col gap-2"}
+        >
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Find your room</h1>
           <p className="max-w-prose text-base text-muted">One category for each room.</p>
         </section>
@@ -79,7 +83,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
         <CategoryChips categories={browseCategories(categories, false)} focusSlug={focusSlug} />
       </nav>
 
-      <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+      <div className="room-browse">
         <nav
           aria-label="Categories"
           className="sticky top-28 hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
@@ -120,7 +124,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
                     {canEdit(room.id) ? (
                       <MoveRoom
                         roomId={room.id}
-                        categoryId={room.categoryId}
+                        categoryIds={room.categoryIds}
                         categories={categories}
                       />
                     ) : null}
@@ -141,7 +145,7 @@ function CategoryMast({ category }: { category: RoomCategory }) {
   return (
     <div>
       <img className="hero-band category-engraving" src={art.src} alt={art.credit} />
-      <section className="plate flex flex-col gap-2">
+      <section className="plate plate--hero flex flex-col gap-2">
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{category.name}</h1>
         <p className="max-w-prose text-sm text-muted">{category.description}</p>
       </section>
@@ -255,12 +259,14 @@ function RoomGrid({ rooms, onOpen }: { rooms: BrowseRoom[]; onOpen: (id: string)
 function RoomCard({ room, onOpen }: { room: BrowseRoom; onOpen: (id: string) => void }) {
   const meets = meetsLabel(room.nextGathering);
   const audience = audienceLabel(room.audience);
+  const labels = categoryNames(room.categoryIds);
   return (
     <button type="button" className="room-card" onClick={() => onOpen(room.id)}>
       <span className="room-card-top">
         <span className="room-card-name">{room.name}</span>
         {room.joined ? <span className="room-joined-dot" role="img" aria-label="Joined" /> : null}
       </span>
+      {labels ? <span className="room-card-meta">{labels}</span> : null}
       {audience ? <span className="room-card-meta">{audience}</span> : null}
       <span className="room-card-what">{room.what}</span>
       {meets ? <span className="room-card-meta">{meets}</span> : null}
@@ -268,17 +274,53 @@ function RoomCard({ room, onOpen }: { room: BrowseRoom; onOpen: (id: string) => 
   );
 }
 
+function CategoryChecks({
+  categories,
+  selected,
+  onChange,
+}: {
+  categories: RoomCategory[];
+  selected: readonly string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-1">
+      <legend className="text-sm text-muted">Categories</legend>
+      {categories.map((category) => {
+        const checked = selected.includes(category.slug);
+        return (
+          <label key={category.slug} className="inline-flex min-h-[44px] items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              className="size-5"
+              checked={checked}
+              onChange={() => {
+                onChange(
+                  checked
+                    ? selected.filter((slug) => slug !== category.slug)
+                    : [...selected, category.slug],
+                );
+              }}
+            />
+            {category.name}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 function MoveRoom({
   roomId,
-  categoryId,
+  categoryIds,
   categories,
 }: {
   roomId: string;
-  categoryId: string;
+  categoryIds: string[];
   categories: RoomCategory[];
 }) {
   const updateRoom = useBoard((state) => state.updateRoom);
-  const [next, setNext] = useState(categoryId);
+  const [next, setNext] = useState(categoryIds);
   const [error, setError] = useState("");
   return (
     <form
@@ -286,30 +328,16 @@ function MoveRoom({
       onSubmit={(event) => {
         event.preventDefault();
         setError("");
-        if (!next) {
+        if (next.length === 0) {
           setError("Choose a category.");
           return;
         }
-        void updateRoom({ id: roomId, categoryId: next }).then((result) => {
+        void updateRoom({ id: roomId, categoryIds: next }).then((result) => {
           if (!result.ok) setError(result.error ?? "The room was not saved.");
         });
       }}
     >
-      <label className="flex flex-col gap-2 text-sm text-muted">
-        Category
-        <select
-          className={fieldClass}
-          value={next}
-          required
-          onChange={(event) => setNext(event.target.value)}
-        >
-          {categories.map((category) => (
-            <option key={category.slug} value={category.slug}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <CategoryChecks categories={categories} selected={next} onChange={setNext} />
       <button type="submit" className={btnGhost}>
         Save category
       </button>
@@ -491,7 +519,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
   const stewardRooms = useBoard((state) => state.stewardRooms);
   const updateRoom = useBoard((state) => state.updateRoom);
   const categories = useCategories();
-  const [categoryId, setCategoryId] = useState(roomCategoryId(room));
+  const [categoryIds, setCategoryIds] = useState(roomCategoryIds(room));
   const [name, setName] = useState(room.name);
   const [what, setWhat] = useState(room.what);
   const [pin, setPin] = useState(room.pinOrder == null ? "" : String(room.pinOrder));
@@ -504,7 +532,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
       onSubmit={(event) => {
         event.preventDefault();
         setError("");
-        if (!categoryId) {
+        if (categoryIds.length === 0) {
           setError("Choose a category.");
           return;
         }
@@ -516,7 +544,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
         }
         void updateRoom({
           id: room.id,
-          categoryId,
+          categoryIds,
           pinOrder,
           ...(admin ? { name, what } : {}),
         }).then((result) => {
@@ -546,23 +574,11 @@ export function RoomCategoryFields({ room }: { room: Room }) {
           </label>
         </div>
       ) : null}
-      <label className="flex flex-col gap-1 text-sm text-muted">
-        Category
-        <select
-          className={fieldClass}
-          value={categoryId}
-          required
-          aria-label="Category"
-          onChange={(event) => setCategoryId(event.target.value)}
-        >
-          <option value="">Choose a category</option>
-          {categories.map((category) => (
-            <option key={category.slug} value={category.slug}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <CategoryChecks
+        categories={categories}
+        selected={categoryIds}
+        onChange={setCategoryIds}
+      />
       <p className="max-w-prose text-sm text-muted">
         Category is where a room is listed. Who may enter is set by the room&apos;s audience.
       </p>

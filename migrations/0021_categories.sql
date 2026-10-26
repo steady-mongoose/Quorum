@@ -7,26 +7,30 @@
 -- Do not renumber this file.
 --
 -- Categories an admin can edit. The seed order is fixed:
--- Churches, Discussion, Men only, Women only, Business & Trades, Civic, County.
--- Men only and Women only are where a room is listed. This file does not
--- record who may enter. Audience is a later migration.
+-- Churches, Philosophy & Discussion, Men's, Women's, Businesses, Civic, County.
+-- Men's and Women's are where a room is listed. This file does not record
+-- who may enter. Audience is a later migration.
 --
--- Every room has one category. Rooms this file does not name, and that are
--- not a town, congregation, or region, go to Uncategorized. Browse hides
--- that category until an admin or that room's steward moves them.
+-- A room belongs to one or more categories through room_categories.
+-- Deleting a room removes its links. Deleting a category that still has a
+-- room is refused. The API refuses to clear a room's last link.
 --
--- Backfill, from src/lib/board/categories.ts. Each update fills a null
--- category only, so a second run does not put a later edit back.
+-- Rooms this file does not name, and that are not a town, congregation, or
+-- region, go to Uncategorized. Browse hides that category until an admin or
+-- that room's steward files them.
+--
+-- Backfill, from src/lib/board/categories.ts. Each insert runs only for a
+-- room that has no links yet, so a second run does not put a later edit back.
 --   Churches: baptist, presbyterian, latin, orthodox,
 --     cong-epiphany, cong-grace, cong-redeemer, cong-st-john
---   Discussion: question, shelf, coop
---   Business & Trades: shop, rv-shop
+--   Philosophy & Discussion: question, shelf, coop
+--   Businesses: shop, rv-shop
 --   Civic: dispatch, rv-town, brandon-town, valrico-town, tampa-town
 --   County: county, region-hillsborough
--- Then, still only where the category is null:
+-- Then, still only where the room has no links:
 --   town → Civic, congregation → Churches, region → County.
--- Whatever is still empty goes to Uncategorized.
--- Men only and Women only have no rooms.
+-- Whatever still has no link goes to Uncategorized.
+-- Men's and Women's have no rooms.
 
 create table if not exists categories (
   slug text primary key,
@@ -48,62 +52,100 @@ alter table categories
 
 insert into categories (slug, name, description, sort_order) values
   ('churches', 'Churches', 'Parish and congregation rooms.', 0),
-  ('discussion', 'Discussion', 'Questions, the shelf, and the co-op.', 1),
-  ('men', 'Men only', 'Rooms listed for men.', 2),
-  ('women', 'Women only', 'Rooms listed for women.', 3),
-  ('business-trades', 'Business & Trades', 'Shops and the trades.', 4),
+  ('discussion', 'Philosophy & Discussion', 'Questions, the shelf, and the co-op.', 1),
+  ('men', 'Men''s', 'Rooms listed for men.', 2),
+  ('women', 'Women''s', 'Rooms listed for women.', 3),
+  ('business-trades', 'Businesses', 'Shops and the trades.', 4),
   ('civic', 'Civic', 'Town rooms and dispatch.', 5),
   ('county', 'County', 'The county and its regions.', 6),
   ('uncategorized', 'Uncategorized', 'Rooms waiting for a category.', 1000)
 on conflict (slug) do nothing;
 
-alter table room add column if not exists category_id text;
 alter table room add column if not exists pin_order integer;
 alter table room drop constraint if exists room_pin_order_check;
 alter table room
   add constraint room_pin_order_check check (pin_order is null or pin_order between 0 and 10000);
 
-update room set category_id = 'churches'
-where category_id is null
-  and id in (
-    'baptist', 'presbyterian', 'latin', 'orthodox',
-    'cong-epiphany', 'cong-grace', 'cong-redeemer', 'cong-st-john'
-  );
-
-update room set category_id = 'discussion'
-where category_id is null
-  and id in ('question', 'shelf', 'coop');
-
-update room set category_id = 'business-trades'
-where category_id is null
-  and id in ('shop', 'rv-shop');
-
-update room set category_id = 'civic'
-where category_id is null
-  and id in ('dispatch', 'rv-town', 'brandon-town', 'valrico-town', 'tampa-town');
-
-update room set category_id = 'county'
-where category_id is null
-  and id in ('county', 'region-hillsborough');
-
-update room set category_id = 'civic'
-where category_id is null and scope_kind = 'town';
-
-update room set category_id = 'churches'
-where category_id is null and scope_kind = 'congregation';
-
-update room set category_id = 'county'
-where category_id is null and scope_kind = 'region';
-
-update room set category_id = 'uncategorized'
-where category_id is null or category_id = '';
-
-alter table room alter column category_id set default 'uncategorized';
-alter table room alter column category_id set not null;
-
 alter table room drop constraint if exists room_category_id_fkey;
-alter table room
-  add constraint room_category_id_fkey
-  foreign key (category_id) references categories (slug);
+drop index if exists room_category_idx;
+alter table room drop column if exists category_id;
 
-create index if not exists room_category_idx on room (category_id);
+create table if not exists room_categories (
+  room_id text not null references room (id) on delete cascade,
+  category_id text not null references categories (slug) on delete restrict,
+  primary key (room_id, category_id)
+);
+
+insert into room_categories (room_id, category_id)
+select room.id, 'churches'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.id in (
+  'baptist', 'presbyterian', 'latin', 'orthodox',
+  'cong-epiphany', 'cong-grace', 'cong-redeemer', 'cong-st-john'
+);
+
+insert into room_categories (room_id, category_id)
+select room.id, 'discussion'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.id in ('question', 'shelf', 'coop');
+
+insert into room_categories (room_id, category_id)
+select room.id, 'business-trades'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.id in ('shop', 'rv-shop');
+
+insert into room_categories (room_id, category_id)
+select room.id, 'civic'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.id in ('dispatch', 'rv-town', 'brandon-town', 'valrico-town', 'tampa-town');
+
+insert into room_categories (room_id, category_id)
+select room.id, 'county'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.id in ('county', 'region-hillsborough');
+
+insert into room_categories (room_id, category_id)
+select room.id, 'civic'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.scope_kind = 'town';
+
+insert into room_categories (room_id, category_id)
+select room.id, 'churches'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.scope_kind = 'congregation';
+
+insert into room_categories (room_id, category_id)
+select room.id, 'county'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+)
+and room.scope_kind = 'region';
+
+insert into room_categories (room_id, category_id)
+select room.id, 'uncategorized'
+from room
+where not exists (
+  select 1 from room_categories rc where rc.room_id = room.id
+);

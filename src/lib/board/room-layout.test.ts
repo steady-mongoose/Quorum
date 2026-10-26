@@ -32,20 +32,34 @@ function pageHtml(css: string): string {
 <style>*,*::before,*::after{box-sizing:border-box}${css}</style>
 </head>
 <body data-section="rooms">
-  <div class="hero-band" id="hero"></div>
-  <section class="plate" id="intro">
-    <h1>Churches</h1>
-    <p id="intro-copy">Parish and congregation rooms.</p>
-  </section>
-  <div class="room-column">
-    <div class="room-grid">${cards}</div>
+  <div class="shell">
+    <div class="shell-body">
+      <main>
+        <div class="with-side">
+          <div>
+            <img class="hero-band category-engraving" alt="" />
+            <section class="plate plate--hero" id="intro">
+              <h1>Churches</h1>
+              <p id="intro-copy">Parish and congregation rooms.</p>
+            </section>
+            <div class="room-browse">
+              <nav>Categories</nav>
+              <div class="room-column">
+                <div class="room-grid" id="grid">${cards}</div>
+              </div>
+            </div>
+          </div>
+          <aside class="side-art"></aside>
+        </div>
+      </main>
+    </div>
   </div>
   <button class="plate" id="plate-card" type="button">Plate</button>
 </body>
 </html>`;
 }
 
-test("rendered room cards do not overlap at 390 and 1440", async (t) => {
+test("rendered room cards do not overlap at 390, 768, and 1440", async (t) => {
   if (!existsSync("/usr/bin/google-chrome")) {
     t.skip("Chrome is not installed");
     return;
@@ -58,7 +72,7 @@ test("rendered room cards do not overlap at 390 and 1440", async (t) => {
   });
   try {
     const page = await browser.newPage();
-    for (const width of [390, 1440]) {
+    for (const width of [390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.setContent(pageHtml(css), { waitUntil: "load" });
       const report = await page.evaluate(() => {
@@ -86,12 +100,17 @@ test("rendered room cards do not overlap at 390 and 1440", async (t) => {
         const whatBox = what ? box(what) : null;
         const cardStyle = first ? getComputedStyle(first) : null;
         const whatStyle = what ? getComputedStyle(what) : null;
+        const grid = document.querySelector<HTMLElement>("#grid");
+        const tracks = grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean) : [];
         return {
           plateMargin: getComputedStyle(document.querySelector("#plate-card")!).marginTop,
+          heroMargin: getComputedStyle(document.querySelector("#intro")!).marginTop,
           cardMargin: cardStyle?.marginTop ?? "",
           display: cardStyle?.display ?? "",
           direction: cardStyle?.flexDirection ?? "",
           clamp: whatStyle?.webkitLineClamp ?? "",
+          columns: tracks.length,
+          gridWidth: grid ? grid.getBoundingClientRect().width : 0,
           hits,
           introClear: Boolean(introBox && firstBox && introBox.bottom <= firstBox.top + 1),
           stacked: Boolean(nameBox && whatBox && nameBox.bottom <= whatBox.top + 1),
@@ -100,8 +119,15 @@ test("rendered room cards do not overlap at 390 and 1440", async (t) => {
           noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
         };
       });
-      assert.equal(report.plateMargin.startsWith("-"), true, `${width} plate margin ${report.plateMargin}`);
+      assert.equal(report.plateMargin, "0px", `${width} plate margin ${report.plateMargin}`);
+      assert.equal(report.heroMargin.startsWith("-"), true, `${width} hero margin ${report.heroMargin}`);
       assert.equal(report.cardMargin, "0px", `${width} card margin`);
+      if (width === 390) assert.equal(report.columns, 1, `${width} columns ${report.columns}`);
+      if (width === 768) assert.ok(report.columns >= 2, `${width} columns ${report.columns}`);
+      if (width === 1440) {
+        assert.ok(report.columns >= 2 && report.columns <= 3, `${width} columns ${report.columns}`);
+        assert.ok(report.gridWidth >= 800, `${width} grid ${report.gridWidth}`);
+      }
       assert.equal(report.display, "flex", `${width} display`);
       assert.equal(report.direction, "column", `${width} direction`);
       assert.equal(report.clamp, "1", `${width} clamp`);

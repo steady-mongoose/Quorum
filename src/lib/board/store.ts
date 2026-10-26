@@ -139,11 +139,11 @@ type BoardState = {
     id: string;
     name: string;
     what: string;
-    categoryId: string;
+    categoryIds: string[];
   }) => Promise<{ ok: boolean; error?: string }>;
   updateRoom: (input: {
     id: string;
-    categoryId: string;
+    categoryIds?: string[];
     name?: string;
     what?: string;
     pinOrder?: number | null;
@@ -1143,7 +1143,8 @@ export const useBoard = create<BoardState>()(
           const allowed =
             get().admin || get().stewardRooms.includes(input.id) || (get().steward && !get().remote);
           if (!allowed) return { ok: false, error: "That room is not here." };
-          if (!input.categoryId.trim()) return { ok: false, error: "Choose a category." };
+          if (input.categoryIds && input.categoryIds.length === 0)
+            return { ok: false, error: "Choose a category." };
           if (!get().remote) {
             if (input.name || input.what)
               return { ok: false, error: "Rooms are edited on the server." };
@@ -1151,7 +1152,7 @@ export const useBoard = create<BoardState>()(
               room.id === input.id
                 ? {
                     ...room,
-                    categoryId: input.categoryId,
+                    ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
                     ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
                   }
                 : room,
@@ -1163,7 +1164,7 @@ export const useBoard = create<BoardState>()(
           const saved = await (
             await getBoardClient()
           ).updateRoom(input.id, {
-            categoryId: input.categoryId,
+            ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.what !== undefined ? { what: input.what } : {}),
             ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),

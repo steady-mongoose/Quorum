@@ -18,6 +18,7 @@ export type CategoryRoom = {
   id: string;
   name: string;
   what: string;
+  categoryIds: string[];
   nextGathering: string | null;
   pinOrder: number | null;
   joined: boolean;
@@ -25,6 +26,15 @@ export type CategoryRoom = {
 
 function fail(status: number, error: string, ban?: OpenBan): Err {
   return ban ? { ok: false, status, error, ban } : { ok: false, status, error };
+}
+
+function textArray(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((item): item is string => typeof item === "string" && item !== "");
+  if (typeof value !== "string" || !value.startsWith("{")) return [];
+  const inner = value.slice(1, -1);
+  if (!inner) return [];
+  return inner.split(",").filter((item) => item !== "");
 }
 
 function dayStamp(now: Date): string {
@@ -49,12 +59,12 @@ async function memberOrStop(
   db: Db,
   userId: string,
   now: Date,
-): Promise<{ steward: boolean } | Err> {
+): Promise<{ admin: boolean; steward: boolean; stewardRooms: string[] } | Err> {
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read categories.");
   const ban = await openBan(db, userId, now);
   if (ban) return fail(403, "banned", ban);
-  return { steward: actor.steward };
+  return { admin: actor.admin, steward: actor.steward, stewardRooms: actor.stewardRooms };
 }
 
 async function adminOrStop(db: Db, userId: string, now: Date): Promise<true | Err> {
@@ -117,11 +127,21 @@ export async function readCategory(
     id: string;
     name: string;
     what: string;
+    category_ids: unknown;
     next_gathering: string | null;
     pin_order: number | null;
     joined: boolean;
   }>(
     `select r.id, r.name, r.what, r.pin_order,
+            coalesce((
+              select array_agg(s.slug order by s.sort_order, s.slug)
+              from (
+                select c.slug, c.sort_order
+                from room_categories link
+                join categories c on c.slug = link.category_id
+                where link.room_id = r.id
+              ) s
+            ), array[]::text[]) as category_ids,
             (
               select min(g.gather_on)
               from public_gathering g
@@ -135,17 +155,38 @@ export async function readCategory(
               where j.room_id = r.id and j.user_id = $3
             ) as joined
      from room r
-     where r.category_id = $1 and r.name <> ''`,
-    [slug, dayStamp(now), userId],
+     where r.name <> ''
+       and (
+         exists (
+           select 1 from room_categories rc
+           where rc.room_id = r.id and rc.category_id = $1
+         )
+         or (
+           $1 = 'uncategorized'
+           and not exists (
+             select 1 from room_categories rc where rc.room_id = r.id
+           )
+         )
+       )
+       and ($4::boolean or r.id = any($5::text[]))`,
+    [
+      slug,
+      dayStamp(now),
+      userId,
+      slug !== UNCATEGORIZED_SLUG || actor.admin,
+      actor.stewardRooms,
+    ],
   );
   const rooms: CategoryRoom[] = [];
   for (const row of rows) {
     const roomBan = await openBan(db, userId, now, row.id);
     if (roomBan) continue;
+    const listed = textArray(row.category_ids);
     rooms.push({
       id: row.id,
       name: row.name,
       what: row.what,
+      categoryIds: listed.length > 0 ? listed : [UNCATEGORIZED_SLUG],
       nextGathering: row.next_gathering,
       pinOrder: row.pin_order == null ? null : Number(row.pin_order),
       joined: Boolean(row.joined),
@@ -244,7 +285,7 @@ export async function deleteCategory(
   ]);
   if (!found[0]) return fail(404, "That category is not listed.");
   const used = await db.query<{ id: string }>(
-    `select id from room where category_id = $1 limit 1`,
+    `select room_id as id from room_categories where category_id = $1 limit 1`,
     [input.slug],
   );
   if (used[0]) return fail(400, "Move the rooms out of this category first.");

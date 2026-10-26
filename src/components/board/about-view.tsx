@@ -787,7 +787,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
-    categoryId: string;
+    categoryIds: string[];
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -795,7 +795,7 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const categories = browseCategories(useCategories(), false);
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
@@ -839,40 +839,49 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
-          Category
-          <select
-            className={fieldClass}
-            value={categoryId}
-            required
-            aria-label="Category"
-            onChange={(event) => setCategoryId(event.target.value)}
-          >
-            <option value="">Choose a category</option>
-            {categories.map((category) => (
-              <option key={category.slug} value={category.slug}>
+        <fieldset className="flex flex-col gap-1 sm:col-span-2">
+          <legend className="text-sm text-muted">Categories</legend>
+          {categories.map((category) => {
+            const checked = categoryIds.includes(category.slug);
+            return (
+              <label
+                key={category.slug}
+                className="inline-flex min-h-[44px] items-center gap-2 text-sm text-fg"
+              >
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  checked={checked}
+                  onChange={() => {
+                    setCategoryIds(
+                      checked
+                        ? categoryIds.filter((slug) => slug !== category.slug)
+                        : [...categoryIds, category.slug],
+                    );
+                  }}
+                />
                 {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
+              </label>
+            );
+          })}
+        </fieldset>
       </div>
       <button
         type="button"
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          if (!categoryId) {
+          if (categoryIds.length === 0) {
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({ id, name, what, categoryId }).then((result) => {
+          void createRoom({ id, name, what, categoryIds }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
-              setCategoryId("");
+              setCategoryIds([]);
             }
           });
         }}

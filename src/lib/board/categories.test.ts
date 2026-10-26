@@ -48,8 +48,8 @@ test("pinned rooms come first, then the rest A to Z", () => {
 
 test("the seed rooms use the config mapping, and Men and Women stay labels", () => {
   for (const room of ROOMS) {
-    assert.equal(room.categoryId, categoryForRoom(room.id));
-    assert.equal(ROOM_CATEGORY[room.id], room.categoryId);
+    assert.deepEqual(room.categoryIds, [categoryForRoom(room.id)]);
+    assert.equal(ROOM_CATEGORY[room.id], room.categoryIds[0]);
     assert.equal("audience" in room, false);
     assert.equal("sex" in room, false);
   }
@@ -57,10 +57,10 @@ test("the seed rooms use the config mapping, and Men and Women stay labels", () 
     CATEGORY_LIST.map((category) => category.name),
     [
       "Churches",
-      "Discussion",
-      "Men only",
-      "Women only",
-      "Business & Trades",
+      "Philosophy & Discussion",
+      "Men's",
+      "Women's",
+      "Businesses",
       "Civic",
       "County",
       "Uncategorized",
@@ -74,19 +74,31 @@ test("the seed rooms use the config mapping, and Men and Women stay labels", () 
     browseCategories(CATEGORY_LIST, true).some((category) => category.slug === UNCATEGORIZED_SLUG),
     true,
   );
-  const parked = hiddenRooms(
-    [
-      {
-        id: "mill",
-        name: "Mill",
-        what: "A mill.",
-        categoryId: UNCATEGORIZED_SLUG,
-        nextGathering: null,
-      },
-    ],
-    false,
+  const parked = [
+    {
+      id: "mill",
+      name: "Mill",
+      what: "A mill.",
+      categoryIds: [UNCATEGORIZED_SLUG],
+      nextGathering: null,
+    },
+    {
+      id: "shop",
+      name: "Shop",
+      what: "A shop.",
+      categoryIds: [UNCATEGORIZED_SLUG],
+      nextGathering: null,
+    },
+  ];
+  assert.equal(hiddenRooms(parked, { stewardRooms: [] }).length, 0);
+  assert.deepEqual(
+    hiddenRooms(parked, { stewardRooms: ["shop"] }).map((room) => room.id),
+    ["shop"],
   );
-  assert.equal(parked.length, 0);
+  assert.deepEqual(
+    hiddenRooms(parked, { admin: true, stewardRooms: [] }).map((room) => room.id),
+    ["mill", "shop"],
+  );
 });
 
 test("a category page drops counts, likes, and trending", () => {
@@ -118,7 +130,7 @@ test("a category page drops counts, likes, and trending", () => {
         id: "dispatch",
         name: "Dispatch",
         what: "Notices.",
-        categoryId: "civic",
+        categoryIds: ["civic"],
         nextGathering: null,
       },
     ],
@@ -134,6 +146,7 @@ test("browse, the week, and room create follow the category layout", () => {
   const about = source("../../components/board/about-view.tsx");
   const index = source("../../routes/rooms/index.tsx");
   const slug = source("../../routes/rooms/$slug.tsx");
+  const heads = source("./route-heads.ts");
   const migration = source("../../../migrations/0021_categories.sql");
   const fluid = source("../../../public/fluid.css");
   const backgrounds = source("../../../public/backgrounds.css");
@@ -152,30 +165,32 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(browse, /aria-current=/);
   assert.equal(/\bplate\b/.test(card), false);
   assert.equal(/\bcount\b|\btrending\b|\branking\b|\blikes?\b|\bfeed\b/i.test(browse), false);
-  assert.match(fluid, /repeat\(auto-fill,minmax\(min\(100%,16rem\),1fr\)\)/);
+  assert.match(fluid, /repeat\(auto-fill,minmax\(16rem,1fr\)\)/);
+  assert.match(fluid, /\.room-browse\{display:block\}/);
+  assert.match(fluid, /grid-template-columns:14rem minmax\(0,1fr\)/);
+  assert.match(fluid, /\[data-section="rooms"\] \.with-side\{grid-template-columns:minmax\(0,1fr\)\}/);
   assert.match(fluid, /\.room-column\{container-type:inline-size/);
-  assert.match(
-    backgrounds,
-    /\.plate\{display:inline-block;padding:14px 22px;margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/,
-  );
+  assert.match(backgrounds, /\.plate--hero\{margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/);
+  assert.equal(/\.plate\{[^}]*margin-top:calc\(var\(--band-h\)/.test(backgrounds), false);
   assert.match(app, /categoryPage/);
-  assert.match(week, /categoryName\(roomCategoryId\(roomById\(card\.room\)\)\)/);
+  assert.match(week, /categoryNames\(roomCategoryIds\(roomById\(card\.room\)\)\)/);
   assert.match(about, /Choose a category/);
   assert.match(about, /categoryId/);
-  assert.match(index, /noindex/);
+  assert.match(index, /roomsIndexMeta/);
   assert.match(index, /categorySlug=\{null\}/);
-  assert.match(slug, /noindex/);
+  assert.match(slug, /categoryPageMeta/);
   assert.match(slug, /categorySlug=\{slug\}/);
-  assert.match(slug, /og:title/);
-  assert.match(slug, /og:description/);
-  assert.match(slug, /og:image/);
-  assert.match(slug, /categoryPreview/);
+  assert.match(heads, /noindex/);
+  assert.match(heads, /og:title/);
+  assert.match(heads, /og:description/);
+  assert.match(heads, /og:image/);
+  assert.match(heads, /categoryPreview/);
   const names = [
     "Churches",
-    "Discussion",
-    "Men only",
-    "Women only",
-    "Business & Trades",
+    "Philosophy & Discussion",
+    "Men's",
+    "Women's",
+    "Businesses",
     "Civic",
     "County",
   ];

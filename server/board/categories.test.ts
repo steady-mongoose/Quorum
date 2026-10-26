@@ -88,20 +88,32 @@ test("migration 0021 backfills the config mapping and parks the rest", async () 
       categories.map((row) => row.description),
       CATEGORY_LIST.map((category) => category.description),
     );
-    const rooms = await db.query<{ id: string; category_id: string }>(
-      `select id, category_id from room`,
+    const links = await db.query<{ room_id: string; category_id: string }>(
+      `select room_id, category_id from room_categories`,
     );
+    const byRoom = new Map<string, string[]>();
+    for (const link of links) {
+      const list = byRoom.get(link.room_id) ?? [];
+      list.push(link.category_id);
+      byRoom.set(link.room_id, list);
+    }
+    const rooms = await db.query<{ id: string }>(`select id from room`);
     for (const room of rooms) {
-      assert.equal(room.category_id, ROOM_CATEGORY[room.id] ?? "uncategorized");
+      assert.deepEqual(byRoom.get(room.id) ?? [], [ROOM_CATEGORY[room.id] ?? "uncategorized"]);
     }
     await db.query(
       `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order)
        values ('mill', 'Mill', 'A mill night.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 90)`,
     );
     const mill = await db.query<{ category_id: string }>(
-      `select category_id from room where id = 'mill'`,
+      `select category_id from room_categories where room_id = 'mill'`,
     );
-    assert.equal(mill[0]?.category_id, "uncategorized");
+    assert.equal(mill.length, 0);
+    const dropped = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_schema = 'public' and table_name = 'room' and column_name = 'category_id'`,
+    );
+    assert.equal(dropped.length, 0);
     const columns = await db.query<{ column_name: string }>(
       `select column_name from information_schema.columns
        where table_schema = 'public' and table_name = 'categories'`,
@@ -124,7 +136,7 @@ test("migration 0021 backfills the config mapping and parks the rest", async () 
     );
     assert.equal(audience.length, 0);
     const labeled = await db.query<{ id: string }>(
-      `select id from room where category_id in ('men', 'women')`,
+      `select room_id as id from room_categories where category_id in ('men', 'women')`,
     );
     assert.equal(labeled.length, 0);
   } finally {
@@ -140,16 +152,20 @@ test("category pages require a member and hide a site ban and a room ban", async
     const barred = randomUUID();
     const roomBarred = randomUUID();
     const steward = randomUUID();
+    const admin = randomUUID();
     await user(db, member, "Maria", "maria@example.com");
     await user(db, stranger, "Pete", "pete@example.com");
     await user(db, barred, "Luis", "luis@example.com");
     await user(db, roomBarred, "Ruth", "ruth@example.com");
     await user(db, steward, "Tom", "tom@example.com");
+    await user(db, admin, "Ada", "ada@example.com");
     await grant(db, member, "Maria", "member");
     await grant(db, barred, "Luis", "member");
     await grant(db, roomBarred, "Ruth", "member");
     await grant(db, steward, "Tom", "member");
     await grant(db, steward, "Tom", "steward", "shop");
+    await grant(db, admin, "Ada", "member");
+    await grant(db, admin, "Ada", "admin");
     await db.query(
       `insert into board_ban
        (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id)
@@ -252,7 +268,41 @@ test("category pages require a member and hide a site ban and a room ban", async
     const parkedBody = (await stewardParked.json()) as { rooms: { id: string }[] };
     assert.equal(
       parkedBody.rooms.some((room) => room.id === "mill"),
+      false,
+    );
+    await db.query(`delete from room_categories where room_id = 'shop'`);
+    await db.query(
+      `insert into room_categories (room_id, category_id) values ('shop', 'uncategorized')`,
+    );
+    const ownParked = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/uncategorized", {
+        headers: { "x-user-id": steward },
+      }),
+    );
+    assert.equal(ownParked.status, 200);
+    const ownBody = (await ownParked.json()) as { rooms: { id: string }[] };
+    assert.deepEqual(
+      ownBody.rooms.map((room) => room.id),
+      ["shop"],
+    );
+    const adminParked = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/uncategorized", {
+        headers: { "x-user-id": admin },
+      }),
+    );
+    assert.equal(adminParked.status, 200);
+    const adminBody = (await adminParked.json()) as { rooms: { id: string }[] };
+    assert.equal(
+      adminBody.rooms.some((room) => room.id === "mill"),
       true,
+    );
+    assert.equal(
+      adminBody.rooms.some((room) => room.id === "shop"),
+      true,
+    );
+    await db.query(`delete from room_categories where room_id = 'shop'`);
+    await db.query(
+      `insert into room_categories (room_id, category_id) values ('shop', 'business-trades')`,
     );
     const stewardList = await handler(
       new Request("http://127.0.0.1:8787/api/categories", { headers: { "x-user-id": steward } }),
@@ -409,8 +459,63 @@ test("only an admin manages categories, and a room steward cannot edit another r
       }),
     );
     assert.equal(moved.status, 200);
-    const movedBody = (await moved.json()) as { categoryId?: string; name?: string };
-    assert.equal(movedBody.categoryId, "discussion");
+    const movedBody = (await moved.json()) as { categoryIds?: string[]; name?: string };
+    assert.deepEqual(movedBody.categoryIds, ["discussion"]);
+    const both = await handler(
+      new Request("http://127.0.0.1:8787/api/rooms/shop", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-user-id": steward },
+        body: JSON.stringify({ categoryIds: ["discussion", "civic"] }),
+      }),
+    );
+    assert.equal(both.status, 200);
+    const bothBody = (await both.json()) as { categoryIds?: string[] };
+    assert.deepEqual(bothBody.categoryIds, ["discussion", "civic"]);
+    const cleared = await handler(
+      new Request("http://127.0.0.1:8787/api/rooms/shop", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-user-id": steward },
+        body: JSON.stringify({ categoryIds: [] }),
+      }),
+    );
+    assert.equal(cleared.status, 400);
+    const clearedBody = (await cleared.json()) as { error?: string };
+    assert.equal(clearedBody.error, "Choose a category.");
+    const kept = await db.query<{ category_id: string }>(
+      `select category_id from room_categories where room_id = 'shop' order by category_id`,
+    );
+    assert.deepEqual(
+      kept.map((row) => row.category_id),
+      ["civic", "discussion"],
+    );
+    const discussionPage = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/discussion", {
+        headers: { "x-user-id": steward },
+      }),
+    );
+    const civicPage = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/civic", {
+        headers: { "x-user-id": steward },
+      }),
+    );
+    const discussionRooms = ((await discussionPage.json()) as { rooms: { id: string; categoryIds?: string[] }[] }).rooms;
+    const civicRooms = ((await civicPage.json()) as { rooms: { id: string; categoryIds?: string[] }[] }).rooms;
+    assert.deepEqual(
+      discussionRooms.find((room) => room.id === "shop")?.categoryIds,
+      ["discussion", "civic"],
+    );
+    assert.deepEqual(
+      civicRooms.find((room) => room.id === "shop")?.categoryIds,
+      ["discussion", "civic"],
+    );
+    const board = await handler(
+      new Request("http://127.0.0.1:8787/api/board", { headers: { "x-user-id": steward } }),
+    );
+    const boardRooms = ((await board.json()) as { rooms: { id: string; categoryIds?: string[] }[] }).rooms;
+    assert.deepEqual(
+      boardRooms.find((room) => room.id === "shop")?.categoryIds,
+      ["discussion", "civic"],
+    );
     const renameDenied = await handler(
       new Request("http://127.0.0.1:8787/api/rooms/shop", {
         method: "PATCH",
@@ -431,9 +536,9 @@ test("only an admin manages categories, and a room steward cannot edit another r
       }),
     );
     assert.equal(renamedRoom.status, 200);
-    const renamedRoomBody = (await renamedRoom.json()) as { name?: string; categoryId?: string };
+    const renamedRoomBody = (await renamedRoom.json()) as { name?: string; categoryIds?: string[] };
     assert.equal(renamedRoomBody.name, "New Shop");
-    assert.equal(renamedRoomBody.categoryId, "business-trades");
+    assert.deepEqual(renamedRoomBody.categoryIds, ["business-trades"]);
     const memberMove = await handler(
       new Request("http://127.0.0.1:8787/api/rooms/shop", {
         method: "PATCH",
@@ -479,41 +584,45 @@ test("only an admin manages categories, and a room steward cannot edit another r
   }
 });
 
-test("category backfill fills only a null category, then room type", async () => {
+test("category backfill fills only a room with no links, then room type", async () => {
   const { db, close } = await openTestDb();
   try {
-    await db.query(`update room set category_id = 'discussion' where id = 'shop'`);
+    await db.query(`delete from room_categories where room_id = 'shop'`);
+    await db.query(
+      `insert into room_categories (room_id, category_id) values ('shop', 'discussion')`,
+    );
     const sql = readFileSync(new URL("../../migrations/0021_categories.sql", import.meta.url), "utf8");
-    const updates = sql.match(/update room set category_id = [\s\S]*?;/gi) ?? [];
-    assert.ok(updates.length >= 8);
-    for (const update of updates) {
-      assert.match(update, /category_id is null/);
-      await db.query(update);
+    const inserts = sql.match(/insert into room_categories \(room_id, category_id\)[\s\S]*?;/gi) ?? [];
+    assert.ok(inserts.length >= 8);
+    for (const insert of inserts) {
+      assert.match(insert, /not exists/);
+      await db.query(insert);
     }
     const shop = await db.query<{ category_id: string }>(
-      `select category_id from room where id = 'shop'`,
+      `select category_id from room_categories where room_id = 'shop'`,
     );
-    assert.equal(shop[0]?.category_id, "discussion");
-
-    await db.query(`alter table room alter column category_id drop not null`);
+    assert.deepEqual(
+      shop.map((row) => row.category_id),
+      ["discussion"],
+    );
     await db.query(
       `insert into room (
          id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-         sort_order, scope_kind, town_id, congregation_id, region_id, category_id
+         sort_order, scope_kind, town_id, congregation_id, region_id
        ) values
-       ('plant-city-town', 'Plant City', 'A town room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 80, 'town', 'plant-city', '', '', null),
-       ('cong-new', 'New congregation', 'A parish room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 81, 'congregation', '', 'cong-new', '', null),
-       ('region-new', 'New region', 'A region room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 82, 'region', '', '', 'region-new', null),
-       ('mens-study', 'Study', 'A topic room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 83, 'topic', '', '', '', null)`,
+       ('plant-city-town', 'Plant City', 'A town room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 80, 'town', 'plant-city', '', ''),
+       ('cong-new', 'New congregation', 'A parish room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 81, 'congregation', '', 'cong-new', ''),
+       ('region-new', 'New region', 'A region room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 82, 'region', '', '', 'region-new'),
+       ('mens-study', 'Study', 'A topic room.', array[]::text[], array[]::text[], array[]::text[], 'Meeting', false, false, 83, 'topic', '', '', '')`,
     );
-    for (const update of updates) await db.query(update);
-    const placed = await db.query<{ id: string; category_id: string }>(
-      `select id, category_id from room
-       where id in ('plant-city-town', 'cong-new', 'region-new', 'mens-study', 'shop')
-       order by id asc`,
+    for (const insert of inserts) await db.query(insert);
+    const placed = await db.query<{ room_id: string; category_id: string }>(
+      `select room_id, category_id from room_categories
+       where room_id in ('plant-city-town', 'cong-new', 'region-new', 'mens-study', 'shop')
+       order by room_id asc`,
     );
     assert.deepEqual(
-      placed.map((row) => [row.id, row.category_id]),
+      placed.map((row) => [row.room_id, row.category_id]),
       [
         ["cong-new", "churches"],
         ["mens-study", "uncategorized"],

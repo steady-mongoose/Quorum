@@ -74,6 +74,9 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   [data-section="week"] .side-art{background-image:var(--art-week-side)}
   [data-section="rooms"] .side-art{background-image:var(--art-rooms-side)}
   [data-section="messages"] .side-art{background-image:var(--art-messages-side)}
+  /* Rooms keep the 72rem column. The 14rem list sits inside it, not beside the side art. */
+  [data-section="rooms"] .with-side{grid-template-columns:minmax(0,1fr)}
+  [data-section="rooms"] .side-art{display:none}
 }
 
 .hero-band{width:100%;height:clamp(140px,20vw,300px)}
@@ -89,10 +92,19 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 
 /* Room cards are not .plate. The plate hero margin stays on the title only. */
 .room-column{container-type:inline-size;min-width:0}
+.room-browse{display:block}
+@media (min-width:1024px){
+  .room-browse{
+    display:grid;
+    grid-template-columns:14rem minmax(0,1fr);
+    align-items:start;
+    column-gap:2rem;
+  }
+}
 .room-grid{
   display:grid;
   gap:var(--space-2);
-  grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),1fr));
+  grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));
 }
 .room-card{
   display:flex;
@@ -139,11 +151,12 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   background:var(--gold);
   flex:none;
 }
-.category-engraving{
+.hero-band.category-engraving{
   display:block;
   width:100%;
   height:var(--band-h);
   object-fit:cover;
+  background-image:none;
   border-bottom:1px solid var(--gold);
 }
 #your-rooms{scroll-margin-top:8rem}

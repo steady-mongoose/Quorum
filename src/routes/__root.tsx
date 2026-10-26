@@ -3,30 +3,12 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-r
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { NotFoundPage } from "@/components/not-found";
-import { APP_NAME } from "@/lib/board/model";
+import { rootMeta } from "@/lib/board/route-heads";
 import appCss from "../styles.css?url";
-
-const DESCRIPTION =
-  "Your church, your shop, your county. Where a small set of people meet, what they did, and what the parish needs this week. The County room runs on Quorum.";
 
 export const Route = createRootRoute({
   head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: APP_NAME },
-      { name: "description", content: DESCRIPTION },
-      { name: "application-name", content: APP_NAME },
-      { name: "apple-mobile-web-app-title", content: APP_NAME },
-      { property: "og:title", content: APP_NAME },
-      { property: "og:site_name", content: APP_NAME },
-      { property: "og:description", content: DESCRIPTION },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: APP_NAME },
-      { name: "twitter:description", content: DESCRIPTION },
-      { name: "theme-color", content: "#14100c" },
-    ],
+    meta: rootMeta(),
     links: [
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

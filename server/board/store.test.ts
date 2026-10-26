@@ -314,7 +314,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
       id: "woodshop",
       name: "Woodshop",
       what: "A second bench night for people who already come to the shop.",
-      categoryId: "business-trades",
+      categoryIds: ["business-trades"],
       now,
     });
     assert.equal(denied.ok, false);
@@ -325,7 +325,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
       id: "woodshop",
       name: "Woodshop",
       what: "A second bench night for people who already come to the shop.",
-      categoryId: "business-trades",
+      categoryIds: ["business-trades"],
       now,
     });
     assert.equal(created.ok, true);

@@ -3,9 +3,10 @@
  * the seed and the backfill, so the migration, the browse page, and room
  * create all start from the same names.
  *
- * Men only and Women only are where a room is listed. Who may enter is the
- * room's audience, enforced by a later migration (0019). This file does not
- * store that column.
+ * Philosophy & Discussion, Men's, Women's, and Businesses are where a room is
+ * listed. Who may enter is the room's audience, enforced by a later migration
+ * (0019). This file does not store that column. A room may be listed in more
+ * than one category.
  */
 
 export type RoomCategory = {
@@ -25,15 +26,15 @@ export const CATEGORY_LIST: readonly RoomCategory[] = [
   },
   {
     slug: "discussion",
-    name: "Discussion",
+    name: "Philosophy & Discussion",
     description: "Questions, the shelf, and the co-op.",
     sortOrder: 1,
   },
-  { slug: "men", name: "Men only", description: "Rooms listed for men.", sortOrder: 2 },
-  { slug: "women", name: "Women only", description: "Rooms listed for women.", sortOrder: 3 },
+  { slug: "men", name: "Men's", description: "Rooms listed for men.", sortOrder: 2 },
+  { slug: "women", name: "Women's", description: "Rooms listed for women.", sortOrder: 3 },
   {
     slug: "business-trades",
-    name: "Business & Trades",
+    name: "Businesses",
     description: "Shops and the trades.",
     sortOrder: 4,
   },
@@ -54,11 +55,11 @@ export const UNCATEGORIZED_SLUG = "uncategorized";
  * Anything absent stays Uncategorized until a steward moves it.
  *
  * Churches: the parish rooms and the congregation rooms.
- * Discussion: Debate Night, Literary Society, and the co-op.
- * Business & Trades: the shop rooms.
+ * Philosophy & Discussion: Debate Night, Literary Society, and the co-op.
+ * Businesses: the shop rooms.
  * Civic: Dispatch and the town rooms.
  * County: The County and the Hillsborough region room.
- * Men only and Women only have no rooms.
+ * Men's and Women's have no rooms.
  */
 export const ROOM_CATEGORY: Readonly<Record<string, string>> = {
   baptist: "churches",
@@ -95,9 +96,26 @@ export function categoryForRoom(roomId: string): string {
   return ROOM_CATEGORY[roomId] ?? UNCATEGORIZED_SLUG;
 }
 
-export function roomCategoryId(room: { id: string; categoryId?: string }): string {
-  const slug = room.categoryId?.trim();
-  return slug || categoryForRoom(room.id);
+/** Every category a room is listed in. A sample room with none uses the seed map. */
+export function roomCategoryIds(room: {
+  id: string;
+  categoryIds?: readonly string[];
+  categoryId?: string;
+}): string[] {
+  const listed = Array.isArray(room.categoryIds)
+    ? room.categoryIds.map((slug) => slug.trim()).filter((slug) => slug.length > 0)
+    : [];
+  if (listed.length > 0) return [...new Set(listed)];
+  const one = room.categoryId?.trim();
+  if (one) return [one];
+  return [categoryForRoom(room.id)];
+}
+
+export function categoryNames(
+  slugs: readonly string[],
+  categories: readonly Pick<RoomCategory, "slug" | "name">[] = CATEGORY_LIST,
+): string {
+  return slugs.map((slug) => categoryName(slug, categories)).join(" · ");
 }
 
 const CATEGORY_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -254,7 +272,7 @@ export type BrowseRoom = {
   id: string;
   name: string;
   what: string;
-  categoryId: string;
+  categoryIds: string[];
   nextGathering: string | null;
   pinOrder?: number | null;
   joined?: boolean;
@@ -276,11 +294,19 @@ export function groupBrowseRooms(
   const chosen = focusSlug ? visible.filter((category) => category.slug === focusSlug) : visible;
   return chosen.map((category) => ({
     category,
-    rooms: orderBrowseRooms(rooms.filter((room) => room.categoryId === category.slug)),
+    rooms: orderBrowseRooms(
+      rooms.filter((room) => room.categoryIds.includes(category.slug)),
+    ),
   }));
 }
 
-export function hiddenRooms(rooms: readonly BrowseRoom[], steward: boolean): BrowseRoom[] {
-  if (!steward) return [];
-  return orderBrowseRooms(rooms.filter((room) => room.categoryId === UNCATEGORIZED_SLUG));
+/** Uncategorized rooms: an admin sees every one; a steward sees only rooms they run. */
+export function hiddenRooms(
+  rooms: readonly BrowseRoom[],
+  actor: { admin?: boolean; stewardRooms?: readonly string[] },
+): BrowseRoom[] {
+  const parked = rooms.filter((room) => room.categoryIds.includes(UNCATEGORIZED_SLUG));
+  if (actor.admin) return orderBrowseRooms(parked);
+  const mine = new Set(actor.stewardRooms ?? []);
+  return orderBrowseRooms(parked.filter((room) => mine.has(room.id)));
 }

@@ -139,6 +139,15 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function categoryIdsField(body: Record<string, unknown>): { categoryIds?: string[] } {
+  if (Array.isArray(body.categoryIds)) return { categoryIds: stringList(body, "categoryIds") };
+  if ("categoryId" in body) {
+    const one = stringField(body, "categoryId").trim();
+    return { categoryIds: one ? [one] : [] };
+  }
+  return {};
+}
+
 function pinField(body: Record<string, unknown>): { pinOrder: number | null } | Record<string, never> {
   if (!("pinOrder" in body)) return {};
   const value = body.pinOrder;
@@ -314,7 +323,7 @@ export async function handleBoard(
         id: stringField(body, "id"),
         name: stringField(body, "name"),
         what: stringField(body, "what"),
-        categoryId: stringField(body, "categoryId"),
+        categoryIds: categoryIdsField(body).categoryIds ?? [],
         now,
       });
       return fromResult(201, created);
@@ -326,7 +335,7 @@ export async function handleBoard(
         await updateRoom(deps.db, {
           userId: session.id,
           id: roomOne[1] ?? "",
-          categoryId: stringField(body, "categoryId"),
+          ...categoryIdsField(body),
           ...(typeof body.name === "string" ? { name: body.name } : {}),
           ...(typeof body.what === "string" ? { what: body.what } : {}),
           ...pinField(body),

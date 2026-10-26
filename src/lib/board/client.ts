@@ -95,11 +95,11 @@ export type BoardClient = {
     id: string;
     name: string;
     what: string;
-    categoryId: string;
+    categoryIds: string[];
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
   updateRoom: (
     id: string,
-    input: { categoryId: string; name?: string; what?: string; pinOrder?: number | null },
+    input: { categoryIds?: string[]; name?: string; what?: string; pinOrder?: number | null },
   ) => Promise<{ ok: true; room: Room } | BoardFailure>;
   listCategories: () => Promise<{ ok: true; categories: RoomCategory[] } | BoardFailure>;
   readCategory: (

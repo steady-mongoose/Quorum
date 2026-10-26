@@ -15,7 +15,7 @@ import {
   witnessesByTrade,
   type MeetingCard,
 } from "@/lib/board/model";
-import { categoryName, roomCategoryId } from "@/lib/board/categories";
+import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { HomePanel } from "@/components/board/home-view";
 import { GatheringShareControl } from "@/components/board/gathering-share";
 import { RsvpControl } from "@/components/board/rsvp-control";
@@ -142,7 +142,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
         ) : null}
         {card.firstTimer ? <span className="text-signal">new people welcome</span> : null}
       </div>
-      <p className="text-sm text-muted">{categoryName(roomCategoryId(roomById(card.room)))}</p>
+      <p className="text-sm text-muted">{categoryNames(roomCategoryIds(roomById(card.room)))}</p>
       <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
@@ -169,7 +169,7 @@ export function NeedCard({ card }: { card: MeetingCard }) {
         </span>
         <span className="text-muted">organized by {card.host}</span>
       </div>
-      <p className="text-sm text-muted">{categoryName(roomCategoryId(roomById(card.room)))}</p>
+      <p className="text-sm text-muted">{categoryNames(roomCategoryIds(roomById(card.room)))}</p>
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">
         {card.time} · {card.place}
