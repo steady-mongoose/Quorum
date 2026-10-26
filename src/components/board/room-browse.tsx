@@ -72,7 +72,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
           className={focusSlug ? "flex flex-col gap-2" : "plate plate--hero flex flex-col gap-2"}
         >
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Find your room</h1>
-          <p className="max-w-prose text-base text-muted">One category for each room.</p>
+          <p className="max-w-prose text-base text-muted">A room can be listed in more than one category.</p>
         </section>
       )}
 

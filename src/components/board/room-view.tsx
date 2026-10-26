@@ -61,11 +61,12 @@ import {
 import { CouncilBar } from "@/components/board/council-bar";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
-import { categoryName, roomCategoryId } from "@/lib/board/categories";
+import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
+import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
@@ -108,6 +109,11 @@ export function RoomView() {
     () => (meta.parish ? needsFor(cards, room) : []),
     [cards, room, meta.parish],
   );
+  const setRoomAudience = useBoard((state) => state.setRoomAudience);
+  const roomHold = useBoard((state) => state.roomHold);
+  const dismissRoomHold = useBoard((state) => state.dismissRoomHold);
+  const held = roomHold && roomHold.roomId === room ? roomHold : null;
+  const known = rooms.find((item) => item.id === room);
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
@@ -149,6 +155,41 @@ export function RoomView() {
     </>
   );
 
+  if (held) {
+    const title = known?.name ?? "This room";
+    const audience = held.code === "missing" ? undefined : (known?.audience ?? held.audience);
+    return (
+      <div className="flex flex-col gap-6">
+        <section className="plate flex flex-col gap-2">
+          {held.code === "missing" ? null : (
+            <>
+              <Kicker>Room</Kicker>
+              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <RoomAudienceMark audience={audience} />
+            </>
+          )}
+          <RoomHoldPlate code={held.code} onDismiss={dismissRoomHold} />
+        </section>
+        <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
+          {rooms.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={item.id === room ? "page" : undefined}
+              onClick={() => setRoom(item.id)}
+              className={pill(item.id === room)}
+            >
+              {item.name}
+              {item.audience === "men" || item.audience === "women" ? (
+                <RoomAudienceMark audience={item.audience} />
+              ) : null}
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <section className="plate plate--hero flex flex-col gap-2">
@@ -159,8 +200,9 @@ export function RoomView() {
         >
           {meta.name}
         </h1>
+        <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <p className="text-sm text-muted">{categoryName(roomCategoryId(meta))}</p>
+        <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>
         <button
           type="button"
           className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
@@ -172,9 +214,33 @@ export function RoomView() {
           All rooms
         </button>
         <RoomCategoryFields room={meta} />
+        {meta.host ? (
+          <RoomAudienceEditor
+            key={`${meta.id}-${meta.audience ?? "all"}`}
+            audience={meta.audience === "men" || meta.audience === "women" ? meta.audience : "all"}
+            onSave={(audience) => setRoomAudience(meta.id, audience)}
+          />
+        ) : null}
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
       </section>
+
+      <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
+        {rooms.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={item.id === room ? "page" : undefined}
+            onClick={() => setRoom(item.id)}
+            className={pill(item.id === room)}
+          >
+            {item.name}
+            {item.audience === "men" || item.audience === "women" ? (
+              <RoomAudienceMark audience={item.audience} />
+            ) : null}
+          </button>
+        ))}
+      </nav>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">

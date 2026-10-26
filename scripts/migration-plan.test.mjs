@@ -85,6 +85,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0015_hard_rules.sql",
       "0017_csam_hold_key.sql",
       "0018_public_gathering.sql",
+      "0019_room_audience.sql",
       "0021_categories.sql",
     ],
   );
@@ -119,7 +120,7 @@ test("migration 0015 widens group and chat rules and does not replace anonymize 
 test("migration 0021 adds categories and does not replace a function", () => {
   const sql = readFileSync(join(projectRoot(), "migrations/0021_categories.sql"), "utf8");
   assert.match(sql, /Numbered 0021/);
-  assert.match(sql, /0019 and 0020 are reserved/);
+  assert.match(sql, /0020 is reserved/);
   assert.match(sql, /create table if not exists categories/i);
   assert.match(sql, /category_id/);
   assert.equal(/create or replace function/i.test(sql), false);

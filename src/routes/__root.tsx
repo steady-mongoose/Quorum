@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Outlet, Scripts, useRouterState } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { NotFoundPage } from "@/components/not-found";
@@ -46,6 +46,7 @@ export const Route = createRootRoute({
       </head>
       <body>
         <StaticSpaGate>
+          <SingleOgTitle />
           <PreviewHostBridge />
           <AuthProvider>
             <Outlet />
@@ -63,6 +64,19 @@ export const Route = createRootRoute({
  * Rendering that page during hydration does not match the shell (React #418).
  * Hold the tree back until after hydration on the static build only.
  */
+/** The preview injector writes one og:title, then the route writes its own. Keep the route's. */
+function SingleOgTitle() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  useEffect(() => {
+    const tags = [...document.querySelectorAll('meta[property="og:title"]')];
+    const keep = tags.at(-1);
+    for (const tag of tags) {
+      if (tag !== keep) tag.remove();
+    }
+  }, [pathname]);
+  return null;
+}
+
 function StaticSpaGate({ children }: { children: ReactNode }) {
   const deferred = import.meta.env.VITE_STATIC_SPA === "true";
   const [ready, setReady] = useState(!deferred);

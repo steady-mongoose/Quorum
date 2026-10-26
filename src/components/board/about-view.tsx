@@ -4,6 +4,7 @@ import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -175,7 +176,9 @@ export function AboutView() {
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {rooms.map((room) => (
             <div key={room.id} className="contents">
-              <dt className="font-semibold text-fg">{room.name}</dt>
+              <dt className="font-semibold text-fg">
+                {room.name} <RoomAudienceMark audience={room.audience} />
+              </dt>
               <dd className="max-w-prose text-muted">{room.what}</dd>
             </div>
           ))}
@@ -204,6 +207,12 @@ export function AboutView() {
       </section>
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+
+      {remote && admin ? (
+        <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+          <MemberGenderForm />
+        </section>
+      ) : null}
 
       {remote && admin ? (
         <AdminTools
@@ -788,6 +797,7 @@ function AdminTools({
     name: string;
     what: string;
     categoryIds: string[];
+    audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -797,6 +807,7 @@ function AdminTools({
   const [what, setWhat] = useState("");
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const categories = browseCategories(useCategories(), false);
+  const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -865,6 +876,14 @@ function AdminTools({
             );
           })}
         </fieldset>
+        <div className="sm:col-span-2">
+          <AudienceChoice
+            legend="Who can be in this room"
+            name="create-room-audience"
+            value={audience}
+            onChange={setAudience}
+          />
+        </div>
       </div>
       <button
         type="button"
@@ -875,13 +894,14 @@ function AdminTools({
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({ id, name, what, categoryIds }).then((result) => {
+          void createRoom({ id, name, what, categoryIds, audience }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
               setCategoryIds([]);
+              setAudience("all");
             }
           });
         }}

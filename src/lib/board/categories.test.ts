@@ -200,6 +200,6 @@ test("browse, the week, and room create follow the category layout", () => {
     assert.ok(next > at, name);
     at = next;
   }
-  assert.match(migration, /0019 and 0020 are reserved/);
+  assert.match(migration, /0020 is reserved/);
   assert.match(migration, /Uncategorized/);
 });

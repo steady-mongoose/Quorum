@@ -3,13 +3,13 @@
 -- decision from merging. The API process does not apply migrations.
 -- `npm run db:migrate` does, and only when DATABASE_URL is set.
 --
--- Numbered 0021. 0019 and 0020 are reserved by parallel pull requests.
+-- Numbered 0021. 0019 is the audience migration. 0020 is reserved.
 -- Do not renumber this file.
 --
 -- Categories an admin can edit. The seed order is fixed:
 -- Churches, Philosophy & Discussion, Men's, Women's, Businesses, Civic, County.
 -- Men's and Women's are where a room is listed. This file does not record
--- who may enter. Audience is a later migration.
+-- who may enter. Audience is migration 0019.
 --
 -- A room belongs to one or more categories through room_categories.
 -- Deleting a room removes its links. Deleting a category that still has a

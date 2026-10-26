@@ -1,6 +1,7 @@
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { actorRole } from "./access.ts";
+import { filterAudience, includeInCatalog } from "./audience.ts";
 import { openBan, type OpenBan } from "./store.ts";
 import { isEnglish } from "../../src/lib/board/text.ts";
 import {
@@ -22,6 +23,7 @@ export type CategoryRoom = {
   nextGathering: string | null;
   pinOrder: number | null;
   joined: boolean;
+  audience: "all" | "men" | "women";
 };
 
 function fail(status: number, error: string, ban?: OpenBan): Err {
@@ -131,8 +133,9 @@ export async function readCategory(
     next_gathering: string | null;
     pin_order: number | null;
     joined: boolean;
+    audience: string | null;
   }>(
-    `select r.id, r.name, r.what, r.pin_order,
+    `select r.id, r.name, r.what, r.pin_order, r.audience,
             coalesce((
               select array_agg(s.slug order by s.sort_order, s.slug)
               from (
@@ -182,6 +185,7 @@ export async function readCategory(
     const roomBan = await openBan(db, userId, now, row.id);
     if (roomBan) continue;
     const listed = textArray(row.category_ids);
+    const audience = row.audience === "men" || row.audience === "women" ? row.audience : "all";
     rooms.push({
       id: row.id,
       name: row.name,
@@ -190,11 +194,20 @@ export async function readCategory(
       nextGathering: row.next_gathering,
       pinOrder: row.pin_order == null ? null : Number(row.pin_order),
       joined: Boolean(row.joined),
+      audience,
     });
   }
+  const gated = await filterAudience(db, {
+    userId,
+    rows: rooms,
+    now,
+    path: "list",
+    moderate: true,
+  });
+  const shown = rooms.filter((room) => includeInCatalog(gated.denied.get(room.id)));
   return {
     ok: true,
-    value: { category: toCategory(category), rooms: orderBrowseRooms(rooms) },
+    value: { category: toCategory(category), rooms: orderBrowseRooms(shown) },
   };
 }
 

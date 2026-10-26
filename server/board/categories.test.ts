@@ -134,7 +134,10 @@ test("migration 0021 backfills the config mapping and parks the rest", async () 
        where table_schema = 'public' and table_name = 'room'
          and column_name in ('audience', 'sex')`,
     );
-    assert.equal(audience.length, 0);
+    assert.deepEqual(
+      audience.map((row) => row.column_name),
+      ["audience"],
+    );
     const labeled = await db.query<{ id: string }>(
       `select room_id as id from room_categories where category_id in ('men', 'women')`,
     );
@@ -630,6 +633,71 @@ test("category backfill fills only a room with no links, then room type", async 
         ["region-new", "county"],
         ["shop", "discussion"],
       ],
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a category list hides a room the member does not match", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const woman = randomUUID();
+    const man = randomUUID();
+    const steward = randomUUID();
+    await user(db, woman, "Ada", "ada-rooms@example.com");
+    await user(db, man, "Ben", "ben-rooms@example.com");
+    await user(db, steward, "Cora", "cora-rooms@example.com");
+    await grant(db, woman, "Ada", "member");
+    await grant(db, man, "Ben", "member");
+    await grant(db, steward, "Cora", "member");
+    await grant(db, steward, "Cora", "steward", "shop");
+    await db.query(`insert into members (user_id, gender) values ($1, 'woman'), ($2, 'man'), ($3, 'woman')`, [
+      woman,
+      man,
+      steward,
+    ]);
+    await db.query(`update room set audience = 'men' where id = 'shop'`);
+    const handler = app(db);
+    const hidden = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/business-trades", {
+        headers: { "x-user-id": woman },
+      }),
+    );
+    assert.equal(hidden.status, 200);
+    const hiddenBody = (await hidden.json()) as { rooms: { id: string; name?: string }[] };
+    assert.equal(
+      hiddenBody.rooms.some((room) => room.id === "shop"),
+      false,
+    );
+    assert.equal(
+      hiddenBody.rooms.some((room) => room.id === "rv-shop"),
+      true,
+    );
+    const board = await handler(
+      new Request("http://127.0.0.1:8787/api/board?room=shop", { headers: { "x-user-id": woman } }),
+    );
+    assert.equal(board.status, 404);
+    assert.deepEqual(await board.json(), { error: "That room is not here." });
+    const shown = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/business-trades", {
+        headers: { "x-user-id": man },
+      }),
+    );
+    const shownBody = (await shown.json()) as { rooms: { id: string }[] };
+    assert.equal(
+      shownBody.rooms.some((room) => room.id === "shop"),
+      true,
+    );
+    const hers = await handler(
+      new Request("http://127.0.0.1:8787/api/categories/business-trades", {
+        headers: { "x-user-id": steward },
+      }),
+    );
+    const hersBody = (await hers.json()) as { rooms: { id: string }[] };
+    assert.equal(
+      hersBody.rooms.some((room) => room.id === "shop"),
+      true,
     );
   } finally {
     await close();

@@ -22,6 +22,14 @@ export type BoardMe = {
   /** Rooms with a live steward grant. An admin is not listed here. */
   stewardRooms: string[];
   ban: { until: number; strikes: number; reason: HardRule } | null;
+  gender: "man" | "woman" | null;
+  genderConfirmed: boolean;
+};
+
+export type GenderPolicyInfo = {
+  setBy: "self" | "inviter" | "steward";
+  requiresConfirmation: boolean;
+  changeBy: "admin" | "steward";
 };
 
 export type PlaceInput = { zip: string; congregationId: string };
@@ -55,6 +63,7 @@ export type BoardPage = { room: string; next: string | null };
 
 export type BoardSnapshot = {
   me: BoardMe;
+  genderPolicy: GenderPolicyInfo;
   rooms: Room[];
   posts: Post[];
   marks: MarkRow[];
@@ -65,7 +74,13 @@ export type BoardSnapshot = {
   pages: BoardPage[];
 };
 
-export type BoardFailure = { ok: false; error: string; stops?: string[] };
+export type BoardFailure = {
+  ok: false;
+  error: string;
+  stops?: string[];
+  code?: "gender-unstated" | "gender-unconfirmed";
+  audience?: "men" | "women";
+};
 
 export type BoardClient = {
   load: (query?: {
@@ -96,6 +111,7 @@ export type BoardClient = {
     name: string;
     what: string;
     categoryIds: string[];
+    audience?: "all" | "men" | "women";
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
   updateRoom: (
     id: string,
@@ -114,6 +130,15 @@ export type BoardClient = {
     input: { name?: string; sortOrder?: number },
   ) => Promise<{ ok: true; category: RoomCategory } | BoardFailure>;
   deleteCategory: (slug: string) => Promise<{ ok: true } | BoardFailure>;
+  setRoomAudience: (
+    roomId: string,
+    audience: "all" | "men" | "women",
+  ) => Promise<{ ok: true } | BoardFailure>;
+  setGender: (input: {
+    gender: "man" | "woman";
+    email?: string;
+  }) => Promise<{ ok: true } | BoardFailure>;
+  confirmGender: (email: string) => Promise<{ ok: true } | BoardFailure>;
   appointSteward: (input: {
     email: string;
     action: "grant" | "revoke";

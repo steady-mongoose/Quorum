@@ -77,15 +77,23 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
-  /** Every category this room is listed in. Audience is separate, after 0019. */
+  /** Every category this room is listed in. */
   categoryIds: string[];
   /** Set when a steward of this room has pinned it. Absent means alphabetical. */
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */
   joined?: boolean;
-  /** Who may enter, when #49 has set it. The category name is not the audience. */
-  audience?: string;
+  /** Who may enter. A sample room leaves this unset, which means everyone. */
+  audience?: "all" | "men" | "women";
+  /** The signed-in member may change the audience. */
+  host?: boolean;
 };
+
+export function audienceLabel(audience: string | null | undefined): "Men only" | "Women only" | "" {
+  if (audience === "men") return "Men only";
+  if (audience === "women") return "Women only";
+  return "";
+}
 
 export type Post = {
   id: string;

@@ -19,6 +19,9 @@ import {
   removeGathering,
   saveGathering,
 } from "./gathering-record.ts";
+import { confirmMemberGender, setMemberGender, setRoomAudience } from "./audience.ts";
+import { actorRole } from "./access.ts";
+import { mayNameAnotherGender } from "../gender-policy.ts";
 import {
   createCategory,
   deleteCategory,
@@ -129,6 +132,8 @@ function fromResult(status: number, result: Result<unknown> | CategoryResult<unk
       error: result.error,
       ...("stops" in result && result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
+      ...(result.code ? { code: result.code } : {}),
+      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
     });
   }
   return json(status, result.value);
@@ -181,6 +186,7 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
+  const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const categoryOne = /^\/api\/categories\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
@@ -202,6 +208,9 @@ export async function handleBoard(
     (categoryOne !== null &&
       (request.method === "GET" || request.method === "PATCH" || request.method === "DELETE")) ||
     (roomOne !== null && request.method === "PATCH") ||
+    (url.pathname === "/api/gender" && request.method === "POST") ||
+    (url.pathname === "/api/gender/confirm" && request.method === "POST") ||
+    Boolean(roomAudience && request.method === "POST") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
@@ -324,6 +333,7 @@ export async function handleBoard(
         name: stringField(body, "name"),
         what: stringField(body, "what"),
         categoryIds: categoryIdsField(body).categoryIds ?? [],
+        audience: body.audience,
         now,
       });
       return fromResult(201, created);
@@ -369,6 +379,66 @@ export async function handleBoard(
           now,
         }),
       );
+    }
+
+    if (roomAudience && request.method === "POST") {
+      const saved = await setRoomAudience(deps.db, {
+        userId: session.id,
+        roomId: roomAudience[1] ?? "",
+        audience: body.audience,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
+    }
+
+    if (url.pathname === "/api/gender" && request.method === "POST") {
+      const email = stringField(body, "email").trim().toLowerCase();
+      let subjectUserId = session.id;
+      if (email) {
+        const actor = await actorRole(deps.db, session.id);
+        if (
+          !mayNameAnotherGender({
+            actorIsAdmin: actor.admin,
+            actorIsSteward: actor.admin || actor.stewardRooms.length > 0,
+          })
+        ) {
+          return json(403, { error: "You set this once, yourself." });
+        }
+        const people = await deps.db.query<{ id: string }>(
+          `select id from "user" where lower(email) = $1`,
+          [email],
+        );
+        const person = people[0];
+        if (!person) return json(404, { error: "No member has that email." });
+        subjectUserId = person.id;
+      }
+      const saved = await setMemberGender(deps.db, {
+        actorUserId: session.id,
+        subjectUserId,
+        gender: body.gender,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
+    }
+
+    if (url.pathname === "/api/gender/confirm" && request.method === "POST") {
+      const email = stringField(body, "email").trim().toLowerCase();
+      if (!email) return json(400, { error: "Name the member." });
+      const people = await deps.db.query<{ id: string }>(
+        `select id from "user" where lower(email) = $1`,
+        [email],
+      );
+      const person = people[0];
+      if (!person) return json(404, { error: "No member has that email." });
+      const saved = await confirmMemberGender(deps.db, {
+        actorUserId: session.id,
+        subjectUserId: person.id,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
     }
 
     if (url.pathname === "/api/place") {
