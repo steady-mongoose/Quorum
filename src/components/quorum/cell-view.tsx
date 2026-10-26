@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Copy, Check, Trash2 } from "lucide-react";
-import { btnGhost, btnSignal, fieldClass, Kicker, useCopy } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, copyStatus, fieldClass, Kicker, useCopy } from "@/components/quorum/bits";
 import { officeById, phoneTree } from "@/lib/quorum/model";
 import { useQuorum } from "@/lib/quorum/store";
 
@@ -14,7 +14,7 @@ export function CellView() {
   const [name, setName] = useState("");
   const [place, setPlace] = useState("");
   const [deskId, setDeskId] = useState(campaigns[0]?.id ?? "");
-  const { copied, copy } = useCopy();
+  const { copied, failed, copy } = useCopy();
 
   const campaign = campaigns.find((item) => item.id === deskId) ?? campaigns[0];
 
@@ -143,8 +143,12 @@ export function CellView() {
               )
             }
           >
-            {copied === "tree" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied === "tree" ? "Copied" : "Copy phone tree"}
+            {copyStatus(copied, failed, "tree", "Copy phone tree") === "Copied" ? (
+              <Check className="size-4" />
+            ) : (
+              <Copy className="size-4" />
+            )}
+            {copyStatus(copied, failed, "tree", "Copy phone tree")}
           </button>
         </section>
       ) : null}

@@ -4,6 +4,7 @@ import {
   btnGhost,
   btnQuiet,
   btnSignal,
+  copyStatus,
   fieldClass,
   Kicker,
   useCopy,
@@ -212,8 +213,9 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
 function InviteMaker({ cardId }: { cardId: string }) {
   const createInvite = useBoard((state) => state.createInvite);
   const [code, setCode] = useState<string | null>(null);
-  const { copied, copy } = useCopy();
+  const { copied, failed, copy } = useCopy();
   if (code) {
+    const label = copyStatus(copied, failed, code, "Copy code");
     return (
       <span className="inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm">
         <span className="font-mono tracking-widest text-fg">{code}</span>
@@ -221,9 +223,10 @@ function InviteMaker({ cardId }: { cardId: string }) {
           type="button"
           className={cn(btnQuiet, "px-1")}
           onClick={() => copy(code, code)}
-          aria-label="Copy code"
+          aria-label={label}
         >
-          {copied === code ? <CheckIcon className="size-4" /> : <Copy className="size-4" />}
+          {label === "Copied" ? <CheckIcon className="size-4" /> : <Copy className="size-4" />}
+          {label === "Couldn't copy" ? label : null}
         </button>
       </span>
     );
