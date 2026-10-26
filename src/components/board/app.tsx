@@ -278,7 +278,7 @@ function BoardShell() {
         open={confirmSignOut}
         title="Sign out"
         description={DM_SIGNOUT_HISTORY_WARNING}
-        confirmLabel="Sign out"
+        confirmLabel="Sign out and clear"
         cancelLabel="Stay signed in"
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={() => {

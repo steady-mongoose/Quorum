@@ -97,7 +97,7 @@ test("the mailbox copy matches the screen and the controls stay tappable", () =>
   assert.equal(mailbox.includes("plain text, not encrypted"), false);
   assert.equal(demo.includes("MessagePictureNote"), false);
   assert.equal(demo.includes("plain text, not encrypted"), false);
-  assert.match(demo, /Demo only: not encrypted, deleted after \{DM_RETENTION_DAYS\} days\./);
+  assert.match(demo, /Plain text, deleted after \{DM_RETENTION_DAYS\} days\./);
   assert.match(demo, /min-h-\[44px\]/);
   assert.match(demo, /aria-label=\{`Conversation with \$\{/);
 });

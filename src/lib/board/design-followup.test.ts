@@ -179,7 +179,7 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
   assert.ok(contrast(warning, surface) >= 4.5);
   assert.ok(contrast(blend(warning, surface, 0.6), surface) >= 3);
 
-  assert.match(dialog, /border-\[#f0b4a4\]\/60 text-\[#f0b4a4\]/);
+  assert.match(dialog, /border-danger\/60 text-danger/);
   assert.match(dialog, /backdrop:bg-bg\/80/);
   assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
   assert.match(css, /--color-bg:\s*#14100c/);

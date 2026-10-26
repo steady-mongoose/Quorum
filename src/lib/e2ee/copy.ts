@@ -22,4 +22,4 @@ export const DM_SAFETY_HINT =
   "Compare this number with the other person, in person or on a call. A new device or a new backup key changes the number. If it does not match, do not send.";
 
 export const DM_SIGNOUT_HISTORY_WARNING =
-  "Read history on this device will be cleared. This device cannot open those messages again.";
+  "Signing out clears your read history here. This device won't be able to open those messages again.";

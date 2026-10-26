@@ -81,9 +81,7 @@ export function DmView() {
             All messages
           </button>
           <h1 className="illum font-display text-3xl text-fg">{other}</h1>
-          <p className="text-sm text-muted">
-            Demo only: not encrypted, deleted after {DM_RETENTION_DAYS} days.
-          </p>
+          <p className="text-sm text-muted">Plain text, deleted after {DM_RETENTION_DAYS} days.</p>
         </div>
         <ul className="flex flex-col gap-2">
           {rows.length === 0 ? <li className="text-sm text-muted">Nothing yet.</li> : null}

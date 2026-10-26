@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { btnGhost, btnSignal } from "@/components/quorum/bits";
+import { btnGhost } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 
 /**
@@ -56,7 +56,8 @@ export function ConfirmDialog({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="w-[min(28rem,calc(100%-2rem))] rounded-lg border border-line bg-surface p-5 text-fg backdrop:bg-bg/80"
+      className="plate w-[min(28rem,calc(100%-2rem))] p-5 text-fg backdrop:bg-bg/80"
+      style={{ marginTop: "auto" }}
       onCancel={(event) => {
         event.preventDefault();
         onCancel();
@@ -69,7 +70,7 @@ export function ConfirmDialog({
         onCancel();
       }}
     >
-      <h2 id={titleId} className="text-2xl text-fg">
+      <h2 id={titleId} className="illum font-display text-3xl text-fg">
         {title}
       </h2>
       <p id={descriptionId} className="mt-2 max-w-prose text-sm text-muted">
@@ -79,7 +80,7 @@ export function ConfirmDialog({
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
-          className={cn(btnGhost, "min-h-[44px] border-[#f0b4a4]/60 text-[#f0b4a4]")}
+          className={cn(btnGhost, "min-h-[44px] border-danger/60 text-danger")}
           disabled={confirmDisabled}
           onClick={() => {
             if (confirmDisabled) return;
@@ -92,7 +93,7 @@ export function ConfirmDialog({
         <button
           ref={cancelRef}
           type="button"
-          className={cn(btnSignal, "min-h-[44px]")}
+          className={cn(btnGhost, "min-h-[44px]")}
           onClick={onCancel}
         >
           {cancelLabel}

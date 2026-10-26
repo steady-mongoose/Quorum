@@ -126,7 +126,7 @@ function vault(): VaultState {
         envelopes: [],
       },
     ],
-  } as VaultState;
+  } as unknown as VaultState;
 }
 
 function cipherIncludes(saved: Store | undefined, id: string, needle: string): boolean {
@@ -184,6 +184,7 @@ test("sign-out deletes only the decrypted-message cache and its key", async () =
   assert.match(app, /server\.signOut\(\)\.finally/);
   assert.doesNotMatch(app, /forgetBrowserVault/);
   assert.match(app, /signOutClearsReadHistory\(browserVaultStore\(\)\.read\(\)\)/);
+  assert.match(app, /Sign out and clear/);
   assert.match(app, /Stay signed in/);
   assert.match(session, /await forgetBrowserVault\(user\?\.id\)[\s\S]*await signOutServer\(\)/);
   assert.match(session, /focusBrowserVault\(next\?\.id \?\? null\)/);
