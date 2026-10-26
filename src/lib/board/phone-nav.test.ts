@@ -28,9 +28,10 @@ test("the phone bar is five slots: This week, Rooms, Find, Messages, More", () =
   );
   assert.equal(MORE_TAB.label, "More");
   assert.equal(PHONE_TABS.length + 1, 5);
-  assert.equal(PHONE_TABS.some((item) => item.id === "civic"), false);
-  assert.equal(PHONE_TABS.some((item) => item.id === "profile"), false);
-  assert.equal(PHONE_TABS.some((item) => item.id === "about"), false);
+  const phoneIds = PHONE_TABS.map((item) => item.id as string);
+  assert.equal(phoneIds.includes("civic"), false);
+  assert.equal(phoneIds.includes("profile"), false);
+  assert.equal(phoneIds.includes("about"), false);
 });
 
 test("More holds You, The desk only when opted in, and About", () => {
