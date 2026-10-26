@@ -40,7 +40,7 @@ export function CouncilBar({ post }: { post: Post }) {
           </button>
         ) : null}
         {error ? (
-          <p role="alert" className="mt-2 text-sm text-[#f0b4a4]">
+          <p role="alert" className="mt-2 text-sm text-danger">
             {error}
           </p>
         ) : null}
@@ -89,7 +89,7 @@ export function CouncilBar({ post }: { post: Post }) {
         Council-approved
       </button>
       {error ? (
-        <p role="alert" className="text-sm text-[#f0b4a4]">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}

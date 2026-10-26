@@ -93,7 +93,7 @@ export function HomePanel() {
           Save place
         </button>
         {placeError ? (
-          <p role="alert" className="text-sm text-[#f0b4a4] sm:col-span-2">
+          <p role="alert" className="text-sm text-danger sm:col-span-2">
             {placeError}
           </p>
         ) : null}
@@ -150,7 +150,7 @@ export function HomePanel() {
             Request room
           </button>
           {requestError ? (
-            <p role="alert" className="text-sm text-[#f0b4a4] sm:col-span-2">
+            <p role="alert" className="text-sm text-danger sm:col-span-2">
               {requestError}
             </p>
           ) : null}
@@ -260,7 +260,7 @@ function RoomJoinRow({
         </button>
       </div>
       {error ? (
-        <p role="alert" className="text-sm text-[#f0b4a4]">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}
@@ -303,7 +303,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             </button>
           </div>
           {error ? (
-            <p role="alert" className="text-sm text-[#f0b4a4]">
+            <p role="alert" className="text-sm text-danger">
               {error}
             </p>
           ) : null}

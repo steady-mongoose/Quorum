@@ -339,7 +339,7 @@ function RemovalAppeal({
           setError("");
         }}
       />
-      {error ? <span className="text-signal">{error}</span> : null}
+      {error ? <span className="text-danger">{error}</span> : null}
       <span className="flex gap-2">
         <button
           type="button"
@@ -488,7 +488,7 @@ function RoleForm({
           {title}
         </button>
         {error ? (
-          <p role="alert" className="text-sm text-[#f0b4a4]">
+          <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         ) : null}
@@ -558,7 +558,7 @@ function RevokeRole({
           Revoke
         </button>
         {error ? (
-          <p role="alert" className="text-sm text-[#f0b4a4]">
+          <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         ) : null}
@@ -644,7 +644,7 @@ function AdminTools({
         Add room
       </button>
       {roomError ? (
-        <p role="alert" className="text-sm text-[#f0b4a4]">
+        <p role="alert" className="text-sm text-danger">
           {roomError}
         </p>
       ) : null}
@@ -702,7 +702,7 @@ function AdminTools({
         {zipNote}
       </p>
       {zipError ? (
-        <p role="alert" className="text-sm text-[#f0b4a4]">
+        <p role="alert" className="text-sm text-danger">
           {zipError}
         </p>
       ) : null}

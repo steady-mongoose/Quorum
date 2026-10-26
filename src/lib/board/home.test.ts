@@ -166,5 +166,13 @@ test("home controls keep a 44px target, visible labels, and errors on the form",
   assert.match(council, /text-\[0\.8125rem\]/);
   assert.match(council, /role="alert"/);
   assert.equal(council.includes("text-xs"), false);
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(css, /--color-danger:\s*#f0b4a4/);
+  assert.match(home, /text-danger/);
+  assert.match(about, /text-danger/);
+  assert.match(council, /text-danger/);
+  assert.equal(home.includes("text-[#f0b4a4]"), false);
+  assert.match(room, /text-\[0\.8125rem\] tracking-widest text-muted uppercase">\s*Steward/);
   assert.equal(/\blikes?\b|\bscore\b|\breshare\b/i.test(home), false);
 });

@@ -165,7 +165,7 @@ export function RoomView() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
-          {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
+          {boardError ? <p className="text-sm text-danger">{boardError}</p> : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
               {ban.reason === "csam"
@@ -181,7 +181,7 @@ export function RoomView() {
           )}
 
           {steward && feed.length > 0 ? (
-            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-xs text-muted">
+            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-[0.8125rem] text-muted">
               <input
                 type="checkbox"
                 className="size-5"
@@ -241,7 +241,7 @@ export function RoomView() {
 function FieldError({ id, messages }: { id: string; messages: string[] }) {
   if (messages.length === 0) return null;
   return (
-    <p id={id} className="text-sm text-[#f0b4a4]">
+    <p id={id} className="text-sm text-danger">
       {messages.join(" ")}
     </p>
   );
@@ -929,7 +929,7 @@ const PostCard = memo(function PostCard({
       {steward ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
           <div className="flex flex-wrap gap-2">
-            <span className="self-center text-xs tracking-widest text-muted uppercase">
+            <span className="self-center text-[0.8125rem] tracking-widest text-muted uppercase">
               Steward
             </span>
             {MARKS.map((item) => (
@@ -984,7 +984,7 @@ const PostCard = memo(function PostCard({
                   setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
                 }
               />
-              {markDraft.error ? <span className="text-signal">{markDraft.error}</span> : null}
+              {markDraft.error ? <span className="text-danger">{markDraft.error}</span> : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1008,7 +1008,7 @@ const PostCard = memo(function PostCard({
               </span>
             </label>
           ) : null}
-          {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {removeError ? <p className="text-sm text-danger">{removeError}</p> : null}
           {appealing ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
               One sentence to the stewards
@@ -1021,7 +1021,7 @@ const PostCard = memo(function PostCard({
                   setAppealError("");
                 }}
               />
-              {appealError ? <span className="text-signal">{appealError}</span> : null}
+              {appealError ? <span className="text-danger">{appealError}</span> : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1103,7 +1103,7 @@ function AppealLog() {
                       setError("");
                     }}
                   />
-                  {error ? <span className="text-signal">{error}</span> : null}
+                  {error ? <span className="text-danger">{error}</span> : null}
                   <span className="flex flex-wrap gap-2">
                     <button
                       type="button"

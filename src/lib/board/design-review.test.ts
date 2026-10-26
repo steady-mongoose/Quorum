@@ -224,7 +224,8 @@ test("the week, the door, and the fields use the review's markup", () => {
   const labelClose = account.indexOf("</label>", inputAt);
   const alertAt = account.indexOf('role="alert"');
   assert.ok(inputAt > 0 && labelClose > inputAt && alertAt > labelClose);
-  assert.match(account, /text-\[#f0b4a4\]/);
+  assert.match(account, /text-danger/);
+  assert.match(source("../../styles.css"), /--color-danger:\s*#f0b4a4/);
   assert.match(account, /aria-invalid=\{codeError \? true : undefined\}/);
   assert.match(account, /aria-describedby=\{codeError \? INVITE_CODE_ERROR_ID : undefined\}/);
   assert.match(account, /inline-flex min-h-\[44px\] items-center/);
