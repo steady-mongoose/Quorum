@@ -138,3 +138,23 @@ test("the door column starts with the invite line", () => {
   assert.match(css, /\.door-columns\{align-items:start\}/);
   assert.match(css, /#open-the-door,#sign-in\{scroll-margin-top:6rem\}/);
 });
+
+test("desktop door: frame wraps the grid and The rooms sits under Open the door", () => {
+  const door = source("../../components/board/door.tsx");
+  const css = source("../../../public/fluid.css");
+  for (const name of ["door-main", "door-hero", "door-week", "door-rooms", "door-side"]) {
+    assert.match(door, new RegExp(`className="${name} `));
+  }
+  // Phone order stays DOM order: door side, hero, week, rooms.
+  const at = (s: string) => door.indexOf(s);
+  assert.ok(at('"door-side ') < at('"door-hero ') && at('"door-hero ') < at('"door-week ') && at('"door-week ') < at('"door-rooms '));
+  const desk = css.slice(css.indexOf("/* Desktop door:"));
+  assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
+  assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
+  assert.match(desk, /\.door-main\{display:contents\}/);
+  assert.match(desk, /\.door-rooms\{grid-area:rooms/);
+  const bg = source("../../../public/backgrounds.css");
+  assert.match(bg, /body::after\{content:"";position:absolute;inset:12px/);
+  assert.match(bg, /body\{position:relative;min-height:100dvh\}/);
+  assert.match(desk, /\.plate-ground\{[^}]*position:absolute[^}]*mask-image:linear-gradient\(#000 70%,transparent\)/);
+});
