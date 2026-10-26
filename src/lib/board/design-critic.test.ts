@@ -27,7 +27,6 @@ test("a desk log uses Avouch wording and an older date matches the calendar", ()
 test("the design follow-ups are in the screens they belong to", () => {
   const dm = source("../../components/board/dm-view.tsx");
   const app = source("../../components/board/app.tsx");
-  const sample = source("./sample.ts");
   const model = source("./model.ts");
   const bits = source("../../components/quorum/bits.tsx");
   const css = source("../../styles.css");
@@ -50,8 +49,7 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(app, /aria-busy=\{busy/);
   assert.match(app, /Checking the server/);
   assert.match(app, /motion-reduce:animate-none/);
-  assert.equal(sample.includes("[VENUE, TAMPA]"), false);
-  assert.match(sample, /Brandon Brewing in Tampa/);
+  assert.equal(door.includes("sample week"), false);
   assert.equal(model.includes("Logged on the Quorum desk"), false);
   assert.match(model, /Logged on the Avouch desk/);
   assert.match(bits, /motion-safe:active:scale-95/);

@@ -20,12 +20,7 @@ npm run dev
 
 Open http://localhost:8080. Everything you do stays in that browser on that machine; there is no server and no account yet.
 
-To see it filled in:
-
-1. Open **About** and press **Load the sample week**. Six invented members around Brandon and Riverview, a week of cards and posts, a parish need, two message threads. You become Josh.
-2. **This week** opens: the next seven days with something on them, this week's call with the number to dial, and what a parish needs. Press **I'll be there** on something.
-3. **Rooms**: The Shop opens on the framing night; a tradesman is listed by two witnesses; a Hosted shows who came and who was named. **You** shows the four-line profile and who you have stood in a room with.
-4. To try hosting: on About, set your name to **Tom**, go to The Shop, file a **Hosted** on the framing night with a roll call and name someone. On **Find**, press **Invite someone** on that card to get a code; on About, redeem it under a new name.
+To try it: redeem the founder code at the door, then on **Find** press **Invite someone** on a card to get a code, and redeem it under a new name on About. **This week** lists the brief's seed cards (real places, still to be visited) until people post.
 
 **Clear the board** on the About page wipes it back to the brief's seed cards. **Steward tools** turn on marking, hard removal, and the steward-only Notice and Bulletin types.
 

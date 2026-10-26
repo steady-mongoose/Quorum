@@ -27,7 +27,7 @@ The brief calls for five roles with one name each: Product lead, App owner, Infr
 
 Code: [github.com/steady-mongoose/Quorum](https://github.com/steady-mongoose/Quorum)
 
-Quorum, the original campaign tool, is the engine of The County room. Avouch Social's rules live in `src/lib/board/model.ts`; the README explains how to run it, how it works, and the sample week that loads from the door or the About page.
+Quorum, the original campaign tool, is the engine of The County room. Avouch Social's rules live in `src/lib/board/model.ts`; the README explains how to run it, how it works.
 
 ## Mission statement
 
@@ -51,7 +51,7 @@ One call, thirty minutes, same five questions each week:
 
 | Stage            | What                                                                                                                                           | Monthly cost              | Status      | Owner  |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------- | ------ |
-| Browser skeleton | Rooms, the week, invite codes, roll call, messages, profiles, a sample week. Runs on localStorage.                                             | $0                        | Done        | [NAME] |
+| Browser skeleton | Rooms, the week, invite codes, roll call, messages, profiles. Runs on localStorage.                                                            | $0                        | Done        | [NAME] |
 | Closed test      | One OVH VPS, login in place of the name field, invite codes on the server, 5 to 20 invited people, nightly database dump.                      | About $5 to $20           | Next        | [NAME] |
 | Invite beta      | OVH dedicated plus a live spare at a second company, two domains, two registrars, monthly failover drill. 100 to 1,000 users, text and images. | $140 to $320              | Not started | [NAME] |
 | Legal and money  | Form the LLC before anyone pays. Prepaid memberships from known people. No GoFundMe, no Stripe as the only rail.                               | Part of the $20,000 start | Not started | [NAME] |
