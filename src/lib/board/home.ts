@@ -237,6 +237,8 @@ export type HomeAccessRow = {
 
 export type HomePayload = {
   zip: string;
+  townId: string | null;
+  townName: string;
   congregationId: string;
   congregations: { id: string; name: string }[];
   sections: HomeSection[];
@@ -355,6 +357,8 @@ export function parseHomePayload(value: unknown): HomePayload | null {
   }
   return {
     zip: typeof body.zip === "string" ? body.zip : "",
+    townId: typeof body.townId === "string" && body.townId ? body.townId : null,
+    townName: typeof body.townName === "string" ? body.townName : "",
     congregationId: typeof body.congregationId === "string" ? body.congregationId : "",
     congregations,
     sections,

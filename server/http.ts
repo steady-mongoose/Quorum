@@ -158,6 +158,13 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
     } catch (error) {
       if (error instanceof HttpError)
         return withCors(request, json(error.status, { error: error.message }), deps.origins);
+      const status =
+        error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+      if (status === 503) {
+        const message =
+          error instanceof Error ? error.message : "The server could not finish that.";
+        return withCors(request, json(503, { error: message }), deps.origins);
+      }
       console.error(
         JSON.stringify({
           event: "api-error",

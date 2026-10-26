@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
@@ -14,9 +14,28 @@ import {
   type CsamReport,
   type HardRule,
 } from "@/lib/board/model";
-import { useBoard } from "@/lib/board/store";
+import {
+  boardExportDocument,
+  canClearBoard,
+  clearPhraseMatches,
+  clearPhraseRequired,
+  localBoardOwner,
+  useBoard,
+} from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
+
+function downloadBoardExport(json: string) {
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "avouch-board.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 const HOW = [
   {
@@ -75,13 +94,42 @@ export function AboutView() {
   const appeal = useBoard((state) => state.appeal);
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
+  const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
   const sample = useBoard((state) => state.sample);
   const loadSample = useBoard((state) => state.loadSample);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
+  const posts = useBoard((state) => state.posts);
+  const cards = useBoard((state) => state.cards);
+  const profile = useBoard((state) => state.profile);
+  const threads = useBoard((state) => state.threads);
+  const messages = useBoard((state) => state.messages);
+  const invites = useBoard((state) => state.invites);
+  const bans = useBoard((state) => state.bans);
+  const markLog = useBoard((state) => state.markLog);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [clearPhrase, setClearPhrase] = useState("");
+  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
+  const phraseRequired = clearPhraseRequired(sample);
+  const boardSnapshot = () =>
+    boardExportDocument({
+      me,
+      sample,
+      profile,
+      rooms: rooms.map((room) => ({ id: room.id, name: room.name })),
+      posts,
+      cards,
+      threads,
+      messages,
+      invites,
+      bans,
+      markLog,
+      removals,
+      appeals,
+      reports: csamReports,
+    });
   const createRoom = useBoard((state) => state.createRoom);
   const home = useBoard((state) => state.home);
   const changeAccess = useBoard((state) => state.changeAccess);
@@ -193,13 +241,18 @@ export function AboutView() {
               <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={loadSample}>
                 Load the sample week
               </button>
-              <button
-                type="button"
-                className={cn(btnGhost, "min-h-[44px]")}
-                onClick={() => setConfirmClear(true)}
-              >
-                Clear the board
-              </button>
+              {mayClear ? (
+                <button
+                  type="button"
+                  className={cn(btnGhost, "min-h-[44px]")}
+                  onClick={() => {
+                    setClearPhrase("");
+                    setConfirmClear(true);
+                  }}
+                >
+                  Clear the board
+                </button>
+              ) : null}
             </div>
             <ConfirmDialog
               open={confirmClear}
@@ -207,12 +260,41 @@ export function AboutView() {
               description="Everything here will be removed."
               confirmLabel="Clear it"
               cancelLabel="Keep it"
+              confirmDisabled={phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)}
               onConfirm={() => {
+                if (phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)) return;
                 setConfirmClear(false);
+                setClearPhrase("");
                 clearLocalBoard();
               }}
-              onCancel={() => setConfirmClear(false)}
-            />
+              onCancel={() => {
+                setConfirmClear(false);
+                setClearPhrase("");
+              }}
+            >
+              {phraseRequired ? (
+                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                  Type {APP_NAME} or CLEAR
+                  <input
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    value={clearPhrase}
+                    autoComplete="off"
+                    onChange={(event) => setClearPhrase(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <p className="mt-3 max-w-prose text-sm text-muted">
+                The file includes the posts, messages, invites, bans, marks, removals, appeals, and
+                reports saved in this browser.
+              </p>
+              <button
+                type="button"
+                className={cn(btnGhost, "mt-3 min-h-[44px]")}
+                onClick={() => downloadBoardExport(boardSnapshot())}
+              >
+                Export first
+              </button>
+            </ConfirmDialog>
             {undoClear ? (
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <p className="max-w-prose text-sm text-muted">
@@ -372,32 +454,6 @@ function RoleTools({
   changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
   admin: boolean;
 }) {
-  const [email, setEmail] = useState("");
-  const [roomId, setRoomId] = useState("");
-  const [inviterEmail, setInviterEmail] = useState("");
-  const [stewardEmail, setStewardEmail] = useState("");
-  const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
-  const [message, setMessage] = useState("");
-  const [messageOk, setMessageOk] = useState(true);
-  const [pending, setPending] = useState<null | "grant-steward" | "revoke">(null);
-  const report = (result: { ok: boolean; error?: string }, ok: string) => {
-    setMessageOk(result.ok);
-    setMessage(result.ok ? ok : (result.error ?? "That role was not changed."));
-  };
-  const runPending = () => {
-    const action = pending;
-    setPending(null);
-    if (action === "grant-steward") {
-      void changeAccess({ action: "grant-steward", email, roomId, inviterEmail }).then((result) =>
-        report(result, "Steward granted."),
-      );
-    } else if (action === "revoke") {
-      void changeAccess({ action: "revoke", email, role, roomId }).then((result) =>
-        report(result, "Role revoked."),
-      );
-    }
-  };
-
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">Roles</h2>
@@ -406,122 +462,245 @@ function RoleTools({
         first steward of a room is the inviter plus the council chair. An admin is already a
         steward, plus the role owner's sign-off. Each change is written in the access log.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Member email
-          <input
-            className={fieldClass}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Room id
-          <input
-            className={fieldClass}
-            value={roomId}
-            placeholder="shop"
-            onChange={(event) => setRoomId(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Inviter email
-          <input
-            className={fieldClass}
-            value={inviterEmail}
-            onChange={(event) => setInviterEmail(event.target.value)}
-          />
-        </label>
-        {admin ? (
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Steward email
-            <input
-              className={fieldClass}
-              value={stewardEmail}
-              onChange={(event) => setStewardEmail(event.target.value)}
-            />
-          </label>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={btnSignal}
-          onClick={() => {
-            void changeAccess({ action: "grant-member", email, roomId }).then((result) =>
-              report(result, "Member granted."),
-            );
-          }}
-        >
-          Grant member
-        </button>
-        <button type="button" className={btnSignal} onClick={() => setPending("grant-steward")}>
-          Grant steward
-        </button>
-        {admin ? (
-          <button
-            type="button"
-            className={btnSignal}
-            onClick={() => {
-              void changeAccess({ action: "grant-admin", email, stewardEmail }).then((result) =>
-                report(result, "Admin granted."),
-              );
-            }}
-          >
-            Grant admin
-          </button>
-        ) : null}
-      </div>
       <p className="max-w-prose text-sm text-muted">
         Grant adds a role. Revoke takes one away. A steward can mark and remove posts in one room.
         An admin is a heavier grant and stays on its own button.
       </p>
+      <RoleForm
+        title="Add member"
+        onSubmit={(fields) =>
+          changeAccess({ action: "grant-member", email: fields.email, roomId: fields.roomId })
+        }
+      >
+        {(fields) => (
+          <>
+            <EmailField value={fields.email} onChange={fields.setEmail} />
+            <RoomField value={fields.roomId} onChange={fields.setRoomId} />
+          </>
+        )}
+      </RoleForm>
+      <RoleForm
+        title="Add steward"
+        confirmFirst
+        onSubmit={(fields) =>
+          changeAccess({
+            action: "grant-steward",
+            email: fields.email,
+            roomId: fields.roomId,
+            inviterEmail: fields.inviterEmail,
+          })
+        }
+      >
+        {(fields) => (
+          <>
+            <EmailField value={fields.email} onChange={fields.setEmail} />
+            <RoomField value={fields.roomId} onChange={fields.setRoomId} />
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Inviter email
+              <input
+                className={fieldClass}
+                value={fields.inviterEmail}
+                onChange={(event) => fields.setInviterEmail(event.target.value)}
+              />
+            </label>
+          </>
+        )}
+      </RoleForm>
       {admin ? (
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Role to revoke
-            <select
-              className={cn(fieldClass, "min-h-[44px]")}
-              aria-label="Role to revoke"
-              value={role}
-              onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
-            >
-              <option value="member">Member</option>
-              <option value="steward">Steward</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={cn(btnQuiet, "min-h-[44px] text-danger")}
-            onClick={() => setPending("revoke")}
-          >
-            Revoke
-          </button>
-        </div>
+        <RoleForm
+          title="Add admin"
+          onSubmit={(fields) =>
+            changeAccess({
+              action: "grant-admin",
+              email: fields.email,
+              stewardEmail: fields.stewardEmail,
+            })
+          }
+        >
+          {(fields) => (
+            <>
+              <EmailField value={fields.email} onChange={fields.setEmail} />
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                Steward email
+                <input
+                  className={fieldClass}
+                  value={fields.stewardEmail}
+                  onChange={(event) => fields.setStewardEmail(event.target.value)}
+                />
+              </label>
+            </>
+          )}
+        </RoleForm>
       ) : null}
+      {admin ? <RevokeRole changeAccess={changeAccess} /> : null}
+    </section>
+  );
+}
+
+function EmailField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm text-muted">
+      Member email
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function RoomField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm text-muted">
+      Room id
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function RoleForm({
+  title,
+  onSubmit,
+  children,
+  confirmFirst = false,
+}: {
+  title: string;
+  onSubmit: (fields: RoleFields) => Promise<{ ok: boolean; error?: string }>;
+  children: (fields: RoleFields) => ReactNode;
+  /** Granting a steward asks first. Member and admin grants do not. */
+  confirmFirst?: boolean;
+}) {
+  const fields = useRoleFields();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState<null | "grant-steward">(null);
+  const send = () => {
+    setError("");
+    void onSubmit(fields).then((result) => {
+      if (!result.ok) setError(result.error ?? "That role was not changed.");
+    });
+  };
+  return (
+    <details className="rounded-md border border-line p-3">
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
+      <form
+        className="mt-3 grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (confirmFirst) {
+            setPending("grant-steward");
+            return;
+          }
+          send();
+        }}
+      >
+        {children(fields)}
+        <button type="submit" className={cn(btnSignal, "self-start")}>
+          {title}
+        </button>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </form>
+      {confirmFirst ? (
+        <ConfirmDialog
+          open={pending !== null}
+          title="Grant steward?"
+          description={`Make ${fields.email.trim() || "this person"} a steward${fields.roomId.trim() ? ` of ${fields.roomId.trim()}` : ""}? A steward can mark and remove posts in that room.`}
+          confirmLabel="Grant steward"
+          cancelLabel="Keep it"
+          onConfirm={() => {
+            setPending(null);
+            send();
+          }}
+          onCancel={() => setPending(null)}
+        />
+      ) : null}
+    </details>
+  );
+}
+
+type RoleFields = {
+  email: string;
+  setEmail: (value: string) => void;
+  roomId: string;
+  setRoomId: (value: string) => void;
+  inviterEmail: string;
+  setInviterEmail: (value: string) => void;
+  stewardEmail: string;
+  setStewardEmail: (value: string) => void;
+};
+
+function useRoleFields(): RoleFields {
+  const [email, setEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
+  const [stewardEmail, setStewardEmail] = useState("");
+  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+}
+
+function RevokeRole({
+  changeAccess,
+}: {
+  changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [email, setEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState<null | "revoke">(null);
+  const send = () => {
+    setError("");
+    void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+      if (!result.ok) setError(result.error ?? "That role was not changed.");
+    });
+  };
+  return (
+    <details className="rounded-md border border-line p-3">
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
+        Revoke a role
+      </summary>
+      <form
+        className="mt-3 flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setPending("revoke");
+        }}
+      >
+        <EmailField value={email} onChange={setEmail} />
+        <RoomField value={roomId} onChange={setRoomId} />
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Role to revoke
+          <select
+            className={cn(fieldClass, "min-h-[44px]")}
+            value={role}
+            onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
+          >
+            <option value="member">Member</option>
+            <option value="steward">Steward</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <button type="submit" className={cn(btnQuiet, "self-start text-danger")}>
+          Revoke
+        </button>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </form>
       <ConfirmDialog
         open={pending !== null}
-        title={pending === "revoke" ? "Revoke this role?" : "Grant steward?"}
-        description={
-          pending === "revoke"
-            ? `Revoke the ${role} role from ${email.trim() || "this person"}? That access goes away.`
-            : `Make ${email.trim() || "this person"} a steward${roomId.trim() ? ` of ${roomId.trim()}` : ""}? A steward can mark and remove posts in that room.`
-        }
-        confirmLabel={pending === "revoke" ? "Revoke" : "Grant steward"}
+        title="Revoke this role?"
+        description={`Revoke the ${role} role from ${email.trim() || "this person"}? That access goes away.`}
+        confirmLabel="Revoke"
         cancelLabel="Keep it"
-        onConfirm={runPending}
+        onConfirm={() => {
+          setPending(null);
+          send();
+        }}
         onCancel={() => setPending(null)}
       />
-      {message ? (
-        <p
-          role={messageOk ? "status" : "alert"}
-          className={messageOk ? "text-sm text-muted" : "text-sm text-danger"}
-        >
-          {message}
-        </p>
-      ) : null}
-    </section>
+    </details>
   );
 }
 
@@ -545,7 +724,9 @@ function AdminTools({
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [clearZip, setClearZip] = useState(false);
-  const [message, setMessage] = useState("");
+  const [roomError, setRoomError] = useState("");
+  const [zipError, setZipError] = useState("");
+  const [zipNote, setZipNote] = useState("");
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -586,9 +767,10 @@ function AdminTools({
         type="button"
         className={btnSignal}
         onClick={() => {
+          setRoomError("");
           void createRoom({ id, name, what }).then((result) => {
-            setMessage(result.ok ? "The room is up." : (result.error ?? "The room was not added."));
-            if (result.ok) {
+            if (!result.ok) setRoomError(result.error ?? "The room was not added.");
+            else {
               setId("");
               setName("");
               setWhat("");
@@ -598,6 +780,11 @@ function AdminTools({
       >
         Add room
       </button>
+      {roomError ? (
+        <p role="alert" className="text-sm text-danger">
+          {roomError}
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           ZIP to correct
@@ -638,15 +825,24 @@ function AdminTools({
         type="button"
         className={btnGhost}
         onClick={() => {
+          setZipError("");
+          setZipNote("");
           void correctZip({ zip, name: town, state: stateCode, clear: clearZip }).then((result) => {
-            setMessage(
-              result.ok ? "The ZIP is corrected." : (result.error ?? "That ZIP was not corrected."),
-            );
+            if (!result.ok) setZipError(result.error ?? "That ZIP was not corrected.");
+            else setZipNote(clearZip ? "That ZIP is cleared." : "The ZIP is corrected.");
           });
         }}
       >
         Correct ZIP
       </button>
+      <p className="text-[0.8125rem] text-muted" aria-live="polite">
+        {zipNote}
+      </p>
+      {zipError ? (
+        <p role="alert" className="text-sm text-danger">
+          {zipError}
+        </p>
+      ) : null}
       {accessLog.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {accessLog.map((row) => (
@@ -658,7 +854,6 @@ function AdminTools({
           ))}
         </ul>
       ) : null}
-      {message ? <p className="text-sm text-muted">{message}</p> : null}
     </section>
   );
 }

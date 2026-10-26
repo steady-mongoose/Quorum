@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
+import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
@@ -70,6 +70,8 @@ function BoardShell() {
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
   const sample = useBoard((state) => state.sample);
+  const admin = useBoard((state) => state.admin);
+  const founded = useBoard((state) => state.founded);
   const localEntry = useBoard((state) => state.localEntry);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -228,15 +230,20 @@ function BoardShell() {
         <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
           <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom,
           Dale, Maria, Luis, Ruth, Pete) and everything they wrote is invented, to show what the app
-          looks like in use.{" "}
-          <button
-            type="button"
-            className="text-signal underline"
-            onClick={() => setSection("about")}
-          >
-            Clear the sample week…
-          </button>{" "}
-          when you are ready to use it for real.
+          looks like in use.
+          {canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) }) ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center text-signal underline"
+                onClick={() => setSection("about")}
+              >
+                Clear the sample week…
+              </button>{" "}
+              when you are ready to use it for real.
+            </>
+          ) : null}
         </p>
       ) : null}
       {entered && undoClear && undoBar ? (

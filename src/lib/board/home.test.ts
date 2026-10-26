@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { COUNCIL_APPROVED_LABEL } from "./council.ts";
 import {
@@ -134,4 +135,44 @@ test("the home payload keeps server order and drops a score", () => {
     ["rv-shop", "county"],
   );
   assert.equal("score" in parsed.sections[1].rooms[0], false);
+  assert.equal(parsed.townId, null);
+  assert.equal(parsed.townName, "");
+});
+
+test("home controls keep a 44px target, visible labels, and errors on the form", () => {
+  const home = readFileSync(new URL("../../components/board/home-view.tsx", import.meta.url), "utf8");
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const council = readFileSync(new URL("../../components/board/council-bar.tsx", import.meta.url), "utf8");
+  const bits = readFileSync(new URL("../../components/quorum/bits.tsx", import.meta.url), "utf8");
+  const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
+  assert.match(bits, /min-h-\[44px\]/);
+  assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
+  assert.match(home, /<summary[\s\S]*Request a town/);
+  assert.match(home, /<summary[\s\S]*Decide/);
+  assert.match(home, /aria-live="polite"/);
+  assert.match(home, /No town for that ZIP/);
+  assert.match(home, /aria-pressed=\{joined\}/);
+  assert.match(home, /Joined ✓/);
+  assert.match(home, /role="alert"/);
+  assert.equal(home.includes("text-xs"), false);
+  assert.match(about, /<summary[^>]*>\{title\}<\/summary>/);
+  assert.match(about, /title="Add member"/);
+  assert.match(about, /title="Add steward"/);
+  assert.match(about, /title="Add admin"/);
+  assert.match(about, /Member email/);
+  assert.match(about, /role="alert"/);
+  assert.match(council, /htmlFor=\{reasonId\}/);
+  assert.match(council, /Council review/);
+  assert.match(council, /text-\[0\.8125rem\]/);
+  assert.match(council, /role="alert"/);
+  assert.equal(council.includes("text-xs"), false);
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(css, /--color-danger:\s*#f0b4a4/);
+  assert.match(home, /text-danger/);
+  assert.match(about, /text-danger/);
+  assert.match(council, /text-danger/);
+  assert.equal(home.includes("text-[#f0b4a4]"), false);
+  assert.match(room, /text-\[0\.8125rem\] tracking-widest text-muted uppercase">\s*Steward/);
+  assert.equal(/\blikes?\b|\bscore\b|\breshare\b/i.test(home), false);
 });
