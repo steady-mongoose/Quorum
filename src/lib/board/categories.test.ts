@@ -125,7 +125,7 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(browse, /w-\[14rem\]/);
   assert.match(browse, /lg:grid-cols-2/);
   assert.match(browse, /xl:grid-cols-3/);
-  assert.match(browse, /to="\/rooms\/"/);
+  assert.match(browse, /to="\/rooms"/);
   assert.match(browse, /aria-label="Categories"/);
   assert.equal(/\bcount\b|\btrending\b|\branking\b|\blikes?\b|\bfeed\b/i.test(browse), false);
   assert.match(week, /categoryName\(roomCategoryId\(roomById\(card\.room\)\)\)/);

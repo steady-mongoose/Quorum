@@ -123,7 +123,7 @@ function CategoryChips({
   if (focusSlug) {
     return (
       <>
-        <Link to="/rooms/" className={pill(false)}>
+        <Link to="/rooms" className={pill(false)}>
           All
         </Link>
         {categories.map((category) => (
@@ -161,7 +161,7 @@ function CategoryLinks({
   return (
     <>
       <Link
-        to="/rooms/"
+        to="/rooms"
         aria-current={focusSlug ? undefined : "page"}
         className={pill(!focusSlug, "justify-start")}
       >

@@ -71,7 +71,7 @@ export function WeekView() {
                   className="text-signal underline"
                   onClick={() => {
                     setSection("rooms");
-                    void navigate({ to: "/rooms/" });
+                    void navigate({ to: "/rooms" });
                   }}
                 >
                   Look in the rooms

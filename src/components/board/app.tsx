@@ -185,7 +185,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     }
     if (id === "rooms") {
       setSection("rooms");
-      void navigate({ to: "/rooms/" });
+      void navigate({ to: "/rooms" });
       return;
     }
     setSection(id);

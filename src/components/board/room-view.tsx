@@ -166,7 +166,7 @@ export function RoomView() {
           className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
           onClick={() => {
             setSection("rooms");
-            void navigate({ to: "/rooms/" });
+            void navigate({ to: "/rooms" });
           }}
         >
           All rooms
