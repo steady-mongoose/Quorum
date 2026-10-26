@@ -4,6 +4,7 @@ import {
   CalendarDays,
   LayoutList,
   MessageSquare,
+  Users,
   Phone,
   Search,
   User,
@@ -14,6 +15,7 @@ import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
+import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
@@ -30,6 +32,7 @@ import { useServerSession } from "@/lib/server-session-state";
 const NAV = [
   { id: "week", label: "This week", icon: CalendarDays },
   { id: "rooms", label: "Rooms", icon: LayoutList },
+  { id: "groups", label: "Groups", icon: Users },
   { id: "find", label: "Find", icon: Search },
   { id: "civic", label: "The desk", icon: Phone },
   { id: "messages", label: "Messages", icon: MessageSquare },
@@ -200,6 +203,7 @@ function BoardShell() {
         {!waiting && !entered && <Door />}
         {entered && section === "week" && <WeekView />}
         {entered && section === "rooms" && <RoomView />}
+        {entered && section === "groups" && <GroupsView />}
         {entered && section === "find" && <FindView />}
         {entered && section === "civic" && <QuorumPanel />}
         {entered && section === "messages" && <DmView />}
