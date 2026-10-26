@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,18 +24,26 @@ function writeCommands(root) {
   writeFileSync(join(bin, "pg_dump"), "#!/bin/sh\nprintf '%s' \"$DUMP_BYTES\"\n");
   writeFileSync(
     join(bin, "pg_restore"),
-    "#!/bin/sh\ncat > \"$RESTORE_SINK\"\n",
+    `#!/bin/sh
+if [ "$1" = "--list" ]; then
+  printf '%s\\n' "1; 1259 16384 TABLE public drill_marker avouch"
+  exit 0
+fi
+cat > "$RESTORE_SINK"
+`,
   );
+  writeFileSync(join(bin, "psql"), "#!/bin/sh\nprintf '0\\n'\n");
   writeFileSync(
     join(bin, "curl"),
-    "#!/bin/sh\nprintf 'argv:%s\\n' \"$*\" >> \"$CURL_LOG\"\ncat >> \"$CURL_LOG\"\n",
+    '#!/bin/sh\nprintf \'argv:%s\\n\' "$*" >> "$CURL_LOG"\ncat >> "$CURL_LOG"\n',
   );
   writeFileSync(
     join(bin, "aws"),
-    "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$AWS_LOG\"\nif [ -n \"$AWS_ACCESS_KEY_ID\" ]; then echo access-key-present >> \"$AWS_LOG\"; fi\nif [ -n \"$AWS_SECRET_ACCESS_KEY\" ]; then echo secret-present >> \"$AWS_LOG\"; fi\necho \"metadata:$AWS_EC2_METADATA_DISABLED\" >> \"$AWS_LOG\"\n",
+    '#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$AWS_LOG"\nif [ -n "$AWS_ACCESS_KEY_ID" ]; then echo access-key-present >> "$AWS_LOG"; fi\nif [ -n "$AWS_SECRET_ACCESS_KEY" ]; then echo secret-present >> "$AWS_LOG"; fi\necho "metadata:$AWS_EC2_METADATA_DISABLED" >> "$AWS_LOG"\n',
   );
   chmodSync(join(bin, "pg_dump"), 0o755);
   chmodSync(join(bin, "pg_restore"), 0o755);
+  chmodSync(join(bin, "psql"), 0o755);
   chmodSync(join(bin, "aws"), 0o755);
   chmodSync(join(bin, "curl"), 0o755);
   return bin;
@@ -69,13 +84,21 @@ test("an age dump restores to the same bytes and stays local until credentials e
   delete env.BACKUP_KEY_FILE;
   delete env.BACKUP_OFFBOX_DIR;
   writeFileSync(join(root, "curl.log"), "");
-  const backup = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env });
+  const backup = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], {
+    env,
+  });
   assert.match(backup.stdout, /Off-site copy is disabled until credentials are provided/);
   assert.match(backup.stdout, /Wrote /);
   assert.equal(backup.stdout.includes("AGE-SECRET-KEY-"), false);
   const names = readdirSync(local);
-  assert.equal(names.some((name) => name.endsWith(".dump.partial")), false);
-  assert.equal(names.some((name) => name.endsWith(".dump") && !name.endsWith(".age")), false);
+  assert.equal(
+    names.some((name) => name.endsWith(".dump.partial")),
+    false,
+  );
+  assert.equal(
+    names.some((name) => name.endsWith(".dump") && !name.endsWith(".age")),
+    false,
+  );
   const enc = names.find((name) => name.endsWith(".dump.age"));
   assert.ok(enc);
   assert.equal(readFileSync(join(local, enc)).includes("closed-test dump"), false);
@@ -95,7 +118,12 @@ test("an age dump restores to the same bytes and stays local until credentials e
   await publicKey(wrong);
   await assert.rejects(
     execFileAsync(join(projectRoot(), "scripts/restore-postgres.sh"), [join(local, enc)], {
-      env: { ...env, BACKUP_MODE: "pg_restore", AGE_IDENTITY_FILE: wrong, RESTORE_SINK: join(root, "nope") },
+      env: {
+        ...env,
+        BACKUP_MODE: "pg_restore",
+        AGE_IDENTITY_FILE: wrong,
+        RESTORE_SINK: join(root, "nope"),
+      },
     }),
   );
 });
@@ -125,7 +153,9 @@ test("credentials upload the ciphertext with object lock and without printing th
     AWS_LOG: awsLog,
   };
   delete env.AGE_IDENTITY_FILE;
-  const backup = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env });
+  const backup = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], {
+    env,
+  });
   assert.equal(backup.stdout.includes(secret), false);
   const log = readFileSync(awsLog, "utf8");
   assert.match(log, /s3api\nput-object\n/);
@@ -154,7 +184,9 @@ test("a failed backup pings the health-check URL and a blank URL stays quiet", a
     BACKUP_HEALTHCHECK_URL: url,
     CURL_LOG: curlLog,
   };
-  const failed = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env }).then(
+  const failed = await execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], {
+    env,
+  }).then(
     () => {
       throw new Error("backup should have failed");
     },
@@ -172,7 +204,9 @@ test("a failed backup pings the health-check URL and a blank URL stays quiet", a
   const quietLog = join(root, "quiet.log");
   writeFileSync(quietLog, "");
   const quiet = { ...env, BACKUP_HEALTHCHECK_URL: "", CURL_LOG: quietLog };
-  await assert.rejects(execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env: quiet }));
+  await assert.rejects(
+    execFileAsync(join(projectRoot(), "scripts/backup-postgres.sh"), [], { env: quiet }),
+  );
   assert.equal(readFileSync(quietLog, "utf8"), "");
 });
 
