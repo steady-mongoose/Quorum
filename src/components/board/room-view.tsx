@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -59,13 +59,17 @@ import {
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
 import { useBoard } from "@/lib/board/store";
+import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
+import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
+import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
   const room = useBoard((state) => state.room);
+  const armedRoom = useSyncExternalStore(subscribeArmedRoom, getArmedRoom, () => null);
   const setRoom = useBoard((state) => state.setRoom);
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
@@ -138,7 +142,12 @@ export function RoomView() {
     <div className="flex flex-col gap-6">
       <section className="plate flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
-        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
+        <h1
+          className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
+          style={armedRoom === room ? { viewTransitionName: `card-${room}` } : undefined}
+        >
+          {meta.name}
+        </h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
@@ -369,10 +378,18 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     }
     pendingRef.current = true;
     setPending(true);
+    const before = new Set(useBoard.getState().posts.map((post) => post.id));
+    expectFreshPost();
     void file(current)
       .then((outcome) => {
-        if (outcome.ok) reset();
-        else setResult(outcome);
+        if (outcome.ok) {
+          const fresh = useBoard.getState().posts.find((post) => !before.has(post.id));
+          if (!fresh) cancelFreshPost();
+          reset();
+        } else {
+          cancelFreshPost();
+          setResult(outcome);
+        }
       })
       .finally(() => {
         pendingRef.current = false;
@@ -770,9 +787,10 @@ const PostCard = memo(function PostCard({
     (row) => row.postId === post.id && row.kind === "mark" && row.decision === null,
   );
   const type = typeMeta(post.type);
+  const [settle] = useState(takeFreshPost);
 
   return (
-    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60")}>
+    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60", settle && "post-new")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
@@ -828,7 +846,7 @@ const PostCard = memo(function PostCard({
         </div>
       ) : (
         <>
-          <p className="mt-2 max-w-prose text-base text-fg">{post.claim}</p>
+          <QuotePassage claim={post.claim} reason={post.reason} author={post.author} />
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
           {(post.media ?? []).map((item) => (
             <SharedMediaFigure key={item.id} item={item} />
