@@ -57,8 +57,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 }
 @media (max-width:1023px){.margin-art{display:none}}
 /* Text only on solid cards */
-.card,.plate{background:var(--card);border:1px solid var(--line);border-radius:6px;position:relative;z-index:1}
-.plate{display:inline-block;padding:14px 22px;margin-top:calc(var(--band-h) * -0.42)}
+.card,.plate{background:var(--card);border:1px solid var(--line);border-radius:6px}
+.card,.plate:not(dialog){position:relative;z-index:1}
+.plate{padding:14px 22px}
+.plate:not(dialog){display:inline-block;margin-top:calc(var(--band-h) * -0.42)}
 /* Evening warmth: optional */
 [data-evening]{--bg:#17110b}
 @media (prefers-reduced-motion:reduce){[data-section]{background-attachment:scroll}*{animation:none!important;transition-duration:0s!important}}
