@@ -427,6 +427,7 @@ test("deleting a member keeps the other person's thread and shows Former member"
     assert.match(sql, /delete from dm_prekey/);
     assert.match(sql, /delete from dm_envelope/);
     assert.match(sql, /delete from dm_device/);
+    assert.match(sql, /rateLimit/);
     assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
 
     const now = new Date("2026-10-19T12:00:00Z");
@@ -450,8 +451,27 @@ test("deleting a member keeps the other person's thread and shows Former member"
     assert.equal(sealed.ok, true);
     if (!sealed.ok) return;
     assert.equal((await postMessage(db, alice, opened.value.id, sealed.value, now)).ok, true);
+    await db.query(
+      `insert into "rateLimit" ("id", "key", "count", "lastRequest") values
+       ($1, $2, 1, 1), ($3, $4, 1, 1), ($5, $6, 1, 1), ($7, $8, 1, 1)`,
+      [
+        randomUUID(),
+        `dm-send:${alice}`,
+        randomUUID(),
+        `dm-bundle:${bob}:${alice}`,
+        randomUUID(),
+        `dm-send:${bob}`,
+        randomUUID(),
+        "signup:ip:203.0.113.5",
+      ],
+    );
 
     await db.query(`delete from "user" where id = $1`, [alice]);
+    const limitKeys = (
+      await db.query<{ key: string }>(`select "key" from "rateLimit" order by "key"`)
+    ).map((row) => row.key);
+    assert.equal(limitKeys.some((key) => key.includes(alice)), false);
+    assert.deepEqual(limitKeys, [`dm-send:${bob}`, "signup:ip:203.0.113.5"]);
     const threads = await listThreads(db, bob);
     assert.equal(threads.length, 1);
     assert.equal(threads[0]?.otherName, "Former member");
@@ -715,6 +735,122 @@ test("a listed name is the account that existed when the host posted", async () 
     assert.equal(peers.includes(willa), true);
     assert.equal(peers.includes(mallory), false);
     assert.equal(peers.includes(pete), false);
+  } finally {
+    await close();
+  }
+});
+
+test("existing hosted posts are named when the private-message migration runs", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
+    assert.match(sql, /backfill_dm_named_accounts/);
+    assert.match(sql, /to_regclass\('public.board_post'\)/);
+    const now = new Date("2026-10-19T12:00:00Z");
+    const host = await member(db, "Host");
+    const willa = await member(db, "Willa");
+    const firstBob = await member(db, "Bob");
+    await member(db, "Bob");
+    const postId = randomUUID();
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values ($1, 'shop', $2, 'Host', 'hosted', 'The framing night went well and the next one is set.', $3, 's-backfill', $4)`,
+      [postId, host, ["Host", "Willa", "Pete", "Bob"], now],
+    );
+    await db.query(`select backfill_dm_named_accounts()`);
+    await db.query(`select backfill_dm_named_accounts()`);
+    const named = (
+      await db.query<{ user_id: string }>(
+        `select user_id from dm_named_account where post_id = $1 order by user_id`,
+        [postId],
+      )
+    ).map((row) => row.user_id);
+    assert.deepEqual(named, [host, willa].sort());
+    assert.equal(named.includes(firstBob), false);
+    assert.equal((await recordAttendance(db, willa, now, ["s-backfill"])).ok, true);
+    assert.equal((await listPeers(db, host)).some((person) => person.id === willa), true);
+  } finally {
+    await close();
+  }
+});
+
+test("two hosts cannot claim one fresh card at the same time", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
+    assert.match(sql, /dm_card_host/);
+    assert.match(sql, /card_id text primary key/);
+    const now = new Date("2026-10-19T12:00:00Z");
+    const alice = await member(db, "Alice");
+    const bob = await member(db, "Bob");
+    for (const [id, name] of [
+      [alice, "Alice"],
+      [bob, "Bob"],
+    ] as const) {
+      await db.query(
+        `insert into access_log
+         (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
+         values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+        [randomUUID(), id, name],
+      );
+    }
+    const body = {
+      type: "hosted",
+      claim: "The framing night went well and the next one is set.",
+      on: "2026-10-19",
+      came: ["Alice"],
+      cardId: "s-race-card",
+      attested: true,
+    };
+    const [first, second] = await Promise.all([
+      createPost(db, { userId: alice, name: "Alice", roomId: "shop", body, now }),
+      createPost(db, {
+        userId: bob,
+        name: "Bob",
+        roomId: "shop",
+        body: { ...body, came: ["Bob"] },
+        now,
+      }),
+    ]);
+    const results = [first, second];
+    assert.equal(results.filter((result) => result.ok).length, 1);
+    const denied = results.find((result) => !result.ok);
+    assert.ok(denied);
+    if (!denied || denied.ok) return;
+    assert.equal(denied.status, 409);
+    const posts = await db.query(`select id from board_post where card_id = 's-race-card' and type = 'hosted'`);
+    assert.equal(posts.length, 1);
+    const claims = await db.query<{ author_user_id: string }>(
+      `select author_user_id from dm_card_host where card_id = 's-race-card'`,
+    );
+    assert.equal(claims.length, 1);
+
+    const earlier = randomUUID();
+    const later = randomUUID();
+    await db.query(
+      `insert into board_post (
+         id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at
+       ) values
+       ($1, 'shop', $2, 'Alice', 'hosted', 'The framing night went well and the next one is set.', $3, 's-early-card', $4),
+       ($5, 'shop', $6, 'Bob', 'hosted', 'The framing night went well and the next one is set.', $7, 's-early-card', $8)`,
+      [earlier, alice, ["Alice"], now, later, bob, ["Bob"], new Date(now.getTime() + 60_000)],
+    );
+    await db.query(`select backfill_dm_card_hosts()`);
+    const owner = await db.query<{ author_user_id: string }>(
+      `select author_user_id from dm_card_host where card_id = 's-early-card'`,
+    );
+    assert.equal(owner[0]?.author_user_id, alice);
+    const taken = await createPost(db, {
+      userId: bob,
+      name: "Bob",
+      roomId: "shop",
+      body: { ...body, came: ["Bob"], cardId: "s-early-card" },
+      now,
+    });
+    assert.equal(taken.ok, false);
+    if (taken.ok) return;
+    assert.equal(taken.status, 409);
   } finally {
     await close();
   }

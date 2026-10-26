@@ -13,10 +13,14 @@
 -- Deleting an account runs anonymize_dm_user. The other person's thread stays
 -- and the deleted member is shown as Former member. Messages they sent stay,
 -- with a null sender. The trigger deletes their device row, their one-time
--- keys, and envelopes addressed to that device, and clears the sender device
--- and identity on messages they sent. The ciphertext row stays. A name on a
--- host write-up counts only when it matched an account at the time of that
--- post. That trigger does not replace any other anonymize function.
+-- keys, and envelopes addressed to that device, clears the sender device and
+-- identity on messages they sent, and removes rate-limit rows whose key
+-- contains that account id. The ciphertext row stays. A name on a host
+-- write-up counts only when it matched an account at the time of that post.
+-- When this file runs after posts already exist, it records those accounts.
+-- A fresh database has no posts yet, so that step records nothing. One hosted
+-- card has one host, enforced by a unique index on dm_card_host. That trigger
+-- does not replace any other anonymize function.
 
 create table if not exists dm_identity (
   user_id text primary key references "user" ("id") on delete cascade,
@@ -84,6 +88,12 @@ create table if not exists dm_named_account (
 
 create index if not exists dm_named_account_user_idx on dm_named_account (user_id);
 
+-- One host per card. The same host may file the card again. A second host cannot.
+create table if not exists dm_card_host (
+  card_id text primary key,
+  author_user_id text references "user" ("id") on delete set null
+);
+
 create table if not exists dm_thread (
   id text primary key,
   user_a text references "user" ("id") on delete set null,
@@ -136,8 +146,9 @@ create index if not exists dm_envelope_recipient_device_idx on dm_envelope (reci
 -- Keep the other person's copy of a thread when an account is deleted.
 -- Messages they sent stay, with a null sender. Remove their device row and
 -- envelopes addressed to it, so that device id cannot tie their threads
--- together. This function is only for the private-message tables. It does
--- not replace anonymize_board_user or any later anonymize function.
+-- together. Also remove rate-limit rows whose key contains that account id.
+-- This function does not replace anonymize_board_user or any later anonymize
+-- function.
 create or replace function anonymize_dm_user() returns trigger
 language plpgsql
 as $$
@@ -170,9 +181,53 @@ begin
   delete from dm_device
     where id = any(device_ids);
 
+  if old.id <> '' and to_regclass('public."rateLimit"') is not null then
+    execute 'delete from "rateLimit" where strpos("key", $1) > 0' using old.id;
+  end if;
+
   return old;
 end;
 $$;
+
+-- Names and card hosts for posts filed before this migration. board_post does
+-- not exist yet when this file runs first, so the functions return immediately
+-- on a fresh database. Run again after posts exist and they fill the gaps.
+create or replace function backfill_dm_named_accounts() returns void
+language plpgsql
+as $$
+begin
+  if to_regclass('public.board_post') is null then
+    return;
+  end if;
+  insert into dm_named_account (post_id, user_id)
+  select p.id, u.id
+  from board_post p
+  join "user" u on u.name <> '' and u.name = any(p.came)
+  where p.type = 'hosted'
+    and (select count(*)::int from "user" named where named.name = u.name) = 1
+  on conflict do nothing;
+end;
+$$;
+
+create or replace function backfill_dm_card_hosts() returns void
+language plpgsql
+as $$
+begin
+  if to_regclass('public.board_post') is null then
+    return;
+  end if;
+  insert into dm_card_host (card_id, author_user_id)
+  select distinct on (p.card_id) p.card_id, p.author_user_id
+  from board_post p
+  where p.type = 'hosted'
+    and p.card_id <> ''
+  order by p.card_id, p.created_at asc, p.id asc
+  on conflict do nothing;
+end;
+$$;
+
+select backfill_dm_named_accounts();
+select backfill_dm_card_hosts();
 
 drop trigger if exists anonymize_dm_user on "user";
 create trigger anonymize_dm_user

@@ -24,6 +24,7 @@ import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
+import { forgetBrowserVault } from "@/lib/e2ee/browser";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
 
@@ -129,8 +130,12 @@ function BoardShell() {
               type="button"
               className="self-start text-sm text-signal underline"
               onClick={() => {
-                void server.signOut().then(() => {
-                  useBoard.getState().disconnectRemote();
+                void server.signOut().then(async () => {
+                  try {
+                    await forgetBrowserVault();
+                  } finally {
+                    useBoard.getState().disconnectRemote();
+                  }
                 });
               }}
             >

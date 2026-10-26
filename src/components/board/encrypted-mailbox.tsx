@@ -81,6 +81,15 @@ export function EncryptedMailbox() {
     };
   }, []);
 
+  useEffect(() => {
+    if (me) return;
+    setVault(null);
+    setMessages([]);
+    setThreads([]);
+    setActive(null);
+    setUnreadable(0);
+  }, [me]);
+
   async function refreshDevices(current: VaultState) {
     const listed = await listOwnDevices(transport, current.device.deviceId);
     if (listed.ok) setDevices(listed.devices);

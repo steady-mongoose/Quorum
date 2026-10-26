@@ -855,12 +855,30 @@ export async function createPost(
         ]);
       }
       if (cardId && type === "hosted") {
+        await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+          `hosted-card:${cardId}`,
+        ]);
         const owners = await tx.query<{ author_user_id: string | null }>(
           `select author_user_id from board_post where card_id = $1 and type = 'hosted' for update`,
           [cardId],
         );
         if (owners.some((row) => row.author_user_id !== input.userId)) {
           throw new Stop(409, "That meeting card already belongs to someone else.");
+        }
+        const claimReady = await tx.query<{ ready: string | null }>(
+          `select to_regclass('public.dm_card_host') as ready`,
+        );
+        if (claimReady[0]?.ready) {
+          const claimed = await tx.query<{ author_user_id: string | null }>(
+            `insert into dm_card_host (card_id, author_user_id)
+             values ($1, $2)
+             on conflict (card_id) do update set card_id = dm_card_host.card_id
+             returning author_user_id`,
+            [cardId, input.userId],
+          );
+          if (claimed[0]?.author_user_id !== input.userId) {
+            throw new Stop(409, "That meeting card already belongs to someone else.");
+          }
         }
       }
       const inserted = await tx.query<PostRow>(

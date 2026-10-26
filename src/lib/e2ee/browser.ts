@@ -55,6 +55,14 @@ function idbPut(db: IDBDatabase, id: string, value: unknown): Promise<void> {
   });
 }
 
+function idbDelete(db: IDBDatabase, id: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("The key store did not open."));
+  });
+}
+
 async function wrappingKey(db: IDBDatabase): Promise<CryptoKey> {
   const existing = await idbGet<CryptoKey>(db, KEY_ID);
   if (existing) return existing;
@@ -82,17 +90,18 @@ function dropLegacy(): void {
 async function readSealed(): Promise<VaultState | null> {
   const db = await openDb();
   try {
-    const key = await wrappingKey(db);
     const sealed = await idbGet<SealedVault>(db, BLOB_ID);
     if (!sealed) {
       const legacy = legacyVault();
       if (!legacy) return null;
       const parsed = JSON.parse(legacy) as VaultState;
       if (!parsed?.device?.boxSecret || !parsed.userId) return null;
+      const key = await wrappingKey(db);
       await idbPut(db, BLOB_ID, await sealVault(key, JSON.stringify(parsed)));
       dropLegacy();
       return parsed;
     }
+    const key = await wrappingKey(db);
     const json = await openVault(key, sealed);
     const parsed = JSON.parse(json) as VaultState;
     if (!parsed?.device?.boxSecret || !parsed.userId) return null;
@@ -102,11 +111,14 @@ async function readSealed(): Promise<VaultState | null> {
   }
 }
 
-async function writeSealed(state: VaultState): Promise<void> {
+async function writeSealed(state: VaultState, ticket: number): Promise<void> {
   const db = await openDb();
   try {
+    if (ticket !== generation || forgetting) return;
     const key = await wrappingKey(db);
-    await idbPut(db, BLOB_ID, await sealVault(key, JSON.stringify(state)));
+    const sealed = await sealVault(key, JSON.stringify(state));
+    if (ticket !== generation || forgetting) return;
+    await idbPut(db, BLOB_ID, sealed);
     dropLegacy();
   } finally {
     db.close();
@@ -114,12 +126,56 @@ async function writeSealed(state: VaultState): Promise<void> {
 }
 
 let cache: VaultState | null = null;
+let generation = 0;
+let forgetting = false;
+let pending: Promise<void> = Promise.resolve();
+
+/**
+ * Sign-out drops the sealed vault, including decrypted messages, and the
+ * wrapping key. The in-memory copy is cleared too. A write that was already
+ * in flight does not put the blob back.
+ */
+export async function forgetBrowserVault(): Promise<void> {
+  forgetting = true;
+  generation += 1;
+  cache = null;
+  const ticket = generation;
+  try {
+    await pending;
+    if (ticket !== generation) return;
+    const db = await openDb();
+    try {
+      if (ticket !== generation) return;
+      await idbDelete(db, BLOB_ID);
+      await idbDelete(db, KEY_ID);
+      dropLegacy();
+    } finally {
+      db.close();
+    }
+  } finally {
+    if (ticket === generation) {
+      cache = null;
+      forgetting = false;
+    }
+  }
+}
+
+/** Resolves when the current seal has finished. Tests wait on this. */
+export function settleBrowserVault(): Promise<void> {
+  return pending;
+}
 
 export async function loadBrowserVault(): Promise<VaultState | null> {
+  const ticket = generation;
   try {
-    cache = await readSealed();
+    const parsed = await readSealed();
+    if (ticket !== generation || forgetting) {
+      cache = null;
+      return null;
+    }
+    cache = parsed;
   } catch {
-    cache = null;
+    if (ticket === generation) cache = null;
   }
   return cache ? structuredClone(cache) : null;
 }
@@ -128,8 +184,10 @@ export function browserVaultStore(onWrite?: (state: VaultState) => void): VaultS
   return {
     read: () => (cache ? structuredClone(cache) : null),
     write(state) {
+      if (forgetting) return;
+      const ticket = generation;
       cache = structuredClone(state);
-      void writeSealed(state).catch(() => {
+      pending = writeSealed(state, ticket).catch(() => {
         // The in-memory copy still works for this page. The next load will retry.
       });
       onWrite?.(state);
