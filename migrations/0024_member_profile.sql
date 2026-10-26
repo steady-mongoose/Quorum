@@ -21,7 +21,9 @@
 -- A profile picture uses media_object with scope profile. The bytes stay
 -- in object storage. This file does not replace an anonymize function.
 -- Deleting the account still drops the members row, and the new tables
--- follow it. This file adds no engagement column.
+-- follow it. An admin birthdate change is a gender_audit row
+-- (set-birthdate or change-birthdate). The existing account-delete
+-- trigger already clears that detail. This file adds no engagement column.
 
 alter table members add column if not exists display_name text;
 
@@ -161,4 +163,17 @@ alter table media_object add constraint media_scope_shape check (
     and room_id = '' and post_id = '' and peer_user_id is null and key_envelope = ''
     and content_type in ('image/jpeg', 'image/png', 'image/webp')
     and byte_size <= 5242880 and duration_ms is null)
+);
+
+alter table gender_audit drop constraint if exists gender_audit_action_check;
+alter table gender_audit add constraint gender_audit_action_check check (
+  action in (
+    'set-gender',
+    'change-gender',
+    'confirm-gender',
+    'set-audience',
+    'audience-override',
+    'set-birthdate',
+    'change-birthdate'
+  )
 );

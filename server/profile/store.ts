@@ -179,12 +179,24 @@ async function applyGender(
   });
   if (!decision.ok) return decision;
   if (decision.kind === "same") return { ok: true };
-  await db.query(
+  if (decision.kind !== "set") return refusal(403, "You cannot change this yourself.");
+  const locked = await db.query<{ gender: string | null }>(
+    `select gender from members where user_id = $1 for update`,
+    [userId],
+  );
+  const held = parseGender(locked[0]?.gender);
+  if (held) {
+    if (held === gender) return { ok: true };
+    return refusal(403, "You cannot change this yourself.");
+  }
+  const updated = await db.query<{ user_id: string }>(
     `update members
      set gender = $2, gender_confirmed_by = null, gender_confirmed_at = null
-     where user_id = $1`,
+     where user_id = $1 and gender is null
+     returning user_id`,
     [userId, gender],
   );
+  if (!updated[0]) return refusal(403, "You cannot change this yourself.");
   await writeGenderAudit(db, {
     actorUserId: userId,
     subjectUserId: userId,
@@ -246,10 +258,24 @@ export async function saveProfile(
         await tx.query(`update members set bio = $2 where user_id = $1`, [userId, next.bio]);
       }
       if (next.birthdate) {
-        await tx.query(`update members set birthdate = $2::date where user_id = $1`, [
-          userId,
-          next.birthdate,
-        ]);
+        const locked = await tx.query<{
+          birthdate: string | null;
+          onboarded_at: Date | string | null;
+        }>(
+          `select to_char(birthdate, 'YYYY-MM-DD') as birthdate, onboarded_at
+           from members where user_id = $1 for update`,
+          [userId],
+        );
+        const current = locked[0]?.birthdate?.slice(0, 10) ?? "";
+        if (locked[0]?.onboarded_at && current && current !== next.birthdate) {
+          throw new Rollback(403, "You cannot change this yourself.");
+        }
+        if (!current || !locked[0]?.onboarded_at) {
+          await tx.query(`update members set birthdate = $2::date where user_id = $1`, [
+            userId,
+            next.birthdate,
+          ]);
+        }
       }
       if (next.location) {
         await tx.query(

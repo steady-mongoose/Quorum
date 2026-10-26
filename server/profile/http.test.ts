@@ -186,3 +186,135 @@ test("another member reads the profile through profileView", async () => {
     await close();
   }
 });
+
+test("two first gender writes cannot overwrite each other", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann", "Ann Vale");
+    await db.query(`insert into members (user_id, display_name) values ('ann', 'Ann Vale')`);
+    const handler = app(db);
+    const [left, right] = await Promise.all([
+      send(handler, "ann", "/api/profile", "PATCH", { gender: "woman" }),
+      send(handler, "ann", "/api/profile", "PATCH", { gender: "man" }),
+    ]);
+    const won = [left, right].filter((response) => response.status === 200);
+    const lost = [left, right].filter((response) => response.status === 403);
+    assert.equal(won.length, 1, `${left.status} ${right.status}`);
+    assert.equal(lost.length, 1);
+    assert.match(await lost[0]!.text(), /cannot change this yourself/i);
+    const winner = won[0] === left ? "woman" : "man";
+    const rows = await db.query<{ gender: string }>(
+      `select gender from members where user_id = 'ann'`,
+    );
+    assert.equal(rows[0]?.gender, winner);
+    const second = await db.query<{ user_id: string }>(
+      `update members set gender = 'man' where user_id = 'ann' and gender is null returning user_id`,
+    );
+    assert.equal(second.length, 0);
+    const still = await db.query<{ gender: string }>(
+      `select gender from members where user_id = 'ann'`,
+    );
+    assert.equal(still[0]?.gender, winner);
+  } finally {
+    await close();
+  }
+});
+
+test("a birthdate locks after onboarding, and an admin change is audited", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann", "Ann Vale");
+    await member(db, "ada", "Ada Glen");
+    await db.query(`insert into member_role (user_id, is_admin) values ('ada', true)`);
+    const handler = app(db);
+    const early = await send(handler, "ann", "/api/profile", "PATCH", { birthdate: "1991-01-01" });
+    assert.equal(early.status, 200, await early.clone().text());
+    const corrected = await send(handler, "ann", "/api/profile", "PATCH", {
+      birthdate: "1990-04-02",
+    });
+    assert.equal(corrected.status, 200, await corrected.clone().text());
+    const onboarded = await send(handler, "ann", "/api/profile/onboard", "POST", {
+      gender: "woman",
+    });
+    assert.equal(onboarded.status, 200, await onboarded.clone().text());
+    const locked = await send(handler, "ann", "/api/profile", "PATCH", { birthdate: "1992-01-01" });
+    assert.equal(locked.status, 403);
+    assert.match(await locked.text(), /cannot change this yourself/i);
+    const stored = await db.query<{ birthdate: string }>(
+      `select to_char(birthdate, 'YYYY-MM-DD') as birthdate from members where user_id = 'ann'`,
+    );
+    assert.equal(stored[0]?.birthdate, "1990-04-02");
+
+    const unnamed = await send(handler, "ada", "/api/profile/ann/birthdate", "POST", {
+      birthdate: "1989-04-02",
+    });
+    assert.equal(unnamed.status, 400);
+    const changed = await send(handler, "ada", "/api/profile/ann/birthdate", "POST", {
+      birthdate: "1989-04-02",
+      reason: "The year was wrong.",
+    });
+    const changedText = await changed.text();
+    assert.equal(changed.status, 200, changedText);
+    assert.equal(changedText.includes("1989-04-02"), false);
+    assert.equal(Object.hasOwn(JSON.parse(changedText).profile, "birthdate"), false);
+    const next = await db.query<{ birthdate: string }>(
+      `select to_char(birthdate, 'YYYY-MM-DD') as birthdate from members where user_id = 'ann'`,
+    );
+    assert.equal(next[0]?.birthdate, "1989-04-02");
+    const audit = await db.query<{ action: string; detail: string }>(
+      `select action, detail from gender_audit where action = 'change-birthdate' and subject_user_id = 'ann'`,
+    );
+    assert.equal(audit[0]?.action, "change-birthdate");
+    assert.match(audit[0]?.detail ?? "", /The year was wrong/);
+    assert.match(audit[0]?.detail ?? "", /1990-04-02 -> 1989-04-02/);
+
+    const self = await send(handler, "ada", "/api/profile/ada/birthdate", "POST", {
+      birthdate: "1980-01-01",
+      reason: "Mine.",
+    });
+    assert.equal(self.status, 403);
+    const memberTry = await send(handler, "ann", "/api/profile/ada/birthdate", "POST", {
+      birthdate: "1980-01-01",
+      reason: "No.",
+    });
+    assert.equal(memberTry.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("the 18th birthday follows the New York date, not UTC", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann", "Ann Vale");
+    const evening = createApp({
+      db,
+      origins: ["http://localhost:8080"],
+      now: () => new Date("2026-10-19T03:30:00Z"),
+      createAccount: async () => ({ id: "unused" }),
+      signIn: async () => ({ ok: false, status: 500, message: "unused" }),
+      readSession: async (headers) => {
+        const id = headers.get("x-user-id");
+        if (!id) return null;
+        return { id, name: "Josh", email: "josh@example.com" };
+      },
+      forwardAuth: async () => new Response(null, { status: 500 }),
+    });
+    const tooYoung = await send(evening, "ann", "/api/profile/onboard", "POST", {
+      displayName: "Ann",
+      gender: "woman",
+      birthdate: "2008-10-19",
+    });
+    assert.equal(tooYoung.status, 400);
+    assert.match(await tooYoung.text(), /18/);
+    const ofAge = await send(evening, "ann", "/api/profile/onboard", "POST", {
+      displayName: "Ann",
+      gender: "woman",
+      birthdate: "2008-10-18",
+    });
+    assert.equal(ofAge.status, 200, await ofAge.clone().text());
+    assert.equal((await ofAge.text()).includes("2008-10-18"), false);
+  } finally {
+    await close();
+  }
+});
