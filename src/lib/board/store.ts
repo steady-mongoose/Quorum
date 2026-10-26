@@ -319,6 +319,21 @@ export function dropSampleWeek(saved: Record<string, unknown>): Record<string, u
   return { room: rest.room, deskOn: rest.deskOn, lineDismissedAt: rest.lineDismissedAt };
 }
 
+/**
+ * Steps run in order and fall through, so an old save picks up every later
+ * step. Before v5 the room ids and card fields differ: pre-release, start clean.
+ */
+export function migrateBoardStorage(persisted: unknown, version: number): object {
+  if (version < 5 || !persisted || typeof persisted !== "object") return {};
+  let saved = persisted as Record<string, unknown>;
+  if (version < 6) {
+    const markLog = Array.isArray(saved.markLog) ? (saved.markLog as MarkRow[]) : [];
+    saved = { ...saved, markLog: markLog.map((row) => ({ ...row, reason: row.reason ?? "" })) };
+  }
+  if (version < 7) saved = dropSampleWeek(saved);
+  return saved;
+}
+
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
 
 function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
@@ -1451,20 +1466,7 @@ export const useBoard = create<BoardState>()(
         undoClear: state.remote ? null : state.undoClear,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
-      migrate: (persisted, version) => {
-        if (version < 5) return {};
-        if (version < 6 && persisted && typeof persisted === "object") {
-          const saved = persisted as { markLog?: MarkRow[] };
-          return {
-            ...saved,
-            markLog: (saved.markLog ?? []).map((row) => ({ ...row, reason: row.reason ?? "" })),
-          };
-        }
-        if (version < 7 && persisted && typeof persisted === "object") {
-          return dropSampleWeek(persisted as Record<string, unknown>);
-        }
-        return persisted as object;
-      },
+      migrate: (persisted, version) => migrateBoardStorage(persisted, version),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
         return {

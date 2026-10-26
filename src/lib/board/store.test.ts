@@ -4,7 +4,7 @@ import test from "node:test";
 import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
 import type { HomePayload } from "./home.ts";
 import { blankDraft, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
-import { UNDO_TTL_MS, dropSampleWeek, useBoard } from "./store.ts";
+import { UNDO_TTL_MS, dropSampleWeek, migrateBoardStorage, useBoard } from "./store.ts";
 
 const idle = async () => ({ ok: false as const, error: "unused" });
 
@@ -390,6 +390,53 @@ test("a saved sample week is dropped on load", () => {
   assert.equal(legacy.me, undefined);
   const real = dropSampleWeek({ sample: false, sampleVersion: 0, me: "Maria", posts: [{}] });
   assert.deepEqual(real, { me: "Maria", posts: [{}] });
+});
+
+test("storage migrations chain: v5 and v6 sample weeks are dropped, real boards kept", () => {
+  const mark = { id: "m1", postId: "p1", by: "Tom", at: 1 };
+  const v5Sample = migrateBoardStorage(
+    {
+      sample: true,
+      sampleVersion: 8,
+      me: "Josh",
+      member: true,
+      posts: [{ id: "s1" }],
+      markLog: [mark],
+      room: "shop",
+    },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Sample.me, undefined);
+  assert.equal(v5Sample.posts, undefined);
+  assert.equal(v5Sample.markLog, undefined);
+  assert.equal(v5Sample.room, "shop");
+
+  const v5Legacy = migrateBoardStorage({ me: "Josh", cards: [{ id: "s-framing" }] }, 5) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(v5Legacy.me, undefined);
+
+  const v5Real = migrateBoardStorage(
+    { sample: false, sampleVersion: 0, me: "Maria", posts: [{ id: "p1" }], markLog: [mark] },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Real.me, "Maria");
+  assert.deepEqual(v5Real.posts, [{ id: "p1" }]);
+  assert.deepEqual(v5Real.markLog, [{ ...mark, reason: "" }]);
+  assert.equal("sample" in v5Real, false);
+  assert.equal("sampleVersion" in v5Real, false);
+
+  const v6Sample = migrateBoardStorage(
+    { sample: true, me: "Josh", posts: [{}], room: "county" },
+    6,
+  ) as Record<string, unknown>;
+  assert.equal(v6Sample.me, undefined);
+  assert.equal(v6Sample.room, "county");
+
+  const v7 = { me: "Maria", posts: [{}] };
+  assert.equal(migrateBoardStorage(v7, 7), v7);
+  assert.deepEqual(migrateBoardStorage({ me: "x" }, 4), {});
 });
 
 test("a live board keeps the server home order", async () => {
