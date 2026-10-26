@@ -5,6 +5,12 @@ import { readHostConfig, type HostConfig } from "./config.ts";
 import { createPool, pgDb } from "./db.ts";
 import { sweepExpired } from "./dm/store.ts";
 import { createApp } from "./http.ts";
+import { readCallsConfig } from "./calls/config.ts";
+import { bindCallEviction } from "./calls/evict.ts";
+import { createCallStore } from "./calls/store.ts";
+import { readMediaConfig } from "./media/config.ts";
+import { storeFromConfig } from "./media/s3.ts";
+import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -66,14 +72,49 @@ export function startHost(): void {
     baseURL: config.baseURL,
     trustedOrigins: config.origins,
   });
+  const now = () => new Date();
+  const mediaConfig = readMediaConfig();
+  const mediaStore = storeFromConfig(mediaConfig);
+  warnMissingHoldKey();
+  const boardDb = pgDb(pool);
+  void reencryptPendingHolds(boardDb, mediaStore).catch((error) => {
+    console.error(
+      JSON.stringify({
+        event: "csam-hold-reseal-failed",
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+  });
+  startHoldSweep(boardDb, mediaStore);
+  console.log(
+    JSON.stringify({
+      event: "media-storage",
+      enabled: mediaConfig.enabled,
+      video: mediaConfig.enabled && mediaConfig.video,
+    }),
+  );
+  const callsConfig = readCallsConfig();
+  const callStore = createCallStore();
+  bindCallEviction(callStore);
+  console.log(
+    JSON.stringify({
+      event: "room-calls",
+      enabled: callsConfig.enabled,
+      stun: callsConfig.enabled && callsConfig.stunUrls.length > 0,
+      turn: callsConfig.enabled && callsConfig.turnUrls.length > 0,
+      reason: callsConfig.enabled ? undefined : callsConfig.reason,
+    }),
+  );
   const app = createApp({
-    db: pgDb(pool),
+    db: boardDb,
     origins: config.origins,
-    now: () => new Date(),
+    now,
     createAccount: createCredentialAccount(),
     signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
+    media: { config: mediaConfig, store: mediaStore, now },
+    calls: { config: callsConfig, store: callStore, now },
   });
   const database = pgDb(pool);
   const sweep = setInterval(

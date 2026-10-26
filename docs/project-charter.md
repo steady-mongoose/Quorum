@@ -15,11 +15,11 @@ An invite-only social app for the people you see at church, at the shop, and at 
 
 ## Project team
 
-| Name | Role | Owns |
-|---|---|---|
+| Name           | Role   | Owns            |
+| -------------- | ------ | --------------- |
 | Zachary Taylor | [ROLE] | [WHAT THEY OWN] |
-| Ryan Horne | [ROLE] | [WHAT THEY OWN] |
-| Sam Archer | [ROLE] | [WHAT THEY OWN] |
+| Ryan Horne     | [ROLE] | [WHAT THEY OWN] |
+| Sam Archer     | [ROLE] | [WHAT THEY OWN] |
 
 The brief calls for five roles with one name each: Product lead, App owner, Infra owner, Rules owner, Money owner. Two people hold each login. The App owner is not also the Infra owner.
 
@@ -49,23 +49,23 @@ One call, thirty minutes, same five questions each week:
 
 ### Milestones
 
-| Stage | What | Monthly cost | Status | Owner |
-|---|---|---|---|---|
-| Browser skeleton | Rooms, the week, invite codes, roll call, messages, profiles, a sample week. Runs on localStorage. | $0 | Done | [NAME] |
-| Closed test | One OVH VPS, login in place of the name field, invite codes on the server, 5 to 20 invited people, nightly database dump. | About $5 to $20 | Next | [NAME] |
-| Invite beta | OVH dedicated plus a live spare at a second company, two domains, two registrars, monthly failover drill. 100 to 1,000 users, text and images. | $140 to $320 | Not started | [NAME] |
-| Legal and money | Form the LLC before anyone pays. Prepaid memberships from known people. No GoFundMe, no Stripe as the only rail. | Part of the $20,000 start | Not started | [NAME] |
+| Stage            | What                                                                                                                                           | Monthly cost              | Status      | Owner  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------- | ------ |
+| Browser skeleton | Rooms, the week, invite codes, roll call, messages, profiles, a sample week. Runs on localStorage.                                             | $0                        | Done        | [NAME] |
+| Closed test      | One OVH VPS, login in place of the name field, invite codes on the server, 5 to 20 invited people, nightly database dump.                      | About $5 to $20           | Next        | [NAME] |
+| Invite beta      | OVH dedicated plus a live spare at a second company, two domains, two registrars, monthly failover drill. 100 to 1,000 users, text and images. | $140 to $320              | Not started | [NAME] |
+| Legal and money  | Form the LLC before anyone pays. Prepaid memberships from known people. No GoFundMe, no Stripe as the only rail.                               | Part of the $20,000 start | Not started | [NAME] |
 
 ### Task board
 
-| Task | Owner | Due | Status |
-|---|---|---|---|
-| Name the five role holders | [NAME] | [DATE] | Open |
-| Write the mission statement and the "What we stand for" copy | [NAME] | [DATE] | Open |
-| Order the $20 OVH VPS and boot the app on it | [NAME] | [DATE] | Open |
-| Wire login and move invite codes and the founder code server-side (better-auth is already in the scaffold) | [NAME] | [DATE] | Open |
-| Register the spare domain at a second registrar | [NAME] | [DATE] | Open |
-| Form the LLC | [NAME] | [DATE] | Open |
+| Task                                                                                                       | Owner  | Due    | Status |
+| ---------------------------------------------------------------------------------------------------------- | ------ | ------ | ------ |
+| Name the five role holders                                                                                 | [NAME] | [DATE] | Open   |
+| Write the mission statement and the "What we stand for" copy                                               | [NAME] | [DATE] | Open   |
+| Order the $20 OVH VPS and boot the app on it                                                               | [NAME] | [DATE] | Open   |
+| Wire login and move invite codes and the founder code server-side (better-auth is already in the scaffold) | [NAME] | [DATE] | Open   |
+| Register the spare domain at a second registrar                                                            | [NAME] | [DATE] | Open   |
+| Form the LLC                                                                                               | [NAME] | [DATE] | Open   |
 
 ### Recovery plan, if a vendor cuts us
 
@@ -81,8 +81,8 @@ These are settled so they are not reopened on the weekly call.
 - No feed algorithm, no reshare, no quote-post, no like counts, no badges, no streaks, no per-person scores. The front page is the week, not a feed.
 - The host writes up each meeting: how it went, who came, one person mentioned at most, the next date. No headcount.
 - A business is listed only when two members post that it did work for them.
-- People who have been to the same meeting can message each other and see each other's profile. Nobody else can. Messages are two names only, plain text, deleted after 30 days. When a member is signed in, the text is encrypted on the device before it is sent. The server stores ciphertext and public keys. This revises the earlier "not encrypted" line. The Google Doc is still the copy the team is editing.
-- Hard removal only for threats, pornography, and CSAM. Everything else stays up. Stewards mark for the missing reason, never the side, and every mark is logged in the room. Stewards are appointed by the founder, never self-appointed.
+- People who have been to the same meeting can message each other and see each other's profile. Nobody else can. Messages are two names only, plain text, deleted after 30 days. When a member is signed in, the text is encrypted on the device before it is sent, and the server stores ciphertext and public keys. A demo that is not signed in keeps those messages on the device, and they are not encrypted. A picture or video in a signed-in message is encrypted on the device with the same wraps. The server is not given the content key.
+- Hard removal for threats, pornography, CSAM, doxxing, and posts that mock God or Christ. Everything else stays up. A removal bars filing for 30 days, and a second removal closes the account. CSAM is removed at once, the account is banned, and the evidence is held for one year under 18 U.S.C. 2258A as amended by the REPORT Act. That period is pending counsel. An admin queue prepares the CyberTipline report. Josh files it by hand. The app does not send it, and it never shows the content. Stewards mark a post sloppy, No legs (stored as unsupported), or out of scope, with one sentence. A mark dims the post. It does not move it and it does not hide it. The author may appeal a mark or a removal to the stewards of that room. A grant with no room does not make someone a steward. The appeal is visible to the author, the stewards of that room, and an admin. Stewards are appointed for a room, never self-appointed. Doxxing means publishing a private person's home address, phone number, or other contact so strangers can find them. Blasphemy means a post that mocks God or Christ.
 - One mark on every screen, set by the owner (An Appeal to Heaven). Church rooms are kept separate: Reformed Baptist (1689), Reformed Presbyterian (Westminster), Latin Mass, Greek Orthodox.
 - Sponsorship buys one labeled card per room and nothing else. Memberships are the revenue that survives a vendor leaving.
 
@@ -91,7 +91,6 @@ These are settled so they are not reopened on the weekly call.
 - Product name on the door is Avouch Social. The LLC name is still open.
 - The five role holders.
 - The mission statement and the "What we stand for" copy.
-- One-sentence definition of the proposed content rule flagged in the brief, or a decision to drop it. Nothing switches on until a sentence exists that a steward can apply the same way to every user.
 - Whether candidate events exist at launch or after a real endorsement.
 - Whether "I went" (self-reported) or the host's roll call is the gate for messages and profiles.
 - Payment rails for prepaid memberships.

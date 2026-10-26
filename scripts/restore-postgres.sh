@@ -53,11 +53,11 @@ age -d -i "$AGE_IDENTITY_FILE" -o "$PLAIN" "$ENC"
 
 if [ "$BACKUP_MODE" = "docker" ]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-    dropdb -U "$POSTGRES_USER" --force --if-exists "$POSTGRES_DB"
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" dropdb -U "$POSTGRES_USER" --force --if-exists "$POSTGRES_DB"'
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-    createdb -U "$POSTGRES_USER" "$POSTGRES_DB"
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error < "$PLAIN"
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < "$PLAIN"
 elif [ "$BACKUP_MODE" = "pg_restore" ]; then
   pg_restore --no-owner --exit-on-error < "$PLAIN"
 else

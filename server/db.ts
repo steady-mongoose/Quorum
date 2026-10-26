@@ -3,6 +3,11 @@ import pg from "pg";
 export type Db = {
   query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
   transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
+  /**
+   * One pooled connection for the whole call. A session advisory lock taken
+   * inside `fn` stays on that connection until `fn` unlocks it.
+   */
+  session?<T>(fn: (db: Db) => Promise<T>): Promise<T>;
 };
 
 export function isUniqueViolation(error: unknown): boolean {
@@ -48,5 +53,43 @@ export function pgDb(pool: pg.Pool): Db {
         client.release();
       }
     },
+    async session<T>(fn: (db: Db) => Promise<T>) {
+      const client = await pool.connect();
+      const conn = clientDb(client);
+      try {
+        return await fn(conn);
+      } finally {
+        client.release();
+      }
+    },
   };
+}
+
+/** Queries on one checked-out connection. Advisory locks stay on this session. */
+function clientDb(client: pg.PoolClient): Db {
+  const conn: Db = {
+    async query<T>(text: string, params: unknown[] = []) {
+      const result = await client.query(text, params);
+      return result.rows as T[];
+    },
+    async transaction<T>(fn: (tx: Db) => Promise<T>) {
+      await client.query("BEGIN");
+      try {
+        const value = await fn(conn);
+        await client.query("COMMIT");
+        return value;
+      } catch (error) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // Keep the original error when the connection is already dead.
+        }
+        throw error;
+      }
+    },
+    async session<T>(fn: (db: Db) => Promise<T>) {
+      return fn(conn);
+    },
+  };
+  return conn;
 }

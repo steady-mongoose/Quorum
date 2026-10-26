@@ -22,7 +22,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
-import { pendingMigrations } from "./migration-plan.mjs";
+import { mediaWorkerPasswordSql } from "./media-worker-password.mjs";
+import { isNoTransaction, pendingMigrations, sqlStatements } from "./migration-plan.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -58,11 +59,29 @@ async function main() {
     for (const { name } of pendingMigrations(entries, applied)) {
       const text = await readFile(join(migrationsDir, name), "utf8");
       try {
-        await client.query("BEGIN");
-        // pg's simple-query protocol runs a whole multi-statement file at once.
-        await client.query(text);
-        await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
-        await client.query("COMMIT");
+        if (isNoTransaction(text)) {
+          // CREATE ROLE cannot run inside a transaction block. Each statement
+          // is its own implicit transaction. A role that already exists is
+          // left in place so a retry can finish the grants.
+          for (const statement of sqlStatements(text)) {
+            try {
+              await client.query(statement);
+            } catch (error) {
+              const createRole = /^\s*(?:--[^\n]*\n\s*)*create\s+role\s+/i.test(statement);
+              if (createRole && error?.code === "42710") continue;
+              throw error;
+            }
+          }
+          await client.query("BEGIN");
+          await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+          await client.query("COMMIT");
+        } else {
+          await client.query("BEGIN");
+          // pg's simple-query protocol runs a whole multi-statement file at once.
+          await client.query(text);
+          await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+          await client.query("COMMIT");
+        }
       } catch (err) {
         console.error(`[migrate] error applying ${name}`);
         try {
@@ -74,6 +93,19 @@ async function main() {
       }
       console.log(`[migrate] applied ${name}`);
       count += 1;
+    }
+    const password = process.env.MEDIA_WORKER_DB_PASSWORD;
+    if (password) {
+      const role = await client.query("select 1 from pg_roles where rolname = 'media_worker'");
+      if (role.rowCount !== 1) {
+        throw new Error(
+          "Approve migrations/0007_media_worker_role.sql before setting MEDIA_WORKER_DB_PASSWORD.",
+        );
+      }
+      // Every run, including a re-run. CREATE ROLE is recorded once and would
+      // otherwise keep the previous password.
+      await client.query(mediaWorkerPasswordSql(password));
+      console.log("[migrate] updated the media_worker password.");
     }
     console.log(
       count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.",

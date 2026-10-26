@@ -13,12 +13,39 @@ test("Caddy limits the closed-test POSTs and is built with the rate limit module
   assert.match(caddyfile, /key \{remote_host\}/);
   assert.match(caddyfile, /events 5/);
   assert.match(caddyfile, /window 1m/);
-  assert.match(caddyfile, /Retry-After/);
+  assert.match(caddyfile, /ipv6_prefix 64/);
+  assert.match(caddyfile, /zone calls/);
+  assert.match(caddyfile, /path \/api\/calls\/\*/);
+  assert.match(caddyfile, /not path \/api\/calls\/rooms\/\*\/signal/);
+  assert.match(caddyfile, /zone call_signal/);
+  assert.match(caddyfile, /path \/api\/calls\/rooms\/\*\/signal/);
+  assert.match(caddyfile, /events 60/);
+  assert.match(caddyfile, /events 120/);
+  assert.match(caddyfile, /window 10s/);
   assert.match(caddyfile, /429/);
+  assert.equal(caddyfile.includes('Retry-After "60"'), false);
+  assert.match(caddyfile, /module sets Retry-After/);
   const dockerfile = readFileSync(join(root, "deploy/Dockerfile.caddy"), "utf8");
-  assert.match(dockerfile, /caddy:2\.10-builder/);
-  assert.match(dockerfile, /github\.com\/mholt\/caddy-ratelimit/);
+  assert.match(
+    dockerfile,
+    /caddy:2\.10\.2-builder@sha256:01668408cc26e2e00c9d067c30cb43b2ba14ad1f2808beda55503cb2a31f59dc/,
+  );
+  assert.match(
+    dockerfile,
+    /caddy:2\.10\.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb/,
+  );
+  assert.match(
+    dockerfile,
+    /github\.com\/mholt\/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db/,
+  );
   const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
   assert.match(compose, /dockerfile: Dockerfile\.caddy/);
   assert.equal(compose.includes("image: caddy:2.10"), false);
+  const apiDockerfile = readFileSync(join(root, "deploy/Dockerfile"), "utf8");
+  const appStage = apiDockerfile.slice(0, apiDockerfile.indexOf("FROM app AS media"));
+  assert.match(appStage, /COPY src\/lib \.\/src\/lib/);
+  assert.equal(appStage.includes("COPY src/lib/media"), false);
+  const workflow = readFileSync(join(root, ".github/workflows/test.yml"), "utf8");
+  assert.match(workflow, /api-image:/);
+  assert.match(workflow, /scripts\/api-image-smoke\.sh/);
 });

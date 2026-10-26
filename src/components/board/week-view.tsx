@@ -1,11 +1,9 @@
 import { useMemo } from "react";
 import { btnGhost, btnSignal, Kicker, useNow } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { dayHeading } from "@/lib/board/week-days";
 import {
-  WEEKDAYS,
-  addDays,
   authorName,
-  parseIsoDate,
   cardSummary,
   formatDate,
   needsFor,
@@ -16,6 +14,7 @@ import {
   witnessesByTrade,
   type MeetingCard,
 } from "@/lib/board/model";
+import { HomePanel } from "@/components/board/home-view";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -30,11 +29,14 @@ export function WeekView() {
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
+  const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
   const needs = useMemo(() => needsFor(cards), [cards]);
 
   return (
+    <div className="flex flex-col gap-10">
+      <HomePanel />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-2">
@@ -45,7 +47,9 @@ export function WeekView() {
           ) : null}
           {week.length === 0 ? (
             <p className="max-w-2xl text-base text-muted">
-              A card lands here when it has a date inside seven days.{" "}
+              {justCleared
+                ? "The board is cleared, and nothing is on the calendar. "
+                : "A card lands here when it has a date inside seven days. "}
               <button type="button" className="text-signal underline" onClick={() => setSection("rooms")}>
                 Look in the rooms
               </button>{" "}
@@ -57,7 +61,7 @@ export function WeekView() {
         {week.map((day) => (
           <section key={day.iso} className="flex flex-col gap-3">
             <h2 className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
-              <span className="font-display text-2xl text-fg">{day.iso === today ? "Today" : day.iso === addDays(today, 1) ? "Tomorrow" : WEEKDAYS[parseIsoDate(day.iso)?.getDay() ?? 0]}</span>
+              <span className="font-display text-2xl text-fg">{dayHeading(day.iso, today)}</span>
               <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">{formatDate(day.iso)}</span>
             </h2>
             <div className="grid gap-3 xl:grid-cols-2">
@@ -81,6 +85,7 @@ export function WeekView() {
         ) : null}
       </aside>
     </div>
+    </div>
   );
 }
 
@@ -91,7 +96,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   return (
     <article className="rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg" onClick={() => setRoom(card.room)}>
+        <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}

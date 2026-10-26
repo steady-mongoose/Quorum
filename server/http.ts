@@ -1,7 +1,17 @@
 import type { Db } from "./db.ts";
+import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
+import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
+import { readCallsConfig } from "./calls/config.ts";
+import { createCallStore } from "./calls/store.ts";
+import { registerRoomPost } from "./media/access.ts";
+import { handleGroups } from "./board/group-routes.ts";
+import { handleBoard, limitBoardWrite } from "./board/routes.ts";
+import { handleRoomChat } from "./chat/routes.ts";
+import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
-import { CLIENT_IP_HEADER } from "./proxy.ts";
-import { ATTEMPT_LIMIT, consumeLimit } from "./rate-limit.ts";
+import { handleMedia, type MediaRuntime } from "./media/routes.ts";
+import { readMediaConfig } from "./media/config.ts";
+import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
   listInviteLog,
@@ -21,6 +31,10 @@ export type AppDeps = {
   signIn: SignIn;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   forwardAuth: (request: Request) => Promise<Response>;
+  /** Omitted in tests that do not exercise pictures. Storage stays off. */
+  media?: MediaRuntime;
+  /** Omitted in tests that do not exercise room calls. Calls stay off. */
+  calls?: CallsRuntime;
 };
 
 class HttpError extends Error {
@@ -87,21 +101,22 @@ function replay(request: Request, body: string): Request {
   return new Request(request.url, { method: request.method, headers, body });
 }
 
-function emailKey(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-/** IP first. A blocked address does not consume the email bucket. A missing email counts only the address. */
+/**
+ * IP first. A blocked address does not consume the email bucket.
+ * An empty email counts only the address. A present email that is too long
+ * or not an address is rejected and does not become a key.
+ */
 async function limitIpAndEmail(
   db: Db,
   scope: string,
   ip: string,
   email: string,
 ): Promise<Response | null> {
-  const ipHit = await consumeLimit(db, `${scope}:ip:${ip}`, ATTEMPT_LIMIT, Date.now());
+  const ipHit = await consumeLimit(db, `${scope}:ip:${rateLimitIp(ip)}`, ATTEMPT_LIMIT, Date.now());
   if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
-  const emailId = emailKey(email);
-  if (!emailId) return null;
+  if (!email.trim()) return null;
+  const emailId = emailRateKey(email);
+  if (!emailId) throw new HttpError(400, "Enter an email address.");
   const emailHit = await consumeLimit(db, `${scope}:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
   if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
   return null;
@@ -114,7 +129,7 @@ function stringField(body: Record<string, unknown>, key: string): string {
 
 function clientIp(request: Request): string {
   const value = request.headers.get(CLIENT_IP_HEADER)?.trim();
-  return value || "local";
+  return rateLimitIp(value || "local");
 }
 
 function tooMany(retryAfter: number): Response {
@@ -126,10 +141,20 @@ function tooMany(retryAfter: number): Response {
 }
 
 export function createApp(deps: AppDeps): (request: Request) => Promise<Response> {
+  const media: MediaRuntime = deps.media ?? {
+    config: readMediaConfig({}),
+    store: null,
+    now: deps.now,
+  };
+  const calls: CallsRuntime = deps.calls ?? {
+    config: readCallsConfig({}),
+    store: createCallStore(),
+    now: deps.now,
+  };
   return async (request) => {
     const url = new URL(request.url);
     try {
-      const response = await route(deps, request, url);
+      const response = await route(deps, media, calls, request, url);
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -149,7 +174,13 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
 }
 
-async function route(deps: AppDeps, request: Request, url: URL): Promise<Response> {
+async function route(
+  deps: AppDeps,
+  media: MediaRuntime,
+  calls: CallsRuntime,
+  request: Request,
+  url: URL,
+): Promise<Response> {
   if (request.method === "OPTIONS") {
     const headers = new Headers({
       "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -185,7 +216,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
       if (!(error instanceof HttpError)) throw error;
       parseError = error;
     }
-    const blocked = await limitIpAndEmail(deps.db, "sign-in", clientIp(request), parseError ? "" : email);
+    const blocked = await limitIpAndEmail(
+      deps.db,
+      "sign-in",
+      clientIp(request),
+      parseError ? "" : email,
+    );
     if (blocked) return blocked;
     if (parseError) throw parseError;
     return deps.forwardAuth(replay(request, text));
@@ -226,7 +262,12 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
       deps.signIn,
       deps.now(),
     );
-    if (!result.ok) return json(result.status, { error: result.error });
+    if (!result.ok) {
+      return json(
+        result.status,
+        result.code ? { error: result.error, code: result.code } : { error: result.error },
+      );
+    }
     if (result.value.user.response) return result.value.user.response;
     return json(200, {
       user: {
@@ -247,9 +288,14 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
     if (!ipHit.allowed) return tooMany(ipHit.retryAfter);
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
-    const emailId = emailKey(session.email);
+    const emailId = emailRateKey(session.email);
     if (emailId) {
-      const emailHit = await consumeLimit(deps.db, `invite:email:${emailId}`, ATTEMPT_LIMIT, Date.now());
+      const emailHit = await consumeLimit(
+        deps.db,
+        `invite:email:${emailId}`,
+        ATTEMPT_LIMIT,
+        Date.now(),
+      );
       if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
     }
     const body = await readJson(request);
@@ -271,12 +317,82 @@ async function route(deps: AppDeps, request: Request, url: URL): Promise<Respons
   if (url.pathname === "/api/invite-log" && request.method === "GET") {
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
+    const ban = await openBan(deps.db, session.id, deps.now());
+    if (ban) return json(403, { error: "banned", ban });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
   if (url.pathname.startsWith("/api/dm")) {
     const response = await handleDm(deps, request, url);
     if (response) return response;
+  }
+
+  const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
+  if (roomPost && request.method === "POST") {
+    const session = await deps.readSession(request.headers);
+    if (!session) return json(401, { error: "Sign in first." });
+    const body = await readJson(request);
+    if (typeof body.type === "string" && body.type.trim()) {
+      const limited = await limitBoardWrite(deps.db, request, session.id);
+      if (limited) return limited;
+      const filed = await createPost(deps.db, {
+        userId: session.id,
+        name: session.name,
+        roomId: roomPost[1] ?? "",
+        body,
+        now: deps.now(),
+      });
+      if (!filed.ok) {
+        return json(
+          filed.status,
+          filed.stops ? { error: filed.error, stops: filed.stops } : { error: filed.error },
+        );
+      }
+      return json(201, { post: filed.value });
+    }
+    const recorded = await registerRoomPost(
+      deps.db,
+      session.id,
+      roomPost[1] ?? "",
+      stringField(body, "id"),
+      deps.now(),
+    );
+    if (!recorded.ok) {
+      return json(
+        recorded.status,
+        recorded.ban ? { error: recorded.error, ban: recorded.ban } : { error: recorded.error },
+      );
+    }
+    return json(201, { id: stringField(body, "id"), roomId: roomPost[1] });
+  }
+
+  const chat = await handleRoomChat(deps, request, url);
+  if (chat) return chat;
+
+  const board = await handleBoard({ ...deps, store: media.store }, request, url);
+  if (board) return board;
+
+  const groups = await handleGroups(deps, request, url);
+  if (groups) return groups;
+
+  if (url.pathname.startsWith("/api/calls")) {
+    const openStatus = url.pathname === "/api/calls/status" && request.method === "GET";
+    const session =
+      openStatus || !calls.config.enabled ? null : await deps.readSession(request.headers);
+    return handleCalls(calls, deps.db, request, url, session);
+  }
+
+  if (url.pathname.startsWith("/api/media/")) {
+    const session =
+      url.pathname === "/api/media/status" ? null : await deps.readSession(request.headers);
+    if (request.method === "GET" && session) {
+      const ban = await openBan(deps.db, session.id, deps.now());
+      if (ban) return json(403, { error: "banned", ban });
+    }
+    return (
+      (await handleMedia(media, deps.db, request, url, session, clientIp(request))) ??
+      json(404, { error: "Not found." })
+    );
   }
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });

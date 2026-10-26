@@ -12,6 +12,7 @@ import {
   type DmMessage,
 } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { MessagePictureNote, SharedMediaFigure } from "@/components/board/media-share";
 import { useServerSession } from "@/lib/server-session-state";
 
 function LiveMailbox() {
@@ -98,7 +99,10 @@ export function DmView() {
                 message.from === me ? "self-end bg-raised" : "self-start bg-surface",
               )}
             >
-              <p className="text-base text-fg">{message.text}</p>
+              {message.text ? <p className="text-base text-fg">{message.text}</p> : null}
+              {(message.media ?? []).map((item) => (
+                <SharedMediaFigure key={item.id} item={item} />
+              ))}
               <p className="mt-1 text-xs text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
@@ -146,6 +150,7 @@ export function DmView() {
           You can message someone you have been on an "I went" list with, or who replied to your
           post. Open one from their post or their card. {DM_DEMO_NOTICE}
         </p>
+        <MessagePictureNote />
       </section>
       {mine.length === 0 ? (
         <p className="text-sm text-muted">No messages yet.</p>
@@ -162,7 +167,9 @@ export function DmView() {
                 >
                   <span className="text-base font-semibold text-fg">{otherIn(item, me)}</span>
                   <span className="text-sm text-muted">
-                    {last ? `${last.from === me ? "You: " : ""}${last.text}` : "No messages yet."}
+                    {last
+                      ? `${last.from === me ? "You: " : ""}${last.text || (last.media?.length ? "Picture" : "")}`
+                      : "No messages yet."}
                   </span>
                 </button>
               </li>

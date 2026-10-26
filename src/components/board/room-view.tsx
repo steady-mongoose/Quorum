@@ -1,20 +1,44 @@
-import { memo, useMemo, useState } from "react";
-import { Check as CheckIcon, CornerDownRight, Flag, MessageSquare, Pin, Trash2, X } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, pill, When } from "@/components/quorum/bits";
+import { memo, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
+import { RoomCall } from "@/components/board/room-call";
+import { RoomChat } from "@/components/board/room-chat";
+import {
+  Check as CheckIcon,
+  CornerDownRight,
+  Flag,
+  MessageSquare,
+  Pin,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  btnGhost,
+  btnQuiet,
+  btnSignal,
+  fieldClass,
+  Kicker,
+  pill,
+  When,
+} from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
   MARK_LABEL,
   POST_TYPES,
-  ROOMS,
   RULE_LABEL,
+  RULE_SENTENCE,
   authorName,
-  banFor,
+  activeBan,
   blankDraft,
   cardSummary,
   composerCheck,
+  composerErrorId,
+  composerSubmitsOnEnter,
+  draftHasWriting,
   formatDate,
   formatWhen,
   needsFor,
+  postButtonLabel,
   readingLine,
   repliesByParent,
   roomById,
@@ -26,16 +50,18 @@ import {
   typesFor,
   witnessesByTrade,
   type Check,
+  type ComposerField,
   type Draft,
   type HardRule,
   type Mark,
   type MeetingCard,
   type Post,
 } from "@/lib/board/model";
+import { checklistFor } from "@/lib/board/council";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
-const MARKS: Mark[] = ["unsupported", "sloppy"];
+const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
@@ -44,18 +70,33 @@ export function RoomView() {
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
+  const bans = useBoard((state) => state.bans);
+  const appeals = useBoard((state) => state.appeals);
+  const rooms = useBoard((state) => state.rooms);
+  const boardError = useBoard((state) => state.boardError);
+  const remote = useBoard((state) => state.remote);
+  const older = useBoard(
+    (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
+  );
+  const loadOlder = useBoard((state) => state.loadOlder);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
-  const meta = roomById(room);
+  const meta = roomById(room, rooms);
   const today = todayIso();
 
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
-  const shelf = useMemo(() => shelfFor(room, cards, witnessesByTrade(posts, cards), today), [room, cards, posts, today]);
-  const needs = useMemo(() => (meta.parish ? needsFor(cards, room) : []), [cards, room, meta.parish]);
-  const ban = banFor(me, removals, Date.now());
+  const shelf = useMemo(
+    () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
+    [room, cards, posts, today],
+  );
+  const needs = useMemo(
+    () => (meta.parish ? needsFor(cards, room) : []),
+    [cards, room, meta.parish],
+  );
+  const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
 
@@ -65,7 +106,13 @@ export function RoomView() {
         <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
-            {card.kind === "candidate" ? "Candidate event" : meta.cardNoun === "Debate" ? "This month's question" : meta.cardNoun === "Reading" ? "This month's book" : "Coming up"}
+            {card.kind === "candidate"
+              ? "Candidate event"
+              : meta.cardNoun === "Debate"
+                ? "This month's question"
+                : meta.cardNoun === "Reading"
+                  ? "This month's book"
+                  : "Coming up"}
             {card.pinned ? " · pinned by the host" : ""}
           </Kicker>
           <h2 className="mt-2 text-2xl text-fg">{card.name}</h2>
@@ -75,7 +122,9 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
+          {card.going.length > 0 ? (
+            <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
+          ) : null}
         </article>
       ))}
 
@@ -87,9 +136,18 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <nav className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible" aria-label="Rooms">
-        {ROOMS.map((item) => (
-          <button key={item.id} type="button" aria-current={item.id === room ? "page" : undefined} onClick={() => setRoom(item.id)} className={pill(item.id === room)}>
+      <nav
+        className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        aria-label="Rooms"
+      >
+        {rooms.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={item.id === room ? "page" : undefined}
+            onClick={() => setRoom(item.id)}
+            className={pill(item.id === room)}
+          >
             {item.name}
           </button>
         ))}
@@ -99,15 +157,22 @@ export function RoomView() {
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
+        <RoomChat roomId={room} />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
+          {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
-              {ban.strikes >= 2 ? "This account is closed. Second hard removal." : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
+              {ban.reason === "csam"
+                ? "This account is closed."
+                : ban.strikes >= 2
+                  ? "This account is closed. Second hard removal."
+                  : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
             </p>
           ) : canFile ? (
             <Composer me={me} steward={steward} />
@@ -116,45 +181,103 @@ export function RoomView() {
           )}
 
           {steward && feed.length > 0 ? (
-            <label className="flex items-center gap-2 self-end text-xs text-muted">
-              <input type="checkbox" className="size-4" checked={tools} onChange={(event) => setTools(event.target.checked)} />
+            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-xs text-muted">
+              <input
+                type="checkbox"
+                className="size-5"
+                checked={tools}
+                onChange={(event) => setTools(event.target.checked)}
+              />
               Show steward tools on posts
             </label>
           ) : null}
           <section className="flex flex-col divide-y divide-line">
             {feed.map((post) => (
-          <PostCard
-            key={post.id}
-            post={post}
-            replies={replies.get(post.id) ?? []}
-            card={post.cardId ? cardById.get(post.cardId) : undefined}
-            trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
-            mine={post.author === me}
-            canMessage={peers.has(post.author)}
-            steward={steward && tools}
-          />
-        ))}
-            <p className="py-6 text-sm text-muted">{feed.length === 0 ? "Nothing posted here yet." : "That is everything."}</p>
+              <PostCard
+                key={post.id}
+                post={post}
+                replies={replies.get(post.id) ?? []}
+                card={post.cardId ? cardById.get(post.cardId) : undefined}
+                trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
+                mine={post.author === me}
+                canMessage={peers.has(post.author)}
+                steward={steward && tools}
+              />
+            ))}
+            {remote && older ? (
+              <button
+                type="button"
+                className="py-6 text-left text-sm text-signal underline"
+                onClick={() => void loadOlder(room)}
+              >
+                Older posts
+              </button>
+            ) : (
+              <p className="py-6 text-sm text-muted">
+                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+              </p>
+            )}
           </section>
         </div>
 
         <aside className="hidden flex-col gap-4 lg:sticky lg:top-28 lg:flex lg:self-start">
-          {shelf.length === 0 && needs.length === 0 ? <p className="text-sm text-muted">Nothing coming up in this room inside two weeks.</p> : shelfBlock}
+          {shelf.length === 0 && needs.length === 0 ? (
+            <p className="text-sm text-muted">Nothing coming up in this room inside two weeks.</p>
+          ) : (
+            shelfBlock
+          )}
           <MarkLog />
+          <AppealLog />
         </aside>
       </div>
       <div className="lg:hidden">
         <MarkLog />
+        <AppealLog />
       </div>
     </div>
   );
 }
 
-function CardSelect({ label, cards, empty, value, onChange }: { label: string; cards: MeetingCard[]; empty?: string; value: string; onChange: (id: string) => void }) {
+function FieldError({ id, messages }: { id: string; messages: string[] }) {
+  if (messages.length === 0) return null;
+  return (
+    <p id={id} className="text-sm text-[#f0b4a4]">
+      {messages.join(" ")}
+    </p>
+  );
+}
+
+function describedBy(field: ComposerField, messages: string[]): string | undefined {
+  return messages.length > 0 ? composerErrorId(field) : undefined;
+}
+
+function CardSelect({
+  label,
+  cards,
+  empty,
+  value,
+  onChange,
+  errorId,
+  error,
+}: {
+  label: string;
+  cards: MeetingCard[];
+  empty?: string;
+  value: string;
+  onChange: (id: string) => void;
+  errorId: string;
+  error: string[];
+}) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       {label}
-      <select className={cn(fieldClass, "min-h-11")} value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        className={cn(fieldClass, "min-h-[44px]")}
+        value={value}
+        aria-invalid={error.length > 0 ? true : undefined}
+        aria-describedby={error.length > 0 ? errorId : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      >
         {empty !== undefined ? <option value="">{empty}</option> : null}
         {cards.map((card) => (
           <option key={card.id} value={card.id}>
@@ -162,6 +285,7 @@ function CardSelect({ label, cards, empty, value, onChange }: { label: string; c
           </option>
         ))}
       </select>
+      <FieldError id={errorId} messages={error} />
     </label>
   );
 }
@@ -171,156 +295,420 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
+  const bans = useBoard((state) => state.bans);
+  const rooms = useBoard((state) => state.rooms);
   const file = useBoard((state) => state.file);
+  const remote = useBoard((state) => state.remote);
   const [draft, setDraft] = useState(() => blankDraft(room));
   const [result, setResult] = useState<Check | null>(null);
-  const meta = roomById(room);
+  const [attempted, setAttempted] = useState(false);
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const meta = roomById(room, rooms);
   const current = draft.room === room ? draft : blankDraft(room);
   const type = current.type ? typeMeta(current.type) : null;
   const allowed = typesFor(meta, steward);
 
-  const roomCards = useMemo(() => cards.filter((card) => card.room === room && (card.kind === "meeting" || card.kind === "candidate")), [cards, room]);
+  const roomCards = useMemo(
+    () =>
+      cards.filter(
+        (card) => card.room === room && (card.kind === "meeting" || card.kind === "candidate"),
+      ),
+    [cards, room],
+  );
   const ownCards = useMemo(() => roomCards.filter((card) => card.host === me), [roomCards, me]);
-  const trades = useMemo(() => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me), [cards, room, me]);
-  const closing = current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
-  const check = useMemo(() => composerCheck(current, { author: me, steward, posts, cards, removals, now: Date.now() }), [current, me, steward, posts, cards, removals]);
+  const trades = useMemo(
+    () => cards.filter((card) => card.kind === "trade" && card.room === room && card.host !== me),
+    [cards, room, me],
+  );
+  const closing =
+    current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
+  const check = useMemo(
+    () =>
+      composerCheck(current, {
+        author: me,
+        steward,
+        posts,
+        cards,
+        removals,
+        bans,
+        rooms,
+        now: Date.now(),
+      }),
+    [current, me, steward, posts, cards, removals, bans, rooms],
+  );
 
-  const patch = (next: Partial<Draft>) => setDraft({ ...current, ...next });
-  const reset = () => {
-    setDraft(blankDraft(room));
+  const subjectChoices: { value: Draft["subject"]; label: string }[] = [
+    { value: "", label: "No subject" },
+  ];
+  if (meta.cardKinds.includes("candidate")) {
+    subjectChoices.push({ value: "candidate", label: "Candidate" });
+  }
+  if (meta.cardKinds.includes("trade")) {
+    subjectChoices.push({ value: "business", label: "Business" });
+  }
+  const patch = (next: Partial<Draft>) => {
+    setDraft({ ...current, ...next });
     setResult(null);
   };
+  const reset = () => {
+    pendingRef.current = false;
+    setPending(false);
+    setDraft(blankDraft(room));
+    setResult(null);
+    setAttempted(false);
+    setConfirmClear(false);
+  };
   const send = () => {
-    const outcome = file(current);
-    if (outcome.ok) reset();
-    else setResult(outcome);
+    if (pendingRef.current) return;
+    setAttempted(true);
+    if (!check.ok) {
+      setResult(null);
+      return;
+    }
+    pendingRef.current = true;
+    setPending(true);
+    void file(current)
+      .then((outcome) => {
+        if (outcome.ok) reset();
+        else setResult(outcome);
+      })
+      .finally(() => {
+        pendingRef.current = false;
+        setPending(false);
+      });
+  };
+  const askClear = () => {
+    if (draftHasWriting(current)) setConfirmClear(true);
+    else reset();
+  };
+  const visible = result && !result.ok ? result : attempted && !check.ok ? check : null;
+  const messages = (field: ComposerField) => visible?.fields?.[field] ?? [];
+  const formMessages = [
+    ...messages("form"),
+    ...(result && !result.ok && !result.fields ? result.stops : []),
+  ];
+  const onClaimKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      composerSubmitsOnEnter(
+        event.key,
+        { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey },
+        true,
+      )
+    ) {
+      event.preventDefault();
+      send();
+    }
   };
   const toggleCame = (name: string) => {
-    const came = current.came.includes(name) ? current.came.filter((n) => n !== name) : [...current.came, name];
+    const came = current.came.includes(name)
+      ? current.came.filter((n) => n !== name)
+      : [...current.came, name];
     patch({ came, named: came.includes(current.named) ? current.named : "" });
   };
 
+  const latestError = visible?.stops.at(-1);
+  const typeErrors = messages("type");
+  const claimErrors = messages("claim");
+  const reasonErrors = messages("reason");
+  const dateErrors = messages("on");
+  const nextErrors = messages("next");
+  const cardErrors = messages("card");
+  const tradeErrors = messages("trade");
+  const namedErrors = messages("named");
+  const pageErrors = messages("pages");
+  const attestErrors = messages("attest");
+
   return (
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <p className="text-sm font-semibold text-fg">Post something</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Kind of post">
-        {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
-          const noCard = item.cardPick === "own" && ownCards.length === 0;
-          const active = current.type === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              disabled={noCard}
-              onClick={() => patch({ type: item.id, cardId: item.cardPick === "own" ? ownCards[0].id : "", came: [], named: "" })}
-              className={cn(
-                "flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
-                active ? "border-signal bg-raised" : "border-line bg-bg",
-              )}
-            >
-              <span className="text-sm font-semibold text-fg">{item.label}</span>
-              <span className="text-xs text-muted">{noCard ? "For hosts. You do not host a meeting in this room." : item.what}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {type ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <p className="text-sm text-muted">{type.what}</p>
-          {type.cardPick === "own" ? <CardSelect label="The card this closes" cards={ownCards} value={current.cardId} onChange={(cardId) => patch({ cardId, came: [], named: "" })} /> : null}
-          {type.cardPick === "optional" && roomCards.length > 0 ? <CardSelect label="Card, if any" cards={roomCards} empty="No card" value={current.cardId} onChange={(cardId) => patch({ cardId })} /> : null}
-          {type.tradePick && trades.length > 0 ? <CardSelect label="Who did the work" cards={trades} empty="No one" value={current.tradeId} onChange={(tradeId) => patch({ tradeId })} /> : null}
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            {type.claimLabel}
-            <textarea className={cn(fieldClass, "min-h-24")} value={current.claim} onChange={(event) => patch({ claim: event.target.value })} />
-          </label>
-          {type.reasonLabel ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              {type.reasonLabel}
-              <input className={fieldClass} value={current.reason} onChange={(event) => patch({ reason: event.target.value })} />
-            </label>
-          ) : null}
-          {type.dateLabel ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              {type.dateLabel}
-              <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.on} onChange={(event) => patch({ on: event.target.value })} />
-            </label>
-          ) : null}
-          {type.closes ? (
-            <>
-              <fieldset className="flex flex-col gap-2 text-sm text-muted">
-                <legend>Roll call. Who came, from those who said they would.</legend>
-                {closing && closing.going.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {closing.going.map((name) => (
-                      <label key={name} className={pill(current.came.includes(name), "cursor-pointer")}>
-                        <input type="checkbox" className="sr-only" checked={current.came.includes(name)} onChange={() => toggleCame(name)} />
-                        {name}
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <span>Nobody said they would come. Say how it went and set the next date.</span>
+      <form
+        className="flex flex-col gap-3"
+        aria-describedby={describedBy("form", formMessages)}
+        onSubmit={(event) => {
+          event.preventDefault();
+          send();
+        }}
+      >
+        <p className="text-sm font-semibold text-fg">Post something</p>
+        <div
+          className="grid gap-2 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label="Kind of post"
+          aria-invalid={typeErrors.length > 0 ? true : undefined}
+          aria-describedby={describedBy("type", typeErrors)}
+        >
+          {POST_TYPES.filter((item) => allowed.includes(item.id)).map((item) => {
+            const noCard = item.cardPick === "own" && ownCards.length === 0;
+            const active = current.type === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={noCard}
+                onClick={() =>
+                  patch({
+                    type: item.id,
+                    cardId: item.cardPick === "own" ? ownCards[0].id : "",
+                    came: [],
+                    named: "",
+                  })
+                }
+                className={cn(
+                  "flex min-h-[44px] flex-col items-start gap-1 rounded-md border px-3 py-2 text-left disabled:opacity-50",
+                  active ? "border-signal bg-raised" : "border-line bg-bg",
                 )}
-              </fieldset>
-              {current.came.length > 0 ? (
-                <label className="flex flex-col gap-2 text-sm text-muted">
-                  Name one person, if someone earned it
-                  <select className={cn(fieldClass, "min-h-11 max-w-xs")} value={current.named} onChange={(event) => patch({ named: event.target.value })}>
-                    <option value="">No one this time</option>
-                    {current.came.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label className="flex flex-col gap-2 text-sm text-muted">
-                Next date, if there is one
-                <input type="date" className={cn(fieldClass, "max-w-xs")} value={current.next} onChange={(event) => patch({ next: event.target.value })} />
-              </label>
-              {closing?.book ? (
-                <label className="flex flex-col gap-2 text-sm text-muted">
-                  What to have read by then ({closing.book})
-                  <input className={fieldClass} placeholder="chapters 5 and 6" value={current.pages} onChange={(event) => patch({ pages: event.target.value })} />
-                </label>
-              ) : null}
-            </>
-          ) : null}
-          {type.attest ? (
-            <label className="flex items-start gap-3 text-sm text-muted">
-              <input type="checkbox" className="mt-1 size-5" checked={current.attested} onChange={(event) => patch({ attested: event.target.checked })} />
-              No child's face. No home address. No private person named who was not acting in public.
-            </label>
-          ) : null}
-          {result && !result.ok ? (
-            <ul className="flex flex-col gap-1 text-sm text-signal">
-              {result.stops.map((stop) => (
-                <li key={stop}>{stop}</li>
-              ))}
-            </ul>
-          ) : null}
-          {check.notes.length > 0 ? (
-            <ul className="flex flex-col gap-1 text-sm text-muted">
-              {check.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="flex gap-2">
-            <button type="button" className={btnSignal} onClick={send}>
-              File {type.label}
-            </button>
-            <button type="button" className={btnQuiet} onClick={reset}>
-              Clear
-            </button>
-          </div>
+              >
+                <span className="text-sm font-semibold text-fg">{item.label}</span>
+                <span className="text-xs text-muted">
+                  {noCard ? "For hosts. You do not host a meeting in this room." : item.what}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      ) : null}
+        <FieldError id={composerErrorId("type")} messages={typeErrors} />
+
+        {type ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted">{type.what}</p>
+            {type.cardPick === "own" ? (
+              <CardSelect
+                label="The card this closes"
+                cards={ownCards}
+                value={current.cardId}
+                errorId={composerErrorId("card")}
+                error={cardErrors}
+                onChange={(cardId) => patch({ cardId, came: [], named: "" })}
+              />
+            ) : null}
+            {type.cardPick === "optional" && roomCards.length > 0 ? (
+              <CardSelect
+                label="Card, if any"
+                cards={roomCards}
+                empty="No card"
+                value={current.cardId}
+                errorId={composerErrorId("card")}
+                error={cardErrors}
+                onChange={(cardId) => patch({ cardId })}
+              />
+            ) : null}
+            {type.tradePick && trades.length > 0 ? (
+              <CardSelect
+                label="Who did the work"
+                cards={trades}
+                empty="No one"
+                value={current.tradeId}
+                errorId={composerErrorId("trade")}
+                error={tradeErrors}
+                onChange={(tradeId) => patch({ tradeId })}
+              />
+            ) : null}
+            {remote && subjectChoices.length > 1 ? (
+              <fieldset className="flex flex-col gap-2 text-sm text-muted">
+                <legend>Subject, if the council may label this</legend>
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Subject">
+                  {subjectChoices.map((choice) => (
+                    <label
+                      key={choice.value || "none"}
+                      className={pill(current.subject === choice.value, "cursor-pointer")}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        name="subject"
+                        checked={current.subject === choice.value}
+                        onChange={() => patch({ subject: choice.value })}
+                      />
+                      {choice.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              {type.claimLabel}
+              <textarea
+                className={cn(fieldClass, "min-h-24")}
+                value={current.claim}
+                aria-invalid={claimErrors.length > 0 ? true : undefined}
+                aria-describedby={describedBy("claim", claimErrors)}
+                onChange={(event) => patch({ claim: event.target.value })}
+                onKeyDown={onClaimKeyDown}
+              />
+              <FieldError id={composerErrorId("claim")} messages={claimErrors} />
+            </label>
+            {type.reasonLabel ? (
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                {type.reasonLabel}
+                <input
+                  className={fieldClass}
+                  value={current.reason}
+                  aria-invalid={reasonErrors.length > 0 ? true : undefined}
+                  aria-describedby={describedBy("reason", reasonErrors)}
+                  onChange={(event) => patch({ reason: event.target.value })}
+                />
+                <FieldError id={composerErrorId("reason")} messages={reasonErrors} />
+              </label>
+            ) : null}
+            {type.dateLabel ? (
+              <label className="flex flex-col gap-2 text-sm text-muted">
+                {type.dateLabel}
+                <input
+                  type="date"
+                  className={cn(fieldClass, "max-w-xs")}
+                  value={current.on}
+                  aria-invalid={dateErrors.length > 0 ? true : undefined}
+                  aria-describedby={describedBy("on", dateErrors)}
+                  onChange={(event) => patch({ on: event.target.value })}
+                />
+                <FieldError id={composerErrorId("on")} messages={dateErrors} />
+              </label>
+            ) : null}
+            {type.closes ? (
+              <>
+                <fieldset className="flex flex-col gap-2 text-sm text-muted">
+                  <legend>Roll call. Who came, from those who said they would.</legend>
+                  {closing && closing.going.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {closing.going.map((name) => (
+                        <label
+                          key={name}
+                          className={pill(current.came.includes(name), "cursor-pointer")}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={current.came.includes(name)}
+                            onChange={() => toggleCame(name)}
+                          />
+                          {name}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>Nobody said they would come. Say how it went and set the next date.</span>
+                  )}
+                </fieldset>
+                {current.came.length > 0 ? (
+                  <label className="flex flex-col gap-2 text-sm text-muted">
+                    Name one person, if someone earned it
+                    <select
+                      className={cn(fieldClass, "min-h-[44px] max-w-xs")}
+                      value={current.named}
+                      aria-invalid={namedErrors.length > 0 ? true : undefined}
+                      aria-describedby={describedBy("named", namedErrors)}
+                      onChange={(event) => patch({ named: event.target.value })}
+                    >
+                      <option value="">No one this time</option>
+                      {current.came.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldError id={composerErrorId("named")} messages={namedErrors} />
+                  </label>
+                ) : null}
+                <label className="flex flex-col gap-2 text-sm text-muted">
+                  Next date, if there is one
+                  <input
+                    type="date"
+                    className={cn(fieldClass, "max-w-xs")}
+                    value={current.next}
+                    aria-invalid={nextErrors.length > 0 ? true : undefined}
+                    aria-describedby={describedBy("next", nextErrors)}
+                    onChange={(event) => patch({ next: event.target.value })}
+                  />
+                  <FieldError id={composerErrorId("next")} messages={nextErrors} />
+                </label>
+                {closing?.book ? (
+                  <label className="flex flex-col gap-2 text-sm text-muted">
+                    What to have read by then ({closing.book})
+                    <input
+                      className={fieldClass}
+                      placeholder="chapters 5 and 6"
+                      value={current.pages}
+                      aria-invalid={pageErrors.length > 0 ? true : undefined}
+                      aria-describedby={describedBy("pages", pageErrors)}
+                      onChange={(event) => patch({ pages: event.target.value })}
+                    />
+                    <FieldError id={composerErrorId("pages")} messages={pageErrors} />
+                  </label>
+                ) : null}
+              </>
+            ) : null}
+            {type.attest ? (
+              <div className="flex flex-col gap-2">
+                <label className="flex min-h-[44px] items-center gap-3 text-sm text-muted">
+                  <input
+                    type="checkbox"
+                    className="size-5"
+                    checked={current.attested}
+                    aria-invalid={attestErrors.length > 0 ? true : undefined}
+                    aria-describedby={describedBy("attest", attestErrors)}
+                    onChange={(event) => patch({ attested: event.target.checked })}
+                  />
+                  No child's face. No home address. No private person named who was not acting in
+                  public.
+                </label>
+                <FieldError id={composerErrorId("attest")} messages={attestErrors} />
+              </div>
+            ) : null}
+            <AttachPicture
+              roomId={room}
+              postId={current.postId}
+              media={current.media}
+              onAttached={({ postId, media }) => patch({ postId, media: [media] })}
+              onClear={() => patch({ media: [], postId: "" })}
+            />
+            <FieldError id={composerErrorId("form")} messages={formMessages} />
+            {latestError ? (
+              <p role="alert" className="sr-only">
+                {latestError}
+              </p>
+            ) : null}
+            {check.notes.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm text-muted">
+                {check.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="submit"
+                className={cn(btnSignal, "min-h-[44px]")}
+                disabled={pending}
+                aria-disabled={pending ? true : undefined}
+              >
+                {pending ? "Posting…" : postButtonLabel(type.id)}
+              </button>
+              <button
+                type="button"
+                className={cn(btnQuiet, "ml-auto min-h-[44px]")}
+                onClick={askClear}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </form>
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear this draft?"
+        description="What you wrote will be erased."
+        confirmLabel="Clear it"
+        cancelLabel="Keep it"
+        onConfirm={() => {
+          setConfirmClear(false);
+          reset();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </section>
   );
 }
@@ -328,44 +716,175 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
 function Name({ name }: { name: string }) {
   const view = useBoard((state) => state.view);
   return (
-    <button type="button" className="font-semibold text-fg hover:underline" onClick={() => view(name)}>
+    <button
+      type="button"
+      className="inline-flex min-h-[44px] items-center font-semibold text-fg hover:underline"
+      onClick={() => view(name)}
+    >
       {name}
     </button>
   );
 }
 
-const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canMessage, steward }: { post: Post; replies: Post[]; card?: MeetingCard; trade?: MeetingCard; mine: boolean; canMessage: boolean; steward: boolean }) {
+const PostCard = memo(function PostCard({
+  post,
+  replies,
+  card,
+  trade,
+  mine,
+  canMessage,
+  steward,
+}: {
+  post: Post;
+  replies: Post[];
+  card?: MeetingCard;
+  trade?: MeetingCard;
+  mine: boolean;
+  canMessage: boolean;
+  steward: boolean;
+}) {
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
   const mark = useBoard((state) => state.mark);
   const remove = useBoard((state) => state.remove);
+  const appeal = useBoard((state) => state.appeal);
+  const appeals = useBoard((state) => state.appeals);
   const openDm = useBoard((state) => state.openDm);
+  const remote = useBoard((state) => state.remote);
+  const councilMember = useBoard((state) => state.council);
+  const admin = useBoard((state) => state.admin);
+  const setCouncil = useBoard((state) => state.setCouncil);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [councilReason, setCouncilReason] = useState("");
+  const [councilError, setCouncilError] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
   const [claim, setClaim] = useState(post.claim);
   const [reason, setReason] = useState(post.reason);
   const [removing, setRemoving] = useState(false);
+  const [markDraft, setMarkDraft] = useState<{
+    mark: Mark | null;
+    reason: string;
+    error: string;
+  } | null>(null);
+  const [removeError, setRemoveError] = useState("");
+  const [appealDraft, setAppealDraft] = useState("");
+  const [appealError, setAppealError] = useState("");
+  const [appealing, setAppealing] = useState(false);
+  const appealOpen = appeals.some(
+    (row) => row.postId === post.id && row.kind === "mark" && row.decision === null,
+  );
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark === "sloppy" && "opacity-60")}>
+    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
-          <Name name={post.author} /> · {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
+          <Name name={post.author} /> ·{" "}
+          {post.on ? formatDate(post.on) : <When at={post.at} format={formatWhen} />}
         </span>
         {card ? <span className="text-signal">· {card.name}</span> : null}
         {trade ? <span className="text-muted">· work by {trade.name}</span> : null}
         {type.closable && post.closed ? <span className="text-muted">· answered</span> : null}
-        {post.mark ? <span className="rounded-sm border border-line px-2 py-1 text-muted">{MARK_LABEL[post.mark]}</span> : null}
+        {post.mark ? (
+          <span className="rounded-sm border border-line px-2 py-1 text-muted">
+            {MARK_LABEL[post.mark]}
+          </span>
+        ) : null}
+        {post.council ? (
+          <span className="rounded-sm border border-signal px-2 py-1 text-signal">
+            {post.council.label}
+          </span>
+        ) : null}
       </div>
+      {post.council ? (
+        <div className="mt-2">
+          <p className="text-sm text-muted">{post.council.reason}</p>
+          <ul className="mt-1 list-disc pl-5 text-sm text-muted">
+            {post.council.checklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          {remote && admin ? (
+            <button
+              type="button"
+              className={cn(btnQuiet, "mt-2 px-0")}
+              onClick={() => {
+                void setCouncil(post.id, { action: "revoke", reason: "", checklist: [] }).then(
+                  (result) => {
+                    if (!result.ok) setCouncilError(result.error ?? "That approval was not saved.");
+                  },
+                );
+              }}
+            >
+              Revoke council approval
+            </button>
+          ) : null}
+        </div>
+      ) : remote && councilMember && post.subject && !post.parentId ? (
+        <form
+          className="mt-3 flex flex-col gap-2 border-t border-line pt-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void setCouncil(post.id, {
+              action: "approve",
+              reason: councilReason,
+              checklist: checks,
+            }).then((result) => {
+              setCouncilError(result.ok ? "" : (result.error ?? "That approval was not saved."));
+            });
+          }}
+        >
+          <p className="text-xs tracking-widest text-muted uppercase">Council review</p>
+          {checklistFor(post.subject).map((item) => (
+            <label key={item} className="flex items-start gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={checks.includes(item)}
+                onChange={() =>
+                  setChecks((current) =>
+                    current.includes(item)
+                      ? current.filter((row) => row !== item)
+                      : [...current, item],
+                  )
+                }
+              />
+              {item}
+            </label>
+          ))}
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            One sentence
+            <input
+              className={fieldClass}
+              value={councilReason}
+              onChange={(event) => setCouncilReason(event.target.value)}
+            />
+          </label>
+          <button type="submit" className={btnSignal}>
+            Council-approved
+          </button>
+        </form>
+      ) : null}
+      {councilError ? <p className="mt-2 text-sm text-muted">{councilError}</p> : null}
 
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">
-          <textarea className={cn(fieldClass, "min-h-20")} value={claim} onChange={(e) => setClaim(e.target.value)} />
-          {type.reasonLabel ? <input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} /> : null}
+          <textarea
+            className={cn(fieldClass, "min-h-20")}
+            value={claim}
+            onChange={(e) => setClaim(e.target.value)}
+          />
+          {type.reasonLabel ? (
+            <input
+              className={fieldClass}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          ) : null}
           <div className="flex gap-2">
             <button
               type="button"
@@ -387,6 +906,9 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
         <>
           <p className="mt-2 max-w-prose text-base text-fg">{post.claim}</p>
           {post.reason ? <p className="mt-1 text-sm text-muted">{post.reason}</p> : null}
+          {(post.media ?? []).map((item) => (
+            <SharedMediaFigure key={item.id} item={item} />
+          ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
               {post.came.length > 0 ? `There: ${post.came.join(", ")}. ` : ""}
@@ -413,7 +935,12 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
       <div className="mt-3 flex flex-wrap gap-2">
         {replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <input className={fieldClass} placeholder="A reply with a reason" value={replyText} onChange={(event) => setReplyText(event.target.value)} />
+            <input
+              className={fieldClass}
+              placeholder="A reply with a reason"
+              value={replyText}
+              onChange={(event) => setReplyText(event.target.value)}
+            />
             <button
               type="button"
               className={btnSignal}
@@ -425,7 +952,12 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
             >
               Reply
             </button>
-            <button type="button" className={btnQuiet} onClick={() => setReplying(false)} aria-label="Cancel reply">
+            <button
+              type="button"
+              className={btnQuiet}
+              onClick={() => setReplying(false)}
+              aria-label="Cancel reply"
+            >
               <X className="size-4" aria-hidden="true" />
             </button>
           </div>
@@ -436,13 +968,21 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
           </button>
         )}
         {canMessage ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => openDm(post.author)}>
+          <button
+            type="button"
+            className={cn(btnQuiet, "px-0")}
+            onClick={() => openDm(post.author)}
+          >
             <MessageSquare className="size-4" aria-hidden="true" />
             Message {post.author}
           </button>
         ) : null}
         {mine && type.closable && !post.closed ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => closeAsked(post.id)}>
+          <button
+            type="button"
+            className={cn(btnQuiet, "px-0")}
+            onClick={() => closeAsked(post.id)}
+          >
             <CheckIcon className="size-4" aria-hidden="true" />
             Answered
           </button>
@@ -452,39 +992,251 @@ const PostCard = memo(function PostCard({ post, replies, card, trade, mine, canM
             Revise
           </button>
         ) : null}
+        {mine && post.mark && !appealOpen ? (
+          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setAppealing(true)}>
+            Appeal this mark
+          </button>
+        ) : null}
+        {mine && post.mark && appealOpen ? (
+          <span className="self-center text-sm text-muted">Appeal filed with the stewards.</span>
+        ) : null}
       </div>
 
       {steward ? (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-          <span className="self-center text-xs tracking-widest text-muted uppercase">Steward</span>
-          {MARKS.map((item) => (
-            <button key={item} type="button" className={btnQuiet} onClick={() => mark(post.id, post.mark === item ? null : item)}>
-              <Flag className="size-4" aria-hidden="true" />
-              {post.mark === item ? `Clear ${MARK_LABEL[item].toLowerCase()}` : MARK_LABEL[item]}
-            </button>
-          ))}
-          {removing ? (
-            <>
-              {RULES.map((rule) => (
-                <button key={rule} type="button" className={btnGhost} onClick={() => remove(post.id, rule)}>
-                  Remove: {RULE_LABEL[rule]}
-                </button>
-              ))}
-              <button type="button" className={btnQuiet} onClick={() => setRemoving(false)}>
-                Cancel
+        <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+          <div className="flex flex-wrap gap-2">
+            <span className="self-center text-xs tracking-widest text-muted uppercase">
+              Steward
+            </span>
+            {MARKS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={btnQuiet}
+                onClick={() =>
+                  setMarkDraft({ mark: post.mark === item ? null : item, reason: "", error: "" })
+                }
+              >
+                <Flag className="size-4" aria-hidden="true" />
+                {post.mark === item ? `Clear ${MARK_LABEL[item].toLowerCase()}` : MARK_LABEL[item]}
               </button>
-            </>
-          ) : (
-            <button type="button" className={btnQuiet} onClick={() => setRemoving(true)}>
-              <Trash2 className="size-4" aria-hidden="true" />
-              Remove post
-            </button>
-          )}
+            ))}
+            {removing ? (
+              <>
+                {RULES.map((rule) => (
+                  <button
+                    key={rule}
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => {
+                      void remove(post.id, rule).then((result) => {
+                        if (!result.ok)
+                          setRemoveError(result.error ?? "That post was not removed.");
+                      });
+                    }}
+                  >
+                    Remove: {RULE_LABEL[rule]}
+                  </button>
+                ))}
+                <button type="button" className={btnQuiet} onClick={() => setRemoving(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button type="button" className={btnQuiet} onClick={() => setRemoving(true)}>
+                <Trash2 className="size-4" aria-hidden="true" />
+                Remove post
+              </button>
+            )}
+          </div>
+          {markDraft ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              One sentence, why
+              <input
+                className={fieldClass}
+                value={markDraft.reason}
+                placeholder="The notice does not say where that came from."
+                onChange={(event) =>
+                  setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
+                }
+              />
+              {markDraft.error ? <span className="text-signal">{markDraft.error}</span> : null}
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSignal}
+                  onClick={() => {
+                    void mark(post.id, markDraft.mark, markDraft.reason).then((result) => {
+                      if (!result.ok)
+                        setMarkDraft({
+                          ...markDraft,
+                          error: result.error ?? "That mark was not saved.",
+                        });
+                      else setMarkDraft(null);
+                    });
+                  }}
+                >
+                  Save mark
+                </button>
+                <button type="button" className={btnQuiet} onClick={() => setMarkDraft(null)}>
+                  Cancel
+                </button>
+              </span>
+            </label>
+          ) : null}
+          {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {appealing ? (
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              One sentence to the stewards
+              <input
+                className={fieldClass}
+                value={appealDraft}
+                placeholder="The mark names the side, not the missing reason."
+                onChange={(event) => {
+                  setAppealDraft(event.target.value);
+                  setAppealError("");
+                }}
+              />
+              {appealError ? <span className="text-signal">{appealError}</span> : null}
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSignal}
+                  onClick={() => {
+                    void appeal(post.id, "mark", appealDraft).then((result) => {
+                      if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
+                      else {
+                        setAppealing(false);
+                        setAppealDraft("");
+                      }
+                    });
+                  }}
+                >
+                  File appeal
+                </button>
+                <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
+                  Cancel
+                </button>
+              </span>
+            </label>
+          ) : null}
+          {removing ? (
+            <p className="text-sm text-muted">
+              Removing a post bars the account. The reason stays in the log. A mark never hides a
+              post. {RULE_SENTENCE.doxxing} {RULE_SENTENCE.blasphemy}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </article>
   );
 });
+
+function AppealLog() {
+  const room = useBoard((state) => state.room);
+  const appeals = useBoard((state) => state.appeals);
+  const decideAppeal = useBoard((state) => state.decideAppeal);
+  const steward = useBoard((state) => state.steward);
+  const me = useBoard((state) => authorName(state.me));
+  const rows = appeals.filter((row) => row.room === room).slice(0, 20);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  if (rows.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+        Appeals in this room
+      </h2>
+      <ul className="flex flex-col gap-3 text-sm text-muted">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <p>
+              {row.author} appealed a {row.kind}
+              {row.rule ? ` (${RULE_LABEL[row.rule]})` : ""}: {row.reason} ·{" "}
+              <When at={row.at} format={formatWhen} />
+            </p>
+            {row.decision ? (
+              <p>
+                {row.decidedBy} {row.decision === "lift" ? "lifted" : "upheld"} it
+                {row.decisionNote ? `: ${row.decisionNote}` : ""}
+                {row.decidedAt ? (
+                  <>
+                    {" "}
+                    · <When at={row.decidedAt} format={formatWhen} />
+                  </>
+                ) : null}
+              </p>
+            ) : steward && row.author !== me ? (
+              openId === row.id ? (
+                <label className="mt-2 flex flex-col gap-2">
+                  One sentence
+                  <input
+                    className={fieldClass}
+                    value={note}
+                    onChange={(event) => {
+                      setNote(event.target.value);
+                      setError("");
+                    }}
+                  />
+                  {error ? <span className="text-signal">{error}</span> : null}
+                  <span className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={btnSignal}
+                      onClick={() => {
+                        void decideAppeal(row.id, "uphold", note).then((result) => {
+                          if (!result.ok) setError(result.error ?? "That decision was not saved.");
+                          else setOpenId(null);
+                        });
+                      }}
+                    >
+                      Uphold
+                    </button>
+                    {row.rule === "csam" ? (
+                      <span>This removal stays.</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={btnQuiet}
+                        onClick={() => {
+                          void decideAppeal(row.id, "lift", note).then((result) => {
+                            if (!result.ok)
+                              setError(result.error ?? "That decision was not saved.");
+                            else setOpenId(null);
+                          });
+                        }}
+                      >
+                        Lift
+                      </button>
+                    )}
+                    <button type="button" className={btnQuiet} onClick={() => setOpenId(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                </label>
+              ) : (
+                <button
+                  type="button"
+                  className={cn(btnQuiet, "px-0")}
+                  onClick={() => {
+                    setOpenId(row.id);
+                    setNote("");
+                    setError("");
+                  }}
+                >
+                  Decide
+                </button>
+              )
+            ) : (
+              <p>Waiting on the stewards.</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function MarkLog() {
   const room = useBoard((state) => state.room);
@@ -493,11 +1245,17 @@ function MarkLog() {
   if (rows.length === 0) return null;
   return (
     <section className="flex flex-col gap-2 border-t border-line pt-4">
-      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">Steward marks in this room</h2>
+      <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+        Steward marks in this room
+      </h2>
       <ul className="flex flex-col gap-1 text-sm text-muted">
         {rows.map((row) => (
           <li key={row.id}>
-            {row.by} {row.mark ? `marked ${row.author}'s post ${row.mark}` : `cleared a mark on ${row.author}'s post`} · <When at={row.at} format={formatWhen} />
+            {row.by}{" "}
+            {row.mark
+              ? `marked ${row.author}'s post ${MARK_LABEL[row.mark]}`
+              : `cleared a mark on ${row.author}'s post`}
+            {row.reason ? `: ${row.reason}` : ""} · <When at={row.at} format={formatWhen} />
           </li>
         ))}
       </ul>

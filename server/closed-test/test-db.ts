@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
+import { isSkipEmbedded } from "../../scripts/migration-plan.mjs";
 import type { Db } from "../db.ts";
 
 export async function openTestDb(): Promise<{ db: Db; pg: PGlite; close: () => Promise<void> }> {
@@ -8,7 +9,10 @@ export async function openTestDb(): Promise<{ db: Db; pg: PGlite; close: () => P
   const dir = new URL("../../migrations/", import.meta.url);
   const names = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
   for (const name of names) {
-    await pg.exec(await readFile(new URL(name, dir), "utf8"));
+    const sql = await readFile(new URL(name, dir), "utf8");
+    // Logins are for the closed-test Postgres. The embedded database skips them.
+    if (isSkipEmbedded(sql)) continue;
+    await pg.exec(sql);
   }
   const adapter = (queryable: {
     query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
@@ -21,6 +25,9 @@ export async function openTestDb(): Promise<{ db: Db; pg: PGlite; close: () => P
     async transaction<T>(fn: (tx: Db) => Promise<T>) {
       if (!queryable.transaction) throw new Error("This connection cannot open a transaction.");
       return queryable.transaction(async (tx) => fn(adapter(tx)));
+    },
+    async session<T>(fn: (db: Db) => Promise<T>) {
+      return fn(adapter(queryable));
     },
   });
   return { db: adapter(pg), pg, close: () => pg.close() };

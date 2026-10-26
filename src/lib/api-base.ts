@@ -2,9 +2,10 @@
  * Browser calls to the dedicated-box API.
  *
  * `VITE_API_BASE_URL` is baked in at build time (Vite only exposes `VITE_`
- * vars to the client). Leave it empty for same-origin paths: local dev, and
- * any host that reverse-proxies `/api` itself. Set it to the API origin
+ * vars to the client). Leave it empty for same-origin paths: a host that
+ * reverse-proxies `/api` itself. Set it to the API origin
  * (`https://api.avouchsocial.com`) for the static site on Cloudflare.
+ * `VITE_DEMO=1` keeps the board in the browser and does not call `/api`.
  *
  * The static Worker answers `/api` with a JSON 503 until the dedicated box
  * exists. An HTML body (a shell, or an error page) is still treated as
@@ -21,15 +22,20 @@ export function resolveApiUrl(path: string, base: string | undefined | null): st
   return `${trimmed}${normalized}`;
 }
 
+function readVite(name: string): string | undefined {
+  const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  const value = env?.[name];
+  return typeof value === "string" ? value : undefined;
+}
+
 /** Configured API origin, without a trailing slash. Empty when unset. */
 export function apiBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL;
-  return typeof raw === "string" ? raw.trim().replace(/\/+$/, "") : "";
+  return (readVite("VITE_API_BASE_URL") ?? "").trim().replace(/\/+$/, "");
 }
 
 /** Absolute or same-origin URL for an API path such as `/api/auth/get-session`. */
 export function apiUrl(path: string): string {
-  return resolveApiUrl(path, import.meta.env.VITE_API_BASE_URL as string | undefined);
+  return resolveApiUrl(path, readVite("VITE_API_BASE_URL"));
 }
 
 /** JSON 503 used when the API cannot be reached or answered with HTML. */

@@ -1,6 +1,8 @@
 export type AccountUser = { id: string; name: string; email: string };
 
-export type AccountResult = { ok: true; user: AccountUser | null } | { ok: false; message: string };
+export type AccountResult =
+  | { ok: true; user: AccountUser | null }
+  | { ok: false; message: string; code?: string };
 
 export function parseAccountResult(status: number, body: unknown): AccountResult {
   if (status >= 200 && status < 300) {
@@ -8,14 +10,17 @@ export function parseAccountResult(status: number, body: unknown): AccountResult
     return { ok: true, user: parseUser(user) };
   }
   const record =
-    body && typeof body === "object" ? (body as { error?: unknown; message?: unknown }) : {};
+    body && typeof body === "object"
+      ? (body as { error?: unknown; message?: unknown; code?: unknown })
+      : {};
   const message =
     typeof record.message === "string"
       ? record.message
       : typeof record.error === "string"
         ? record.error
         : "The server did not accept that.";
-  return { ok: false, message };
+  const code = typeof record.code === "string" && record.code ? record.code : undefined;
+  return code ? { ok: false, message, code } : { ok: false, message };
 }
 
 export function parseSessionBody(status: number, body: unknown): AccountUser | null {

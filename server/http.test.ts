@@ -117,6 +117,40 @@ test("signup requires an invite, then a member can read who invited whom", async
       }),
     );
     assert.equal(missing.status, 400);
+    const missingBody = (await missing.json()) as { error?: string; code?: string };
+    assert.equal(missingBody.error, "Enter the invite code.");
+    assert.equal(missingBody.code, "invite_invalid");
+    const wrong = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Maria",
+          email: "maria@example.com",
+          password: "correct-horse",
+          inviteCode: "NOT-A-CODE",
+        }),
+      }),
+    );
+    assert.equal(wrong.status, 400);
+    const wrongBody = (await wrong.json()) as { error?: string; code?: string };
+    assert.equal(wrongBody.error, "That code is not valid.");
+    assert.equal(wrongBody.code, "invite_invalid");
+    const named = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "",
+          email: "maria@example.com",
+          password: "correct-horse",
+          inviteCode: "NOT-A-CODE",
+        }),
+      }),
+    );
+    const namedBody = (await named.json()) as { error?: string; code?: string };
+    assert.equal(namedBody.error, "Enter your name.");
+    assert.equal(namedBody.code, undefined);
 
     const minted = await mintInvite(
       db,
@@ -312,6 +346,74 @@ test("sign-in is limited per address and per email and a blocked attempt is not 
     );
     assert.equal(sameEmail.status, 429);
     assert.equal(forwarded, ATTEMPT_LIMIT.max);
+  } finally {
+    await close();
+  }
+});
+
+test("a bad email is refused and does not become a rate-limit key", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const huge = `${"a".repeat(190)}@example.com`;
+    const response = await handler(
+      attempt("/api/signup", "203.0.113.40", JSON.stringify({ name: "A", email: huge, password: "short" })),
+    );
+    assert.equal(response.status, 400);
+    const keys = (await db.query<{ key: string }>(`select "key" from "rateLimit"`)).map((row) => row.key);
+    assert.deepEqual(keys, ["signup:ip:203.0.113.40"]);
+    assert.equal(keys.some((key) => key.includes(huge)), false);
+  } finally {
+    await close();
+  }
+});
+
+test("gmail dots share an email bucket, other domains keep dots, and one IPv6 /64 shares an address bucket", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const dotted = JSON.stringify({ name: "A", email: "A.B+tag@Gmail.com", password: "short" });
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(attempt("/api/signup", "2001:db8:4:5::1", dotted));
+      assert.equal(response.status, 400);
+    }
+    const sameEmail = await handler(
+      attempt(
+        "/api/signup",
+        "203.0.113.41",
+        JSON.stringify({ name: "A", email: "ab@googlemail.com", password: "short" }),
+      ),
+    );
+    assert.equal(sameEmail.status, 429);
+    const corp = JSON.stringify({ name: "B", email: "first.last@corp.com", password: "short" });
+    for (let n = 0; n < ATTEMPT_LIMIT.max; n += 1) {
+      const response = await handler(attempt("/api/signup", `203.0.113.${50 + n}`, corp));
+      assert.equal(response.status, 400);
+    }
+    const otherMailbox = await handler(
+      attempt(
+        "/api/signup",
+        "203.0.113.60",
+        JSON.stringify({ name: "B", email: "firstlast@corp.com", password: "short" }),
+      ),
+    );
+    assert.equal(otherMailbox.status, 400);
+    const samePrefix = await handler(
+      attempt(
+        "/api/signup",
+        "2001:db8:4:5:ffff::99",
+        JSON.stringify({ name: "C", email: "c@example.com", password: "short" }),
+      ),
+    );
+    assert.equal(samePrefix.status, 429);
+    const otherPrefix = await handler(
+      attempt(
+        "/api/signup",
+        "2001:db8:4:6::1",
+        JSON.stringify({ name: "D", email: "d@example.com", password: "short" }),
+      ),
+    );
+    assert.equal(otherPrefix.status, 400);
   } finally {
     await close();
   }

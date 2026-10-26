@@ -40,6 +40,9 @@ export function normalizeInviteCode(code: string): string {
 
 export const GENERIC_SIGNUP_ERROR = "Could not create the account.";
 
+/** Machine type for a missing, unknown, used, or expired invite code. */
+export const INVITE_INVALID = "invite_invalid";
+
 const CODE_LENGTH = 8;
 /** Largest multiple of the alphabet that fits in a byte. Bytes at or above this are discarded. */
 const UNBIASED_LIMIT = Math.floor(256 / ALPHABET.length) * ALPHABET.length;

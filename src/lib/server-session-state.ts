@@ -8,7 +8,7 @@ import {
 import type { ApiMode } from "@/lib/api-mode";
 
 export type ServerSession = {
-  /** True when VITE_API_BASE_URL was set at build time. */
+  /** False only when VITE_DEMO forces the browser. Same-origin /api still counts. */
   configured: boolean;
   mode: "pending" | ApiMode;
   user: AccountUser | null;

@@ -9,6 +9,7 @@ import {
   founderNameFromEnv,
   generateInviteCode,
   hashInviteCode,
+  INVITE_INVALID,
   inviteBlock,
   isLiveGrant,
   normalizeInviteCode,
@@ -49,11 +50,11 @@ export type SignIn = (input: {
 }) => Promise<{ ok: true; user: CreatedUser } | { ok: false; status: number; message: string }>;
 
 export type Ok<T> = { ok: true; value: T };
-export type Err = { ok: false; status: number; error: string };
+export type Err = { ok: false; status: number; error: string; code?: string };
 export type Result<T> = Ok<T> | Err;
 
-function fail(status: number, error: string): Err {
-  return { ok: false, status, error };
+function fail(status: number, error: string, code?: string): Err {
+  return code ? { ok: false, status, error, code } : { ok: false, status, error };
 }
 
 type InviteRecord = {
@@ -140,6 +141,7 @@ async function explainBlockedCode(db: Db, code: string, now: Date): Promise<Err>
         : null,
       now,
     ) ?? "That code is not valid.",
+    INVITE_INVALID,
   );
 }
 
@@ -161,7 +163,7 @@ export async function redeemInvite(
   if (!validPersonName(name)) return fail(400, "Enter your name.");
   if (!validEmail(email)) return fail(400, "Enter an email address.");
   if (!validPassword(input.password)) return fail(400, "Use a password of 8 to 128 characters.");
-  if (!code) return fail(400, "Enter the invite code.");
+  if (!code) return fail(400, "Enter the invite code.", INVITE_INVALID);
 
   let reservedId = "";
   let invitedBy = "";
@@ -194,6 +196,14 @@ export async function redeemInvite(
          values ($1, $2, $3, 'member', $4, 'grant', $5, '', $5, $6)`,
         [randomUUID(), account.id, name, reserved.room_id, invitedByName, MEMBER_NOTE],
       );
+      if (reserved.room_id) {
+        await tx.query(
+          `insert into room_member (room_id, user_id)
+           select id, $2 from room where id = $1
+           on conflict do nothing`,
+          [reserved.room_id, account.id],
+        );
+      }
       return { inviteId: reserved.id, invitedBy: reserved.created_by, userId: account.id };
     });
     if (!saved) return explainBlockedCode(db, code, now);

@@ -1,15 +1,40 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import {
+  hasClock,
+  hasHeadcount,
+  hasStreetAddress,
+  isEnglish,
+  looksLikeBlasphemy,
+  looksLikeDoxxing,
+  looksLikePorn,
+  looksLikeThreat,
+  type HardRuleValue,
+  type MarkValue,
+} from "./text.ts";
+import { meetingDates, shiftLocalDate } from "./week-days.ts";
+
 export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
 
-export type RoomId = "county" | "question" | "shop" | "shelf" | "coop" | "baptist" | "presbyterian" | "latin" | "orthodox" | "dispatch";
+export type RoomId =
+  | "county"
+  | "question"
+  | "shop"
+  | "shelf"
+  | "coop"
+  | "baptist"
+  | "presbyterian"
+  | "latin"
+  | "orthodox"
+  | "dispatch"
+  | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
-export type Mark = "sloppy" | "unsupported";
+export type Mark = MarkValue;
 export type Section = "week" | "rooms" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
-export type HardRule = "threat" | "porn" | "csam";
+export type HardRule = HardRuleValue;
 
 export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
@@ -29,7 +54,13 @@ export const NAMED_SHOWN = 3;
  * founder code and becomes a steward; everyone after that gets in by a
  * host's code to a card. Set VITE_FOUNDER_CODE in .env for a real box.
  */
-export const FOUNDER_CODE = (import.meta.env.VITE_FOUNDER_CODE as string | undefined)?.trim().toUpperCase() || "FOUNDER";
+function readFounderCode(): string {
+  const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  const raw = env?.VITE_FOUNDER_CODE;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : "FOUNDER";
+}
+
+export const FOUNDER_CODE = readFounderCode();
 
 export type Room = {
   id: RoomId;
@@ -68,7 +99,21 @@ export type Post = {
   campaignId?: string;
   cardId?: string;
   tradeId?: string;
+  /** Candidate or business. The council can label one of these, once. */
+  subject?: "candidate" | "business";
+  /** A one-time label. It does not move the post. */
+  council?: {
+    label: "Council-approved";
+    reason: string;
+    checklist: string[];
+    approvalId: string;
+  } | null;
+  /** One picture or video, kept with the post. Older posts omit this. */
+  media?: SharedMedia[];
 };
+
+/** A picture or video stored for members. The bytes are not in the browser's board. */
+export type SharedMedia = { id: string; kind: "image" | "video" };
 
 export type Slot = { day: string; by: string };
 
@@ -82,6 +127,12 @@ export type MeetingCard = {
   time: string;
   host: string;
   next: string;
+  /** Host paused the series. It does not fill the week. */
+  paused?: boolean;
+  /** This meeting was cancelled. */
+  cancelled?: boolean;
+  /** Last day the series still meets, inclusive. */
+  until?: string;
   lastFour: boolean[];
   /** Names who have been, the lister first. Two names list a card. */
   wentBy: string[];
@@ -108,33 +159,218 @@ export type Invite = {
 
 export type Profile = { household: string; parish: string; trade: string };
 
-export type MarkRow = { id: string; room: RoomId; postId: string; author: string; by: string; mark: Mark | null; at: number };
-export type RemovalRow = { id: string; postId: string; author: string; reason: HardRule; at: number };
+export type MarkRow = {
+  id: string;
+  room: RoomId;
+  postId: string;
+  author: string;
+  by: string;
+  mark: Mark | null;
+  /** One sentence. A mark never hides the post. */
+  reason: string;
+  at: number;
+};
+export type RemovalRow = {
+  id: string;
+  postId: string;
+  author: string;
+  reason: HardRule;
+  at: number;
+  /** A room chat line. A post leaves this off. */
+  roomChat?: boolean;
+};
+export type BanRow = {
+  id: string;
+  author: string;
+  reason: HardRule;
+  until: number;
+  strikes: number;
+  at: number;
+};
+export type AppealKind = "mark" | "removal";
+export type AppealDecision = "uphold" | "lift";
+export type AppealRow = {
+  id: string;
+  room: RoomId;
+  postId: string;
+  author: string;
+  kind: AppealKind;
+  reason: string;
+  decision: AppealDecision | null;
+  decisionNote: string;
+  decidedBy: string;
+  at: number;
+  decidedAt: number | null;
+  /** Set when the appeal is of a removal. Null on a mark. */
+  rule: HardRule | null;
+};
+/** Metadata for a hand-filed CyberTipline report. The post itself is not here. */
+export type CsamReport = {
+  id: string;
+  postId: string;
+  room: string;
+  author: string;
+  accountId: string;
+  incidentAt: number;
+  retainUntil: number;
+  mediaCount: number;
+  byteSize: number;
+  mediaTypes: string[];
+  status: "prepared" | "pending_seal" | "filed";
+  reportId: string;
+  filedAt: number | null;
+  filedBy: string;
+};
 export type DmThread = { id: string; between: [string, string] };
-export type DmMessage = { id: string; threadId: string; from: string; text: string; at: number };
+export type DmMessage = {
+  id: string;
+  threadId: string;
+  from: string;
+  text: string;
+  at: number;
+  media?: SharedMedia[];
+};
 
 export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
   porn: "Pornography",
   csam: "Child sexual abuse material",
+  doxxing: "Doxxing",
+  blasphemy: "Mocking God or Christ",
 };
-export const MARK_LABEL: Record<Mark, string> = { sloppy: "Sloppy", unsupported: "Unsupported" };
+/** One sentence a steward can apply the same way to every member. */
+export const RULE_SENTENCE: Record<HardRule, string> = {
+  threat: "A threat of violence is removed.",
+  porn: "Pornography is removed.",
+  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel.",
+  doxxing:
+    "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
+  blasphemy: "A post that mocks God or Christ is removed.",
+};
+export const MARK_LABEL: Record<Mark, string> = {
+  sloppy: "Sloppy",
+  unsupported: "No legs",
+  out_of_scope: "Out of scope",
+};
 
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
 export const ROOMS: Room[] = [
-  { id: "county", name: "The County", what: "County hearings, bills, and the week's coordinated phone call to one official. Candidate events are allowed, labeled as such.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "candidate"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
-  { id: "question", name: "Debate Night", what: "A debate once a month at a brewery or a hall. One question, two sides, a Christian host, anyone welcome. Afterwards the host writes up how it went and names next month's question.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Debate", requiresNextDate: true, parish: false },
-  { id: "shop", name: "The Shop", what: "Hands-on nights: woodworking, the radio net, the gym hour. Also the directory of tradesmen that members have vouched for.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting", "trade"], cardNoun: "Meeting", requiresNextDate: true, parish: false },
-  { id: "shelf", name: "Literary Society", what: "A reading group. One book at a time, a few chapters between meetings, talked through around a table. The host says what to read before next time.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Reading", requiresNextDate: true, parish: false },
-  { id: "coop", name: "The Co-op", what: "Homeschool and classical co-op chapters, by household.", takes: MEMBER, stewardTakes: ["noted"], cardKinds: ["meeting"], cardNoun: "Meeting", requiresNextDate: false, parish: false },
-  { id: "baptist", name: "Reformed Baptist", what: "Reformed Baptist churches that hold the 1689 Confession. Service times, the meal after, the church calendar, and families who need meals this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
-  { id: "presbyterian", name: "Reformed Presbyterian", what: "Reformed Presbyterian churches that hold the Westminster Standards. Service times, the meal after, the church calendar, and families who need meals this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
-  { id: "latin", name: "Latin Mass", what: "Traditional Latin Mass. Service times, the meal after, the church calendar, and families who need meals this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
-  { id: "orthodox", name: "Greek Orthodox", what: "Greek Orthodox. Service times, the meal after, the church calendar, and families who need meals this week.", takes: SERVICE, stewardTakes: ["noted"], cardKinds: ["meeting", "need"], cardNoun: "Service", requiresNextDate: false, parish: true },
-  { id: "dispatch", name: "Dispatch", what: "Notices from the stewards: a road closed, a hearing moved. Members read; only stewards post.", takes: [], stewardTakes: ["saw"], cardKinds: [], cardNoun: "Meeting", requiresNextDate: false, parish: false },
+  {
+    id: "county",
+    name: "The County",
+    what: "County hearings, bills, and the week's coordinated phone call to one official. Candidate events are allowed, labeled as such.",
+    takes: MEMBER,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "candidate"],
+    cardNoun: "Meeting",
+    requiresNextDate: false,
+    parish: false,
+  },
+  {
+    id: "question",
+    name: "Debate Night",
+    what: "A debate once a month at a brewery or a hall. One question, two sides, a Christian host, anyone welcome. Afterwards the host writes up how it went and names next month's question.",
+    takes: MEMBER,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting"],
+    cardNoun: "Debate",
+    requiresNextDate: true,
+    parish: false,
+  },
+  {
+    id: "shop",
+    name: "The Shop",
+    what: "Hands-on nights: woodworking, the radio net, the gym hour. Also the directory of tradesmen that members have vouched for.",
+    takes: MEMBER,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "trade"],
+    cardNoun: "Meeting",
+    requiresNextDate: true,
+    parish: false,
+  },
+  {
+    id: "shelf",
+    name: "Literary Society",
+    what: "A reading group. One book at a time, a few chapters between meetings, talked through around a table. The host says what to read before next time.",
+    takes: MEMBER,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting"],
+    cardNoun: "Reading",
+    requiresNextDate: true,
+    parish: false,
+  },
+  {
+    id: "coop",
+    name: "The Co-op",
+    what: "Homeschool and classical co-op chapters, by household.",
+    takes: MEMBER,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting"],
+    cardNoun: "Meeting",
+    requiresNextDate: false,
+    parish: false,
+  },
+  {
+    id: "baptist",
+    name: "Reformed Baptist",
+    what: "Reformed Baptist churches that hold the 1689 Confession. Service times, the meal after, the church calendar, and families who need meals this week.",
+    takes: SERVICE,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "need"],
+    cardNoun: "Service",
+    requiresNextDate: false,
+    parish: true,
+  },
+  {
+    id: "presbyterian",
+    name: "Reformed Presbyterian",
+    what: "Reformed Presbyterian churches that hold the Westminster Standards. Service times, the meal after, the church calendar, and families who need meals this week.",
+    takes: SERVICE,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "need"],
+    cardNoun: "Service",
+    requiresNextDate: false,
+    parish: true,
+  },
+  {
+    id: "latin",
+    name: "Latin Mass",
+    what: "Traditional Latin Mass. Service times, the meal after, the church calendar, and families who need meals this week.",
+    takes: SERVICE,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "need"],
+    cardNoun: "Service",
+    requiresNextDate: false,
+    parish: true,
+  },
+  {
+    id: "orthodox",
+    name: "Greek Orthodox",
+    what: "Greek Orthodox. Service times, the meal after, the church calendar, and families who need meals this week.",
+    takes: SERVICE,
+    stewardTakes: ["noted"],
+    cardKinds: ["meeting", "need"],
+    cardNoun: "Service",
+    requiresNextDate: false,
+    parish: true,
+  },
+  {
+    id: "dispatch",
+    name: "Dispatch",
+    what: "Notices from the stewards: a road closed, a hearing moved. Members read; only stewards post.",
+    takes: [],
+    stewardTakes: ["saw"],
+    cardKinds: [],
+    cardNoun: "Meeting",
+    requiresNextDate: false,
+    parish: false,
+  },
 ];
+
+/** Room ids shipped in code. A group cannot take one, even if the row is missing. */
+export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));
 
 export type TypeMeta = {
   id: PostType;
@@ -152,23 +388,112 @@ export type TypeMeta = {
 };
 
 export const POST_TYPES: TypeMeta[] = [
-  { id: "did", label: "Did", what: "Something you did, with the date and one piece of proof: who was there, a receipt, a photo you took.", claimLabel: "What you did", reasonLabel: "One proof", dateLabel: "Date", cardPick: "optional", tradePick: true, attest: false, closes: false, closable: false },
-  { id: "asked", label: "Asked", what: "One question, and what you already tried. Mark it answered when someone answers it.", claimLabel: "The question", reasonLabel: "What you already tried", cardPick: "none", tradePick: false, attest: false, closes: false, closable: true },
-  { id: "noted", label: "Notice", what: "A steward's announcement, with where it comes from.", claimLabel: "The notice", reasonLabel: "Where it comes from", cardPick: "none", tradePick: false, attest: false, closes: false, closable: false },
-  { id: "saw", label: "Bulletin", what: "A steward's notice about something happening in public right now, with the time and the block.", claimLabel: "What is happening, in public", reasonLabel: "The clock and the street or block", dateLabel: "Date", cardPick: "none", tradePick: false, attest: true, closes: false, closable: false },
-  { id: "hosted", label: "Hosted", what: "The host's write-up after a meeting: how it went, who came, one person worth mentioning, and the next date. No headcount.", claimLabel: "How it went", dateLabel: "The date it happened", cardPick: "own", tradePick: false, attest: false, closes: true, closable: false },
+  {
+    id: "did",
+    label: "Did",
+    what: "Something you did, with the date and one piece of proof: who was there, a receipt, a photo you took.",
+    claimLabel: "What you did",
+    reasonLabel: "One proof",
+    dateLabel: "Date",
+    cardPick: "optional",
+    tradePick: true,
+    attest: false,
+    closes: false,
+    closable: false,
+  },
+  {
+    id: "asked",
+    label: "Asked",
+    what: "One question, and what you already tried. Mark it answered when someone answers it.",
+    claimLabel: "The question",
+    reasonLabel: "What you already tried",
+    cardPick: "none",
+    tradePick: false,
+    attest: false,
+    closes: false,
+    closable: true,
+  },
+  {
+    id: "noted",
+    label: "Notice",
+    what: "A steward's announcement, with where it comes from.",
+    claimLabel: "The notice",
+    reasonLabel: "Where it comes from",
+    cardPick: "none",
+    tradePick: false,
+    attest: false,
+    closes: false,
+    closable: false,
+  },
+  {
+    id: "saw",
+    label: "Bulletin",
+    what: "A steward's notice about something happening in public right now, with the time and the block.",
+    claimLabel: "What is happening, in public",
+    reasonLabel: "The clock and the street or block",
+    dateLabel: "Date",
+    cardPick: "none",
+    tradePick: false,
+    attest: true,
+    closes: false,
+    closable: false,
+  },
+  {
+    id: "hosted",
+    label: "Hosted",
+    what: "The host's write-up after a meeting: how it went, who came, one person worth mentioning, and the next date. No headcount.",
+    claimLabel: "How it went",
+    dateLabel: "The date it happened",
+    cardPick: "own",
+    tradePick: false,
+    attest: false,
+    closes: true,
+    closable: false,
+  },
 ];
 
-export const CARD_LABELS: Record<"meeting" | "trade" | "need", { name: string; place: string; time: string; host: string }> = {
+export const CARD_LABELS: Record<
+  "meeting" | "trade" | "need",
+  { name: string; place: string; time: string; host: string }
+> = {
   meeting: { name: "Name", place: "Place", time: "Time", host: "Host" },
-  trade: { name: "Business or tradesman", place: "Town", time: "What they do", host: "Their name here" },
-  need: { name: "Who needs it (household, first names only)", place: "Where to bring it", time: "What is needed", host: "Who is organizing" },
+  trade: {
+    name: "Business or tradesman",
+    place: "Town",
+    time: "What they do",
+    host: "Their name here",
+  },
+  need: {
+    name: "Who needs it (household, first names only)",
+    place: "Where to bring it",
+    time: "What is needed",
+    host: "Who is organizing",
+  },
 };
 
-export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+export const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
-export function roomById(id: RoomId): Room {
-  return ROOMS.find((room) => room.id === id) ?? ROOMS[0];
+/** Replaced when the server sends its room list. Demo mode keeps ROOMS. */
+let roomCatalog: readonly Room[] = ROOMS;
+
+export function setRoomCatalog(rooms: readonly Room[]) {
+  roomCatalog = rooms.length > 0 ? rooms : ROOMS;
+}
+
+export function currentRooms(): readonly Room[] {
+  return roomCatalog;
+}
+
+export function roomById(id: RoomId, rooms: readonly Room[] = roomCatalog): Room {
+  return rooms.find((room) => room.id === id) ?? ROOMS.find((room) => room.id === id) ?? ROOMS[0];
 }
 
 export function typeMeta(type: PostType): TypeMeta {
@@ -195,14 +520,16 @@ export function todayIso(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Local calendar days. Adding 24 hours repeats the fallback day and drops the Saturday after it. */
 export function addDays(iso: string, days: number): string {
-  const date = parseIsoDate(iso);
-  return date ? todayIso(new Date(date.getTime() + days * DAY)) : iso;
+  return shiftLocalDate(iso, days);
 }
 
 export function formatDate(iso: string): string {
   const date = parseIsoDate(iso);
-  return date ? date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : iso;
+  return date
+    ? date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+    : iso;
 }
 
 export function formatWhen(at: number, now: number): string {
@@ -214,7 +541,9 @@ export function formatWhen(at: number, now: number): string {
   return new Date(at).toLocaleDateString();
 }
 
-export function newPost(fields: Pick<Post, "room" | "type" | "claim" | "author"> & Partial<Post>): Post {
+export function newPost(
+  fields: Pick<Post, "room" | "type" | "claim" | "author"> & Partial<Post>,
+): Post {
   return {
     id: crypto.randomUUID(),
     reason: "",
@@ -228,10 +557,14 @@ export function newPost(fields: Pick<Post, "room" | "type" | "claim" | "author">
     mark: null,
     removed: false,
     ...fields,
+    media: fields.media ?? [],
   };
 }
 
-export function newCard(fields: Pick<MeetingCard, "room" | "kind" | "name" | "place" | "time" | "host"> & Partial<MeetingCard>): MeetingCard {
+export function newCard(
+  fields: Pick<MeetingCard, "room" | "kind" | "name" | "place" | "time" | "host"> &
+    Partial<MeetingCard>,
+): MeetingCard {
   return {
     id: crypto.randomUUID(),
     next: "",
@@ -259,15 +592,8 @@ export function inviteLive(invite: Invite, now: number): boolean {
 }
 
 // --- The composer check -----------------------------------------------------
-
-const CLOCK = /\b(\d{1,2}:\d{2}|\d{1,2}\s?(a\.?m\.?|p\.?m\.?)|noon|midnight)\b/i;
-const STREET_ADDRESS =
-  /\b\d{2,6}\s+[A-Za-z0-9.'-]+(\s+[A-Za-z0-9.'-]+){0,3}\s+(st|street|ave|avenue|rd|road|dr|drive|ln|lane|ct|court|blvd|way|pl|place|cir|circle|ter|terrace)\b\.?/i;
-// Crude backstops before send. The steward's hard remove is the real rule.
-const THREAT =
-  /\b(i('| wi)ll|we('| wi)ll|gonna|going to|should|let's|lets)\s+(kill|shoot|stab|hang|burn|beat|hurt|bomb|lynch)\b|\b(kill|shoot|hang|burn)\s+(him|her|them|you|that)\b/i;
-const PORN = /\b(porn|pornograph|xxx|onlyfans|nsfw)\b/i;
-const HEADCOUNT = /\b\d+\s*(people|folks|came|showed|attended|turned out|of us|guys|men|women)\b|\b(turnout|headcount|attendance)\b/i;
+// Threats, pornography, doxxing, blasphemy, and headcounts are caught here.
+// The steward's hard remove is the real rule.
 
 export type Draft = {
   room: RoomId;
@@ -283,25 +609,142 @@ export type Draft = {
   attested: boolean;
   cardId: string;
   tradeId: string;
+  /** Set when a picture is uploaded, so the post id matches the stored object. */
+  postId: string;
+  media: SharedMedia[];
+  subject: "" | "candidate" | "business";
 };
 
 export function blankDraft(room: RoomId): Draft {
-  return { room, type: null, claim: "", reason: "", on: todayIso(), next: "", came: [], named: "", pages: "", attested: false, cardId: "", tradeId: "" };
+  return {
+    room,
+    type: null,
+    claim: "",
+    reason: "",
+    on: todayIso(),
+    next: "",
+    came: [],
+    named: "",
+    pages: "",
+    attested: false,
+    cardId: "",
+    tradeId: "",
+    postId: "",
+    media: [],
+    subject: "",
+  };
 }
 
-export type Check = { ok: boolean; stops: string[]; notes: string[] };
-export type CheckContext = { author: string; steward: boolean; posts: Post[]; cards: MeetingCard[]; removals: RemovalRow[]; now: number };
+export type ComposerField =
+  | "type"
+  | "claim"
+  | "reason"
+  | "on"
+  | "next"
+  | "card"
+  | "trade"
+  | "named"
+  | "pages"
+  | "attest"
+  | "form";
+
+export function composerErrorId(field: ComposerField): string {
+  return `composer-${field}-error`;
+}
+
+/** The plain-language post button for each kind of post. */
+export function postButtonLabel(type: PostType): string {
+  switch (type) {
+    case "asked":
+      return "Post question";
+    case "did":
+      return "Post what you did";
+    case "noted":
+      return "Post notice";
+    case "saw":
+      return "Post bulletin";
+    case "hosted":
+      return "Post meeting";
+  }
+}
+
+/**
+ * Enter posts from a single-line field. A textarea inserts a newline on Enter,
+ * and posts on Ctrl+Enter or Cmd+Enter. Shift+Enter never posts.
+ */
+export function composerSubmitsOnEnter(
+  key: string,
+  modifiers: { meta: boolean; ctrl: boolean; shift: boolean },
+  multiline: boolean,
+): boolean {
+  if (key !== "Enter" || modifiers.shift) return false;
+  return multiline ? modifiers.meta || modifiers.ctrl : true;
+}
+
+/** True when Clear would throw away something the person wrote. */
+export function draftHasWriting(draft: Draft): boolean {
+  const today = todayIso();
+  return (
+    draft.claim.trim() !== "" ||
+    draft.reason.trim() !== "" ||
+    draft.pages.trim() !== "" ||
+    draft.named !== "" ||
+    draft.came.length > 0 ||
+    draft.tradeId !== "" ||
+    draft.media.length > 0 ||
+    draft.postId !== "" ||
+    draft.attested ||
+    draft.next !== "" ||
+    (draft.on !== "" && draft.on !== today)
+  );
+}
+
+export type Check = {
+  ok: boolean;
+  stops: string[];
+  notes: string[];
+  /** Messages for each field, so the form can point aria-describedby at them. */
+  fields?: Partial<Record<ComposerField, string[]>>;
+};
+export type CheckContext = {
+  author: string;
+  steward: boolean;
+  posts: Post[];
+  cards: MeetingCard[];
+  removals: RemovalRow[];
+  bans?: BanRow[];
+  appeals?: AppealRow[];
+  rooms?: readonly Room[];
+  now: number;
+};
 
 export function sawLockedFor(author: string, posts: Post[]): boolean {
-  const own = posts.filter((post) => post.author === author && !post.parentId && !post.removed).sort((a, b) => b.at - a.at).slice(0, 3);
+  const own = posts
+    .filter((post) => post.author === author && !post.parentId && !post.removed)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 3);
   return own.length === 3 && own.every((post) => post.mark === "sloppy");
 }
 
 export type Ban = { until: number; strikes: number; reason: HardRule };
 
-export function banFor(author: string, removals: RemovalRow[], now: number): Ban | null {
-  const own = removals.filter((row) => row.author === author).sort((a, b) => b.at - a.at);
+export function banFor(
+  author: string,
+  removals: RemovalRow[],
+  now: number,
+  appeals: AppealRow[] = [],
+): Ban | null {
+  const lifted = new Set(
+    appeals
+      .filter((row) => row.kind === "removal" && row.decision === "lift")
+      .map((row) => row.postId),
+  );
+  const own = removals
+    .filter((row) => row.author === author && (row.reason === "csam" || !lifted.has(row.postId)))
+    .sort((a, b) => b.at - a.at);
   if (own.length === 0) return null;
+  const csam = own.find((row) => row.reason === "csam");
+  if (csam) return { until: csam.at + 100 * 365 * DAY, strikes: own.length, reason: "csam" };
   const until = own[0].at + BAN_DAYS * DAY;
   if (own.length < 2 && until <= now) return null;
   return { until, strikes: own.length, reason: own[0].reason };
@@ -312,60 +755,148 @@ export function typesFor(room: Room, steward: boolean): PostType[] {
   return steward ? [...room.takes, ...room.stewardTakes] : room.takes;
 }
 
+export function activeBan(
+  author: string,
+  removals: RemovalRow[],
+  now: number,
+  bans: BanRow[] = [],
+  appeals: AppealRow[] = [],
+): Ban | null {
+  const fromRemovals = banFor(author, removals, now, appeals);
+  const latest = bans.filter((row) => row.author === author).sort((a, b) => b.at - a.at)[0];
+  const fromBan =
+    latest && (latest.reason === "csam" || latest.strikes >= 2 || latest.until > now)
+      ? { until: latest.until, strikes: latest.strikes, reason: latest.reason }
+      : null;
+  return (
+    [fromRemovals, fromBan]
+      .filter((item): item is Ban => item !== null)
+      .sort((a, b) => b.strikes - a.strikes || b.until - a.until)[0] ?? null
+  );
+}
+
 export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   const stops: string[] = [];
   const notes: string[] = [];
-  const room = roomById(draft.room);
+  const fields: Partial<Record<ComposerField, string[]>> = {};
+  const stop = (field: ComposerField, message: string) => {
+    stops.push(message);
+    const list = fields[field] ?? [];
+    list.push(message);
+    fields[field] = list;
+  };
+  const attach = (field: ComposerField, message: string) => {
+    const list = fields[field] ?? [];
+    list.push(message);
+    fields[field] = list;
+  };
+  const room = roomById(draft.room, ctx.rooms);
 
-  if (banFor(ctx.author, ctx.removals, ctx.now)) return { ok: false, stops: ["This account cannot post right now."], notes };
-  if (!draft.type) return { ok: false, stops: ["Choose what kind of post this is."], notes };
+  if (activeBan(ctx.author, ctx.removals, ctx.now, ctx.bans, ctx.appeals)) {
+    const message = "This account cannot post right now.";
+    return { ok: false, stops: [message], notes, fields: { form: [message] } };
+  }
+  if (!draft.type) {
+    const message = "Choose what kind of post this is.";
+    return { ok: false, stops: [message], notes, fields: { type: [message] } };
+  }
   const meta = typeMeta(draft.type);
   if (!typesFor(room, ctx.steward).includes(draft.type)) {
-    stops.push(room.stewardTakes.includes(draft.type) ? `Only a steward can post a ${meta.label}.` : `${room.name} does not take ${meta.label} posts.`);
+    stop(
+      "type",
+      room.stewardTakes.includes(draft.type)
+        ? `Only a steward can post a ${meta.label}.`
+        : `${room.name} does not take ${meta.label} posts.`,
+    );
   }
 
   const claim = draft.claim.trim();
   const reason = draft.reason.trim();
-  if (!claim) stops.push(`Missing: ${meta.claimLabel.toLowerCase()}.`);
-  if (meta.reasonLabel && !reason) stops.push(`Missing: ${meta.reasonLabel.toLowerCase()}.`);
-  if (claim.length > 600) stops.push("Keep it under 600 characters.");
-  if (meta.dateLabel && !isIsoDate(draft.on)) stops.push("Add the date.");
-  if (meta.closes && draft.next && !isIsoDate(draft.next)) stops.push("The next date is not a valid date.");
-  if (meta.closable && (claim.match(/\?/g) ?? []).length > 1) stops.push("One question per post. Ask the second one separately.");
+  if (!claim) stop("claim", `Missing: ${meta.claimLabel.toLowerCase()}.`);
+  if (meta.reasonLabel && !reason) stop("reason", `Missing: ${meta.reasonLabel.toLowerCase()}.`);
+  if ((claim && !isEnglish(claim)) || (reason && !isEnglish(reason))) {
+    const message = "Write it in English.";
+    stops.push(message);
+    if (claim && !isEnglish(claim)) attach("claim", message);
+    if (reason && !isEnglish(reason)) attach("reason", message);
+  }
+  if (claim.length > 600) stop("claim", "Keep it under 600 characters.");
+  if (meta.dateLabel && !isIsoDate(draft.on)) stop("on", "Add the date.");
+  if (meta.closes && draft.next && !isIsoDate(draft.next))
+    stop("next", "The next date is not a valid date.");
+  if (meta.closable && (claim.match(/\?/g) ?? []).length > 1)
+    stop("claim", "One question per post. Ask the second one separately.");
 
   if (meta.cardPick === "own") {
     const card = ctx.cards.find((item) => item.id === draft.cardId);
-    if (!card) stops.push("Choose which meeting this is about.");
-    else if (card.host !== ctx.author) stops.push("Only the host can write up a meeting.");
-    else if (card.room !== draft.room) stops.push(`That card lives in ${roomById(card.room).name}.`);
-    if (HEADCOUNT.test(claim)) stops.push("Leave out the headcount. Say how it went, not how many came.");
-    if (card?.book && draft.next && !draft.pages.trim()) stops.push("Say what to read before the next meeting.");
+    if (!card) stop("card", "Choose which meeting this is about.");
+    else if (card.host !== ctx.author) stop("card", "Only the host can write up a meeting.");
+    else if (card.room !== draft.room)
+      stop("card", `That card lives in ${roomById(card.room, ctx.rooms).name}.`);
+    if (hasHeadcount(claim))
+      stop("claim", "Leave out the headcount. Say how it went, not how many came.");
+    if (card?.book && draft.next && !draft.pages.trim())
+      stop("pages", "Say what to read before the next meeting.");
     if (draft.named) {
-      if (draft.named === ctx.author) stops.push("You cannot mention yourself.");
-      else if (!draft.came.includes(draft.named)) stops.push("You can only mention someone who was there.");
+      if (draft.named === ctx.author) stop("named", "You cannot mention yourself.");
+      else if (!draft.came.includes(draft.named))
+        stop("named", "You can only mention someone who was there.");
     }
   }
   if (meta.tradePick && draft.tradeId) {
     const trade = ctx.cards.find((item) => item.id === draft.tradeId);
-    if (trade && trade.host === ctx.author) stops.push("You cannot vouch for your own work.");
+    if (trade && trade.host === ctx.author) stop("trade", "You cannot vouch for your own work.");
   }
   if (meta.attest) {
-    if (sawLockedFor(ctx.author, ctx.posts)) stops.push("Notices are locked until you revise one of your last three posts; all three were marked sloppy.");
-    if (!CLOCK.test(reason) && !CLOCK.test(claim)) stops.push("Include the time.");
-    if (STREET_ADDRESS.test(claim) || STREET_ADDRESS.test(reason)) stops.push("That looks like a home address. Give the block or the corner, not the house number.");
-    if (!draft.attested) stops.push("Tick the box to confirm: no children's faces, no private person named.");
+    if (sawLockedFor(ctx.author, ctx.posts))
+      stop(
+        "form",
+        "Notices are locked until you revise one of your last three posts; all three were marked sloppy.",
+      );
+    if (!hasClock(reason) && !hasClock(claim)) {
+      stop(meta.reasonLabel ? "reason" : "claim", "Include the time.");
+    }
+    if (hasStreetAddress(claim) || hasStreetAddress(reason)) {
+      const message =
+        "That looks like a home address. Give the block or the corner, not the house number.";
+      stops.push(message);
+      if (hasStreetAddress(claim)) attach("claim", message);
+      if (hasStreetAddress(reason)) attach("reason", message);
+    }
+    if (!draft.attested)
+      stop("attest", "Tick the box to confirm: no children's faces, no private person named.");
   }
 
   const text = `${claim}\n${reason}`;
-  if (THREAT.test(text)) stops.push("That reads as a threat and will not post.");
-  if (PORN.test(text)) stops.push("That will not post.");
-  if (meta.reasonLabel && reason && reason.length < 12) notes.push("That is a short reason. A steward may mark the post unsupported.");
-  if (/^https?:\/\/\S+$/i.test(claim)) notes.push("A link on its own is not a post. Say what is at the link.");
+  const refuse = (hit: (value: string) => boolean, message: string) => {
+    if (!hit(text)) return;
+    stops.push(message);
+    if (hit(claim)) attach("claim", message);
+    if (hit(reason)) attach("reason", message);
+    if (!hit(claim) && !hit(reason)) attach("form", message);
+  };
+  refuse(looksLikeThreat, "That reads as a threat and will not post.");
+  refuse(looksLikePorn, "That will not post.");
+  refuse(looksLikeDoxxing, "That reads as doxxing and will not post.");
+  refuse(looksLikeBlasphemy, "That mocks God or Christ and will not post.");
+  if (meta.reasonLabel && reason && reason.length < 12)
+    notes.push("That is a short reason. A steward may mark the post No legs.");
+  if (/^https?:\/\/\S+$/i.test(claim))
+    notes.push("A link on its own is not a post. Say what is at the link.");
+  if (draft.media.length > 1) stop("form", "One picture per post.");
 
-  return { ok: stops.length === 0, stops, notes };
+  return { ok: stops.length === 0, stops, notes, fields };
 }
 
-export type DeskContact = { title: string; waveLabel: string; office: string; role: string; window: string; who: string; campaignId: string };
+export type DeskContact = {
+  title: string;
+  waveLabel: string;
+  office: string;
+  role: string;
+  window: string;
+  who: string;
+  campaignId: string;
+};
 
 export function deskDid(input: DeskContact & { author: string }): Post {
   return newPost({
@@ -380,17 +911,12 @@ export function deskDid(input: DeskContact & { author: string }): Post {
 }
 
 // --- Sort, shelf, week, cards -------------------------------------------------
-
-function tier(post: Post): number {
-  if (post.mark === "sloppy") return 5;
-  if (post.mark === "unsupported") return 4;
-  if (post.type === "noted" || (post.type === "asked" && post.closed)) return 3;
-  if (post.type === "hosted" || (post.type === "did" && post.cardId)) return 1;
-  return 2;
-}
+// A mark dims a post. It does not move it, hide it, or score it.
 
 export function sortRoom(posts: Post[], room: RoomId): Post[] {
-  return posts.filter((post) => post.room === room && !post.parentId && !post.removed).sort((a, b) => tier(a) - tier(b) || b.at - a.at);
+  return posts
+    .filter((post) => post.room === room && !post.parentId && !post.removed)
+    .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
 }
 
 export function repliesByParent(posts: Post[]): Map<string, Post[]> {
@@ -406,7 +932,9 @@ export function repliesByParent(posts: Post[]): Map<string, Post[]> {
 }
 
 export function witnessesByTrade(posts: Post[], cards: MeetingCard[]): Map<string, string[]> {
-  const hosts = new Map(cards.filter((card) => card.kind === "trade").map((card) => [card.id, card.host]));
+  const hosts = new Map(
+    cards.filter((card) => card.kind === "trade").map((card) => [card.id, card.host]),
+  );
   const map = new Map<string, Set<string>>();
   for (const post of posts) {
     if (post.type !== "did" || !post.tradeId || post.removed || !hosts.has(post.tradeId)) continue;
@@ -432,8 +960,15 @@ export function daysUntil(iso: string, today: string): number {
   return a && b ? Math.round((a.getTime() - b.getTime()) / DAY) : Number.POSITIVE_INFINITY;
 }
 
-export function shelfFor(room: RoomId, cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): MeetingCard[] {
-  const listed = cards.filter((card) => card.room === room && card.kind !== "trade" && cardListed(card, witnesses));
+export function shelfFor(
+  room: RoomId,
+  cards: MeetingCard[],
+  witnesses: Map<string, string[]>,
+  today: string,
+): MeetingCard[] {
+  const listed = cards.filter(
+    (card) => card.room === room && card.kind !== "trade" && cardListed(card, witnesses),
+  );
   const pinned = listed.filter((card) => card.pinned);
   const soon = listed
     .filter((card) => !card.pinned && card.next)
@@ -446,19 +981,33 @@ export function shelfFor(room: RoomId, cards: MeetingCard[], witnesses: Map<stri
 
 export type WeekDay = { iso: string; cards: MeetingCard[] };
 
-/** The next seven days that have something on them. Empty days are left out. */
+/**
+ * The next seven local days that have something on them. Empty days are left
+ * out. A named weekday is placed on that weekday. A stored date is a local
+ * calendar day, not a UTC instant.
+ */
 export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
-    const dated = cards.filter((card) => card.next === iso && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses));
+    const dated = cards.filter((card) => {
+      const occurs = meetingDates(card.time, card.next, today, {
+        paused: card.paused,
+        cancelled: card.cancelled,
+        until: card.until,
+      });
+      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+    });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
   return days;
 }
 
 export function needsFor(cards: MeetingCard[], room?: RoomId): MeetingCard[] {
-  return cards.filter((card) => card.kind === "need" && (!room || card.room === room) && card.slots.some((slot) => !slot.by));
+  return cards.filter(
+    (card) =>
+      card.kind === "need" && (!room || card.room === room) && card.slots.some((slot) => !slot.by),
+  );
 }
 
 /** Whether each host's latest note in each room is unmarked, in one pass. Key: `${host}\u0000${room}`. */
@@ -498,7 +1047,9 @@ export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<
   for (const card of cards) {
     if (card.wentBy.includes(me)) for (const name of card.wentBy) names.add(name);
   }
-  const mine = new Set(posts.filter((post) => post.author === me && !post.parentId).map((post) => post.id));
+  const mine = new Set(
+    posts.filter((post) => post.author === me && !post.parentId).map((post) => post.id),
+  );
   for (const post of posts) if (post.parentId && mine.has(post.parentId)) names.add(post.author);
   names.delete(me);
   return names;
@@ -506,7 +1057,10 @@ export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<
 
 /** The last few times a host named this person, newest first. */
 export function namedLines(name: string, posts: Post[]): Post[] {
-  return posts.filter((post) => post.type === "hosted" && post.named === name && !post.removed).sort((a, b) => b.at - a.at).slice(0, NAMED_SHOWN);
+  return posts
+    .filter((post) => post.type === "hosted" && post.named === name && !post.removed)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, NAMED_SHOWN);
 }
 
 export function threadIdFor(a: string, b: string): string {
