@@ -457,9 +457,7 @@ export function EncryptedMailbox() {
             It never leaves this device.
           </p>
         )}
-        <p className="text-sm text-muted">
-          If you forget this passphrase, nobody can recover your messages.
-        </p>
+        <p className="text-sm text-muted">{DM_PASSPHRASE_WARNING}</p>
         <form
           className="flex flex-col gap-2"
           onSubmit={(event) => {

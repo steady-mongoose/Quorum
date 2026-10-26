@@ -13,7 +13,7 @@ export const DM_ENCRYPTED_NOTICE =
 export const DM_KEYS_MISSING = "Not yet encrypted.";
 
 export const DM_PASSPHRASE_WARNING =
-  "If you lose this passphrase, old messages can't be recovered. Write it down somewhere safe.";
+  "If you forget this passphrase, nobody can recover your messages.";
 
 export const DM_ABOUT_NOTICE =
   "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are encrypted on your device before they're sent and deleted after 30 days. The server stores ciphertext and public keys, not the text. Two people only.";

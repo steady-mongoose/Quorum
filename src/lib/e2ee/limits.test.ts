@@ -40,7 +40,10 @@ test("message copy is English and does not add a feed, likes, reshares, or score
     "Messages are encrypted on your device before they're sent and deleted after 30 days.",
   );
   assert.equal(DM_KEYS_MISSING, "Not yet encrypted.");
-  assert.match(DM_PASSPHRASE_WARNING, /lose this passphrase/);
+  assert.equal(
+    DM_PASSPHRASE_WARNING,
+    "If you forget this passphrase, nobody can recover your messages.",
+  );
   assert.equal(DM_ENCRYPTED_NOTICE.includes("plain text"), false);
   assert.equal(DM_ENCRYPTED_NOTICE.includes("not encrypted"), false);
   assert.match(DM_DEMO_NOTICE, /not encrypted/);
@@ -59,8 +62,9 @@ test("the mailbox copy matches the screen and the controls stay tappable", () =>
   const demo = readFileSync(new URL("../../components/board/dm-view.tsx", import.meta.url), "utf8");
   assert.match(mailbox, /DM_ENCRYPTED_NOTICE/);
   assert.match(mailbox, /DM_KEYS_MISSING/);
-  assert.match(mailbox, /DM_PASSPHRASE_WARNING/);
-  assert.match(mailbox, /If you forget this passphrase, nobody can recover your messages\./);
+  assert.equal(mailbox.match(/\{DM_PASSPHRASE_WARNING\}/g)?.length, 2);
+  assert.equal(mailbox.includes("If you forget this passphrase"), false);
+  assert.equal(mailbox.includes("If you lose this passphrase"), false);
   assert.match(mailbox, /type=\{showPassphrase \? "text" : "password"\}/);
   assert.match(mailbox, /autoComplete="new-password"/);
   assert.match(mailbox, /autoComplete="current-password"/);
