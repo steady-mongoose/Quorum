@@ -23,6 +23,7 @@ import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
+import { rememberNamedAccounts } from "../dm/store.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
@@ -851,6 +852,33 @@ export async function createPost(
           input.userId,
         ]);
       }
+      if (cardId && type === "hosted") {
+        await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+          `hosted-card:${cardId}`,
+        ]);
+        const owners = await tx.query<{ author_user_id: string | null }>(
+          `select author_user_id from board_post where card_id = $1 and type = 'hosted' for update`,
+          [cardId],
+        );
+        if (owners.some((row) => row.author_user_id !== input.userId)) {
+          throw new Stop(409, "That meeting card already belongs to someone else.");
+        }
+        const claimReady = await tx.query<{ ready: string | null }>(
+          `select to_regclass('public.dm_card_host') as ready`,
+        );
+        if (claimReady[0]?.ready) {
+          const claimed = await tx.query<{ author_user_id: string | null }>(
+            `insert into dm_card_host (card_id, author_user_id)
+             values ($1, $2)
+             on conflict (card_id) do update set card_id = dm_card_host.card_id
+             returning author_user_id`,
+            [cardId, input.userId],
+          );
+          if (claimed[0]?.author_user_id !== input.userId) {
+            throw new Stop(409, "That meeting card already belongs to someone else.");
+          }
+        }
+      }
       const inserted = await tx.query<PostRow>(
         `insert into board_post
          (id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
@@ -879,6 +907,7 @@ export async function createPost(
       );
       const saved = inserted[0];
       if (!saved) throw new Stop(500, "The post was not filed.");
+      if (type === "hosted") await rememberNamedAccounts(tx, saved.id);
       return saved;
     });
     return { ok: true, value: await withCouncil(db, toPost(row)) };
