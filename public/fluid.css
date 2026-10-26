@@ -239,13 +239,14 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   background:none;
   border:0;
 }
-/* Narrow header: one tagline line, so the bar stays about 80px. */
+/* Narrow header: two tagline lines, so the bar stays at 94px or less. */
 @container mast (max-width:420px){
   .mast-tagline{
     font-size:.85rem;
-    white-space:nowrap;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
     overflow:hidden;
-    text-overflow:ellipsis;
   }
 }
 #open-the-door,#sign-in{scroll-margin-top:6rem}

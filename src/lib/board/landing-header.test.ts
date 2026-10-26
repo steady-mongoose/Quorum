@@ -38,8 +38,13 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-bar\{[^}]*container-name:mast/);
   assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);
   assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*white-space:nowrap/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*text-overflow:ellipsis/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/);
+  const narrow = css.slice(css.indexOf("@container mast (max-width:420px)"));
+  assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("text-overflow"), false);
+  assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("white-space"), false);
 
   assert.match(app, /<header className="top mast-bar">/);
   assert.match(app, /className="mast"/);
@@ -90,6 +95,10 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.match(door, /id="sign-in"/);
   assert.match(door, /Membership is\s+by invitation only/);
   assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
+  assert.match(door, /Invite codes can't be checked right now\. Try again in a moment\./);
+  assert.match(door, /apiDown \?/);
+  assert.equal(door.includes("door-demo"), false);
+  assert.equal(door.includes("This browser is in demo mode"), false);
   assert.match(door, /\{live \?/);
   assert.match(session, /const recheck = async \(\) => \{[\s\S]*probeApiMode\(/);
   assert.match(gates, /SIGN_IN_PATH = "\/#sign-in"/);
@@ -105,9 +114,9 @@ test("the door column starts with the invite line", () => {
   assert.equal(door.includes("lg:items-center"), false);
   assert.equal(door.includes("lg:min-h-[70vh]"), false);
   const formAt = door.indexOf('id="open-the-door"');
-  const noteAt = door.indexOf("door-demo");
   const headingAt = door.indexOf(">Open the door</h2>");
-  assert.ok(formAt > 0 && noteAt > formAt && headingAt > noteAt);
+  assert.ok(formAt > 0 && headingAt > formAt);
+  assert.equal(door.includes("door-demo"), false);
   assert.match(door, /id="open-the-door"/);
   assert.match(door, /className="door-hero/);
   assert.match(door, /lg:order-last/);

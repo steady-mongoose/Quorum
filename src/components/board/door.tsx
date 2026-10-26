@@ -86,12 +86,6 @@ export function Door() {
               else setOutcome(`You're on the list for ${result.name}, ${formatDate(result.next)}.`);
             }}
           >
-            {server.mode === "demo" && server.configured ? (
-              <p className="door-demo text-sm text-muted">
-                The server did not answer. This browser is in demo mode. Nothing you type here is
-                saved on the server.
-              </p>
-            ) : null}
             <h2 className="text-2xl text-fg">Open the door</h2>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Your name, as people know you
@@ -144,6 +138,8 @@ export function Door() {
                 code for one meeting: a shop night, a book table, a meal after church. Membership is
                 by invitation only.
               </>
+            ) : apiDown ? (
+              <>Invite codes can't be checked right now. Try again in a moment.</>
             ) : (
               <>
                 {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a
