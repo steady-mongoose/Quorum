@@ -32,10 +32,21 @@ export function QuorumPanel() {
       <div className="flex flex-col gap-3">
         <Kicker>The desk</Kicker>
         <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
-        <p className="max-w-prose text-base text-muted">
+      </div>
+      <IconNav items={NAV} current={view === "desk" ? "load" : view} onSelect={setView} label="The desk" />
+      {view === "load" && <LoadView />}
+      {view === "desk" && <DeskView />}
+      {view === "doctrine" && <DoctrineView />}
+      {view === "offices" && <OfficesView />}
+      {view === "cell" && <CellView />}
+      <details className="rounded-lg border border-line bg-surface p-4">
+        <summary className="flex min-h-[44px] cursor-pointer items-center text-base font-semibold text-fg">
+          How it works
+        </summary>
+        <p className="mt-3 max-w-prose text-base text-muted">
           Scattered emails to every office get ignored. What staff notice is a hundred calls to the one official whose desk a bill is sitting on, in one morning, all asking for the same thing. This page tells you who that official is, what to say, when to call, and lets you record that you called.
         </p>
-        <ol className="grid max-w-4xl list-none gap-3 p-0 sm:grid-cols-2">
+        <ol className="mt-4 grid max-w-4xl list-none gap-3 p-0 sm:grid-cols-2">
           {STEPS.map((step, index) => (
             <li key={step.do} className="flex gap-3">
               <span className="font-display text-2xl leading-none text-signal tabular-nums">{index + 1}</span>
@@ -46,13 +57,7 @@ export function QuorumPanel() {
             </li>
           ))}
         </ol>
-      </div>
-      <IconNav items={NAV} current={view === "desk" ? "load" : view} onSelect={setView} label="The desk" />
-      {view === "load" && <LoadView />}
-      {view === "desk" && <DeskView />}
-      {view === "doctrine" && <DoctrineView />}
-      {view === "offices" && <OfficesView />}
-      {view === "cell" && <CellView />}
+      </details>
     </div>
   );
 }

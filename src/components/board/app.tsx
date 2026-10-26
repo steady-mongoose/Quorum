@@ -46,6 +46,19 @@ const ICONS = {
   about: BookOpen,
 } satisfies Record<Section, typeof CalendarDays>;
 
+function BoardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3" aria-hidden="true">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className="h-28 animate-pulse rounded-lg bg-raised motion-reduce:animate-none"
+        />
+      ))}
+    </div>
+  );
+}
+
 export function BoardApp() {
   return (
     <ServerSessionProvider>
@@ -72,10 +85,12 @@ function BoardShell() {
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const busy = waiting || boardLoading;
   const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
@@ -124,7 +139,14 @@ function BoardShell() {
     if (next.me !== name || !next.member || next.sample) {
       useBoard.setState({ member: true, me: name, sample: false });
     }
-    void useBoard.getState().connectRemote();
+    let cancel = false;
+    setBoardLoading(true);
+    void useBoard.getState().connectRemote().finally(() => {
+      if (!cancel) setBoardLoading(false);
+    });
+    return () => {
+      cancel = true;
+    };
   }, [server.mode, server.user]);
 
   useEffect(() => {
@@ -133,10 +155,14 @@ function BoardShell() {
 
   const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
 
-  const page = (
+  const page = busy ? (
     <>
-      {waiting ? <p className="card px-4 py-3 text-sm text-muted">Checking the server.</p> : null}
-      {!waiting && !entered && <Door />}
+      <p className="sr-only">Checking the server.</p>
+      <BoardSkeleton />
+    </>
+  ) : (
+    <>
+      {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
       {entered && shown === "find" && <FindView />}
@@ -149,6 +175,12 @@ function BoardShell() {
 
   return (
     <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
+      >
+        Skip to content
+      </a>
       <PrimaryHaptic />
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
@@ -174,7 +206,7 @@ function BoardShell() {
           {server.user ? (
             <button
               type="button"
-              className="self-start text-sm text-signal underline"
+              className="inline-flex min-h-[44px] items-center self-start text-sm text-signal underline"
               onClick={() => {
                 const leave = () => {
                   setConfirmSignOut(false);
@@ -259,7 +291,7 @@ function BoardShell() {
       <div className="shell-body">
         {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
         {margin ? <div className="outer-art r" aria-hidden="true" /> : null}
-        <main>
+        <main id="main" tabIndex={-1} aria-busy={busy || undefined}>
           {margin ? (
             <div className="with-side">
               <div className="min-w-0">{page}</div>

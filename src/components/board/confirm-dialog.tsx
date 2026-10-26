@@ -3,8 +3,10 @@ import { btnGhost } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 
 /**
- * A modal confirmation. Escape and "Keep it" cancel. Focus starts on the
- * safe action so Enter does not confirm a wipe.
+ * A modal confirmation. Escape and the cancel button dismiss it. Focus
+ * starts on the safe action so Enter does not confirm a wipe. A destructive
+ * confirm uses the danger token. A grant uses the neutral button. The
+ * default tone stays danger, so Clear and Revoke keep the warning colour.
  */
 export function ConfirmDialog({
   open,
@@ -15,6 +17,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   confirmDisabled = false,
+  tone = "danger",
   children,
 }: {
   open: boolean;
@@ -25,6 +28,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
   confirmDisabled?: boolean;
+  tone?: "danger" | "neutral";
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -80,7 +84,11 @@ export function ConfirmDialog({
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
-          className={cn(btnGhost, "min-h-[44px] border-danger/60 text-danger")}
+          className={cn(
+            btnGhost,
+            "min-h-[44px]",
+            tone === "danger" && "border-danger/60 text-danger",
+          )}
           disabled={confirmDisabled}
           onClick={() => {
             if (confirmDisabled) return;
