@@ -26,7 +26,10 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast\{[^}]*padding-block:0\.75rem/);
   assert.match(css, /\.mast\{[^}]*max-width:72rem/);
   assert.match(css, /\.mast\{[^}]*margin-inline:auto/);
-  assert.match(css, /\.mast\{[^}]*padding-inline:max\(clamp\(16px,2vw,28px\),env\(safe-area-inset-left\)\)/);
+  assert.match(
+    css,
+    /\.mast\{[^}]*padding-inline:max\(clamp\(16px,2vw,28px\),env\(safe-area-inset-left\)\)/,
+  );
   assert.match(
     css,
     /\.shell-body > main\{[^}]*padding-inline:max\(clamp\(16px,2vw,28px\),env\(safe-area-inset-left\)\)/,
@@ -41,11 +44,26 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-flag\{[^}]*width:auto/);
   assert.match(css, /\.mast-bar\{[^}]*container-name:mast/);
   assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/);
-  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/);
+  assert.match(
+    css,
+    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/,
+  );
+  assert.match(
+    css,
+    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/,
+  );
+  assert.match(
+    css,
+    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/,
+  );
+  assert.match(
+    css,
+    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/,
+  );
+  assert.match(
+    css,
+    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/,
+  );
   const narrow = css.slice(css.indexOf("@container mast (max-width:420px)"));
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("text-overflow"), false);
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("white-space"), false);
@@ -99,14 +117,17 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.match(door, /server\.recheck\(\)/);
   assert.match(door, /server\.configured && server\.mode === "demo"/);
   assert.match(door, /id="sign-in"/);
-  assert.match(door, /Membership is\s+by invitation only/);
-  assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
+  assert.match(door, /<Kicker>Invite only<\/Kicker>/);
+  assert.match(
+    door,
+    /A host gives you a code for one meeting: a shop night, a book table, a meal after church\. That's how everyone here arrived\./,
+  );
   assert.match(door, /Invite codes can't be checked right now\. Try again in a moment\./);
   assert.match(door, /const demoNote = server\.configured \? null : \(/);
   assert.match(door, /className="door-demo text-sm text-muted"/);
   assert.match(
     door,
-    /The server did not answer\. This browser is in demo mode\. Nothing you type here is saved on\s+the server\./,
+    /The server did not answer\. This browser is in demo mode\. Nothing you type here is saved on\s+the\s+server\./,
   );
   assert.match(door, /\{live \?/);
   assert.match(session, /const recheck = async \(\) => \{[\s\S]*probeApiMode\(/);
@@ -145,19 +166,29 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
   for (const name of ["door-main", "door-hero", "door-week", "door-rooms", "door-side"]) {
     assert.match(door, new RegExp(`className="${name} `));
   }
-  // Phone order stays DOM order: door side, hero, week, rooms.
+  // Phone order stays DOM order: hero, week, rooms, then the door.
   const at = (s: string) => door.indexOf(s);
-  assert.ok(at('"door-side ') < at('"door-hero ') && at('"door-hero ') < at('"door-week ') && at('"door-week ') < at('"door-rooms '));
+  assert.ok(
+    at('"door-hero ') < at('"door-week ') &&
+      at('"door-week ') < at('"door-rooms ') &&
+      at('"door-rooms ') < at('"door-side '),
+  );
   const desk = css.slice(css.indexOf("/* Desktop door:"));
   assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
   assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
   assert.match(desk, /\.door-main\{display:contents\}/);
   assert.match(desk, /\.door-rooms\{grid-area:rooms/);
   assert.match(css, /\.door-rooms p\{font-size:0\.95rem;line-height:1\.6\}/);
-  assert.match(css, /\.mast-door\{[^}]*display:inline-flex[^}]*align-items:center[^}]*min-height:44px/);
+  assert.match(
+    css,
+    /\.mast-door\{[^}]*display:inline-flex[^}]*align-items:center[^}]*min-height:44px/,
+  );
   assert.equal(css.includes("a.mast-name"), false);
   const bg = source("../../../public/backgrounds.css");
   assert.match(bg, /body::after\{content:"";position:absolute;inset:12px/);
   assert.match(bg, /body\{position:relative;min-height:100dvh\}/);
-  assert.match(desk, /\.plate-ground\{[^}]*position:absolute[^}]*mask-image:linear-gradient\(#000 70%,transparent\)/);
+  assert.match(
+    desk,
+    /\.plate-ground\{[^}]*position:absolute[^}]*mask-image:linear-gradient\(#000 70%,transparent\)/,
+  );
 });
