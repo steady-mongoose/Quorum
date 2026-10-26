@@ -74,6 +74,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0003_rate_limit.sql",
       "0004_media.sql",
       "0005_rate_limit_index.sql",
+      "0006_dm_e2ee.sql",
       "0007_media_worker_role.sql",
       "0008_board.sql",
       "0010_moderation.sql",
@@ -200,6 +201,16 @@ test("this workspace's auth schema copy is byte-identical to its source", () => 
     pair.source,
     "migrations/0001_auth.sql has been edited — it must stay a verbatim copy of migrations/auth/0001_auth.sql",
   );
+});
+
+test("the private-message migration is flagged for the owner's approval", () => {
+  const text = readFileSync(join(projectRoot(), "migrations/0006_dm_e2ee.sql"), "utf8");
+  assert.match(text, /owner must approve/i);
+  assert.match(text, /ciphertext/i);
+  assert.doesNotMatch(text, /plaintext/i);
+  assert.doesNotMatch(text, /reshare/i);
+  assert.doesNotMatch(text, /\blikes?\b/i);
+  assert.doesNotMatch(text, /\bscore\b/i);
 });
 
 test("the copy check reads both files and catches an edit", () => {

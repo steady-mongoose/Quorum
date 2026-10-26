@@ -9,6 +9,7 @@ import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
+import { handleDm } from "./dm/routes.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
@@ -332,6 +333,11 @@ async function route(
     const ban = await openBan(deps.db, session.id, deps.now());
     if (ban) return json(403, { error: "banned", ban });
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
+  }
+
+  if (url.pathname.startsWith("/api/dm")) {
+    const response = await handleDm(deps, request, url);
+    if (response) return response;
   }
 
   const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);

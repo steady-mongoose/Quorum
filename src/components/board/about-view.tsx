@@ -4,6 +4,7 @@ import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
+import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
 import type { AccessInput, ZipCorrectionInput } from "@/lib/board/client";
 import {
@@ -53,7 +54,7 @@ const HOW = [
   },
   {
     title: "Who can see you",
-    text: "People who have been to the same meeting as you can see your profile and message you. Nobody else can. Messages are between two people and kept 30 days. The words are not encrypted. A picture is encrypted on this device before it is sent.",
+    text: DM_ABOUT_NOTICE,
   },
   {
     title: "Room chat",

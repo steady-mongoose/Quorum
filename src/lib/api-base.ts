@@ -65,7 +65,30 @@ export async function softenFetch(input: RequestInfo | URL, init?: RequestInit):
   }
 }
 
+const unauthorizedHandlers = new Set<() => void>();
+
+/**
+ * Runs when an API call returns 401. The session is known to be absent.
+ * Listeners clear local session state. They do not run for any other status.
+ */
+export function addUnauthorizedHandler(handler: () => void): () => void {
+  unauthorizedHandlers.add(handler);
+  return () => {
+    unauthorizedHandlers.delete(handler);
+  };
+}
+
 /** Fetch `path` against the configured API base. */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return softenFetch(apiUrl(path), init);
+  const response = await softenFetch(apiUrl(path), init);
+  if (response.status === 401) {
+    for (const handler of unauthorizedHandlers) {
+      try {
+        handler();
+      } catch {
+        // One listener cannot block the response or the other listeners.
+      }
+    }
+  }
+  return response;
 }

@@ -18,6 +18,7 @@ import {
   APP_NAME,
   DAY,
   DM_RETENTION_DAYS,
+  dmTextError,
   FOUNDER_CODE,
   ROOMS,
   authorName,
@@ -1109,7 +1110,8 @@ export const useBoard = create<BoardState>()(
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
           const attachment = media ? [media] : [];
-          if ((!body && attachment.length === 0) || !thread?.between.includes(me())) return;
+          if ((dmTextError(text) && attachment.length === 0) || !thread?.between.includes(me())) return;
+          if (!body && attachment.length === 0) return;
           set({
             messages: [
               ...pruneMessages(get().messages, Date.now()),
