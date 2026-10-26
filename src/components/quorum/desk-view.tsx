@@ -11,6 +11,7 @@ import {
   btnGhost,
   btnQuiet,
   btnSignal,
+  copyStatus,
   fieldClass,
   Kicker,
   Meter,
@@ -59,7 +60,8 @@ export function DeskView() {
   const addAlly = useQuorum((state) => state.addAlly);
   const removeAlly = useQuorum((state) => state.removeAlly);
   const now = useNow();
-  const { copied, copy } = useCopy();
+  const { copied, failed, copy } = useCopy();
+  const mark = (key: string, idle: string) => copyStatus(copied, failed, key, idle);
   const [who, setWho] = useState("You");
   const [revising, setRevising] = useState(false);
   const [refuseDraft, setRefuseDraft] = useState("");
@@ -373,20 +375,20 @@ export function DeskView() {
         </pre>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <button type="button" className={btnGhost} onClick={() => copy("script", script)}>
-            {copied === "script" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied === "script" ? "Copied" : "Copy the script"}
+            {mark("script", "Copy the script") === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {mark("script", "Copy the script")}
           </button>
           <button type="button" className={btnGhost} onClick={() => copy("letter", letter)}>
-            {copied === "letter" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied === "letter" ? "Copied" : "Copy the letter"}
+            {mark("letter", "Copy the letter") === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {mark("letter", "Copy the letter")}
           </button>
           <button type="button" className={btnGhost} onClick={() => copy("tree", tree)}>
-            {copied === "tree" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied === "tree" ? "Copied" : "Copy the phone tree"}
+            {mark("tree", "Copy the phone tree") === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {mark("tree", "Copy the phone tree")}
           </button>
         </div>
         <p className="sr-only" aria-live="polite">
-          {copied ? "Copied to clipboard" : ""}
+          {failed ? "Couldn't copy" : copied ? "Copied to clipboard" : ""}
         </p>
       </section>
 
@@ -434,18 +436,18 @@ export function DeskView() {
           {channel === "sms" ? (
             <>
               <button type="button" className={btnSignal} onClick={() => copy("ping", smsPing(campaign, office))}>
-                {copied === "ping" ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied === "ping" ? "Copied" : "Copy the ping"}
+                {mark("ping", "Copy the ping") === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {mark("ping", "Copy the ping")}
               </button>
               <button type="button" className={btnGhost} onClick={() => copy("sms-script", callScript(campaign, office, profile, true))}>
-                {copied === "sms-script" ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied === "sms-script" ? "Copied" : "Copy the second text"}
+                {mark("sms-script", "Copy the second text") === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {mark("sms-script", "Copy the second text")}
               </button>
             </>
           ) : (
             <button type="button" className={btnSignal} onClick={() => copy(channel, paste)}>
-              {copied === channel ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied === channel ? "Copied" : `Copy for ${channelMeta.label}`}
+              {mark(channel, `Copy for ${channelMeta.label}`) === "Copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {mark(channel, `Copy for ${channelMeta.label}`)}
             </button>
           )}
         </div>

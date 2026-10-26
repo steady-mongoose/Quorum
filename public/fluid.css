@@ -7,6 +7,7 @@
   --space-4:clamp(1.5rem,1rem + 2vw,3rem);
   --content-max:72rem;
   --side-art:clamp(16rem,22vw,22rem);
+  --flag-h:clamp(36px,4.5vw,56px);
 }
 html{-webkit-text-size-adjust:100%}
 body{line-height:1.6;min-height:100dvh;overflow-x:clip}
