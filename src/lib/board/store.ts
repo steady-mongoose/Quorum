@@ -69,6 +69,8 @@ type BoardState = {
   sampleVersion: number;
   me: string;
   profile: Profile;
+  /** The desk is opt-in. Off until this member turns it on. */
+  deskOn: boolean;
   /** Whose profile is open. */
   viewing: string | null;
   steward: boolean;
@@ -103,6 +105,7 @@ type BoardState = {
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
   setProfile: (patch: Partial<Profile>) => void;
+  setDeskOn: (on: boolean) => void;
   view: (name: string) => void;
   dismissLine: () => void;
   file: (draft: Draft) => Promise<Check>;
@@ -435,6 +438,7 @@ export const useBoard = create<BoardState>()(
         sampleVersion: 0,
         me: "",
         profile: EMPTY_PROFILE,
+        deskOn: false,
         viewing: null,
         steward: false,
         admin: false,
@@ -460,10 +464,18 @@ export const useBoard = create<BoardState>()(
         lineDismissedAt: 0,
         undoClear: null,
         localEntry: false,
-        setSection: (section) => set({ section }),
+        setSection: (section) => {
+          if (section === "civic" && !get().deskOn) return;
+          set({ section });
+        },
         setRoom: (room) => set({ room, section: "rooms" }),
         setMe: (me) => set({ me }),
         setProfile: (patch) => set({ profile: { ...get().profile, ...patch } }),
+        setDeskOn: (deskOn) =>
+          set({
+            deskOn,
+            section: !deskOn && get().section === "civic" ? "week" : get().section,
+          }),
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
         file: async (draft) => {
@@ -1167,6 +1179,7 @@ export const useBoard = create<BoardState>()(
         sampleVersion: state.sampleVersion,
         me: state.me,
         profile: state.profile,
+        deskOn: state.deskOn,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         posts: state.remote ? [] : state.posts,

@@ -439,6 +439,20 @@ test("a banned member still sees the status of their own appeal", async () => {
   assert.equal(useBoard.getState().appeals[0]?.decision, "uphold");
 });
 
+test("the desk stays off until the member turns it on", () => {
+  reset();
+  useBoard.setState({ deskOn: false, section: "rooms" });
+  assert.equal(useBoard.getState().deskOn, false);
+  useBoard.getState().setSection("civic");
+  assert.equal(useBoard.getState().section, "rooms");
+  useBoard.getState().setDeskOn(true);
+  useBoard.getState().setSection("civic");
+  assert.equal(useBoard.getState().section, "civic");
+  useBoard.getState().setDeskOn(false);
+  assert.equal(useBoard.getState().deskOn, false);
+  assert.equal(useBoard.getState().section, "week");
+});
+
 test("a revision keeps a steward mark", async () => {
   reset();
   await useBoard.getState().file(draft());
