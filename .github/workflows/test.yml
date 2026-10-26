@@ -118,13 +118,26 @@ jobs:
 
   failover-restore:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Same cap-and-retry as the test job's apt step: a stalled mirror fails fast.
       - name: Install age and the Postgres client
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+        timeout-minutes: 6
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
+              && timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+                install -y age postgresql-client; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            sleep 5
+          done
+          exit 1
 
       - name: Dry-run restore into a throwaway Postgres
         run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh
