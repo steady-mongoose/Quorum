@@ -4,6 +4,7 @@ import { btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quor
 import { cn } from "@/lib/cn";
 import { DAY, DM_RETENTION_DAYS, formatWhen, otherIn, type DmMessage } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { MessagePictureNote, SharedMediaFigure } from "@/components/board/media-share";
 
 /** Two names, plain text, gone after 30 days. No groups. */
 export function DmView() {
@@ -55,7 +56,10 @@ export function DmView() {
               key={message.id}
               className={cn("max-w-xl rounded-md border border-line px-3 py-2", message.from === me ? "self-end bg-raised" : "self-start bg-surface")}
             >
-              <p className="text-base text-fg">{message.text}</p>
+              {message.text ? <p className="text-base text-fg">{message.text}</p> : null}
+              {(message.media ?? []).map((item) => (
+                <SharedMediaFigure key={item.id} item={item} />
+              ))}
               <p className="mt-1 text-xs text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
@@ -88,6 +92,7 @@ export function DmView() {
           You can message someone you have been on an "I went" list with, or who replied to your post. Open one
           from their post or their card. Messages are plain text, not encrypted, and are deleted after {DM_RETENTION_DAYS} days.
         </p>
+        <MessagePictureNote />
       </section>
       {mine.length === 0 ? (
         <p className="text-sm text-muted">No messages yet.</p>
@@ -103,7 +108,7 @@ export function DmView() {
                   onClick={() => setOpenThread(item.id)}
                 >
                   <span className="text-base font-semibold text-fg">{otherIn(item, me)}</span>
-                  <span className="text-sm text-muted">{last ? `${last.from === me ? "You: " : ""}${last.text}` : "No messages yet."}</span>
+                  <span className="text-sm text-muted">{last ? `${last.from === me ? "You: " : ""}${last.text || (last.media?.length ? "Picture" : "")}` : "No messages yet."}</span>
                 </button>
               </li>
             );

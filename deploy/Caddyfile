@@ -1,0 +1,58 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_HOST} {
+	encode gzip
+	# Five POSTs a minute per client address, in front of the API limiter.
+	# IPv6 is one bucket per /64. The module sets Retry-After to the seconds
+	# until this client may try again. Do not replace that header: a fixed 60
+	# would disagree with the wait the limiter just computed. When the API
+	# returns 429, reverse_proxy forwards the API's Retry-After unchanged.
+	rate_limit {
+		zone closed_test {
+			match {
+				method POST
+				path /api/auth/sign-in/* /api/signup /api/invites
+			}
+			key {remote_host}
+			events 5
+			window 1m
+			ipv6_prefix 64
+		}
+		# Join, leave, and poll. The API also limits those per member.
+		# Signal is its own zone: an offer, an answer, and the candidates
+		# outrun the rest of the calls API. The path is
+		# /api/calls/rooms/<room>/signal. IPv6 is one bucket per /64.
+		zone calls {
+			match {
+				path /api/calls/*
+				not path /api/calls/rooms/*/signal
+			}
+			key {remote_host}
+			events 60
+			window 10s
+			ipv6_prefix 64
+		}
+		zone call_signal {
+			match {
+				path /api/calls/rooms/*/signal
+			}
+			key {remote_host}
+			events 120
+			window 10s
+			ipv6_prefix 64
+		}
+	}
+	# The API takes its URL from BETTER_AUTH_URL. It reads X-Forwarded-For
+	# only when the peer is this container (172.28.19.10).
+	reverse_proxy api:8787
+	handle_errors {
+		@too_many expression `{http.error.status_code} == 429`
+		handle @too_many {
+			header Content-Type "application/json; charset=utf-8"
+			header Cache-Control "no-store"
+			respond `{"error":"Too many attempts. Wait and try again."}` 429
+		}
+	}
+}

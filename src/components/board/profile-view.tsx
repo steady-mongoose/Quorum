@@ -1,11 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { MessageSquare } from "lucide-react";
-import { btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
-import { CONGREGATIONS, directoryRooms, localRoomLabel } from "@/lib/board/places";
 import { useBoard } from "@/lib/board/store";
-import { resolvedTown } from "@/lib/board/zcta";
-import { ZCTA_SEED } from "@/lib/board/zcta-seed";
 
 /**
  * Household, church, trade, plus who you have met, what you host, and
@@ -17,25 +14,11 @@ export function ProfileView() {
   const viewing = useBoard((state) => state.viewing);
   const profile = useBoard((state) => state.profile);
   const setProfile = useBoard((state) => state.setProfile);
-  const joined = useBoard((state) => state.joined);
-  const joinPlace = useBoard((state) => state.joinPlace);
-  const leavePlace = useBoard((state) => state.leavePlace);
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
-  const admin = useBoard((state) => state.admin);
-  const corrections = useBoard((state) => state.zipCorrections);
-  const extraTownRooms = useBoard((state) => state.extraTownRooms);
-  const rooms = useMemo(() => directoryRooms(extraTownRooms), [extraTownRooms]);
-  const correctZip = useBoard((state) => state.correctZip);
-  const clearZip = useBoard((state) => state.clearZip);
-  const [fixZip, setFixZip] = useState("");
-  const [fixName, setFixName] = useState("");
-  const [fixState, setFixState] = useState("");
-  const [fixError, setFixError] = useState("");
   const name = viewing?.trim() || me;
   const mine = name === me;
-  const town = mine ? resolvedTown(profile.zip, ZCTA_SEED, corrections) : null;
 
   const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
   const allowed = mine || peers.has(name);
@@ -59,78 +42,23 @@ export function ProfileView() {
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
-          <p className="max-w-prose text-sm text-muted">Your household, church, trade, and ZIP. The ZIP picks your town. The church name, when it matches one we know, is your congregation. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
+          <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
-          <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-2 text-sm text-muted">
               Household
               <input className={fieldClass} placeholder="the McMullins" value={profile.household} onChange={(event) => setProfile({ household: event.target.value })} />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Church
-              <input className={fieldClass} placeholder="Epiphany of Our Lord" value={profile.parish} onChange={(event) => setProfile({ parish: event.target.value })} list="congregations" />
-              <datalist id="congregations">
-                {CONGREGATIONS.map((item) => (
-                  <option key={item.id} value={item.name} />
-                ))}
-              </datalist>
+              <input className={fieldClass} placeholder="Epiphany of Our Lord" value={profile.parish} onChange={(event) => setProfile({ parish: event.target.value })} />
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Trade
               <input className={fieldClass} placeholder="Electrician" value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              ZIP
-              <input className={fieldClass} inputMode="numeric" autoComplete="postal-code" placeholder="33578" maxLength={10} value={profile.zip} onChange={(event) => setProfile({ zip: event.target.value })} />
-            </label>
           </div>
-        ) : null}
-        {mine ? (
-          <p className="text-sm text-muted">{profile.zip.trim() ? (town ? `Town: ${town.name}, ${town.state}` : "No town for that ZIP") : "Add a ZIP to pick your town."}</p>
-        ) : null}
-        {mine && admin ? (
-          <form
-            className="grid gap-3 sm:grid-cols-[8rem_1fr_5rem_auto] sm:items-end"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const result = correctZip(fixZip || profile.zip, fixName, fixState);
-              setFixError(result.ok ? "" : result.error);
-              if (result.ok) {
-                setFixName("");
-                setFixState("");
-              }
-            }}
-          >
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Correct a ZIP
-              <input className={fieldClass} inputMode="numeric" placeholder={profile.zip || "33578"} value={fixZip} onChange={(event) => setFixZip(event.target.value)} aria-label="ZIP to correct" />
-            </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Town
-              <input className={fieldClass} placeholder="Beverly Hills" value={fixName} onChange={(event) => setFixName(event.target.value)} aria-label="Corrected town" />
-            </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              State
-              <input className={fieldClass} placeholder="CA" maxLength={2} value={fixState} onChange={(event) => setFixState(event.target.value)} aria-label="Corrected state" />
-            </label>
-            <div className="flex gap-2">
-              <button type="submit" className={btnSignal}>
-                Save town
-              </button>
-              <button
-                type="button"
-                className={btnQuiet}
-                onClick={() => {
-                  const result = clearZip(fixZip || profile.zip);
-                  setFixError(result.ok ? "" : result.error);
-                }}
-              >
-                Clear ZIP
-              </button>
-            </div>
-            {fixError ? <p className="text-sm text-signal sm:col-span-4">{fixError}</p> : null}
-          </form>
         ) : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>
@@ -167,26 +95,6 @@ export function ProfileView() {
                 <span className="text-fg">{card.name}</span> <span className="text-muted">· {cardSummary(card)}</span>
               </li>
             ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {mine ? (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-2xl text-fg">Rooms you've joined</h2>
-          <p className="max-w-prose text-sm text-muted">Joined rooms come first on the front page. Your town's other rooms come next, from the ZIP above. Leaving a room does not erase its cards.</p>
-          <ul className="flex flex-col gap-2 lg:max-w-xl">
-            {rooms.map((room) => {
-              const on = joined.some((place) => place.kind === "room" && place.id === room.id);
-              return (
-                <li key={room.id} className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface px-3 py-2">
-                  <span className="text-sm text-fg">{localRoomLabel(room)}</span>
-                  <button type="button" className={on ? btnQuiet : btnSignal} onClick={() => (on ? leavePlace({ kind: "room", id: room.id }) : joinPlace({ kind: "room", id: room.id }))}>
-                    {on ? "Leave" : "Join"}
-                  </button>
-                </li>
-              );
-            })}
           </ul>
         </section>
       ) : null}
