@@ -1238,8 +1238,8 @@ export async function removePost(
   });
   if (blocked) return blocked;
   const target = await actorRole(db, post.author_user_id);
-  const blocked = moderationStop(actor, target);
-  if (blocked) return fail(403, blocked);
+  const stopped = moderationStop(actor, target);
+  if (stopped) return fail(403, stopped);
   const by = input.name.trim() || "Steward";
   const removalId = randomUUID();
   let publicKeys: string[] = [];
@@ -1361,8 +1361,8 @@ export async function banMember(
   if (!person) return fail(404, "No member has that email.");
   const target = await actorRole(db, person.id);
   if (!target.member) return fail(400, "That person is not a member.");
-  const blocked = moderationStop(actor, target);
-  if (blocked) return fail(403, blocked);
+  const stopped = moderationStop(actor, target);
+  if (stopped) return fail(403, stopped);
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
     const ban = await writeBan(db, {
