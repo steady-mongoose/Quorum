@@ -136,9 +136,12 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   assert.match(css, /prefers-reduced-motion:reduce\)\{\[data-section\]\{background-attachment:scroll\}/);
   assert.equal(css.includes("background-attachment:fixed"), false);
   assert.equal(css.includes("filter:blur"), false);
+  assert.ok(contrast("#8f6f2f", "#f0e7d3") >= 3, "focus ring on the bone button");
   assert.ok(contrast("#8f6f2f", "#ece2cc") >= 3, "parchment focus ring");
   assert.ok(contrast("#8f6f2f", "#fffaf0") >= 3, "parchment focus ring on the raised card");
-  assert.match(css, /:focus-visible\{outline:2px solid var\(--gold\)/);
+  assert.ok(contrast("#8f6f2f", "#14100c") >= 3, "focus ring on the ink ground");
+  assert.match(css, /--focus:#8f6f2f/);
+  assert.match(css, /:focus-visible\{outline:2px solid var\(--focus\)/);
   assert.match(css, /@media \(max-width:1023px\)\{[^]*dore-band-A-900\.webp/);
   assert.equal([...css.matchAll(/var\(--accent\)/g)].length, 1);
   const adjust = readFileSync(new URL("../../../public/engraved-adjust.css", import.meta.url), "utf8");

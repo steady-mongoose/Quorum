@@ -12,6 +12,9 @@ text colour. They are not upscaled past the source scan. CSS lives in
 `dore-band-A.webp` and `dore-band-B.webp` are those same colour duotones, resized to
 1600×677 and re-encoded to about 160KB for the desktop week band. They are not
 grayscale. The 900px mobile bands and the margin plates are the original files.
+`dore-og.jpg` is a 1200×630 JPEG of that crop, about 150KB or less, for the
+public gathering link preview. `dore-og.webp` is the same crop. No gathering
+text is drawn on either.
 
 | Screen | Work | File | Commons | Licence |
 |---|---|---|---|---|
