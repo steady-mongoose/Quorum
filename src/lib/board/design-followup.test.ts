@@ -173,13 +173,15 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
   const app = source("../../components/board/app.tsx");
   const about = source("../../components/board/about-view.tsx");
   const css = source("../../styles.css");
-  const surface = css.match(/--color-surface:\s*(#[0-9a-fA-F]{6})/)?.[1]?.toLowerCase();
-  const warning = "#f0b4a4";
+  const surface = css.match(/--color-surface:\s*(#[0-9a-fA-F]{6})/)?.[1]?.toLowerCase() ?? "";
+  const warning = css.match(/--color-danger:\s*(#[0-9a-fA-F]{6})/)?.[1]?.toLowerCase() ?? "";
   assert.equal(surface, "#1f1914");
+  assert.equal(warning, "#f0b4a4");
   assert.ok(contrast(warning, surface) >= 4.5);
   assert.ok(contrast(blend(warning, surface, 0.6), surface) >= 3);
 
-  assert.match(dialog, /border-\[#f0b4a4\]\/60 text-\[#f0b4a4\]/);
+  assert.match(dialog, /border-danger\/60 text-danger/);
+  assert.equal(dialog.includes("#f0b4a4"), false);
   assert.match(dialog, /backdrop:bg-bg\/80/);
   assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
   assert.match(css, /--color-bg:\s*#14100c/);
@@ -195,7 +197,8 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
 
 test("the composer announces one error and ignores a second click", () => {
   const room = source("../../components/board/room-view.tsx");
-  assert.equal(room.match(/role="alert"/g)?.length, 1);
+  const composer = room.slice(room.indexOf("function Composer"), room.indexOf("function Name"));
+  assert.equal(composer.match(/role="alert"/g)?.length, 1);
   assert.match(room, /const latestError = visible\?\.stops\.at\(-1\)/);
   assert.match(room, /role="alert" className="sr-only"/);
   assert.match(room, /if \(pendingRef\.current\) return/);

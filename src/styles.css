@@ -37,6 +37,7 @@
 
 @layer base {
   html {
+    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     /* Body text: 16px on a phone, 18px on a wide desktop. */

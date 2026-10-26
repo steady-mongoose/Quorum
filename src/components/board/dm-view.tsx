@@ -49,7 +49,7 @@ export function DmView() {
             All messages
           </button>
           <h1 className="illum font-display text-3xl text-fg">{other}</h1>
-          <p className="text-sm text-muted">Plain text, deleted after {DM_RETENTION_DAYS} days.</p>
+          <p className="text-sm text-muted">The words are not encrypted. Deleted after {DM_RETENTION_DAYS} days.</p>
         </div>
         <ul className="flex flex-col gap-2">
           {rows.length === 0 ? <li className="text-sm text-muted">Nothing yet.</li> : null}
@@ -92,7 +92,7 @@ export function DmView() {
         <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
           You can message someone you have been on an "I went" list with, or who replied to your post. Open one
-          from their post or their card. Messages are plain text, not encrypted, and are deleted after {DM_RETENTION_DAYS} days.
+          from their post or their card. The words stay in this browser, are not encrypted, and are deleted after {DM_RETENTION_DAYS} days.
         </p>
         <MessagePictureNote />
       </section>
