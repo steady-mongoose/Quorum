@@ -27,6 +27,7 @@ import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
 import { DesktopMore } from "@/components/board/desktop-more";
+import { PrimaryHaptic } from "@/components/board/haptics";
 import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
@@ -148,6 +149,7 @@ function BoardShell() {
 
   return (
     <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+      <PrimaryHaptic />
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top sticky top-0 z-20 border-b border-line bg-bg">

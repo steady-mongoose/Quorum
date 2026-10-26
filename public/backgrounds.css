@@ -3,7 +3,7 @@
   /* Palette A: Ink & Bone */
   --bg:#14100c; --surface:#1f1914; --card:#241d16; --card-raised:#2d251c;
   --fg:#f0e7d3; --muted:#bcae94; --line:#3a3026; --line-strong:#8a7a62;
-  --gold:#c9a45c; --accent:#b4483e;      /* oxblood, lightened for dark ground */
+  --gold:#c9a45c; --focus:#8f6f2f; --accent:#b4483e;      /* oxblood, lightened for dark ground */
   --btn-bg:#f0e7d3; --btn-ink:#14100c;
   --scrim:linear-gradient(90deg,rgba(20,16,12,0) 0%,rgba(20,16,12,.55) 45%,rgba(20,16,12,.88) 70%);
   --art-landing:url("/art/martin-hero-A.webp");
@@ -19,7 +19,7 @@
   /* Palette B: Parchment & Lapis */
   --bg:#ece2cc; --surface:#f3ecdc; --card:#f8f3e7; --card-raised:#fffaf0;
   --fg:#1f1912; --muted:#5e5242; --line:#d3c5a6; --line-strong:#8a7a62;
-  --gold:#8f6f2f; --accent:#24467d;     /* lapis */
+  --gold:#8f6f2f; --focus:#8f6f2f; --accent:#24467d;     /* lapis */
   --btn-bg:#24467d; --btn-ink:#fffaf0;
   --scrim:linear-gradient(90deg,rgba(236,226,204,0) 0%,rgba(236,226,204,.6) 45%,rgba(236,226,204,.9) 70%);
   --art-landing:url("/art/martin-hero-B.webp");
@@ -67,7 +67,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .btn{transition:transform var(--dur-press) var(--ease-press),box-shadow var(--dur-press) var(--ease-press)}
 .btn:active{transform:translateY(1px);box-shadow:inset 0 2px 3px rgba(0,0,0,.35)}
 .btn.btn-primary{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
-:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
 .illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;padding-right:.03em}
 .rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:7.5rem}
 .rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0);transition:transform 360ms var(--ease-press)}
