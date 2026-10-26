@@ -14,7 +14,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -42,8 +42,22 @@ jobs:
       - name: Install
         run: npm ci
 
+      # apt mirrors sometimes stall and hang this step for the whole job.
+      # Each attempt is capped, apt retries its own downloads, and the step
+      # gives up after 6 minutes so a stalled mirror fails fast.
       - name: Install age, psql, and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client ffmpeg
+        timeout-minutes: 6
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
+              && timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+                install -y --no-install-recommends age postgresql-client ffmpeg; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            sleep 5
+          done
+          exit 1
 
       - name: Template script tests
         id: scripts
