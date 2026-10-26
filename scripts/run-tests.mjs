@@ -15,6 +15,7 @@ const appTests = [
   "src/lib/board/public-gathering.test.ts",
   "src/lib/board/engraved.test.ts",
   "src/lib/board/phone-nav.test.ts",
+  "src/lib/board/more-menu.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
   "src/lib/board/design-critic.test.ts",
   "src/lib/app-data/app-data.test.ts",

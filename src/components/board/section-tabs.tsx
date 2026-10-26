@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -34,6 +34,10 @@ const ICONS = {
   about: BookOpen,
 } as const;
 
+// The server bundle has no document, so it keeps useEffect. The client opens
+// the sheet in useLayoutEffect, before the click that set `open` returns.
+const useDialogEffect = typeof document === "undefined" ? useEffect : useLayoutEffect;
+
 /**
  * Five phone slots in one row. More opens a sheet. Groups is one row in
  * that sheet, with You, The desk when it is on, and About. showModal traps
@@ -56,20 +60,15 @@ export function SectionTabs({
   const entries = moreEntries(deskOn);
   const moreCurrent = moreTabCurrent(current);
 
-  useEffect(() => {
+  useDialogEffect(() => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) {
-      dialog.showModal();
-      const currentRow = dialog.querySelector<HTMLButtonElement>('[aria-current="page"]');
-      (currentRow ?? dialog.querySelector("button"))?.focus();
-    } else if (!open && dialog.open) {
-      dialog.close();
-      moreRef.current?.focus();
-    }
+    if (!open || !dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const currentRow = dialog.querySelector<HTMLButtonElement>('[aria-current="page"]');
+    (currentRow ?? dialog.querySelector("button"))?.focus();
     return () => {
-      if (!dialog.open) return;
-      dialog.close();
+      if (dialog.open) dialog.close();
+      moreRef.current?.focus();
     };
   }, [open]);
 
@@ -106,67 +105,69 @@ export function SectionTabs({
           {MORE_TAB.label}
         </button>
       </nav>
-      <dialog
-        ref={dialogRef}
-        id={titleId}
-        className="more-sheet"
-        aria-label="More"
-        onCancel={(event) => {
-          event.preventDefault();
-          setOpen(false);
-        }}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          if (
-            moreSheetBackdropTap({
-              targetIsDialog: event.target === event.currentTarget,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              top: rect.top,
-              right: rect.right,
-              bottom: rect.bottom,
-              left: rect.left,
-            })
-          ) {
+      {open ? (
+        <dialog
+          ref={dialogRef}
+          id={titleId}
+          className="more-sheet"
+          aria-label="More"
+          onCancel={(event) => {
+            event.preventDefault();
             setOpen(false);
-          }
-        }}
-        onTouchStart={(event) => {
-          const touch = event.changedTouches[0];
-          swipe.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
-        }}
-        onTouchEnd={(event) => {
-          const origin = swipe.current;
-          swipe.current = null;
-          const touch = event.changedTouches[0];
-          if (!origin || !touch) return;
-          if (moreSheetDismisses(touch.clientX - origin.x, touch.clientY - origin.y)) setOpen(false);
-        }}
-      >
-        <div className="more-grab" aria-hidden="true" />
-        <ul>
-          {entries.map((item) => {
-            const Icon = ICONS[item.id];
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className="more-row"
-                  style={{ minHeight: `max(${TOUCH_MIN_PX}px, ${MORE_ROW_PX}px)` }}
-                  aria-current={tabAriaCurrent(current === item.id)}
-                  onClick={() => {
-                    setOpen(false);
-                    onSelect(item.id);
-                  }}
-                >
-                  <Icon className="size-6" aria-hidden="true" />
-                  {item.label}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </dialog>
+          }}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (
+              moreSheetBackdropTap({
+                targetIsDialog: event.target === event.currentTarget,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                left: rect.left,
+              })
+            ) {
+              setOpen(false);
+            }
+          }}
+          onTouchStart={(event) => {
+            const touch = event.changedTouches[0];
+            swipe.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+          }}
+          onTouchEnd={(event) => {
+            const origin = swipe.current;
+            swipe.current = null;
+            const touch = event.changedTouches[0];
+            if (!origin || !touch) return;
+            if (moreSheetDismisses(touch.clientX - origin.x, touch.clientY - origin.y)) setOpen(false);
+          }}
+        >
+          <div className="more-grab" aria-hidden="true" />
+          <ul>
+            {entries.map((item) => {
+              const Icon = ICONS[item.id];
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="more-row"
+                    style={{ minHeight: `max(${TOUCH_MIN_PX}px, ${MORE_ROW_PX}px)` }}
+                    aria-current={tabAriaCurrent(current === item.id)}
+                    onClick={() => {
+                      setOpen(false);
+                      onSelect(item.id);
+                    }}
+                  >
+                    <Icon className="size-6" aria-hidden="true" />
+                    {item.label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </dialog>
+      ) : null}
     </>
   );
 }
