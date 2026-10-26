@@ -106,6 +106,9 @@ export function AboutView() {
   const profile = useBoard((state) => state.profile);
   const threads = useBoard((state) => state.threads);
   const messages = useBoard((state) => state.messages);
+  const invites = useBoard((state) => state.invites);
+  const bans = useBoard((state) => state.bans);
+  const markLog = useBoard((state) => state.markLog);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearPhrase, setClearPhrase] = useState("");
   const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
@@ -120,6 +123,12 @@ export function AboutView() {
       cards,
       threads,
       messages,
+      invites,
+      bans,
+      markLog,
+      removals,
+      appeals,
+      reports: csamReports,
     });
   const createRoom = useBoard((state) => state.createRoom);
   const home = useBoard((state) => state.home);
@@ -274,6 +283,10 @@ export function AboutView() {
                   />
                 </label>
               ) : null}
+              <p className="mt-3 max-w-prose text-sm text-muted">
+                The file includes the posts, messages, invites, bans, marks, removals, appeals, and
+                reports saved in this browser.
+              </p>
               <button
                 type="button"
                 className={cn(btnGhost, "mt-3 min-h-[44px]")}

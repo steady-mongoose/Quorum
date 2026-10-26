@@ -261,6 +261,12 @@ export function boardExportDocument(input: {
   cards: MeetingCard[];
   threads: DmThread[];
   messages: DmMessage[];
+  invites: Invite[];
+  bans: BanRow[];
+  markLog: MarkRow[];
+  removals: RemovalRow[];
+  appeals: AppealRow[];
+  reports: CsamReport[];
 }): string {
   return JSON.stringify({
     name: APP_NAME,
@@ -272,6 +278,12 @@ export function boardExportDocument(input: {
     cards: input.cards,
     threads: input.threads,
     messages: input.messages,
+    invites: input.invites,
+    bans: input.bans,
+    markLog: input.markLog,
+    removals: input.removals,
+    appeals: input.appeals,
+    reports: input.reports,
   });
 }
 

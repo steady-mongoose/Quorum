@@ -71,17 +71,46 @@ test("export is a JSON snapshot of the board and has no engagement fields", () =
     cards: [],
     threads: [],
     messages: [],
+    invites: [{ code: "shop-abc", cardId: "card-1", by: "Josh", at: 2, redeemedBy: "" }],
+    bans: [{ id: "ban-1", author: "Dale", reason: "threat", until: 3, strikes: 1, at: 2 }],
+    markLog: [],
+    removals: [],
+    appeals: [],
+    reports: [
+      {
+        id: "report-1",
+        postId: "p1",
+        room: "shop",
+        author: "Dale",
+        accountId: "",
+        incidentAt: 2,
+        retainUntil: 3,
+        mediaCount: 0,
+        byteSize: 0,
+        mediaTypes: [],
+        status: "prepared",
+        reportId: "",
+        filedAt: null,
+        filedBy: "",
+      },
+    ],
   });
   const saved = JSON.parse(json) as {
     name: string;
     me: string;
     posts: { id: string }[];
     rooms: { id: string }[];
+    invites: { code: string }[];
+    bans: { id: string }[];
+    reports: { id: string }[];
   };
   assert.equal(saved.name, APP_NAME);
   assert.equal(saved.me, "Josh");
   assert.equal(saved.posts[0]?.id, "p1");
   assert.equal(saved.rooms[0]?.id, "shop");
+  assert.equal(saved.invites[0]?.code, "shop-abc");
+  assert.equal(saved.bans[0]?.id, "ban-1");
+  assert.equal(saved.reports[0]?.id, "report-1");
   assert.equal(/\b(likes?|reshares?|scores?)\b/i.test(json), false);
 });
 
@@ -95,7 +124,9 @@ test("the clear control is gated, typed, and offers export before the wipe", () 
   assert.match(about, /phraseRequired && !clearPhraseMatches\(clearPhrase, APP_NAME\)/);
   assert.match(about, /\{phraseRequired \?/);
   assert.match(about, /Export first/);
+  assert.match(about, /invites, bans, marks, removals, appeals, and\s+reports/);
   assert.match(about, /downloadBoardExport\(boardSnapshot\(\)\)/);
+  assert.match(about, /reports: csamReports/);
   assert.match(about, /clearLocalBoard\(\)/);
   assert.match(about, /undoClearBoard\(\)/);
   assert.match(about, /Type \{APP_NAME\} or CLEAR/);
