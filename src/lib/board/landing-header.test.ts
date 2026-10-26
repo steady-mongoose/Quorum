@@ -96,7 +96,7 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.match(door, /Membership is\s+by invitation only/);
   assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
   assert.match(door, /Invite codes can't be checked right now\. Try again in a moment\./);
-  assert.match(door, /const demoNote = apiDown \? null : \(/);
+  assert.match(door, /const demoNote = server\.configured \? null : \(/);
   assert.match(door, /className="door-demo text-sm text-muted"/);
   assert.match(
     door,
@@ -119,11 +119,12 @@ test("the door column starts with the invite line", () => {
   const formAt = door.indexOf('id="open-the-door"');
   const noteAt = door.indexOf("{demoNote}", formAt);
   const headingAt = door.indexOf(">Open the door</h2>");
-  const liveAt = door.indexOf("{live ? (");
-  const liveNote = door.indexOf("{demoNote}", liveAt);
-  const accountAt = door.indexOf("<AccountDoor />");
+  const liveAt = door.indexOf("{live ?");
+  const liveBranch = door.slice(liveAt, formAt);
   assert.ok(formAt > 0 && noteAt > formAt && headingAt > noteAt);
-  assert.ok(liveAt > 0 && liveNote > liveAt && accountAt > liveNote);
+  assert.match(liveBranch, /<AccountDoor \/>/);
+  assert.equal(liveBranch.includes("demoNote"), false);
+  assert.equal(liveBranch.includes("door-demo"), false);
   assert.match(door, /id="open-the-door"/);
   assert.match(door, /className="door-hero/);
   assert.match(door, /lg:order-last/);

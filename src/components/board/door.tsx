@@ -44,7 +44,7 @@ export function Door() {
   const live = server.mode === "live";
   const apiDown = server.configured && server.mode === "demo";
   const [checking, setChecking] = useState(false);
-  const demoNote = apiDown ? null : (
+  const demoNote = server.configured ? null : (
     <p className="door-demo text-sm text-muted">
       The server did not answer. This browser is in demo mode. Nothing you type here is saved on
       the server.
@@ -77,10 +77,7 @@ export function Door() {
           </section>
         ) : null}
         {live ? (
-          <>
-            {demoNote}
-            <AccountDoor />
-          </>
+          <AccountDoor />
         ) : (
           <form
             id="open-the-door"
