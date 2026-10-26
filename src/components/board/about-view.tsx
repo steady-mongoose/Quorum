@@ -14,9 +14,28 @@ import {
   type CsamReport,
   type HardRule,
 } from "@/lib/board/model";
-import { useBoard } from "@/lib/board/store";
+import {
+  boardExportDocument,
+  canClearBoard,
+  clearPhraseMatches,
+  clearPhraseRequired,
+  localBoardOwner,
+  useBoard,
+} from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
+
+function downloadBoardExport(json: string) {
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "avouch-board.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 const HOW = [
   {
@@ -75,13 +94,42 @@ export function AboutView() {
   const appeal = useBoard((state) => state.appeal);
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
+  const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
   const sample = useBoard((state) => state.sample);
   const loadSample = useBoard((state) => state.loadSample);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
+  const posts = useBoard((state) => state.posts);
+  const cards = useBoard((state) => state.cards);
+  const profile = useBoard((state) => state.profile);
+  const threads = useBoard((state) => state.threads);
+  const messages = useBoard((state) => state.messages);
+  const invites = useBoard((state) => state.invites);
+  const bans = useBoard((state) => state.bans);
+  const markLog = useBoard((state) => state.markLog);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [clearPhrase, setClearPhrase] = useState("");
+  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
+  const phraseRequired = clearPhraseRequired(sample);
+  const boardSnapshot = () =>
+    boardExportDocument({
+      me,
+      sample,
+      profile,
+      rooms: rooms.map((room) => ({ id: room.id, name: room.name })),
+      posts,
+      cards,
+      threads,
+      messages,
+      invites,
+      bans,
+      markLog,
+      removals,
+      appeals,
+      reports: csamReports,
+    });
   const createRoom = useBoard((state) => state.createRoom);
   const home = useBoard((state) => state.home);
   const changeAccess = useBoard((state) => state.changeAccess);
@@ -193,13 +241,18 @@ export function AboutView() {
               <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={loadSample}>
                 Load the sample week
               </button>
-              <button
-                type="button"
-                className={cn(btnGhost, "min-h-[44px]")}
-                onClick={() => setConfirmClear(true)}
-              >
-                Clear the board
-              </button>
+              {mayClear ? (
+                <button
+                  type="button"
+                  className={cn(btnGhost, "min-h-[44px]")}
+                  onClick={() => {
+                    setClearPhrase("");
+                    setConfirmClear(true);
+                  }}
+                >
+                  Clear the board
+                </button>
+              ) : null}
             </div>
             <ConfirmDialog
               open={confirmClear}
@@ -207,12 +260,41 @@ export function AboutView() {
               description="Everything here will be removed."
               confirmLabel="Clear it"
               cancelLabel="Keep it"
+              confirmDisabled={phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)}
               onConfirm={() => {
+                if (phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)) return;
                 setConfirmClear(false);
+                setClearPhrase("");
                 clearLocalBoard();
               }}
-              onCancel={() => setConfirmClear(false)}
-            />
+              onCancel={() => {
+                setConfirmClear(false);
+                setClearPhrase("");
+              }}
+            >
+              {phraseRequired ? (
+                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                  Type {APP_NAME} or CLEAR
+                  <input
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    value={clearPhrase}
+                    autoComplete="off"
+                    onChange={(event) => setClearPhrase(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <p className="mt-3 max-w-prose text-sm text-muted">
+                The file includes the posts, messages, invites, bans, marks, removals, appeals, and
+                reports saved in this browser.
+              </p>
+              <button
+                type="button"
+                className={cn(btnGhost, "mt-3 min-h-[44px]")}
+                onClick={() => downloadBoardExport(boardSnapshot())}
+              >
+                Export first
+              </button>
+            </ConfirmDialog>
             {undoClear ? (
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <p className="max-w-prose text-sm text-muted">

@@ -14,6 +14,7 @@ import {
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
 import {
+  APP_NAME,
   DAY,
   DM_RETENTION_DAYS,
   FOUNDER_CODE,
@@ -224,6 +225,69 @@ export function undoSnapshotLive(
   now = Date.now(),
 ): undo is BoardUndo {
   return !!undo && typeof undo.at === "number" && now - undo.at < UNDO_TTL_MS;
+}
+
+/** Admins and owners are the only people who can wipe the local board. */
+export function canClearBoard(actor: { admin: boolean; owner: boolean }): boolean {
+  return actor.admin === true || actor.owner === true;
+}
+
+/**
+ * The founder owns this box. The sample week lives only in this browser,
+ * so the person looking at it owns that copy.
+ */
+export function localBoardOwner(state: { founded: boolean; sample: boolean }): boolean {
+  return state.founded === true || state.sample === true;
+}
+
+/** The sample week is only invented data, so clearing it does not ask for a typed phrase. */
+export function clearPhraseRequired(sample: boolean): boolean {
+  return sample !== true;
+}
+
+/** The confirm button stays off until the board name or CLEAR is typed. */
+export function clearPhraseMatches(typed: string, boardName: string): boolean {
+  const value = typed.trim();
+  if (!value) return false;
+  if (value.toUpperCase() === "CLEAR") return true;
+  const name = boardName.trim();
+  return name.length > 0 && value.localeCompare(name, "en", { sensitivity: "accent" }) === 0;
+}
+
+/** A JSON snapshot of the local board. No likes, reshares, or scores. */
+export function boardExportDocument(input: {
+  me: string;
+  sample: boolean;
+  profile: Profile;
+  rooms: { id: string; name: string }[];
+  posts: Post[];
+  cards: MeetingCard[];
+  threads: DmThread[];
+  messages: DmMessage[];
+  invites: Invite[];
+  bans: BanRow[];
+  markLog: MarkRow[];
+  removals: RemovalRow[];
+  appeals: AppealRow[];
+  reports: CsamReport[];
+}): string {
+  return JSON.stringify({
+    name: APP_NAME,
+    me: input.me,
+    sample: input.sample,
+    profile: input.profile,
+    rooms: input.rooms,
+    posts: input.posts,
+    cards: input.cards,
+    threads: input.threads,
+    messages: input.messages,
+    invites: input.invites,
+    bans: input.bans,
+    markLog: input.markLog,
+    removals: input.removals,
+    appeals: input.appeals,
+    reports: input.reports,
+  });
 }
 
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
