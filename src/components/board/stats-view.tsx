@@ -76,7 +76,7 @@ export function StatsView({
               onChange={(event) => onCategory(event.target.value)}
             >
               <option value="all">All</option>
-              {STATS_CATEGORIES.map((item) => (
+              {(stats.categories?.length ? stats.categories : STATS_CATEGORIES).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
                 </option>

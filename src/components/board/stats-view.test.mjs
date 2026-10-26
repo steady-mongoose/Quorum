@@ -63,6 +63,10 @@ const stats = /** @type {import("../../lib/board/stats.ts").StatsPayload} */ ({
     rows: roomRows,
     steady: "<5",
   },
+  categories: [
+    { id: "churches", label: "Churches" },
+    { id: "choir", label: "Parish choir" },
+  ],
   roomsByCategory: [
     { id: "churches", label: "Churches", count: 6 },
     { id: "discussion", label: "Discussion", count: "<5" },
@@ -118,6 +122,7 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
     );
   });
   const text = document.body.textContent ?? "";
+  assert.match(text, /Parish choir/);
   assert.match(text, /Members/);
   assert.match(text, /Invites accepted \(30 days\)/);
   assert.match(text, /Active rooms \(30 days\)/);

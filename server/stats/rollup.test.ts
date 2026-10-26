@@ -12,6 +12,7 @@ import {
   showCount,
   showPercent,
   toStatsCsv,
+  type ShownCount,
   type StatsPayload,
 } from "../../src/lib/board/stats.ts";
 import { noteAuthenticatedRequest } from "./activity.ts";
@@ -503,8 +504,130 @@ test("a room in two categories counts in each filter and once overall", async ()
     assert.equal(all.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 18);
     assert.equal(civic.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 10);
     assert.equal(churches.tiles.find((tile) => tile.id === "gatherings")?.value, "<5");
-    assert.equal(civic.tiles.find((tile) => tile.id === "gatherings")?.value, 5);
+    assert.equal(civic.tiles.find((tile) => tile.id === "gatherings")?.value, 6);
+    assert.equal(all.tiles.find((tile) => tile.id === "gatherings")?.value, 5);
     assert.equal(all.tiles.find((tile) => tile.id === "members")?.value, churches.tiles[0]?.value);
+  } finally {
+    await close();
+  }
+});
+
+test("gathering filters cannot be subtracted back to a hidden category", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-gap@example.com", "2026-01-01T00:00:00Z");
+    await db.query(
+      `create table room_categories (
+         room_id text not null references room (id) on delete cascade,
+         category_id text not null,
+         primary key (room_id, category_id)
+       )`,
+    );
+    for (const [id, name] of [
+      ["qa-big", "Big Hall"],
+      ["qa-small", "Small Hall"],
+      ["qa-both", "Shared Hall"],
+    ] as const) {
+      await db.query(`insert into room (id, name) values ($1, $2)`, [id, name]);
+    }
+    await db.query(
+      `insert into room_categories (room_id, category_id) values
+       ('qa-big', 'churches'),
+       ('qa-small', 'civic'),
+       ('qa-both', 'churches'),
+       ('qa-both', 'discussion')`,
+    );
+    await db.query(
+      `insert into board_post
+       (id, room_id, author_user_id, author_name, type, claim, on_date, came, created_at)
+       select 'qa-' || to_char(day, 'YYYYMMDD') || '-' || n::text,
+              'qa-big', $1, 'Ada Lovelace', 'hosted',
+              'The host filed the roll after the gathering.',
+              to_char(day, 'YYYY-MM-DD'), '{}', day
+       from generate_series('2026-07-28'::timestamptz, '2026-10-25'::timestamptz, interval '1 day') as day,
+            generate_series(1, 5) as n`,
+      [ada],
+    );
+    for (const roomId of ["qa-small", "qa-small", "qa-both"]) {
+      await hosted(db, {
+        roomId,
+        authorId: ada,
+        authorName: "Ada Lovelace",
+        on: "2026-10-25",
+        came: [],
+        at: "2026-10-25T18:00:00Z",
+      });
+    }
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values ('2026-10-25'::date, 'dau', '', 6)`,
+    );
+    const hidden = 2;
+    for (const days of [7, 30, 90] as const) {
+      const all = await readStats(db, NOW, { days, category: "all" });
+      const churches = await readStats(db, NOW, { days, category: "churches" });
+      const civic = await readStats(db, NOW, { days, category: "civic" });
+      const discussion = await readStats(db, NOW, { days, category: "discussion" });
+      const whole = gatheringsOf(all);
+      const churchesCount = gatheringsOf(churches);
+      assert.equal(typeof whole, "number");
+      assert.equal(typeof churchesCount, "number");
+      assert.notEqual((whole as number) - (churchesCount as number), hidden);
+      assert.notEqual((whole as number) - (churchesCount as number), 1);
+      assert.equal(gatheringsOf(civic), "<5");
+      assert.equal(gatheringsOf(discussion), "<5");
+      const csv = await readStatsCsv(db, NOW, { days, category: "all" });
+      const churchesCsv = await readStatsCsv(db, NOW, { days, category: "churches" });
+      assert.equal(csv.includes(`Gatherings held (${days} days),,${hidden}`), false);
+      assert.equal(churchesCsv.includes(`Gatherings held (${days} days),,${hidden}`), false);
+      assert.match(csv, new RegExp(`Gatherings held \\(${days} days\\),,${whole}`));
+      assert.match(churchesCsv, new RegExp(`Gatherings held \\(${days} days\\),,${churchesCount}`));
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("an admin-added category is shown by its name", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-name@example.com", "2026-09-01T15:00:00Z");
+    await db.query(
+      `create table categories (
+         slug text primary key,
+         name text not null,
+         sort_order integer not null default 0
+       )`,
+    );
+    await db.query(
+      `insert into categories (slug, name, sort_order) values ('choir', 'Parish choir', 20)`,
+    );
+    await db.query(
+      `create table room_categories (
+         room_id text not null references room (id) on delete cascade,
+         category_id text not null,
+         primary key (room_id, category_id)
+       )`,
+    );
+    await db.query(`insert into room (id, name) values ('choir-hall', 'Choir hall')`);
+    await db.query(
+      `insert into room_categories (room_id, category_id) values ('choir-hall', 'choir')`,
+    );
+    await post(db, ada, "Ada Lovelace", "choir-hall", "2026-10-20T15:00:00Z");
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values ('2026-10-25'::date, 'dau', '', 6)`,
+    );
+    const all = await readStats(db, NOW, { days: 30, category: "all" });
+    assert.equal(all.roomsByCategory.find((row) => row.id === "choir")?.label, "Parish choir");
+    assert.equal(all.categories?.find((row) => row.id === "choir")?.label, "Parish choir");
+    assert.equal(
+      all.roomsByCategory.some((row) => row.id === "other" || row.label === "other"),
+      false,
+    );
+    const filtered = await readStats(db, NOW, { days: 30, category: "all", requested: "choir" });
+    assert.equal(filtered.category, "choir");
+    assert.equal(filtered.roomsByCategory[0]?.label, "Parish choir");
+    const unknown = await readStats(db, NOW, { days: 30, category: "all", requested: "nope" });
+    assert.equal(unknown.category, "all");
   } finally {
     await close();
   }
@@ -647,6 +770,10 @@ async function until(check: () => Promise<boolean>): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function gatheringsOf(stats: StatsPayload): ShownCount | null {
+  return stats.tiles.find((tile) => tile.id === "gatherings")?.value ?? null;
 }
 
 async function user(db: Db, name: string, email: string, createdAt: string): Promise<string> {

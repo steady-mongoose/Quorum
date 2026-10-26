@@ -34,13 +34,18 @@ const FEATURE_DAYS = 27;
 export async function readStats(
   db: Db,
   now: Date,
-  filter: { days: StatsDays; category: string } = { days: 30, category: "all" },
+  filter: { days: StatsDays; category: string; requested?: string } = {
+    days: 30,
+    category: "all",
+  },
 ): Promise<StatsPayload> {
   const today = utcDate(now);
   const stored = await load(db, addUtcDays(today, -400));
   const names = await roomNames(db);
   const membership = await loadMembership(db);
-  const inCategory = roomIdsFor(membership, filter.category);
+  const catalog = await loadCatalog(db, membership);
+  const category = resolveCategory(filter, catalog);
+  const inCategory = roomIdsFor(membership, category);
   const dauDays = stored.filter((row) => row.metric === "dau").map((row) => row.date);
   const asOf = dauDays.length > 0 ? dauDays[dauDays.length - 1] : null;
   const chartStart = asOf ? addUtcDays(asOf, -(filter.days - 1)) : null;
@@ -56,19 +61,20 @@ export async function readStats(
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
   const tiles = asOf
-    ? await tilesOf(db, stored, asOf, filter.days, filter.category, membership)
+    ? await tilesOf(db, stored, asOf, filter.days, category, membership, catalog)
     : blankTiles(filter.days);
   const roomsByCategory = asOf
     ? await categoriesOf(
         db,
         addUtcDays(asOf, -(filter.days - 1)),
         asOf,
-        filter.category,
+        category,
         membership,
+        catalog,
       )
-    : STATS_CATEGORIES.map((category) => ({
-        id: category.id,
-        label: category.label,
+    : catalog.map((item) => ({
+        id: item.id,
+        label: item.label,
         count: "<5" as const,
       }));
   const funnel = asOf
@@ -78,7 +84,8 @@ export async function readStats(
   return {
     asOf,
     days: filter.days,
-    category: filter.category,
+    category,
+    categories: catalog,
     tiles,
     joins,
     active,
@@ -97,7 +104,10 @@ export async function readStats(
 export async function readStatsCsv(
   db: Db,
   now: Date,
-  filter: { days: StatsDays; category: string } = { days: 30, category: "all" },
+  filter: { days: StatsDays; category: string; requested?: string } = {
+    days: 30,
+    category: "all",
+  },
 ): Promise<string> {
   return toStatsCsv(await readStats(db, now, filter));
 }
@@ -172,6 +182,7 @@ async function tilesOf(
   days: StatsDays,
   category: string,
   membership: Map<string, Set<string>>,
+  catalog: CategoryInfo[],
 ): Promise<StatsPayload["tiles"]> {
   const labels = tileLabels(days);
   const currentStart = addUtcDays(asOf, -(days - 1));
@@ -190,17 +201,18 @@ async function tilesOf(
     await redeemed(db, priorStart, priorEnd),
   );
   const rooms = roomsTile(
-    await categorySnapshot(db, currentStart, asOf, membership),
-    await categorySnapshot(db, priorStart, priorEnd, membership),
+    await categorySnapshot(db, currentStart, asOf, membership, catalog),
+    await categorySnapshot(db, priorStart, priorEnd, membership, catalog),
     category,
     labels.rooms,
+    catalog,
   );
-  const inCategory = roomIdsFor(membership, category);
-  const gatherings = compared(
-    "gatherings",
+  const gatherings = gatheringsTile(
+    await gatheringSnapshot(db, currentStart, asOf, membership, catalog),
+    await gatheringSnapshot(db, priorStart, priorEnd, membership, catalog),
+    category,
     labels.gatherings,
-    await gatheringParts(db, currentStart, asOf, inCategory),
-    await gatheringParts(db, priorStart, priorEnd, inCategory),
+    catalog,
   );
   return [members, invites, rooms, gatherings];
 }
@@ -210,26 +222,57 @@ function roomsTile(
   prior: CategorySnapshot,
   category: string,
   label: string,
+  catalog: CategoryInfo[],
 ): StatsTile {
   return {
     id: "rooms",
     label,
-    value: publishedRooms(current, category),
-    change: shownChange(publishedRooms(current, category), publishedRooms(prior, category)),
+    value: publishedBreakdown(current, category, catalog),
+    change: shownChange(
+      publishedBreakdown(current, category, catalog),
+      publishedBreakdown(prior, category, catalog),
+    ),
   };
 }
 
-/** The same number the category chart publishes, so a filter cannot reveal a hidden bar. */
-function publishedRooms(snapshot: CategorySnapshot, category: string): ShownCount {
+function gatheringsTile(
+  current: CategorySnapshot,
+  prior: CategorySnapshot,
+  category: string,
+  label: string,
+  catalog: CategoryInfo[],
+): StatsTile {
+  return {
+    id: "gatherings",
+    label,
+    value: publishedBreakdown(current, category, catalog),
+    change: shownChange(
+      publishedBreakdown(current, category, catalog),
+      publishedBreakdown(prior, category, catalog),
+    ),
+  };
+}
+
+/**
+ * One breakdown for every category, including the hall-wide total.
+ * A large category stays exact. The total is rounded or hidden when any
+ * category is under 5, so all minus one category cannot recover it.
+ */
+function publishedBreakdown(
+  snapshot: CategorySnapshot,
+  category: string,
+  catalog: CategoryInfo[],
+): ShownCount {
   const protectedParts = protectBreakdown(snapshot.parts);
-  if (category === "all") return protectRoomTotal(snapshot.distinct, snapshot.parts);
-  const index = STATS_CATEGORIES.findIndex((item) => item.id === category);
+  if (category === "all") return protectRoomTotal(snapshot.total, snapshot.parts);
+  const index = catalog.findIndex((item) => item.id === category);
+  if (index < 0) return "<5";
   return protectedParts.parts[index] ?? "<5";
 }
 
-function protectRoomTotal(distinct: number, parts: number[]): ShownCount {
-  if (!parts.some((part) => part < SMALL_COUNT)) return showCount(distinct);
-  const rounded = roundToFive(distinct);
+function protectRoomTotal(total: number, parts: number[]): ShownCount {
+  if (!parts.some((part) => part < SMALL_COUNT)) return showCount(total);
+  const rounded = roundToFive(total);
   if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded)) return "<5";
   return rounded;
 }
@@ -489,30 +532,80 @@ async function activeRoomIds(db: Db, start: string, end: string): Promise<string
   return rows.map((row) => row.room_id);
 }
 
-type CategorySnapshot = { parts: number[]; distinct: number };
+type CategoryInfo = { id: string; label: string };
+
+type CategorySnapshot = { parts: number[]; total: number };
 
 /**
- * Seven category counts, then rooms with no browse category.
- * A room in two categories increments both. The distinct total counts it once.
+ * One count per catalog category, then rooms in none of them.
+ * A room in two categories increments both. The total counts it once.
  */
 async function categorySnapshot(
   db: Db,
   start: string,
   end: string,
   membership: Map<string, Set<string>>,
+  catalog: CategoryInfo[],
 ): Promise<CategorySnapshot> {
-  const counts = new Map<string, number>(STATS_CATEGORIES.map((category) => [category.id, 0]));
-  let other = 0;
-  const rooms = await activeRoomIds(db, start, end);
-  for (const roomId of rooms) {
-    const slugs = [...(membership.get(roomId) ?? [])].filter((slug) => counts.has(slug));
-    if (slugs.length === 0) other += 1;
-    for (const slug of slugs) counts.set(slug, (counts.get(slug) ?? 0) + 1);
+  return countByCategory(await activeRoomIds(db, start, end), membership, catalog, () => 1);
+}
+
+async function gatheringSnapshot(
+  db: Db,
+  start: string,
+  end: string,
+  membership: Map<string, Set<string>>,
+  catalog: CategoryInfo[],
+): Promise<CategorySnapshot> {
+  const rows = await db.query<{ room_id: string; count: unknown }>(
+    `select room_id, count(*)::int as count from (
+       select room_id
+       from board_post
+       where type = 'hosted'
+         and removed = false
+         and on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         and on_date::date between $1::date and $2::date
+       union all
+       select room_id
+       from public_gathering
+       where removed = false
+         and gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         and gather_on::date between $1::date and $2::date
+     ) held
+     group by room_id`,
+    [start, end],
+  );
+  const counts = new Map(rows.map((row) => [row.room_id, asCount(row.count)]));
+  return countByCategory(
+    [...counts.keys()],
+    membership,
+    catalog,
+    (roomId) => counts.get(roomId) ?? 0,
+  );
+}
+
+function countByCategory(
+  roomIds: string[],
+  membership: Map<string, Set<string>>,
+  catalog: CategoryInfo[],
+  amount: (roomId: string) => number,
+): CategorySnapshot {
+  const parts = catalog.map(() => 0);
+  let remainder = 0;
+  let total = 0;
+  for (const roomId of roomIds) {
+    const count = amount(roomId);
+    total += count;
+    const slugs = membership.get(roomId) ?? new Set<string>();
+    let matched = false;
+    catalog.forEach((category, index) => {
+      if (!slugs.has(category.id)) return;
+      parts[index] = (parts[index] ?? 0) + count;
+      matched = true;
+    });
+    if (!matched) remainder += count;
   }
-  return {
-    parts: [...STATS_CATEGORIES.map((category) => counts.get(category.id) ?? 0), other],
-    distinct: rooms.length,
-  };
+  return { parts: [...parts, remainder], total };
 }
 
 async function categoriesOf(
@@ -521,16 +614,66 @@ async function categoriesOf(
   end: string,
   category: string,
   membership: Map<string, Set<string>>,
+  catalog: CategoryInfo[],
 ): Promise<CategoryCount[]> {
-  const snapshot = await categorySnapshot(db, start, end, membership);
+  const snapshot = await categorySnapshot(db, start, end, membership, catalog);
   const parts = protectBreakdown(snapshot.parts);
-  const bars = STATS_CATEGORIES.map((item, index) => ({
+  const bars = catalog.map((item, index) => ({
     id: item.id,
     label: item.label,
     count: parts.parts[index] ?? ("<5" as const),
   }));
   if (category === "all") return bars;
   return bars.filter((bar) => bar.id === category);
+}
+
+function resolveCategory(
+  filter: { category: string; requested?: string },
+  catalog: CategoryInfo[],
+): string {
+  const requested = (filter.requested ?? filter.category).trim();
+  if (catalog.some((item) => item.id === requested)) return requested;
+  if (requested === "all" || requested === "") return "all";
+  if (filter.category !== "all" && catalog.some((item) => item.id === filter.category)) {
+    return filter.category;
+  }
+  return "all";
+}
+
+/** Browse categories, plus any an admin has added, under the name stored for each. */
+async function loadCatalog(db: Db, membership: Map<string, Set<string>>): Promise<CategoryInfo[]> {
+  const named = await categoryNames(db);
+  const ids = new Set<string>(STATS_CATEGORIES.map((category) => category.id));
+  for (const slug of named.keys()) ids.add(slug);
+  for (const slugs of membership.values()) {
+    for (const slug of slugs) ids.add(slug);
+  }
+  const extras = [...ids]
+    .filter((id) => !STATS_CATEGORIES.some((category) => category.id === id))
+    .sort();
+  return [
+    ...STATS_CATEGORIES.map((category) => ({
+      id: category.id,
+      label: named.get(category.id) ?? category.label,
+    })),
+    ...extras.map((id) => ({ id, label: named.get(id) ?? id })),
+  ];
+}
+
+async function categoryNames(db: Db): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (!(await relationExists(db, "categories"))) return names;
+  const ordered = await columnExists(db, "categories", "sort_order");
+  const rows = await db.query<{ slug: string; name: string }>(
+    ordered
+      ? `select slug, name from categories order by sort_order, slug`
+      : `select slug, name from categories order by slug`,
+  );
+  for (const row of rows) {
+    const name = row.name.trim();
+    if (row.slug && name) names.set(row.slug, name);
+  }
+  return names;
 }
 
 /** Rooms in the selected category. Null means every room. A room may be in more than one. */
@@ -544,8 +687,9 @@ function roomIdsFor(membership: Map<string, Set<string>>, category: string): str
 }
 
 /**
- * `room_categories` is the many-to-many list from the categories migration.
- * Until that table exists, one category on `room` is used, then the seeded map.
+ * A room may belong to more than one category. `room_categories` is that join
+ * table. When it is not present, `room.category_id` is the single category,
+ * and otherwise the seeded map is used.
  */
 async function loadMembership(db: Db): Promise<Map<string, Set<string>>> {
   const map = new Map<string, Set<string>>();
@@ -587,37 +731,6 @@ async function columnExists(db: Db, table: string, column: string): Promise<bool
     [table, column],
   );
   return Boolean(rows[0]);
-}
-
-async function gatheringParts(
-  db: Db,
-  start: string,
-  end: string,
-  roomIds: string[] | null,
-): Promise<number[]> {
-  const narrowed = roomIds !== null;
-  const rows = await db.query<{ date: string; count: unknown }>(
-    `select day as date, count(*)::int as count from (
-       select on_date as day
-       from board_post
-       where type = 'hosted'
-         and removed = false
-         and on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-         and on_date::date between $1::date and $2::date
-         and ($3::boolean = false or room_id = any($4::text[]))
-       union all
-       select gather_on as day
-       from public_gathering
-       where removed = false
-         and gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-         and gather_on::date between $1::date and $2::date
-         and ($3::boolean = false or room_id = any($4::text[]))
-     ) held
-     group by day`,
-    [start, end, narrowed, roomIds ?? []],
-  );
-  const byDay = new Map(rows.map((row) => [isoDate(row.date), asCount(row.count)]));
-  return eachDay(start, end).map((date) => byDay.get(date) ?? 0);
 }
 
 async function funnelOf(db: Db, start: string, end: string): Promise<FunnelStep[]> {

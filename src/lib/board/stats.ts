@@ -75,6 +75,8 @@ export type StatsPayload = {
   asOf: string | null;
   days: StatsDays;
   category: string;
+  /** Every category the filter can name, including ones an admin added. */
+  categories?: { id: string; label: string }[];
   tiles: [StatsTile, StatsTile, StatsTile, StatsTile];
   joins: DayCount[];
   active: ActiveDay[];

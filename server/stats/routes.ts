@@ -39,7 +39,11 @@ export async function handleStats(
   if (!actor.admin) return json(403, { error: "This page is for an admin." });
   const ban = await openBan(deps.db, session.id, deps.now());
   if (ban) return json(403, { error: "banned", ban });
-  const filter = parseStatsQuery(url.searchParams);
+  const parsed = parseStatsQuery(url.searchParams);
+  const filter = {
+    ...parsed,
+    requested: url.searchParams.get("category")?.trim() || "all",
+  };
   if (csv) {
     const body = await readStatsCsv(deps.db, deps.now(), filter);
     return new Response(body, {
