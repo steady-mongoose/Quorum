@@ -75,7 +75,7 @@ export function FindView() {
         ) : null}
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
-          <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
+          <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
             Every meeting, in one list.
           </h1>
           <p className="max-w-prose text-base text-muted">
@@ -216,7 +216,7 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
 function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[] }) {
   const shown = witnesses.length >= 2;
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
@@ -288,7 +288,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const going = card.going.includes(rest.me);
 
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}

@@ -44,7 +44,8 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(app, /Skip to content/);
   assert.match(app, /id="main"/);
   assert.match(app, /tabIndex=\{-1\}/);
-  assert.match(app, /grid-cols-5/);
+  assert.match(app, /<SectionTabs /);
+  assert.equal(app.includes("grid-cols-5"), false);
   assert.match(app, /aria-busy=\{busy/);
   assert.match(app, /Checking the server/);
   assert.match(app, /motion-reduce:animate-none/);
@@ -81,7 +82,8 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(profile, /role="status"/);
   assert.match(profile, />\s*Saved\s*</);
   assert.match(profile, /The desk/);
-  assert.match(profile, /About/);
+  assert.match(source("./phone-nav.ts"), /label: "About"/);
+  assert.match(source("./phone-nav.ts"), /label: "More"/);
   assert.match(door, /text-base font-semibold text-fg">The rooms/);
   assert.match(desk, /<summary[\s\S]*How it works/);
   assert.match(account, /autoComplete="name"/);

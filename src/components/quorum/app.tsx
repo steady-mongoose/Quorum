@@ -31,7 +31,7 @@ export function QuorumPanel() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Kicker>The desk</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
+        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">Everyone calls one official, at the same time, with the same message.</h1>
       </div>
       <IconNav items={NAV} current={view === "desk" ? "load" : view} onSelect={setView} label="The desk" />
       {view === "load" && <LoadView />}

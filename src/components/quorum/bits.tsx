@@ -25,13 +25,7 @@ export function IconNav<T extends string>({
   className?: string;
 }) {
   return (
-    <nav
-      className={cn(
-        "flex gap-2 overflow-x-auto lg:flex-wrap lg:justify-end lg:overflow-visible",
-        className,
-      )}
-      aria-label={label}
-    >
+    <nav className={cn("flex flex-wrap gap-2 lg:justify-end", className)} aria-label={label}>
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -140,7 +134,7 @@ export function LevelSwitch({
 
 export function Kicker({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-xs font-semibold tracking-widest text-signal uppercase", className)}>{children}</p>
+    <p className={cn("kicker", className)}>{children}</p>
   );
 }
 

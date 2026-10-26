@@ -60,7 +60,7 @@ export function Door() {
         ) : null}
         {live ? null : (
           <form
-            className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
+            className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
             onSubmit={(event) => {
               event.preventDefault();
               const result = redeemInvite(code, name);
@@ -100,7 +100,7 @@ export function Door() {
           </form>
         )}
 
-        <section className="flex flex-col gap-2 border-t border-line pt-5">
+        <section className="card flex flex-col gap-2 p-5">
           <p className="text-sm text-muted">
             Just looking? The sample week is six invented members and a week of cards. You become
             Josh.
@@ -112,9 +112,9 @@ export function Door() {
       </div>
 
       <div className="flex max-w-3xl flex-col gap-8">
-        <section className="flex flex-col gap-3">
+        <section className="card flex flex-col gap-3 p-6">
           <Kicker>Invite only</Kicker>
-          <h1 className="font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
+          <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
             Someone brought you here for one thing.
           </h1>
           <p className="max-w-prose text-base text-muted lg:text-lg">
@@ -124,7 +124,7 @@ export function Door() {
           </p>
         </section>
 
-        <section className="flex flex-col gap-3">
+        <section className="card flex flex-col gap-3 p-6">
           <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
             {WEEK.map((row) => (
@@ -136,7 +136,7 @@ export function Door() {
           </dl>
         </section>
 
-        <section className="flex flex-col gap-2">
+        <section className="card flex flex-col gap-2 p-6">
           <h2 className="text-base font-semibold text-fg">The rooms</h2>
           <p className="max-w-prose text-sm text-muted">
             {rooms
