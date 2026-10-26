@@ -78,7 +78,6 @@ export function RoomView() {
   const bans = useBoard((state) => state.bans);
   const appeals = useBoard((state) => state.appeals);
   const rooms = useBoard((state) => state.rooms);
-  const boardError = useBoard((state) => state.boardError);
   const remote = useBoard((state) => state.remote);
   const older = useBoard(
     (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
@@ -226,11 +225,6 @@ export function RoomView() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
-          {boardError ? (
-            <p className="text-sm text-danger" role="alert">
-              {boardError}
-            </p>
-          ) : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
               {ban.reason === "csam"
