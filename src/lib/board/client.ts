@@ -1,3 +1,4 @@
+import type { BrowseRoom, RoomCategory } from "./categories.ts";
 import type { HomePayload } from "./home.ts";
 import type {
   AppealRow,
@@ -94,7 +95,25 @@ export type BoardClient = {
     id: string;
     name: string;
     what: string;
+    categoryId: string;
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
+  updateRoom: (
+    id: string,
+    input: { categoryId: string; name?: string; what?: string },
+  ) => Promise<{ ok: true; room: Room } | BoardFailure>;
+  listCategories: () => Promise<{ ok: true; categories: RoomCategory[] } | BoardFailure>;
+  readCategory: (
+    slug: string,
+  ) => Promise<{ ok: true; category: RoomCategory; rooms: BrowseRoom[] } | BoardFailure>;
+  createCategory: (input: {
+    slug: string;
+    name: string;
+  }) => Promise<{ ok: true; category: RoomCategory } | BoardFailure>;
+  updateCategory: (
+    slug: string,
+    input: { name?: string; sortOrder?: number },
+  ) => Promise<{ ok: true; category: RoomCategory } | BoardFailure>;
+  deleteCategory: (slug: string) => Promise<{ ok: true } | BoardFailure>;
   appointSteward: (input: {
     email: string;
     action: "grant" | "revoke";

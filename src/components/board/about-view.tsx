@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { useCategories } from "@/components/board/use-categories";
+import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { cn } from "@/lib/cn";
@@ -563,7 +565,11 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -572,7 +578,11 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -674,7 +684,16 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+  return {
+    email,
+    setEmail,
+    roomId,
+    setRoomId,
+    inviterEmail,
+    setInviterEmail,
+    stewardEmail,
+    setStewardEmail,
+  };
 }
 
 function RevokeRole({
@@ -768,6 +787,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
+    categoryId: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -775,6 +795,8 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const categories = browseCategories(useCategories(), false);
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -817,18 +839,40 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
+          Category
+          <select
+            className={fieldClass}
+            value={categoryId}
+            required
+            aria-label="Category"
+            onChange={(event) => setCategoryId(event.target.value)}
+          >
+            <option value="">Choose a category</option>
+            {categories.map((category) => (
+              <option key={category.slug} value={category.slug}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <button
         type="button"
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what }).then((result) => {
+          if (!categoryId) {
+            setRoomError("Choose a category.");
+            return;
+          }
+          void createRoom({ id, name, what, categoryId }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
+              setCategoryId("");
             }
           });
         }}

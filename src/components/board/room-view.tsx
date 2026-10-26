@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -58,6 +59,9 @@ import {
   type Post,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
+import { useRoomsRoute } from "@/components/board/rooms-route";
+import { categoryName, roomCategoryId } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -69,8 +73,12 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
   const room = useBoard((state) => state.room);
+  const browsing = useBoard((state) => state.browsing);
   const armedRoom = useSyncExternalStore(subscribeArmedRoom, getArmedRoom, () => null);
   const setRoom = useBoard((state) => state.setRoom);
+  const setSection = useBoard((state) => state.setSection);
+  const roomsRoute = useRoomsRoute();
+  const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
@@ -103,6 +111,9 @@ export function RoomView() {
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
+  const focusSlug = roomsRoute?.slug ?? null;
+
+  if (browsing) return <RoomBrowse focusSlug={focusSlug} />;
 
   const shelfBlock = (
     <>
@@ -149,26 +160,21 @@ export function RoomView() {
           {meta.name}
         </h1>
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <p className="text-sm text-muted">{categoryName(roomCategoryId(meta))}</p>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
+          onClick={() => {
+            setSection("rooms");
+            void navigate({ to: "/rooms/" });
+          }}
+        >
+          All rooms
+        </button>
+        <RoomCategoryFields room={meta} />
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
       </section>
-
-      <nav
-        className="relative z-10 flex flex-wrap gap-2 pb-1"
-        aria-label="Rooms"
-      >
-        {rooms.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={item.id === room ? "page" : undefined}
-            onClick={() => setRoom(item.id)}
-            className={pill(item.id === room)}
-          >
-            {item.name}
-          </button>
-        ))}
-      </nav>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">
@@ -794,7 +800,9 @@ const PostCard = memo(function PostCard({
   const [settle] = useState(takeFreshPost);
 
   return (
-    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60", settle && "post-new")}>
+    <article
+      className={cn("card py-5 first:pt-0", post.mark && "opacity-60", settle && "post-new")}
+    >
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">

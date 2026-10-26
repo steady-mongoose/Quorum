@@ -13,7 +13,12 @@ import {
   type ZipCorrectionInput,
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
-import { loadGatherings, removeGathering, saveGathering, type StoredGathering } from "./gathering-public.ts";
+import {
+  loadGatherings,
+  removeGathering,
+  saveGathering,
+  type StoredGathering,
+} from "./gathering-public.ts";
 import {
   APP_NAME,
   DAY,
@@ -62,6 +67,8 @@ import { SENTENCE_ERROR, oneSentence } from "./text.ts";
 type BoardState = {
   section: Section;
   room: RoomId;
+  /** The Rooms tab is the category browse. A room page sets this off. */
+  browsing: boolean;
   /** In by a code. Without it, only the door shows. */
   member: boolean;
   /** The founder code has been used on this box. */
@@ -132,6 +139,13 @@ type BoardState = {
     id: string;
     name: string;
     what: string;
+    categoryId: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  updateRoom: (input: {
+    id: string;
+    categoryId: string;
+    name?: string;
+    what?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   appointSteward: (input: {
     email: string;
@@ -529,7 +543,9 @@ export const useBoard = create<BoardState>()(
       };
 
       const placeCall = async (
-        run: (client: Awaited<ReturnType<typeof getBoardClient>>) => Promise<{ ok: true } | { ok: false; error: string }>,
+        run: (
+          client: Awaited<ReturnType<typeof getBoardClient>>,
+        ) => Promise<{ ok: true } | { ok: false; error: string }>,
         reloadBoard: boolean,
       ): Promise<{ ok: boolean; error?: string }> => {
         if (!get().remote) return { ok: false, error: "That is saved on the server." };
@@ -546,6 +562,7 @@ export const useBoard = create<BoardState>()(
       return {
         section: "week",
         room: "county",
+        browsing: true,
         member: false,
         founded: false,
         sample: false,
@@ -580,9 +597,9 @@ export const useBoard = create<BoardState>()(
         localEntry: false,
         setSection: (section) => {
           if (section === "civic" && !get().deskOn) return;
-          set({ section });
+          set(section === "rooms" ? { section, browsing: true } : { section });
         },
-        setRoom: (room) => set({ room, section: "rooms" }),
+        setRoom: (room) => set({ room, section: "rooms", browsing: false }),
         setMe: (me) => set({ me }),
         setProfile: (patch) => set({ profile: { ...get().profile, ...patch } }),
         setDeskOn: (deskOn) =>
@@ -967,7 +984,13 @@ export const useBoard = create<BoardState>()(
         updateCard: (id, patch) => {
           patchCard(id, (card) => ({ ...card, ...patch, id }));
           if (!get().remote) return;
-          if (!("name" in patch || "place" in patch || "time" in patch || "next" in patch || "room" in patch)) {
+          if (!(
+            "name" in patch ||
+            "place" in patch ||
+            "time" in patch ||
+            "next" in patch ||
+            "room" in patch
+          )) {
             return;
           }
           const card = get().cards.find((item) => item.id === id);
@@ -1086,7 +1109,8 @@ export const useBoard = create<BoardState>()(
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
           const attachment = media ? [media] : [];
-          if ((dmTextError(text) && attachment.length === 0) || !thread?.between.includes(me())) return;
+          if ((dmTextError(text) && attachment.length === 0) || !thread?.between.includes(me()))
+            return;
           if (!body && attachment.length === 0) return;
           set({
             messages: [
@@ -1108,8 +1132,35 @@ export const useBoard = create<BoardState>()(
           const saved = await (await getBoardClient()).createRoom(input);
           if (!saved.ok) return { ok: false, error: saved.error };
           const rooms = get().rooms.some((room) => room.id === saved.room.id)
-            ? get().rooms
+            ? get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room))
             : [...get().rooms, saved.room];
+          setRoomCatalog(rooms);
+          set({ rooms });
+          return { ok: true };
+        },
+        updateRoom: async (input) => {
+          if (!get().steward)
+            return { ok: false, error: "Only a steward can change a room's category." };
+          if (!input.categoryId.trim()) return { ok: false, error: "Choose a category." };
+          if (!get().remote) {
+            if (input.name || input.what)
+              return { ok: false, error: "Rooms are edited on the server." };
+            const rooms = get().rooms.map((room) =>
+              room.id === input.id ? { ...room, categoryId: input.categoryId } : room,
+            );
+            setRoomCatalog(rooms);
+            set({ rooms });
+            return { ok: true };
+          }
+          const saved = await (
+            await getBoardClient()
+          ).updateRoom(input.id, {
+            categoryId: input.categoryId,
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.what !== undefined ? { what: input.what } : {}),
+          });
+          if (!saved.ok) return { ok: false, error: saved.error };
+          const rooms = get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room));
           setRoomCatalog(rooms);
           set({ rooms });
           return { ok: true };

@@ -3,6 +3,7 @@ import { isUniqueViolation, type Db } from "../db.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
+import { categoryForScope } from "../../src/lib/board/categories.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   planAdminGrant,
@@ -791,9 +792,10 @@ export async function decideRoom(
       await tx.query(
         `insert into room (
            id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-           sort_order, created_by, created_at, scope_kind, town_id, congregation_id, region_id
+           sort_order, created_by, created_at, scope_kind, town_id, congregation_id, region_id,
+           category_id
          ) values (
-           $1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13, $14, $15
+           $1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13, $14, $15, $16
          )`,
         [
           roomId,
@@ -811,6 +813,7 @@ export async function decideRoom(
           kind === "town" ? request.town_id : "",
           kind === "congregation" ? request.congregation_id : "",
           kind === "region" ? request.region_id : "",
+          categoryForScope(kind),
         ],
       );
       const updated = await tx.query<{ id: string }>(

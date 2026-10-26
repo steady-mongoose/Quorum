@@ -20,6 +20,14 @@ import {
   saveGathering,
 } from "./gathering-record.ts";
 import {
+  createCategory,
+  deleteCategory,
+  listCategories,
+  readCategory,
+  updateCategory,
+  type CategoryResult,
+} from "./categories.ts";
+import {
   banMember,
   closeAsked,
   createRoom,
@@ -32,6 +40,7 @@ import {
   removePost,
   replyToPost,
   revisePost,
+  updateRoom,
   type Result,
 } from "./store.ts";
 
@@ -114,11 +123,11 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function fromResult(status: number, result: Result<unknown>): Response {
+function fromResult(status: number, result: Result<unknown> | CategoryResult<unknown>): Response {
   if (!result.ok) {
     return json(result.status, {
       error: result.error,
-      ...(result.stops ? { stops: result.stops } : {}),
+      ...("stops" in result && result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
     });
   }
@@ -128,6 +137,13 @@ function fromResult(status: number, result: Result<unknown>): Response {
 function stringField(body: Record<string, unknown>, key: string): string {
   const value = body[key];
   return typeof value === "string" ? value : "";
+}
+
+function optionalInt(body: Record<string, unknown>, key: string): number | undefined | null {
+  if (!(key in body)) return undefined;
+  const value = body[key];
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value;
 }
 
 function stringList(body: Record<string, unknown>, key: string): string[] {
@@ -148,19 +164,27 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
+  const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
+  const categoryOne = /^\/api\/categories\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const gatheringOne =
     /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
       url.pathname,
     );
   const matched =
-    (url.pathname === "/api/gatherings" && (request.method === "GET" || request.method === "POST")) ||
+    (url.pathname === "/api/gatherings" &&
+      (request.method === "GET" || request.method === "POST")) ||
     (gatheringOne !== null &&
       (request.method === "GET" || request.method === "DELETE" || request.method === "POST")) ||
     (url.pathname === "/api/board" && request.method === "GET") ||
     (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
+    (url.pathname === "/api/categories" &&
+      (request.method === "GET" || request.method === "POST")) ||
+    (categoryOne !== null &&
+      (request.method === "GET" || request.method === "PATCH" || request.method === "DELETE")) ||
+    (roomOne !== null && request.method === "PATCH") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
@@ -232,6 +256,21 @@ export async function handleBoard(
       return fromResult(200, await listHome(deps.db, session.id, now));
     }
 
+    if (url.pathname === "/api/categories" && request.method === "GET") {
+      return fromResult(200, await listCategories(deps.db, session.id, now));
+    }
+
+    if (categoryOne && request.method === "GET") {
+      return fromResult(200, await readCategory(deps.db, session.id, categoryOne[1] ?? "", now));
+    }
+
+    if (categoryOne && request.method === "DELETE") {
+      return fromResult(
+        200,
+        await deleteCategory(deps.db, { userId: session.id, slug: categoryOne[1] ?? "", now }),
+      );
+    }
+
     if (roomJoin && request.method === "DELETE") {
       return fromResult(
         200,
@@ -246,10 +285,7 @@ export async function handleBoard(
 
     const body = await readJson(request);
 
-    if (
-      (url.pathname === "/api/gatherings" || gatheringOne) &&
-      request.method === "POST"
-    ) {
+    if ((url.pathname === "/api/gatherings" || gatheringOne) && request.method === "POST") {
       const saved = await saveGathering(deps.db, {
         userId: session.id,
         id: gatheringOne ? (gatheringOne[1] ?? "") : stringField(body, "id"),
@@ -270,9 +306,51 @@ export async function handleBoard(
         id: stringField(body, "id"),
         name: stringField(body, "name"),
         what: stringField(body, "what"),
+        categoryId: stringField(body, "categoryId"),
         now,
       });
       return fromResult(201, created);
+    }
+
+    if (roomOne && request.method === "PATCH") {
+      return fromResult(
+        200,
+        await updateRoom(deps.db, {
+          userId: session.id,
+          id: roomOne[1] ?? "",
+          categoryId: stringField(body, "categoryId"),
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(typeof body.what === "string" ? { what: body.what } : {}),
+          now,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/categories" && request.method === "POST") {
+      return fromResult(
+        201,
+        await createCategory(deps.db, {
+          userId: session.id,
+          slug: stringField(body, "slug"),
+          name: stringField(body, "name"),
+          now,
+        }),
+      );
+    }
+
+    if (categoryOne && request.method === "PATCH") {
+      const sortOrder = optionalInt(body, "sortOrder");
+      if (sortOrder === null) return json(400, { error: "Give the category a place in the list." });
+      return fromResult(
+        200,
+        await updateCategory(deps.db, {
+          userId: session.id,
+          slug: categoryOne[1] ?? "",
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(sortOrder !== undefined ? { sortOrder } : {}),
+          now,
+        }),
+      );
     }
 
     if (url.pathname === "/api/place") {

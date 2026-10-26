@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   BookOpen,
   CalendarDays,
@@ -11,7 +12,13 @@ import {
 } from "lucide-react";
 import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } from "@/lib/board/store";
+import {
+  UNDO_BAR_MS,
+  UNDO_TTL_MS,
+  canClearBoard,
+  localBoardOwner,
+  useBoard,
+} from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
@@ -25,6 +32,7 @@ import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
+import { RoomsRouteProvider } from "@/components/board/rooms-route";
 import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
@@ -62,17 +70,22 @@ function BoardSkeleton() {
   );
 }
 
-export function BoardApp() {
+export function BoardApp({ categorySlug }: { categorySlug?: string | null } = {}) {
+  const route = categorySlug === undefined ? null : { slug: categorySlug };
   return (
     <ServerSessionProvider>
-      <BoardShell />
+      <RoomsRouteProvider value={route}>
+        <BoardShell categorySlug={categorySlug} />
+      </RoomsRouteProvider>
     </ServerSessionProvider>
   );
 }
 
-function BoardShell() {
+function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const navigate = useNavigate();
+  const onRoomsRoute = categorySlug !== undefined;
   const deskOn = useBoard((state) => state.deskOn);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
@@ -94,7 +107,7 @@ function BoardShell() {
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
   const busy = waiting || boardLoading;
-  const shown = section === "civic" && !deskOn ? "week" : section;
+  const shown = onRoomsRoute ? "rooms" : section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
     section: shown,
@@ -144,9 +157,12 @@ function BoardShell() {
     }
     let cancel = false;
     setBoardLoading(true);
-    void useBoard.getState().connectRemote().finally(() => {
-      if (!cancel) setBoardLoading(false);
-    });
+    void useBoard
+      .getState()
+      .connectRemote()
+      .finally(() => {
+        if (!cancel) setBoardLoading(false);
+      });
     return () => {
       cancel = true;
     };
@@ -156,7 +172,25 @@ function BoardShell() {
     if (!deskOn && section === "civic") setSection("week");
   }, [deskOn, section, setSection]);
 
-  const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
+  useEffect(() => {
+    if (categorySlug === undefined) return;
+    setSection("rooms");
+  }, [categorySlug, setSection]);
+
+  const openSection = (id: Section) => {
+    if (id === "profile") {
+      view(me.trim());
+      if (onRoomsRoute) void navigate({ to: "/" });
+      return;
+    }
+    if (id === "rooms") {
+      setSection("rooms");
+      void navigate({ to: "/rooms/" });
+      return;
+    }
+    setSection(id);
+    if (onRoomsRoute) void navigate({ to: "/" });
+  };
 
   const page = busy ? (
     <>
@@ -186,7 +220,9 @@ function BoardShell() {
         Skip to content
       </a>
       <PrimaryHaptic />
-      {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
+      {art === "landing" || art === "signin" ? (
+        <div className="plate-ground" aria-hidden="true" />
+      ) : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top sticky top-0 z-20 border-b border-line bg-bg">
         <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,2.5rem)] py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
@@ -199,7 +235,9 @@ function BoardShell() {
               className="h-[var(--flag-h)] w-auto shrink-0"
             />
             <div>
-              <p className="font-display text-3xl leading-none whitespace-nowrap text-fg lg:text-4xl">{APP_NAME}</p>
+              <p className="font-display text-3xl leading-none whitespace-nowrap text-fg lg:text-4xl">
+                {APP_NAME}
+              </p>
               <p className="mt-1 text-sm leading-none text-muted max-xl:hidden xl:whitespace-nowrap">
                 {TAGLINE}
               </p>
@@ -257,7 +295,12 @@ function BoardShell() {
               {ownAppeals.map((row) => (
                 <li key={row.id}>
                   Your {row.kind} appeal is{" "}
-                  {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                  {row.decision === "lift"
+                    ? "lifted"
+                    : row.decision === "uphold"
+                      ? "upheld"
+                      : "open"}
+                  .
                 </li>
               ))}
             </ul>
@@ -326,9 +369,7 @@ function BoardShell() {
         </main>
       </div>
       {entered ? <SessionLine /> : null}
-      {entered ? (
-        <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
-      ) : null}
+      {entered ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
       <ConfirmDialog
         open={confirmSignOut}
         title="Sign out"
