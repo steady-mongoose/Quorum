@@ -287,6 +287,12 @@ test("a restricted room is enforced on every path, and a steward override is log
     assert.equal(mariaPost.status, 404);
     assert.equal(mariaPost.code, undefined);
     assert.equal(mariaPost.error, "That room is not here.");
+    const missingPost = refusal(
+      await createPost(db, { userId: maria, name: "Maria", roomId: "no-such-room", body: did, now }),
+    );
+    assert.equal(missingPost.status, mariaPost.status);
+    assert.equal(missingPost.error, mariaPost.error);
+    assert.equal(missingPost.code, undefined);
     const posted = await createPost(db, { userId: adam, name: "Adam", roomId: "bench", body: did, now });
     assert.equal(posted.ok, true);
     if (!posted.ok) return;
@@ -934,6 +940,16 @@ test("a gathering in a restricted room is not created, read, shared, or attended
     assert.equal((await loadSharedGathering(db, id, now))?.title, "Saturday lifts");
     await setRoomAudience(db, { userId: man, roomId: "sisters", audience: "women", now });
     assert.equal(await loadSharedGathering(db, id, now), null);
+    const flags = await db.query<{ shared: boolean }>(
+      `select shared from public_gathering where id = $1`,
+      [id],
+    );
+    assert.equal(flags[0]?.shared, false);
+    await setRoomAudience(db, { userId: man, roomId: "sisters", audience: "all", now });
+    assert.equal(await loadSharedGathering(db, id, now), null);
+    const restored = await setGatheringShared(db, { userId: woman, id, shared: true, now });
+    assert.equal(restored.ok, true);
+    assert.equal((await loadSharedGathering(db, id, now))?.title, "Saturday lifts");
   } finally {
     await close();
   }

@@ -872,8 +872,9 @@ export async function createPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
+  if (!ROOM_ID.test(input.roomId)) return fail(400, "Choose a room.");
   const room = await roomById(db, input.roomId);
-  if (!room) return fail(400, "Choose a room.");
+  if (!room) return fail(404, "That room is not here.");
   const ban = await openBan(db, input.userId, input.now, room.id);
   if (ban) return fail(403, "This account cannot post right now.");
   const blocked = await audienceBlock(db, {

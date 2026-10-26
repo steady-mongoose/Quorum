@@ -534,6 +534,13 @@ export async function setRoomAudience(
   if (current === next) return { ok: true, value: { audience: next } };
   await db.transaction(async (tx) => {
     await tx.query(`update room set audience = $2 where id = $1`, [input.roomId, next]);
+    if (next !== "all") {
+      await tx.query(
+        `update public_gathering set shared = false, updated_at = now()
+         where room_id = $1 and shared = true`,
+        [input.roomId],
+      );
+    }
     await writeGenderAudit(tx, {
       actorUserId: input.userId,
       roomId: input.roomId,
