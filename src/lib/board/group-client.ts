@@ -10,6 +10,7 @@ export type GroupSummary = {
   about: string;
   joined: boolean;
   admin: boolean;
+  audience?: "men" | "women";
 };
 
 export type GroupPostRow = {
@@ -106,7 +107,14 @@ function summary(value: unknown): GroupSummary | null {
   const about = text(row.about, 600);
   if (!id || !ROOM_ID.test(id) || name === null || !name.trim() || about === null) return null;
   if (typeof row.joined !== "boolean" || typeof row.admin !== "boolean") return null;
-  return { id, name, about, joined: row.joined, admin: row.admin };
+  return {
+    id,
+    name,
+    about,
+    joined: row.joined,
+    admin: row.admin,
+    ...(row.audience === "men" || row.audience === "women" ? { audience: row.audience } : {}),
+  };
 }
 
 /** Keeps server order. Extra rank fields are not copied. */

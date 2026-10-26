@@ -37,8 +37,9 @@ import {
   planZipCorrection,
 } from "../../src/lib/board/room-requests.ts";
 import { actorRole, councilFlags } from "./access.ts";
+import { filterAudience, guardRoomAudience, includeInCatalog } from "./audience.ts";
 
-type Err = { ok: false; status: number; error: string };
+type Err = { ok: false; status: number; error: string; code?: string; audience?: "men" | "women" };
 type Ok<T> = { ok: true; value: T };
 export type PlaceResult<T> = Ok<T> | Err;
 
@@ -319,6 +320,7 @@ type ScopeRow = {
   congregation_id: string;
   region_id: string;
   sort_order: number | string;
+  audience?: string | null;
 };
 
 function toScoped(row: ScopeRow): ScopedRoom {
@@ -334,12 +336,13 @@ function toScoped(row: ScopeRow): ScopedRoom {
     congregationId: row.congregation_id,
     regionId: row.region_id,
     sortOrder: Number(row.sort_order),
+    audience: row.audience === "men" || row.audience === "women" ? row.audience : "all",
   };
 }
 
 async function loadRooms(db: Db): Promise<ScopedRoom[]> {
   const rows = await db.query<ScopeRow>(
-    `select id, name, scope_kind, town_id, congregation_id, region_id, sort_order
+    `select id, name, scope_kind, town_id, congregation_id, region_id, sort_order, audience
      from room where name <> '' order by sort_order asc, id asc`,
   );
   return rows.map(toScoped);
@@ -418,6 +421,18 @@ export async function listHome(
     : [];
   const townName = townRows[0]?.name ?? "";
   const rooms = await loadRooms(db);
+  const audience = await filterAudience(db, {
+    userId,
+    actor,
+    rows: rooms,
+    now,
+    path: "list",
+    moderate: true,
+  });
+  const readable = new Set(audience.visible.map((room) => room.id));
+  const visible = new Set(
+    rooms.filter((room) => includeInCatalog(audience.denied.get(room.id))).map((room) => room.id),
+  );
   const joins = await db.query<{ room_id: string }>(
     `select room_id from room_join where user_id = $1`,
     [userId],
@@ -480,7 +495,7 @@ export async function listHome(
       parentId: row.parent_id,
     })),
     live,
-  );
+  ).filter((post) => readable.has(post.room));
   const sections: HomeSection[] = [];
   if (lifted.length > 0) {
     sections.push({
@@ -502,10 +517,13 @@ export async function listHome(
   }
   for (const tier of ["joined", "town", "congregation", "region"] as const) {
     const tierRooms = ordered
-      .filter((row) => row.tier === tier)
+      .filter((row) => row.tier === tier && visible.has(row.room.id))
       .map((row) => ({
         id: row.room.id,
         name: row.room.name,
+        ...(row.room.audience === "men" || row.room.audience === "women"
+          ? { audience: row.room.audience }
+          : {}),
       }));
     if (tierRooms.length === 0) continue;
     sections.push({ tier, label: HOME_SECTION_LABEL[tier], rooms: tierRooms });
@@ -613,6 +631,24 @@ export async function joinRoom(
   if (!actor.member) return fail(403, "Only a member can join a room.");
   if (await openBan(db, input.userId, input.now)) return fail(403, "banned");
   if (!(await roomExists(db, input.roomId))) return fail(404, "That room is not here.");
+  if (!input.leave) {
+    const gate = await guardRoomAudience(db, {
+      userId: input.userId,
+      roomId: input.roomId,
+      now: input.now,
+      path: "join",
+      actor,
+    });
+    if (!gate.ok) {
+      return {
+        ok: false,
+        status: gate.status,
+        error: gate.error,
+        ...(gate.code ? { code: gate.code } : {}),
+        ...(gate.audience ? { audience: gate.audience } : {}),
+      };
+    }
+  }
   if (input.leave) {
     await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
       input.userId,

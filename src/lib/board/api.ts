@@ -20,12 +20,21 @@ const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
-  const record = json as { error?: unknown; stops?: unknown };
+  const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
   const error = typeof record.error === "string" && record.error ? record.error : fallback;
   const stops = Array.isArray(record.stops)
     ? record.stops.filter((item): item is string => typeof item === "string")
     : undefined;
-  return stops && stops.length > 0 ? { ok: false, error, stops } : { ok: false, error };
+  const code =
+    record.code === "gender-unstated" || record.code === "gender-unconfirmed" ? record.code : undefined;
+  const audience = record.audience === "men" || record.audience === "women" ? record.audience : undefined;
+  return {
+    ok: false,
+    error,
+    ...(stops && stops.length > 0 ? { stops } : {}),
+    ...(code ? { code } : {}),
+    ...(audience ? { audience } : {}),
+  };
 }
 
 async function send(
@@ -106,6 +115,16 @@ function councilFrom(value: unknown): Post["council"] {
   };
 }
 
+function genderPolicyFrom(value: unknown): BoardSnapshot["genderPolicy"] {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const setBy = row.setBy === "inviter" || row.setBy === "steward" ? row.setBy : "self";
+  return {
+    setBy,
+    requiresConfirmation: row.requiresConfirmation === true,
+    changeBy: row.changeBy === "steward" ? "steward" : "admin",
+  };
+}
+
 function roomFrom(value: unknown): Room | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -128,6 +147,10 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    ...(row.audience === "men" || row.audience === "women" || row.audience === "all"
+      ? { audience: row.audience }
+      : {}),
+    ...(row.host === true ? { host: true } : {}),
   };
 }
 
@@ -257,7 +280,10 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         ? who.stewardRooms.filter((item): item is string => typeof item === "string" && item !== "")
         : [],
       ban,
+      gender: who.gender === "man" || who.gender === "woman" ? who.gender : null,
+      genderConfirmed: who.genderConfirmed === true,
     },
+    genderPolicy: genderPolicyFrom(body.genderPolicy),
     rooms,
     posts,
     marks,
@@ -372,6 +398,21 @@ export const apiBoardClient: BoardClient = {
     const room = roomFrom(response.json);
     if (!room) return { ok: false, error: "The room was not added." };
     return { ok: true, room };
+  },
+  async setRoomAudience(roomId, audience) {
+    const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/audience`, { audience });
+    if (!response.ok) return failure(response.json, "That was not saved.");
+    return { ok: true };
+  },
+  async setGender(input) {
+    const response = await send("/api/gender", input);
+    if (!response.ok) return failure(response.json, "That was not saved.");
+    return { ok: true };
+  },
+  async confirmGender(email) {
+    const response = await send("/api/gender/confirm", { email });
+    if (!response.ok) return failure(response.json, "That was not confirmed.");
+    return { ok: true };
   },
   async appointSteward(input) {
     const response = await send("/api/access", input);

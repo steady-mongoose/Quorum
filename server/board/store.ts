@@ -6,7 +6,16 @@ import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
-import { actorRole, councilFlags, moderationStop, stewardsRoom } from "./access.ts";
+import { actorRole, councilFlags, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
+import {
+  filterAudience,
+  guardRoomAudience,
+  includeInCatalog,
+  statedGender,
+  writeGenderAudit,
+  type AudiencePath,
+} from "./audience.ts";
+import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy.ts";
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
@@ -73,6 +82,9 @@ export type BoardRoom = {
   townId: string;
   congregationId: string;
   regionId: string;
+  audience: "all" | "men" | "women";
+  /** The signed-in member may set the audience. */
+  host: boolean;
 };
 
 export type MarkEntry = {
@@ -132,6 +144,13 @@ export type BoardPayload = {
     /** Rooms with a live steward grant. An admin is not listed here. */
     stewardRooms: string[];
     ban: { until: number; strikes: number; reason: RuleId } | null;
+    gender: "man" | "woman" | null;
+    genderConfirmed: boolean;
+  };
+  genderPolicy: {
+    setBy: "self" | "inviter" | "steward";
+    requiresConfirmation: boolean;
+    changeBy: "admin" | "steward";
   };
   rooms: BoardRoom[];
   posts: BoardPost[];
@@ -157,11 +176,37 @@ type Err = {
   error: string;
   stops?: string[];
   ban?: { until: number; strikes: number; reason: RuleId };
+  code?: string;
+  audience?: "men" | "women";
 };
 export type Result<T> = Ok<T> | Err;
 
 function fail(status: number, error: string, stops?: string[]): Err {
   return stops ? { ok: false, status, error, stops } : { ok: false, status, error };
+}
+
+async function audienceBlock(
+  db: Db,
+  input: {
+    userId: string;
+    roomId: string;
+    now: Date;
+    path: AudiencePath;
+    moderate?: boolean;
+    record?: boolean;
+    detail?: string;
+    actor?: BoardActor;
+  },
+): Promise<Err | null> {
+  const gate = await guardRoomAudience(db, input);
+  if (gate.ok) return null;
+  return {
+    ok: false,
+    status: gate.status,
+    error: gate.error,
+    ...(gate.code ? { code: gate.code } : {}),
+    ...(gate.audience ? { audience: gate.audience } : {}),
+  };
 }
 
 class Stop extends Error {
@@ -207,6 +252,8 @@ type RoomRow = {
   town_id?: string;
   congregation_id?: string;
   region_id?: string;
+  audience?: string | null;
+  created_by?: string | null;
 };
 
 function scopeKind(value: string | undefined): BoardRoom["scopeKind"] {
@@ -214,7 +261,8 @@ function scopeKind(value: string | undefined): BoardRoom["scopeKind"] {
   return "topic";
 }
 
-function toRoom(row: RoomRow): BoardRoom {
+function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoom {
+  const audience = row.audience === "men" || row.audience === "women" ? row.audience : "all";
   return {
     id: row.id,
     name: row.name,
@@ -229,6 +277,12 @@ function toRoom(row: RoomRow): BoardRoom {
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
     regionId: row.region_id ?? "",
+    audience,
+    host: isRoomHost({
+      createdBy: row.created_by ?? "",
+      userId: viewer?.id ?? "",
+      admin: viewer?.admin === true,
+    }),
   };
 }
 
@@ -290,17 +344,21 @@ async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
   return council ? { ...post, council } : post;
 }
 
-async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
+async function roomById(
+  db: Db,
+  id: string,
+  viewer?: { id: string; admin: boolean },
+): Promise<BoardRoom | null> {
   if (!ROOM_ID.test(id)) return null;
   const rows = await db.query<RoomRow>(
     `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            scope_kind, town_id, congregation_id, region_id
+            scope_kind, town_id, congregation_id, region_id, audience, created_by
      from room where id = $1`,
     [id],
   );
   const row = rows[0];
   if (!row || !row.name) return null;
-  return toRoom(row);
+  return toRoom(row, viewer);
 }
 
 export type OpenBan = { until: number; strikes: number; reason: BanEntry["reason"] };
@@ -456,11 +514,11 @@ export async function listBoard(
   const flags = await councilFlags(db, userId);
   const roomRows = await db.query<RoomRow>(
     `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            scope_kind, town_id, congregation_id, region_id
+            scope_kind, town_id, congregation_id, region_id, audience, created_by
      from room where name <> '' order by sort_order asc, name asc`,
   );
   const openRooms: BoardRoom[] = [];
-  for (const room of roomRows.map(toRoom)) {
+  for (const room of roomRows.map((row) => toRoom(row, { id: userId, admin: actor.admin }))) {
     const roomBan = await openBan(db, userId, now, room.id);
     if (!roomBan) {
       openRooms.push(room);
@@ -468,8 +526,35 @@ export async function listBoard(
     }
     if (query.room === room.id) return { ok: false, status: 403, error: "banned", ban: roomBan };
   }
-  const rooms = openRooms;
-  const targets = query.room ? rooms.filter((room) => room.id === query.room) : rooms;
+  const audience = await filterAudience(db, {
+    userId,
+    actor,
+    rows: openRooms,
+    now,
+    path: query.room ? "read" : "list",
+    moderate: true,
+  });
+  const rooms = openRooms.filter((room) => includeInCatalog(audience.denied.get(room.id)));
+  if (query.room) {
+    const blocked = audience.denied.get(query.room);
+    if (blocked?.code) {
+      return {
+        ok: false,
+        status: blocked.status,
+        error: blocked.error,
+        code: blocked.code,
+        ...(blocked.audience ? { audience: blocked.audience } : {}),
+      };
+    }
+    if (!audience.visible.some((room) => room.id === query.room)) {
+      return fail(404, "That room is not here.");
+    }
+  }
+  const gender = await statedGender(db, userId);
+  const readable = new Set(audience.visible.map((room) => room.id));
+  const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter((room) =>
+    readable.has(room.id),
+  );
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
   for (const room of targets) {
@@ -631,7 +716,10 @@ export async function listBoard(
         councilChair: flags.chair,
         stewardRooms: actor.stewardRooms,
         ban: null,
+        gender: gender.stated,
+        genderConfirmed: gender.confirmed,
       },
+      genderPolicy: genderPolicyPayload(),
       rooms,
       posts,
       marks: markRows.map((row) => ({
@@ -784,10 +872,19 @@ export async function createPost(
 ): Promise<Result<BoardPost>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can post.");
+  if (!ROOM_ID.test(input.roomId)) return fail(400, "Choose a room.");
   const room = await roomById(db, input.roomId);
-  if (!room) return fail(400, "Choose a room.");
+  if (!room) return fail(404, "That room is not here.");
   const ban = await openBan(db, input.userId, input.now, room.id);
   if (ban) return fail(403, "This account cannot post right now.");
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: room.id,
+    now: input.now,
+    path: "post",
+    actor,
+  });
+  if (blocked) return blocked;
   const type = field(input.body, "type").trim();
   const claim = field(input.body, "claim");
   const reason = field(input.body, "reason");
@@ -939,6 +1036,14 @@ export async function replyToPost(
   if (!room) return fail(404, "That post is not here.");
   if (await openBan(db, input.userId, input.now, room.id))
     return fail(403, "This account cannot post right now.");
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: room.id,
+    now: input.now,
+    path: "post",
+    actor,
+  });
+  if (blocked) return blocked;
   const allowed = stewardsRoom(actor, room.id) ? [...room.takes, ...room.stewardTakes] : room.takes;
   if (!allowed.includes(parent.type)) {
     return fail(
@@ -992,6 +1097,14 @@ export async function revisePost(
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can revise a post.");
   const room = await roomById(db, post.room_id);
   if (!room) return fail(404, "That post is not here.");
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: room.id,
+    now: input.now,
+    path: "post",
+    actor,
+  });
+  if (blocked) return blocked;
   const stops = contentStops({
     type: post.type,
     claim: input.claim,
@@ -1028,7 +1141,17 @@ export async function closeAsked(
     `select room_id from board_post where id = $1`,
     [input.postId],
   );
-  if (await openBan(db, input.userId, input.now, found[0]?.room_id ?? ""))
+  const closeRoom = found[0]?.room_id ?? "";
+  if (closeRoom) {
+    const blocked = await audienceBlock(db, {
+      userId: input.userId,
+      roomId: closeRoom,
+      now: input.now,
+      path: "post",
+    });
+    if (blocked) return blocked;
+  }
+  if (await openBan(db, input.userId, input.now, closeRoom))
     return fail(403, "This account cannot post right now.");
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
@@ -1069,6 +1192,17 @@ export async function markPost(
         : "Only a steward can mark a post.",
     );
   }
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: post.room_id,
+    now: input.now,
+    path: "post",
+    moderate: true,
+    record: true,
+    detail: "mark",
+    actor,
+  });
+  if (blocked) return blocked;
   const id = randomUUID();
   const by = input.name.trim() || "Steward";
   const saved = await db.transaction(async (tx) => {
@@ -1157,9 +1291,20 @@ export async function removePost(
         : "Only a steward can remove a post.",
     );
   }
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: post.room_id,
+    now: input.now,
+    path: "post",
+    moderate: true,
+    record: true,
+    detail: "remove",
+    actor,
+  });
+  if (blocked) return blocked;
   const target = await actorRole(db, post.author_user_id);
-  const blocked = moderationStop(actor, target);
-  if (blocked) return fail(403, blocked);
+  const stopped = moderationStop(actor, target);
+  if (stopped) return fail(403, stopped);
   const by = input.name.trim() || "Steward";
   const removalId = randomUUID();
   let publicKeys: string[] = [];
@@ -1281,8 +1426,8 @@ export async function banMember(
   if (!person) return fail(404, "No member has that email.");
   const target = await actorRole(db, person.id);
   if (!target.member) return fail(400, "That person is not a member.");
-  const blocked = moderationStop(actor, target);
-  if (blocked) return fail(403, blocked);
+  const stopped = moderationStop(actor, target);
+  if (stopped) return fail(403, stopped);
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
     const ban = await writeBan(db, {
@@ -1303,6 +1448,17 @@ export async function banMember(
   if (!actor.stewardRooms.includes(roomId)) {
     return fail(403, "A steward can bar a member only in a room they steward.");
   }
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId,
+    now: input.now,
+    path: "post",
+    moderate: true,
+    record: true,
+    detail: "ban",
+    actor,
+  });
+  if (blocked) return blocked;
   if (!(await offendedInRoom(db, person.id, roomId))) {
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
@@ -1483,6 +1639,17 @@ export async function decideAppeal(
         : "Only a steward can decide an appeal.",
     );
   }
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: appeal.room_id,
+    now: input.now,
+    path: "post",
+    moderate: true,
+    record: true,
+    detail: "appeal",
+    actor,
+  });
+  if (blocked) return blocked;
   if (appeal.author_user_id === input.userId)
     return fail(403, "A steward does not decide their own appeal.");
   const by = input.name.trim() || "Steward";
@@ -1550,13 +1717,16 @@ export async function decideAppeal(
 
 export async function createRoom(
   db: Db,
-  input: { userId: string; id: string; name: string; what: string; now: Date },
+  input: { userId: string; id: string; name: string; what: string; now: Date; audience?: unknown },
 ): Promise<Result<BoardRoom>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin can add a room.");
   const id = input.id.trim().toLowerCase();
   const name = input.name.trim();
   const what = input.what.trim();
+  const audience =
+    input.audience === undefined || input.audience === "" ? "all" : parseAudience(input.audience);
+  if (!audience) return fail(400, "Choose everyone, men, or women.");
   if (!ROOM_ID.test(id)) return fail(400, "Use a short name of letters, numbers, and hyphens.");
   if (!name || name.length > 80 || !isEnglish(name)) return fail(400, "Name the room in English.");
   if (!what || what.length > 600 || !isEnglish(what))
@@ -1566,8 +1736,8 @@ export async function createRoom(
   );
   try {
     await db.query(
-      `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order, created_by, created_at)
-       values ($1, $2, $3, $4, $5, $6, 'Meeting', false, false, $7, $8, $9)`,
+      `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order, created_by, created_at, audience)
+       values ($1, $2, $3, $4, $5, $6, 'Meeting', false, false, $7, $8, $9, $10)`,
       [
         id,
         name,
@@ -1578,13 +1748,23 @@ export async function createRoom(
         Number(order[0]?.next ?? 100),
         input.userId,
         input.now,
+        audience,
       ],
     );
+    if (audience !== "all") {
+      await writeGenderAudit(db, {
+        actorUserId: input.userId,
+        roomId: id,
+        action: "set-audience",
+        detail: audience,
+        now: input.now,
+      });
+    }
   } catch (error) {
     if (isUniqueViolation(error)) return fail(409, "That room already exists.");
     throw error;
   }
-  const room = await roomById(db, id);
+  const room = await roomById(db, id, { id: input.userId, admin: true });
   if (!room) return fail(500, "The room was not added.");
   return { ok: true, value: room };
 }

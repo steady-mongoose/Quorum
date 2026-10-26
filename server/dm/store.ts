@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { guardRoomAudience } from "../board/audience.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -523,6 +524,27 @@ export async function recordAttendance(
   const requested = [
     ...new Set(cardIds.map((id) => id.trim()).filter((id) => OBJECT_ID.test(id))),
   ].slice(0, ATTENDANCE_CARD_CAP);
+  if (requested.length > 0) {
+    const meetings = await db.query<{ room_id: string }>(
+      `select distinct on (card_id) room_id
+       from board_post
+       where type = 'hosted' and removed = false and card_id = any($1::text[])
+       order by card_id, created_at asc, id asc`,
+      [requested],
+    );
+    for (const meeting of meetings) {
+      const gate = await guardRoomAudience(db, {
+        userId,
+        roomId: meeting.room_id,
+        now,
+        path: "read",
+      });
+      if (!gate.ok) {
+        if (gate.status === 404) return fail(404, "Not found.");
+        return fail(gate.status, gate.error);
+      }
+    }
+  }
   await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
   if (requested.length === 0) return { ok: true, value: null };
   await db.query(
