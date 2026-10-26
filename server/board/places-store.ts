@@ -37,6 +37,12 @@ import {
   planZipCorrection,
 } from "../../src/lib/board/room-requests.ts";
 import { actorRole, councilFlags } from "./access.ts";
+import {
+  canReadRoom,
+  canSeeHiddenRooms,
+  listingColumnsReady,
+  visibleRoomClause,
+} from "./room-visibility.ts";
 
 type Err = { ok: false; status: number; error: string };
 type Ok<T> = { ok: true; value: T };
@@ -319,6 +325,7 @@ type ScopeRow = {
   congregation_id: string;
   region_id: string;
   sort_order: number | string;
+  status?: string;
 };
 
 function toScoped(row: ScopeRow): ScopedRoom {
@@ -337,10 +344,14 @@ function toScoped(row: ScopeRow): ScopedRoom {
   };
 }
 
-async function loadRooms(db: Db): Promise<ScopedRoom[]> {
+async function loadRooms(db: Db, seeHidden = true): Promise<ScopedRoom[]> {
+  const ready = await listingColumnsReady(db);
   const rows = await db.query<ScopeRow>(
     `select id, name, scope_kind, town_id, congregation_id, region_id, sort_order
-     from room where name <> '' order by sort_order asc, id asc`,
+            ${ready ? ", status" : ""}
+     from room where name <> '' and ${visibleRoomClause(ready, "1")}
+     order by sort_order asc, id asc`,
+    ready ? [seeHidden] : [],
   );
   return rows.map(toScoped);
 }
@@ -417,7 +428,7 @@ export async function listHome(
     ? await db.query<{ name: string }>(`select name from town where id = $1`, [townId])
     : [];
   const townName = townRows[0]?.name ?? "";
-  const rooms = await loadRooms(db);
+  const rooms = await loadRooms(db, canSeeHiddenRooms(actor));
   const joins = await db.query<{ room_id: string }>(
     `select room_id from room_join where user_id = $1`,
     [userId],
@@ -446,6 +457,9 @@ export async function listHome(
     live.set(row.post_id, { id: row.id, reason: row.reason.trim(), checklist });
   }
   const liveIds = [...live.keys()];
+  const postsReady = await listingColumnsReady(db);
+  const postParams: unknown[] = [...liveIds];
+  if (postsReady) postParams.push(canSeeHiddenRooms(actor));
   const postRows =
     liveIds.length === 0
       ? []
@@ -464,8 +478,9 @@ export async function listHome(
                   p.removed, p.parent_id, p.created_at
            from board_post p
            join room r on r.id = p.room_id
-           where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})`,
-          liveIds,
+           where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})
+             and ${visibleRoomClause(postsReady, String(liveIds.length + 1), "r.status")}`,
+          postParams,
         );
   const lifted = orderCouncilPosts(
     postRows.map((row) => ({
@@ -613,6 +628,13 @@ export async function joinRoom(
   if (!actor.member) return fail(403, "Only a member can join a room.");
   if (await openBan(db, input.userId, input.now)) return fail(403, "banned");
   if (!(await roomExists(db, input.roomId))) return fail(404, "That room is not here.");
+  if (await listingColumnsReady(db)) {
+    const joined = await db.query<{ status: string }>(`select status from room where id = $1`, [
+      input.roomId,
+    ]);
+    if (!canReadRoom(joined[0]?.status ?? "active", actor))
+      return fail(404, "That room is not here.");
+  }
   if (input.leave) {
     await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
       input.userId,
