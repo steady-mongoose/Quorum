@@ -22,12 +22,14 @@ function json(status: number, body: unknown, extra?: Headers): Response {
 function denied(result: {
   status: number;
   error: string;
+  code?: string;
   ban?: { until: number; strikes: number; reason: string };
 }): Response {
-  return json(
-    result.status,
-    result.ban ? { error: result.error, ban: result.ban } : { error: result.error },
-  );
+  return json(result.status, {
+    error: result.error,
+    ...(result.code ? { code: result.code } : {}),
+    ...(result.ban ? { ban: result.ban } : {}),
+  });
 }
 
 function tooMany(retryAfter: number): Response {

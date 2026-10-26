@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
+import { markOnboarded } from "../profile/gate.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 
@@ -23,9 +24,11 @@ function app(db: Db) {
       readSession: async (headers) => {
         const id = headers.get("x-user-id");
         if (!id) return null;
+        const name = headers.get("x-user-name") ?? "Josh";
+        await markOnboarded(db, id, name);
         return {
           id,
-          name: headers.get("x-user-name") ?? "Josh",
+          name,
           email: headers.get("x-user-email") ?? "josh@example.com",
         };
       },

@@ -28,6 +28,7 @@ import {
   setGatheringShared,
 } from "./gathering-record.ts";
 import { createApp, type AppDeps } from "../http.ts";
+import { markOnboarded } from "../profile/gate.ts";
 import { recordAttendance } from "../dm/store.ts";
 import {
   createGroupPost,
@@ -743,6 +744,7 @@ test("naming an email is the same refusal when the caller cannot change a gender
       readSession: async (headers) => {
         const id = headers.get("x-user-id");
         if (!id) return null;
+        await markOnboarded(db, id, "Member");
         return { id, name: "Member", email: "member@example.com" };
       },
       forwardAuth: async () => new Response(null, { status: 500 }),

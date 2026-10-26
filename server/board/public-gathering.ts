@@ -1,6 +1,7 @@
 import type { Db } from "../db.ts";
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
+import { onboardingBlock, onboardingResponse } from "../profile/gate.ts";
 import { limitBoardWrite } from "./routes.ts";
 import { loadSharedGathering, setGatheringShared } from "./gathering-record.ts";
 import {
@@ -17,7 +18,8 @@ export type GatheringDeps = {
   now: () => Date;
 };
 
-const PUBLIC_PATH = /^\/(?:api\/)?e\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const PUBLIC_PATH =
+  /^\/(?:api\/)?e\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 export function gatheringViewLimitKey(ip: string): string {
   return `board-read:ip:${ip}`;
@@ -70,12 +72,19 @@ export async function handlePublicGathering(
   const id = (match[1] ?? "").toLowerCase();
   const asHtml = !url.pathname.startsWith("/api/");
   if (!isGatheringId(id)) {
-    return asHtml ? html(404, publicGatheringHtml(null, id).body) : json(404, { error: "Not found." });
+    return asHtml
+      ? html(404, publicGatheringHtml(null, id).body)
+      : json(404, { error: "Not found." });
   }
 
   const ip = clientIp(request);
   if (request.method === "GET") {
-    const hit = await consumeLimit(deps.db, gatheringViewLimitKey(ip), BOARD_READ_LIMIT, Date.now());
+    const hit = await consumeLimit(
+      deps.db,
+      gatheringViewLimitKey(ip),
+      BOARD_READ_LIMIT,
+      Date.now(),
+    );
     if (!hit.allowed) return tooMany(hit.retryAfter);
     const gathering = await loadSharedGathering(deps.db, id, deps.now());
     if (asHtml) {
@@ -96,6 +105,8 @@ export async function handlePublicGathering(
   }
   const limited = await limitBoardWrite(deps.db, request, session.id);
   if (limited) return limited;
+  const gate = await onboardingBlock(deps.db, session.id);
+  if (gate) return onboardingResponse(gate);
 
   let body: Record<string, unknown>;
   try {

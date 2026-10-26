@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp } from "../http.ts";
+import { markOnboarded } from "../profile/gate.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { rememberNamedAccounts } from "./store.ts";
 import type { Db } from "../db.ts";
@@ -87,6 +88,7 @@ test("two members, two devices, and a restored backup can read ciphertext the se
         [id],
       );
       const user = rows[0];
+      if (user) await markOnboarded(db, user.id, user.name);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     },
     forwardAuth: async () => new Response(null, { status: 404 }),
@@ -292,6 +294,7 @@ test("a site ban, including an expired CSAM ban, blocks every private-message ro
         [id],
       );
       const user = rows[0];
+      if (user) await markOnboarded(db, user.id, user.name);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     },
     forwardAuth: async () => new Response(null, { status: 404 }),
@@ -350,6 +353,7 @@ test("posting came with someone else's meeting card does not make them a peer", 
         [id],
       );
       const user = rows[0];
+      if (user) await markOnboarded(db, user.id, user.name);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     },
     forwardAuth: async () => new Response(null, { status: 404 }),
@@ -383,9 +387,9 @@ test("posting came with someone else's meeting card does not make them a peer", 
     assert.equal((await recordAttendance(transport(handler, victim), [cardId])).ok, true);
     assert.equal((await recordAttendance(transport(handler, friend), [cardId])).ok, true);
     const together = await transport(handler, victim).get("/api/dm/peers");
-    const peerIds = (
-      (together.body as { peers?: { id: string }[] }).peers ?? []
-    ).map((peer) => peer.id);
+    const peerIds = ((together.body as { peers?: { id: string }[] }).peers ?? []).map(
+      (peer) => peer.id,
+    );
     assert.equal(peerIds.includes(friend), true);
     assert.equal(peerIds.includes(mallory), false);
 
@@ -435,6 +439,7 @@ test("a deleted member's message stays readable, and a second read does not reus
         [id],
       );
       const user = rows[0];
+      if (user) await markOnboarded(db, user.id, user.name);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     },
     forwardAuth: async () => new Response(null, { status: 404 }),
@@ -523,10 +528,9 @@ test("a deleted member's message stays readable, and a second read does not reus
     const deviceId = aliceVault.read()?.device.deviceId ?? "";
     const devices = await db.query(`select id from dm_device where id = $1`, [deviceId]);
     assert.equal(devices.length, 0);
-    const envelopes = await db.query(
-      `select id from dm_envelope where recipient_device_id = $1`,
-      [deviceId],
-    );
+    const envelopes = await db.query(`select id from dm_envelope where recipient_device_id = $1`, [
+      deviceId,
+    ]);
     assert.equal(envelopes.length, 0);
 
     const after = await readEncrypted(
@@ -539,11 +543,11 @@ test("a deleted member's message stays readable, and a second read does not reus
     );
     assert.equal(after.ok, true);
     if (!after.ok) return;
-    assert.equal(after.messages.some((message) => message.text === TEXT), true);
     assert.equal(
-      after.messages.find((message) => message.text === TEXT)?.from,
-      "Former member",
+      after.messages.some((message) => message.text === TEXT),
+      true,
     );
+    assert.equal(after.messages.find((message) => message.text === TEXT)?.from, "Former member");
     const served = await transport(handler, bob).get(
       `/api/dm/threads/${opened.thread.id}/messages`,
     );
@@ -563,7 +567,10 @@ test("a deleted member's message stays readable, and a second read does not reus
     );
     assert.equal(refused.ok, true);
     if (!refused.ok) return;
-    assert.equal(refused.messages.some((message) => message.text === TEXT), false);
+    assert.equal(
+      refused.messages.some((message) => message.text === TEXT),
+      false,
+    );
     assert.equal(refused.unreadable > 0, true);
   } finally {
     await close();
@@ -571,7 +578,10 @@ test("a deleted member's message stays readable, and a second read does not reus
 });
 
 function installMemoryIndexedDb(): void {
-  const databases = new Map<string, { version: number; stores: Map<string, Map<string, unknown>> }>();
+  const databases = new Map<
+    string,
+    { version: number; stores: Map<string, Map<string, unknown>> }
+  >();
   globalThis.indexedDB = {
     open(name: string, version: number) {
       const request: {
@@ -679,6 +689,7 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
         [id],
       );
       const user = rows[0];
+      if (user) await markOnboarded(db, user.id, user.name);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     },
     forwardAuth: async () => new Response(null, { status: 404 }),
@@ -718,15 +729,7 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
     if (blocked.ok || !blocked.safety) return;
     confirmSafety(bobVault, alice, blocked.safety);
     assert.equal(
-      (
-        await sendEncrypted(
-          transport(handler, bob),
-          bobVault,
-          opened.thread.id,
-          alice,
-          TEXT,
-        )
-      ).ok,
+      (await sendEncrypted(transport(handler, bob), bobVault, opened.thread.id, alice, TEXT)).ok,
       true,
     );
     assert.equal(signOutClearsReadHistory(aliceVault.read()), false);
@@ -765,15 +768,8 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
     const again = await registerDevice(transport(handler, alice), aliceVault);
     assert.equal(again.ok, true, again.ok ? "" : again.message);
     assert.equal(
-      (
-        await sendEncrypted(
-          transport(handler, bob),
-          bobVault,
-          opened.thread.id,
-          alice,
-          nextText,
-        )
-      ).ok,
+      (await sendEncrypted(transport(handler, bob), bobVault, opened.thread.id, alice, nextText))
+        .ok,
       true,
     );
     const second = await readEncrypted(

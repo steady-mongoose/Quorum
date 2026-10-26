@@ -98,6 +98,7 @@ const appTests = [
   "server/profile/view.test.ts",
   "server/profile/http.test.ts",
   "server/profile/photo.test.ts",
+  "server/profile/gate.test.ts",
   "server/board/groups-http.test.ts",
   "server/chat/store.test.ts",
   "server/chat/http.test.ts",

@@ -1,6 +1,7 @@
 import { limitBoard } from "../board/routes.ts";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
+import { onboardingBlock, onboardingResponse } from "./gate.ts";
 import { MIN_PROFILE_AGE } from "./age.ts";
 import { INTERESTS } from "./interests.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER } from "./permissions.ts";
@@ -110,6 +111,15 @@ export async function handleProfile(
     const kind = method === "GET" ? "read" : "write";
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
+    const profileSetup =
+      method === "GET" ||
+      (own && method === "PATCH") ||
+      (onboard && method === "POST") ||
+      (photo && method === "POST");
+    if (!profileSetup) {
+      const gate = await onboardingBlock(deps.db, session.id);
+      if (gate) return onboardingResponse(gate);
+    }
     const now = deps.now();
 
     if (photo) {

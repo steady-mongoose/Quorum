@@ -7,6 +7,7 @@ import { createApp, type AppDeps } from "../http.ts";
 import type { MediaConfig } from "../media/config.ts";
 import { createMemoryStore } from "../media/memory-store.ts";
 import { completeUpload, prepareUpload, readForMember } from "../media/service.ts";
+import { markOnboarded } from "./gate.ts";
 
 const now = new Date("2026-10-19T15:00:00Z");
 
@@ -67,6 +68,7 @@ function app(db: Db, store: ReturnType<typeof createMemoryStore>) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
+      await markOnboarded(db, id, "Member");
       return { id, name: "Member", email: `${id}@example.com` };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
