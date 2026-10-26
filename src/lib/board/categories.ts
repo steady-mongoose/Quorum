@@ -1,28 +1,50 @@
 /**
- * The category list. Stewards can edit the rows on the server. This module is
+ * The category list. Admins can edit the rows on the server. This module is
  * the seed and the backfill, so the migration, the browse page, and room
  * create all start from the same names.
  *
- * Men and Women are labels only. Who may enter those rooms is not stored
- * here. A later migration (0019) enforces audience. This file does not.
+ * Men only and Women only are where a room is listed. Who may enter is the
+ * room's audience, enforced by a later migration (0019). This file does not
+ * store that column.
  */
 
 export type RoomCategory = {
   slug: string;
   name: string;
+  description: string;
   sortOrder: number;
 };
 
 /** Seeded order. Uncategorized is last and is not part of Browse. */
 export const CATEGORY_LIST: readonly RoomCategory[] = [
-  { slug: "churches", name: "Churches", sortOrder: 0 },
-  { slug: "discussion", name: "Discussion", sortOrder: 1 },
-  { slug: "men", name: "Men", sortOrder: 2 },
-  { slug: "women", name: "Women", sortOrder: 3 },
-  { slug: "business-trades", name: "Business & Trades", sortOrder: 4 },
-  { slug: "civic", name: "Civic", sortOrder: 5 },
-  { slug: "county", name: "County", sortOrder: 6 },
-  { slug: "uncategorized", name: "Uncategorized", sortOrder: 1000 },
+  {
+    slug: "churches",
+    name: "Churches",
+    description: "Parish and congregation rooms.",
+    sortOrder: 0,
+  },
+  {
+    slug: "discussion",
+    name: "Discussion",
+    description: "Questions, the shelf, and the co-op.",
+    sortOrder: 1,
+  },
+  { slug: "men", name: "Men only", description: "Rooms listed for men.", sortOrder: 2 },
+  { slug: "women", name: "Women only", description: "Rooms listed for women.", sortOrder: 3 },
+  {
+    slug: "business-trades",
+    name: "Business & Trades",
+    description: "Shops and the trades.",
+    sortOrder: 4,
+  },
+  { slug: "civic", name: "Civic", description: "Town rooms and dispatch.", sortOrder: 5 },
+  { slug: "county", name: "County", description: "The county and its regions.", sortOrder: 6 },
+  {
+    slug: "uncategorized",
+    name: "Uncategorized",
+    description: "Rooms waiting for a category.",
+    sortOrder: 1000,
+  },
 ];
 
 export const UNCATEGORIZED_SLUG = "uncategorized";
@@ -36,7 +58,7 @@ export const UNCATEGORIZED_SLUG = "uncategorized";
  * Business & Trades: the shop rooms.
  * Civic: Dispatch and the town rooms.
  * County: The County and the Hillsborough region room.
- * Men and Women have no rooms. They are labels.
+ * Men only and Women only have no rooms.
  */
 export const ROOM_CATEGORY: Readonly<Record<string, string>> = {
   baptist: "churches",
@@ -139,20 +161,93 @@ export function nextGatheringOn(
   return best;
 }
 
-/** Soonest gathering first. Rooms with no gathering follow, A to Z. */
-export function orderBrowseRooms<T extends { name: string; nextGathering: string | null }>(
+/** Pinned rooms first, in pin order. The rest follow, A to Z. */
+export function orderBrowseRooms<T extends { name: string; pinOrder?: number | null }>(
   rooms: readonly T[],
 ): T[] {
   return [...rooms].sort((a, b) => {
-    const left = a.nextGathering ?? "";
-    const right = b.nextGathering ?? "";
-    if (left !== right) {
-      if (!left) return 1;
-      if (!right) return -1;
-      return left < right ? -1 : 1;
+    const left = typeof a.pinOrder === "number" ? a.pinOrder : null;
+    const right = typeof b.pinOrder === "number" ? b.pinOrder : null;
+    if (left !== null || right !== null) {
+      if (left === null) return 1;
+      if (right === null) return -1;
+      if (left !== right) return left - right;
     }
     return a.name.localeCompare(b.name, "en", { sensitivity: "base" });
   });
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** A one-line cadence. Empty when the room has no gathering ahead. */
+export function meetsLabel(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const day = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  const name = WEEKDAYS[date.getUTCDay()];
+  return name ? `meets ${name}` : "";
+}
+
+/** #49's audience wording. Empty until that room has an audience. */
+export function audienceLabel(audience: string | null | undefined): "Men only" | "Women only" | "" {
+  if (audience === "men") return "Men only";
+  if (audience === "women") return "Women only";
+  return "";
+}
+
+export type CategoryEngraving = {
+  src: string;
+  image: string;
+  credit: string;
+};
+
+const ART_ORIGIN = "https://avouchsocial.com";
+
+/** The vignette for one category page. Martin is the civic and county plate. */
+export function categoryEngraving(slug: string): CategoryEngraving {
+  if (slug === "churches") {
+    return {
+      src: "/art/dore-band-A.webp",
+      image: `${ART_ORIGIN}/art/dore-og.webp`,
+      credit: "Gustave Doré, Jacob’s Dream, 1866",
+    };
+  }
+  if (slug === "discussion") {
+    return {
+      src: "/art/durer-jerome-band-A.webp",
+      image: `${ART_ORIGIN}/art/durer-jerome-band-A.webp`,
+      credit: "Albrecht Dürer, Saint Jerome in His Study, 1514",
+    };
+  }
+  if (slug === "men" || slug === "women") {
+    return {
+      src: "/art/durer-hands-side-A.webp",
+      image: `${ART_ORIGIN}/art/durer-hands-side-A.webp`,
+      credit: "Albrecht Dürer, Study of an Apostle’s Hands, 1508",
+    };
+  }
+  return {
+    src: "/art/martin-hero-A.webp",
+    image: `${ART_ORIGIN}/art/martin-hero-A.webp`,
+    credit: "John Martin, Paradise Lost: The Creation of Light",
+  };
+}
+
+/** Open Graph fields for /rooms/<slug>. Unknown slugs stay a rooms preview. */
+export function categoryPreview(
+  slug: string,
+  categories: readonly RoomCategory[] = CATEGORY_LIST,
+): { title: string; description: string; image: string; credit: string } {
+  const category = categories.find((item) => item.slug === slug);
+  const art = categoryEngraving(category ? slug : "civic");
+  return {
+    title: category?.name ?? "Rooms",
+    description: category?.description.trim() || "Find your room",
+    image: art.image,
+    credit: art.credit,
+  };
 }
 
 export type BrowseRoom = {
@@ -161,6 +256,9 @@ export type BrowseRoom = {
   what: string;
   categoryId: string;
   nextGathering: string | null;
+  pinOrder?: number | null;
+  joined?: boolean;
+  audience?: string;
 };
 
 export type BrowseSection = {

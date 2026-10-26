@@ -146,6 +146,7 @@ type BoardState = {
     categoryId: string;
     name?: string;
     what?: string;
+    pinOrder?: number | null;
   }) => Promise<{ ok: boolean; error?: string }>;
   appointSteward: (input: {
     email: string;
@@ -1139,14 +1140,21 @@ export const useBoard = create<BoardState>()(
           return { ok: true };
         },
         updateRoom: async (input) => {
-          if (!get().steward)
-            return { ok: false, error: "Only a steward can change a room's category." };
+          const allowed =
+            get().admin || get().stewardRooms.includes(input.id) || (get().steward && !get().remote);
+          if (!allowed) return { ok: false, error: "That room is not here." };
           if (!input.categoryId.trim()) return { ok: false, error: "Choose a category." };
           if (!get().remote) {
             if (input.name || input.what)
               return { ok: false, error: "Rooms are edited on the server." };
             const rooms = get().rooms.map((room) =>
-              room.id === input.id ? { ...room, categoryId: input.categoryId } : room,
+              room.id === input.id
+                ? {
+                    ...room,
+                    categoryId: input.categoryId,
+                    ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
+                  }
+                : room,
             );
             setRoomCatalog(rooms);
             set({ rooms });
@@ -1158,6 +1166,7 @@ export const useBoard = create<BoardState>()(
             categoryId: input.categoryId,
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.what !== undefined ? { what: input.what } : {}),
+            ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
           });
           if (!saved.ok) return { ok: false, error: saved.error };
           const rooms = get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room));
@@ -1172,8 +1181,24 @@ export const useBoard = create<BoardState>()(
           return { ok: true };
         },
         savePlace: (input) => placeCall((client) => client.savePlace(input), false),
-        joinRoom: (roomId) => placeCall((client) => client.joinRoom(roomId), false),
-        leaveRoom: (roomId) => placeCall((client) => client.leaveRoom(roomId), false),
+        joinRoom: async (roomId) => {
+          const saved = await placeCall((client) => client.joinRoom(roomId), false);
+          if (!saved.ok) return saved;
+          set({
+            rooms: get().rooms.map((room) => (room.id === roomId ? { ...room, joined: true } : room)),
+          });
+          return saved;
+        },
+        leaveRoom: async (roomId) => {
+          const saved = await placeCall((client) => client.leaveRoom(roomId), false);
+          if (!saved.ok) return saved;
+          set({
+            rooms: get().rooms.map((room) =>
+              room.id === roomId ? { ...room, joined: false } : room,
+            ),
+          });
+          return saved;
+        },
         requestRoom: (input) => placeCall((client) => client.requestRoom(input), false),
         decideRoom: (id, input) => placeCall((client) => client.decideRoom(id, input), true),
         correctZip: (input) => placeCall((client) => client.correctZip(input), false),

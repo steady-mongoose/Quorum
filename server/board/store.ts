@@ -75,6 +75,8 @@ export type BoardRoom = {
   townId: string;
   congregationId: string;
   regionId: string;
+  pinOrder?: number | null;
+  joined?: boolean;
 };
 
 export type MarkEntry = {
@@ -210,6 +212,8 @@ type RoomRow = {
   town_id?: string;
   congregation_id?: string;
   region_id?: string;
+  pin_order?: number | null;
+  joined?: boolean;
 };
 
 function scopeKind(value: string | undefined): BoardRoom["scopeKind"] {
@@ -233,6 +237,8 @@ function toRoom(row: RoomRow): BoardRoom {
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
     regionId: row.region_id ?? "",
+    pinOrder: row.pin_order == null ? null : Number(row.pin_order),
+    joined: Boolean(row.joined),
   };
 }
 
@@ -294,13 +300,17 @@ async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
   return council ? { ...post, council } : post;
 }
 
-async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
+async function roomById(db: Db, id: string, userId = ""): Promise<BoardRoom | null> {
   if (!ROOM_ID.test(id)) return null;
   const rows = await db.query<RoomRow>(
     `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            category_id, scope_kind, town_id, congregation_id, region_id
+            category_id, scope_kind, town_id, congregation_id, region_id, pin_order,
+            exists (
+              select 1 from room_join j
+              where j.room_id = room.id and j.user_id = $2
+            ) as joined
      from room where id = $1`,
-    [id],
+    [id, userId],
   );
   const row = rows[0];
   if (!row || !row.name) return null;
@@ -460,8 +470,13 @@ export async function listBoard(
   const flags = await councilFlags(db, userId);
   const roomRows = await db.query<RoomRow>(
     `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            category_id, scope_kind, town_id, congregation_id, region_id
+            category_id, scope_kind, town_id, congregation_id, region_id, pin_order,
+            exists (
+              select 1 from room_join j
+              where j.room_id = room.id and j.user_id = $1
+            ) as joined
      from room where name <> '' order by sort_order asc, name asc`,
+    [userId],
   );
   const openRooms: BoardRoom[] = [];
   for (const room of roomRows.map(toRoom)) {
@@ -1616,6 +1631,7 @@ export async function updateRoom(
     categoryId: string;
     name?: string;
     what?: string;
+    pinOrder?: number | null;
     now: Date;
   },
 ): Promise<Result<BoardRoom>> {
@@ -1624,8 +1640,8 @@ export async function updateRoom(
   const ban = await openBan(db, input.userId, input.now);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
   const id = input.id.trim().toLowerCase();
-  const current = await roomById(db, id);
-  if (!current) return fail(404, "That room is not here.");
+  const current = await roomById(db, id, input.userId);
+  if (!current || !stewardsRoom(actor, id)) return fail(404, "That room is not here.");
   const roomBan = await openBan(db, input.userId, input.now, current.id);
   if (roomBan) return { ok: false, status: 403, error: "banned", ban: roomBan };
   const categoryId = input.categoryId.trim().toLowerCase();
@@ -1634,8 +1650,17 @@ export async function updateRoom(
   const name = input.name?.trim() ?? "";
   const what = input.what?.trim() ?? "";
   const renaming = (name !== "" && name !== current.name) || (what !== "" && what !== current.what);
-  if (!actor.steward) return fail(403, "Only a steward can change a room's category.");
   if (renaming && !actor.admin) return fail(403, "Only an admin can rename a room.");
+  let pinOrder = current.pinOrder ?? null;
+  if (input.pinOrder !== undefined) {
+    if (
+      input.pinOrder !== null &&
+      (!Number.isInteger(input.pinOrder) || input.pinOrder < 0 || input.pinOrder > 10000)
+    ) {
+      return fail(400, "Give the pin a place in the list.");
+    }
+    pinOrder = input.pinOrder;
+  }
   const nextName = name || current.name;
   const nextWhat = what || current.what;
   if (renaming) {
@@ -1644,13 +1669,11 @@ export async function updateRoom(
     if (!nextWhat || nextWhat.length > 600 || !isEnglish(nextWhat))
       return fail(400, "Say what the room is for, in English.");
   }
-  await db.query(`update room set name = $2, what = $3, category_id = $4 where id = $1`, [
-    id,
-    nextName,
-    nextWhat,
-    categoryId,
-  ]);
-  const room = await roomById(db, id);
+  await db.query(
+    `update room set name = $2, what = $3, category_id = $4, pin_order = $5 where id = $1`,
+    [id, nextName, nextWhat, categoryId, pinOrder],
+  );
+  const room = await roomById(db, id, input.userId);
   if (!room) return fail(500, "The room was not saved.");
   return { ok: true, value: room };
 }

@@ -110,6 +110,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
+  const categoryPage = typeof categorySlug === "string" && categorySlug.length > 0;
   const shown = onRoomsRoute ? "rooms" : section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
@@ -368,7 +369,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           </div>
         </div>
       ) : null}
-      {hero ? <div className="hero-band full" role="img" aria-label={hero} /> : null}
+      {hero && !categoryPage ? (
+        <div className="hero-band full" role="img" aria-label={hero} />
+      ) : null}
       <div className="shell-body">
         {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
         {margin ? <div className="outer-art r" aria-hidden="true" /> : null}

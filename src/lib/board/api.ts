@@ -136,6 +136,10 @@ function roomFrom(value: unknown): Room | null {
       typeof row.categoryId === "string" && row.categoryId.trim()
         ? row.categoryId
         : categoryForRoom(row.id),
+    pinOrder:
+      typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
+    joined: row.joined === true,
+    ...(typeof row.audience === "string" && row.audience ? { audience: row.audience } : {}),
   };
 }
 
@@ -146,7 +150,12 @@ function categoryFrom(value: unknown): RoomCategory | null {
   if (!row.slug || !row.name) return null;
   const sortOrder =
     typeof row.sortOrder === "number" && Number.isFinite(row.sortOrder) ? row.sortOrder : 0;
-  return { slug: row.slug, name: row.name, sortOrder };
+  return {
+    slug: row.slug,
+    name: row.name,
+    description: typeof row.description === "string" ? row.description : "",
+    sortOrder,
+  };
 }
 
 function browseRoomFrom(value: unknown): BrowseRoom | null {
@@ -164,6 +173,10 @@ function browseRoomFrom(value: unknown): BrowseRoom | null {
     what: row.what,
     categoryId: typeof row.categoryId === "string" ? row.categoryId : "",
     nextGathering: next,
+    pinOrder:
+      typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
+    joined: row.joined === true,
+    ...(typeof row.audience === "string" && row.audience ? { audience: row.audience } : {}),
   };
 }
 

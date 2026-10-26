@@ -6,10 +6,13 @@ import {
   CATEGORY_LIST,
   ROOM_CATEGORY,
   UNCATEGORIZED_SLUG,
+  audienceLabel,
   browseCategories,
   categoryForRoom,
+  categoryPreview,
   groupBrowseRooms,
   hiddenRooms,
+  meetsLabel,
   orderBrowseRooms,
 } from "./categories.ts";
 import { ROOMS } from "./model.ts";
@@ -18,18 +21,29 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
-test("rooms with a gathering come first, then the rest A to Z", () => {
+test("pinned rooms come first, then the rest A to Z", () => {
   const ordered = orderBrowseRooms([
-    { name: "Shop", nextGathering: null },
-    { name: "Alpha", nextGathering: "2026-10-22" },
-    { name: "Beta", nextGathering: "2026-10-20" },
-    { name: "Later", nextGathering: null },
-    { name: "Cedar", nextGathering: "2026-10-20" },
+    { name: "Shop", pinOrder: null },
+    { name: "Alpha", pinOrder: 2 },
+    { name: "Beta", pinOrder: null },
+    { name: "Later", pinOrder: 0 },
+    { name: "Cedar", pinOrder: null },
   ]);
   assert.deepEqual(
     ordered.map((room) => room.name),
-    ["Beta", "Cedar", "Alpha", "Later", "Shop"],
+    ["Later", "Alpha", "Beta", "Cedar", "Shop"],
   );
+  assert.equal(meetsLabel("2026-10-22"), "meets Thu");
+  assert.equal(meetsLabel(null), "");
+  assert.equal(audienceLabel("men"), "Men only");
+  assert.equal(audienceLabel("women"), "Women only");
+  assert.equal(audienceLabel("all"), "");
+  const churches = categoryPreview("churches");
+  assert.equal(churches.title, "Churches");
+  assert.match(churches.image, /dore-og\.webp$/);
+  assert.match(churches.credit, /Doré/);
+  assert.match(categoryPreview("men").credit, /Dürer/);
+  assert.match(categoryPreview("civic").credit, /Martin/);
 });
 
 test("the seed rooms use the config mapping, and Men and Women stay labels", () => {
@@ -44,8 +58,8 @@ test("the seed rooms use the config mapping, and Men and Women stay labels", () 
     [
       "Churches",
       "Discussion",
-      "Men",
-      "Women",
+      "Men only",
+      "Women only",
       "Business & Trades",
       "Civic",
       "County",
@@ -121,13 +135,30 @@ test("browse, the week, and room create follow the category layout", () => {
   const index = source("../../routes/rooms/index.tsx");
   const slug = source("../../routes/rooms/$slug.tsx");
   const migration = source("../../../migrations/0021_categories.sql");
+  const fluid = source("../../../public/fluid.css");
+  const backgrounds = source("../../../public/backgrounds.css");
+  const app = source("../../components/board/app.tsx");
+  const card = browse.slice(browse.indexOf("function RoomCard"));
   assert.match(browse, /sticky top-32/);
   assert.match(browse, /w-\[14rem\]/);
-  assert.match(browse, /lg:grid-cols-2/);
-  assert.match(browse, /xl:grid-cols-3/);
+  assert.match(browse, /room-grid/);
+  assert.match(browse, /Your rooms/);
+  assert.match(browse, /Find your room/);
+  assert.match(browse, /No rooms here yet\. Ask a steward to open one\./);
+  assert.match(browse, /aria-label="Joined"/);
+  assert.match(browse, /Who may enter is set by the room/);
   assert.match(browse, /to="\/rooms"/);
   assert.match(browse, /aria-label="Categories"/);
+  assert.match(browse, /aria-current=/);
+  assert.equal(/\bplate\b/.test(card), false);
   assert.equal(/\bcount\b|\btrending\b|\branking\b|\blikes?\b|\bfeed\b/i.test(browse), false);
+  assert.match(fluid, /repeat\(auto-fill,minmax\(min\(100%,16rem\),1fr\)\)/);
+  assert.match(fluid, /\.room-column\{container-type:inline-size/);
+  assert.match(
+    backgrounds,
+    /\.plate\{display:inline-block;padding:14px 22px;margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/,
+  );
+  assert.match(app, /categoryPage/);
   assert.match(week, /categoryName\(roomCategoryId\(roomById\(card\.room\)\)\)/);
   assert.match(about, /Choose a category/);
   assert.match(about, /categoryId/);
@@ -135,7 +166,19 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(index, /categorySlug=\{null\}/);
   assert.match(slug, /noindex/);
   assert.match(slug, /categorySlug=\{slug\}/);
-  const names = ["Churches", "Discussion", "Men", "Women", "Business & Trades", "Civic", "County"];
+  assert.match(slug, /og:title/);
+  assert.match(slug, /og:description/);
+  assert.match(slug, /og:image/);
+  assert.match(slug, /categoryPreview/);
+  const names = [
+    "Churches",
+    "Discussion",
+    "Men only",
+    "Women only",
+    "Business & Trades",
+    "Civic",
+    "County",
+  ];
   let at = 0;
   for (const name of names) {
     const next = migration.indexOf(name, at);

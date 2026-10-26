@@ -139,6 +139,14 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function pinField(body: Record<string, unknown>): { pinOrder: number | null } | Record<string, never> {
+  if (!("pinOrder" in body)) return {};
+  const value = body.pinOrder;
+  if (value === null) return { pinOrder: null };
+  if (typeof value === "number" && Number.isInteger(value)) return { pinOrder: value };
+  return { pinOrder: Number.NaN };
+}
+
 function optionalInt(body: Record<string, unknown>, key: string): number | undefined | null {
   if (!(key in body)) return undefined;
   const value = body[key];
@@ -321,6 +329,7 @@ export async function handleBoard(
           categoryId: stringField(body, "categoryId"),
           ...(typeof body.name === "string" ? { name: body.name } : {}),
           ...(typeof body.what === "string" ? { what: body.what } : {}),
+          ...pinField(body),
           now,
         }),
       );

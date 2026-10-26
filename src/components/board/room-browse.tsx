@@ -1,32 +1,39 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { btnGhost, btnSignal, fieldClass, Kicker, pill } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass, pill } from "@/components/quorum/bits";
 import { getBoardClient } from "@/lib/board/client";
 import {
   UNCATEGORIZED_SLUG,
+  audienceLabel,
   browseCategories,
+  categoryEngraving,
   categoryListed,
   groupBrowseRooms,
   hiddenRooms,
+  meetsLabel,
   nextGatheringOn,
+  orderBrowseRooms,
   roomCategoryId,
   type BrowseRoom,
   type RoomCategory,
 } from "@/lib/board/categories";
-import { formatDate, todayIso, type Room } from "@/lib/board/model";
+import { todayIso, type Room } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { reloadCategories, useCategories } from "@/components/board/use-categories";
 
 /**
- * Rooms by category. Phone: a sticky chip row, then plate sections.
- * Desktop: a 14rem sticky list beside a two- or three-column grid.
+ * Rooms by category. Phone: a sticky chip row, then sections.
+ * Desktop: a 14rem sticky list beside a container-sized card grid.
  * /rooms/<slug> is the shareable page for one category. Members only.
+ * Room cards are not plates, so the hero margin does not stack them.
  */
 export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
   const rooms = useBoard((state) => state.rooms);
   const cards = useBoard((state) => state.cards);
   const steward = useBoard((state) => state.steward);
+  const admin = useBoard((state) => state.admin);
   const remote = useBoard((state) => state.remote);
+  const stewardRooms = useBoard((state) => state.stewardRooms);
   const setRoom = useBoard((state) => state.setRoom);
   const categories = useCategories();
   const today = todayIso();
@@ -37,24 +44,33 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       what: room.what,
       categoryId: roomCategoryId(room),
       nextGathering: nextGatheringOn(room.id, cards, today),
+      pinOrder: room.pinOrder ?? null,
+      joined: room.joined === true,
+      ...(room.audience ? { audience: room.audience } : {}),
     }));
   }, [rooms, cards, today]);
   const sections = groupBrowseRooms(categories, browseRooms, focusSlug);
   const parked = hiddenRooms(browseRooms, steward);
+  const yours = orderBrowseRooms(browseRooms.filter((room) => room.joined));
   const known = focusSlug ? categoryListed(focusSlug, categories, steward) : true;
+  const focus = focusSlug
+    ? categories.find((category) => category.slug === focusSlug)
+    : undefined;
   const showParked = steward && (focusSlug === null || focusSlug === UNCATEGORIZED_SLUG);
   const showSections = focusSlug !== UNCATEGORIZED_SLUG;
+  const canEdit = (roomId: string) =>
+    admin || stewardRooms.includes(roomId) || (steward && !remote);
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="plate flex flex-col gap-2">
-        <Kicker>Rooms</Kicker>
-        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">Rooms</h1>
-        <p className="max-w-prose text-base text-muted">
-          One category for each room. A room with a gathering comes first. The rest are
-          alphabetical.
-        </p>
-      </section>
+      {focus && known ? (
+        <CategoryMast category={focus} />
+      ) : (
+        <section className={focusSlug ? "flex flex-col gap-2" : "plate flex flex-col gap-2"}>
+          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Find your room</h1>
+          <p className="max-w-prose text-base text-muted">One category for each room.</p>
+        </section>
+      )}
 
       <nav
         aria-label="Categories"
@@ -70,11 +86,17 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
         >
           <CategoryLinks categories={browseCategories(categories, false)} focusSlug={focusSlug} />
         </nav>
-        <div className="flex min-w-0 flex-col gap-8">
+        <div className="room-column flex min-w-0 flex-col gap-8">
           {focusSlug && !known ? (
             <p className="text-sm text-muted" role="status">
               That category is not listed.
             </p>
+          ) : null}
+          {focusSlug === null ? (
+            <section id="your-rooms" className="flex flex-col gap-3">
+              <h2 className="font-display text-2xl text-fg">Your rooms</h2>
+              {yours.length === 0 ? null : <RoomGrid rooms={yours} onOpen={setRoom} />}
+            </section>
           ) : null}
           {showSections
             ? sections.map((section) => (
@@ -82,6 +104,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
                   key={section.category.slug}
                   category={section.category}
                   rooms={section.rooms}
+                  headed={focusSlug === null}
                   onOpen={setRoom}
                 />
               ))
@@ -89,26 +112,39 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
           {showParked && parked.length > 0 ? (
             <section id="category-uncategorized" className="flex flex-col gap-3">
               <h2 className="font-display text-2xl text-fg">Uncategorized</h2>
-              <p className="max-w-prose text-sm text-muted">
-                Hidden from Browse until you give each room a category.
-              </p>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              <p className="text-sm text-muted">Rooms waiting for a category.</p>
+              <div className="flex flex-col gap-4">
                 {parked.map((room) => (
-                  <article key={room.id} className="plate flex flex-col gap-3">
+                  <div key={room.id} className="flex flex-col gap-3">
                     <RoomCard room={room} onOpen={setRoom} />
-                    <MoveRoom
-                      roomId={room.id}
-                      categoryId={room.categoryId}
-                      categories={categories}
-                    />
-                  </article>
+                    {canEdit(room.id) ? (
+                      <MoveRoom
+                        roomId={room.id}
+                        categoryId={room.categoryId}
+                        categories={categories}
+                      />
+                    ) : null}
+                  </div>
                 ))}
               </div>
             </section>
           ) : null}
-          {steward && remote ? <CategoryEditor categories={categories} /> : null}
+          {admin && remote ? <CategoryEditor categories={categories} /> : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CategoryMast({ category }: { category: RoomCategory }) {
+  const art = categoryEngraving(category.slug);
+  return (
+    <div>
+      <img className="hero-band category-engraving" src={art.src} alt={art.credit} />
+      <section className="plate flex flex-col gap-2">
+        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{category.name}</h1>
+        <p className="max-w-prose text-sm text-muted">{category.description}</p>
+      </section>
     </div>
   );
 }
@@ -120,32 +156,25 @@ function CategoryChips({
   categories: RoomCategory[];
   focusSlug: string | null;
 }) {
-  if (focusSlug) {
-    return (
-      <>
-        <Link to="/rooms" className={pill(false)}>
-          All
-        </Link>
-        {categories.map((category) => (
-          <Link
-            key={category.slug}
-            to="/rooms/$slug"
-            params={{ slug: category.slug }}
-            aria-current={category.slug === focusSlug ? "page" : undefined}
-            className={pill(category.slug === focusSlug)}
-          >
-            {category.name}
-          </Link>
-        ))}
-      </>
-    );
-  }
   return (
     <>
+      <Link
+        to="/rooms"
+        aria-current={focusSlug ? undefined : "page"}
+        className={pill(!focusSlug)}
+      >
+        All
+      </Link>
       {categories.map((category) => (
-        <a key={category.slug} href={`#category-${category.slug}`} className={pill(false)}>
+        <Link
+          key={category.slug}
+          to="/rooms/$slug"
+          params={{ slug: category.slug }}
+          aria-current={category.slug === focusSlug ? "page" : undefined}
+          className={pill(category.slug === focusSlug)}
+        >
           {category.name}
-        </a>
+        </Link>
       ))}
     </>
   );
@@ -160,6 +189,9 @@ function CategoryLinks({
 }) {
   return (
     <>
+      <Link to="/rooms" hash="your-rooms" className={pill(false, "justify-start")}>
+        Your rooms
+      </Link>
       <Link
         to="/rooms"
         aria-current={focusSlug ? undefined : "page"}
@@ -185,40 +217,53 @@ function CategoryLinks({
 function CategorySection({
   category,
   rooms,
+  headed,
   onOpen,
 }: {
   category: RoomCategory;
   rooms: BrowseRoom[];
+  headed: boolean;
   onOpen: (id: string) => void;
 }) {
   return (
     <section id={`category-${category.slug}`} className="flex flex-col gap-3">
-      <h2 className="font-display text-2xl text-fg">{category.name}</h2>
-      {rooms.length === 0 ? (
-        <p className="text-sm text-muted">Nothing in this category yet.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {rooms.map((room) => (
-            <RoomCard key={room.id} room={room} onOpen={onOpen} />
-          ))}
+      {headed ? (
+        <div>
+          <h2 className="font-display text-2xl text-fg">{category.name}</h2>
+          <p className="text-sm text-muted">{category.description}</p>
         </div>
+      ) : null}
+      {rooms.length === 0 ? (
+        <p className="text-sm text-muted">No rooms here yet. Ask a steward to open one.</p>
+      ) : (
+        <RoomGrid rooms={rooms} onOpen={onOpen} />
       )}
     </section>
   );
 }
 
-function RoomCard({ room, onOpen }: { room: BrowseRoom; onOpen: (id: string) => void }) {
+function RoomGrid({ rooms, onOpen }: { rooms: BrowseRoom[]; onOpen: (id: string) => void }) {
   return (
-    <button
-      type="button"
-      className="plate flex min-h-[44px] flex-col gap-2 text-left"
-      onClick={() => onOpen(room.id)}
-    >
-      <span className="font-display text-2xl text-fg">{room.name}</span>
-      <span className="text-sm text-muted">{room.what}</span>
-      {room.nextGathering ? (
-        <span className="text-sm text-muted">Next gathering {formatDate(room.nextGathering)}</span>
-      ) : null}
+    <div className="room-grid">
+      {rooms.map((room) => (
+        <RoomCard key={room.id} room={room} onOpen={onOpen} />
+      ))}
+    </div>
+  );
+}
+
+function RoomCard({ room, onOpen }: { room: BrowseRoom; onOpen: (id: string) => void }) {
+  const meets = meetsLabel(room.nextGathering);
+  const audience = audienceLabel(room.audience);
+  return (
+    <button type="button" className="room-card" onClick={() => onOpen(room.id)}>
+      <span className="room-card-top">
+        <span className="room-card-name">{room.name}</span>
+        {room.joined ? <span className="room-joined-dot" role="img" aria-label="Joined" /> : null}
+      </span>
+      {audience ? <span className="room-card-meta">{audience}</span> : null}
+      <span className="room-card-what">{room.what}</span>
+      {meets ? <span className="room-card-meta">{meets}</span> : null}
     </button>
   );
 }
@@ -294,10 +339,10 @@ function CategoryEditor({ categories }: { categories: RoomCategory[] }) {
   };
 
   return (
-    <section className="plate flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <h2 className="font-display text-2xl text-fg">Categories</h2>
       <p className="max-w-prose text-sm text-muted">
-        Stewards edit this list. Men and Women are labels. Who may enter is decided separately.
+        Category is where a room is listed. Who may enter is set by the room&apos;s audience.
       </p>
       <ul className="flex flex-col gap-3">
         {categories.map((category) => {
@@ -442,13 +487,17 @@ function CategoryEditor({ categories }: { categories: RoomCategory[] }) {
 export function RoomCategoryFields({ room }: { room: Room }) {
   const admin = useBoard((state) => state.admin);
   const steward = useBoard((state) => state.steward);
+  const remote = useBoard((state) => state.remote);
+  const stewardRooms = useBoard((state) => state.stewardRooms);
   const updateRoom = useBoard((state) => state.updateRoom);
   const categories = useCategories();
   const [categoryId, setCategoryId] = useState(roomCategoryId(room));
   const [name, setName] = useState(room.name);
   const [what, setWhat] = useState(room.what);
+  const [pin, setPin] = useState(room.pinOrder == null ? "" : String(room.pinOrder));
   const [error, setError] = useState("");
-  if (!steward) return null;
+  const canEdit = admin || stewardRooms.includes(room.id) || (steward && !remote);
+  if (!canEdit) return null;
   return (
     <form
       className="mt-2 flex flex-col gap-3"
@@ -459,9 +508,16 @@ export function RoomCategoryFields({ room }: { room: Room }) {
           setError("Choose a category.");
           return;
         }
+        const trimmed = pin.trim();
+        const pinOrder = trimmed === "" ? null : Number(trimmed);
+        if (trimmed !== "" && !Number.isInteger(pinOrder)) {
+          setError("Give the pin a place in the list.");
+          return;
+        }
         void updateRoom({
           id: room.id,
           categoryId,
+          pinOrder,
           ...(admin ? { name, what } : {}),
         }).then((result) => {
           if (!result.ok) setError(result.error ?? "The room was not saved.");
@@ -506,6 +562,20 @@ export function RoomCategoryFields({ room }: { room: Room }) {
             </option>
           ))}
         </select>
+      </label>
+      <p className="max-w-prose text-sm text-muted">
+        Category is where a room is listed. Who may enter is set by the room&apos;s audience.
+      </p>
+      <label className="flex flex-col gap-1 text-sm text-muted">
+        Pin order
+        <input
+          className={fieldClass}
+          inputMode="numeric"
+          value={pin}
+          aria-label="Pin order"
+          placeholder="Blank leaves it alphabetical"
+          onChange={(event) => setPin(event.target.value)}
+        />
       </label>
       <button type="submit" className={btnGhost}>
         Save room

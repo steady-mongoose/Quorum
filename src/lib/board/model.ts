@@ -77,8 +77,14 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
-  /** One category. Men and Women are labels; audience is not stored on the room. */
+  /** One category. Audience is a separate field, present only after 0019. */
   categoryId: string;
+  /** Set when a steward of this room has pinned it. Absent means alphabetical. */
+  pinOrder?: number | null;
+  /** The signed-in member keeps this room on their list. */
+  joined?: boolean;
+  /** Who may enter, when #49 has set it. The category name is not the audience. */
+  audience?: string;
 };
 
 export type Post = {
@@ -375,9 +381,13 @@ const ROOM_SEED: Omit<Room, "categoryId">[] = [
   },
 ];
 
+const SAMPLE_JOINED = new Set(["county", "shop"]);
+
 export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
   ...entry,
   categoryId: categoryForRoom(entry.id),
+  pinOrder: null,
+  joined: SAMPLE_JOINED.has(entry.id),
 }));
 
 /** Room ids shipped in code. A group cannot take one, even if the row is missing. */
