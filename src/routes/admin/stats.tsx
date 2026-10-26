@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { StatsView } from "@/components/board/stats-view";
 import { APP_NAME } from "@/lib/board/model";
-import { isStatsPayload, type StatsPayload } from "@/lib/board/stats";
+import { isStatsPayload, type StatsDays, type StatsPayload } from "@/lib/board/stats";
 import { apiFetch } from "@/lib/api-base";
 
 export const Route = createFileRoute("/admin/stats")({
@@ -18,10 +18,13 @@ type Load =
 function AdminStatsPage() {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [csvError, setCsvError] = useState("");
+  const [days, setDays] = useState<StatsDays>(30);
+  const [category, setCategory] = useState("all");
 
   useEffect(() => {
     let cancel = false;
-    void apiFetch("/api/admin/stats", { credentials: "include" })
+    const params = new URLSearchParams({ days: String(days), category });
+    void apiFetch(`/api/admin/stats?${params}`, { credentials: "include" })
       .then(async (response) => {
         const body = await response.json().catch(() => null);
         if (cancel) return;
@@ -49,11 +52,12 @@ function AdminStatsPage() {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [days, category]);
 
   async function downloadCsv() {
     setCsvError("");
-    const response = await apiFetch("/api/admin/stats.csv", { credentials: "include" });
+    const params = new URLSearchParams({ days: String(days), category });
+    const response = await apiFetch(`/api/admin/stats.csv?${params}`, { credentials: "include" });
     if (!response.ok) {
       setCsvError("The export could not be downloaded.");
       return;
@@ -70,8 +74,8 @@ function AdminStatsPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-col gap-2">
+    <main className="mx-auto grid w-full max-w-[72rem] grid-cols-12 gap-4 overflow-x-hidden p-6">
+      <header className="col-span-12 flex flex-col gap-2">
         <Link to="/" className="text-sm text-muted">
           {APP_NAME}
         </Link>
@@ -81,9 +85,11 @@ function AdminStatsPage() {
           {load.kind === "ready" && load.stats.asOf ? ` As of ${formatDay(load.stats.asOf)}.` : ""}
         </p>
       </header>
-      {load.kind === "loading" ? <p className="text-sm text-muted">Loading stats.</p> : null}
+      {load.kind === "loading" ? (
+        <p className="col-span-12 text-sm text-muted">Loading stats.</p>
+      ) : null}
       {load.kind === "message" ? (
-        <p className="text-fg" role="status">
+        <p className="col-span-12 text-fg" role="status">
           {load.text}{" "}
           {load.text === "Sign in first." ? (
             <Link to="/" className="underline">
@@ -93,12 +99,20 @@ function AdminStatsPage() {
         </p>
       ) : null}
       {load.kind === "ready" && load.stats.asOf === null ? (
-        <p className="text-sm text-muted">
+        <p className="col-span-12 text-sm text-muted">
           The nightly rollup has not written a completed day yet.
         </p>
       ) : null}
       {load.kind === "ready" ? (
-        <StatsView stats={load.stats} onCsv={() => void downloadCsv()} csvError={csvError} />
+        <StatsView
+          stats={load.stats}
+          days={days}
+          category={category}
+          onDays={setDays}
+          onCategory={setCategory}
+          onCsv={() => void downloadCsv()}
+          csvError={csvError}
+        />
       ) : null}
     </main>
   );

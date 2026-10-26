@@ -15,7 +15,8 @@ export function startNightlyStats(
     if (day === lastDay || running) return;
     running = true;
     void rollStats(db, now(), retentionDays)
-      .then(() => {
+      .then((result) => {
+        if (result.skipped) return;
         lastDay = day;
         console.log(JSON.stringify({ event: "stats-rollup", day }));
       })

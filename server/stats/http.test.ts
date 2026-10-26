@@ -141,6 +141,37 @@ test("the founding owner can read stats without a separate admin flag", async ()
   }
 });
 
+test("a site-banned admin cannot read stats", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const admin = randomUUID();
+    await person(db, admin, "banned-admin@example.com");
+    await db.query(`insert into member_role (user_id, is_admin) values ($1, true)`, [admin]);
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
+       values ($1, $2, 'Member', 'threat', 'Tom', 1, $3, $4)`,
+      [randomUUID(), admin, new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000), NOW],
+    );
+    const handler = app(db);
+    const headers = { "x-user-id": admin };
+    for (const path of ["/api/admin/stats", "/api/admin/stats.csv"]) {
+      const response = await handler(new Request(`http://127.0.0.1:8787${path}`, { headers }));
+      assert.equal(response.status, 403, path);
+      const body = (await response.json()) as {
+        error?: string;
+        tiles?: unknown;
+        ban?: { reason?: string };
+      };
+      assert.equal(body.error, "banned", path);
+      assert.equal(body.ban?.reason, "threat", path);
+      assert.equal(body.tiles, undefined, path);
+      assert.equal(JSON.stringify(body).includes("<5"), false, path);
+    }
+  } finally {
+    await close();
+  }
+});
+
 test("a signed-in request records the day and never stores the client address", async () => {
   const { db, close } = await openTestDb();
   try {
@@ -151,10 +182,20 @@ test("a signed-in request records the day and never stores the client address", 
       "x-user-id": member,
       [CLIENT_IP_HEADER]: "203.0.113.50",
     };
+    const refused = await handler(new Request("http://127.0.0.1:8787/api/board", { headers }));
+    assert.equal(refused.status, 403);
+    const before = await db.query(`select member_id from member_active_days`);
+    assert.equal(before.length, 0);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
+       values ($1, $2, 'Member', 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+      [randomUUID(), member],
+    );
     const first = await handler(new Request("http://127.0.0.1:8787/api/board", { headers }));
     const second = await handler(new Request("http://127.0.0.1:8787/api/board", { headers }));
-    assert.equal(first.status, 403);
-    assert.equal(second.status, 403);
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
     const days = await db.query(
       `select member_id from member_active_days where member_id = $1 and date = '2026-10-26'::date`,
       [member],
@@ -164,7 +205,7 @@ test("a signed-in request records the day and never stores the client address", 
       `select count from stats_daily
        where metric = 'feature' and dimension = 'board' and date = '2026-10-26'::date`,
     );
-    assert.equal(Number(feature[0]?.count), 2);
+    assert.equal(Number(feature[0]?.count), 1);
     const columns = await db.query<{ column_name: string }>(
       `select column_name from information_schema.columns
        where table_name = 'member_active_days'`,

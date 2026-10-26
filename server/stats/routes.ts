@@ -1,4 +1,6 @@
+import { parseStatsQuery } from "../../src/lib/board/stats.ts";
 import { actorRole } from "../board/access.ts";
+import { openBan } from "../board/store.ts";
 import type { Db } from "../db.ts";
 import { readStats, readStatsCsv } from "./read.ts";
 
@@ -35,8 +37,11 @@ export async function handleStats(
   if (!session) return json(401, { error: "Sign in first." });
   const actor = await actorRole(deps.db, session.id);
   if (!actor.admin) return json(403, { error: "This page is for an admin." });
+  const ban = await openBan(deps.db, session.id, deps.now());
+  if (ban) return json(403, { error: "banned", ban });
+  const filter = parseStatsQuery(url.searchParams);
   if (csv) {
-    const body = await readStatsCsv(deps.db, deps.now());
+    const body = await readStatsCsv(deps.db, deps.now(), filter);
     return new Response(body, {
       status: 200,
       headers: {
@@ -47,5 +52,5 @@ export async function handleStats(
       },
     });
   }
-  return json(200, await readStats(deps.db, deps.now()));
+  return json(200, await readStats(deps.db, deps.now(), filter));
 }

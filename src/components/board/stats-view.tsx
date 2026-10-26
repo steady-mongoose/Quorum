@@ -1,39 +1,142 @@
 import { useState, type ReactNode } from "react";
-import type { ShownCount, StatsPayload } from "@/lib/board/stats";
+import {
+  STATS_CATEGORIES,
+  STATS_DAYS,
+  seriesSummary,
+  type FunnelStep,
+  type ShownCount,
+  type StatsDays,
+  type StatsPayload,
+} from "@/lib/board/stats";
 
 const GOLD = "#c9a45c";
+const GRID = "#857c6f";
+const AXIS = "#bcae94";
+const ROOM_PAGE = 20;
 
-type ChartRow = { label: string; series: { name: string; opacity: number; value: ShownCount }[] };
+type Bar = { label: string; count: ShownCount | null };
 
 export function StatsView({
   stats,
   onCsv,
   csvError,
+  days,
+  category,
+  onDays,
+  onCategory,
 }: {
   stats: StatsPayload;
   onCsv: () => void;
   csvError: string;
+  days: StatsDays;
+  category: string;
+  onDays: (days: StatsDays) => void;
+  onCategory: (category: string) => void;
 }) {
+  const roomRows = [...stats.rooms.rows].sort(
+    (a, b) => a.room.localeCompare(b.room) || a.week.localeCompare(b.week),
+  );
   return (
-    <div className="flex flex-col gap-8">
-      <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {stats.tiles.map((tile) => (
-          <article key={tile.id} className="rounded-lg border border-line bg-surface px-4 py-3">
-            <p className="text-sm text-muted">{tile.label}</p>
-            <p className="mt-1 font-display text-3xl text-fg">{show(tile.value)}</p>
-          </article>
-        ))}
-      </section>
+    <>
+      <Alerts alerts={stats.alerts} />
+      <div className="col-span-12 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div role="group" aria-label="Range" className="flex flex-wrap gap-2">
+          {STATS_DAYS.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              aria-pressed={days === choice}
+              className={days === choice ? choiceOn : choiceOff}
+              onClick={() => onDays(choice)}
+            >
+              {choice} days
+            </button>
+          ))}
+        </div>
+        <label className="flex min-w-0 flex-col gap-1 text-[0.85rem] text-muted">
+          Category
+          <select
+            className="min-h-[44px] rounded-md border border-line bg-surface px-3 text-fg"
+            value={category}
+            aria-label="Category"
+            onChange={(event) => onCategory(event.target.value)}
+          >
+            <option value="all">All</option>
+            {STATS_CATEGORIES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="max-w-prose text-[0.85rem] text-muted">
+          The category list does not narrow these counts yet.
+        </p>
+      </div>
 
-      <Panel
+      {stats.tiles.map((tile) => (
+        <article
+          key={tile.id}
+          className="col-span-6 min-w-0 rounded-lg border border-line bg-surface p-6 lg:col-span-3"
+        >
+          <p className="text-[0.85rem] tracking-[.04em] text-muted">{tile.label}</p>
+          <p className="mt-2 font-display text-[2.5rem] leading-none text-fg tabular-nums">
+            {show(tile.value)}
+          </p>
+          <ChangeLine change={tile.change} />
+        </article>
+      ))}
+
+      <ChartCard
+        title="Rooms by category"
+        chart={
+          <HorizontalBars
+            label="Active rooms by category"
+            summary={seriesSummary(
+              "Rooms",
+              stats.roomsByCategory.map((row) => ({ label: row.label, count: row.count })),
+            )}
+            rows={stats.roomsByCategory.map((row) => ({ label: row.label, count: row.count }))}
+          />
+        }
+        table={
+          <CountTable
+            caption="Active rooms by category"
+            columns={["Category", "Rooms"]}
+            rows={stats.roomsByCategory.map((row) => [row.label, show(row.count)])}
+          />
+        }
+      />
+      <ChartCard
+        title="Invites"
+        chart={
+          <HorizontalBars
+            label="Invites sent, opened, accepted, and a first gathering"
+            summary={funnelSummary(stats.funnel)}
+            rows={stats.funnel.map((step) => ({ label: step.label, count: step.count }))}
+          />
+        }
+        table={
+          <CountTable
+            caption="Invite funnel"
+            columns={["Step", "Count"]}
+            rows={stats.funnel.map((step) => [
+              step.label,
+              step.count === null ? "Not collected" : show(step.count),
+            ])}
+          />
+        }
+      />
+
+      <ActiveMembers stats={stats} />
+
+      <ChartCard
         title="Joins"
         chart={
-          <GoldChart
+          <ColumnChart
             label="Joins over time"
-            rows={stats.joins.map((row) => ({
-              label: shortDay(row.date),
-              series: [{ name: "Joins", opacity: 1, value: row.count }],
-            }))}
+            noun="Joins"
+            rows={stats.joins.map((row) => ({ label: shortDay(row.date), count: row.count }))}
           />
         }
         table={
@@ -44,108 +147,90 @@ export function StatsView({
           />
         }
       />
-
-      <Panel
-        title="Active members"
+      <ChartCard
+        title="Rolls"
         chart={
-          <GoldChart
-            label="Daily, weekly, and monthly active members"
-            rows={stats.active.map((row) => ({
-              label: shortDay(row.date),
-              series: [
-                { name: "That day", opacity: 1, value: row.dau },
-                { name: "7 days", opacity: 0.62, value: row.wau },
-                { name: "30 days", opacity: 0.38, value: row.mau },
-              ],
-            }))}
+          <ColumnChart
+            label="Rolls filed"
+            noun="Rolls"
+            rows={stats.roll.map((row) => ({ label: shortDay(row.date), count: row.roll }))}
           />
         }
         table={
           <CountTable
-            caption="Active members"
-            columns={["Date", "That day", "7 days", "30 days"]}
-            rows={stats.active.map((row) => [
-              formatDay(row.date),
-              show(row.dau),
-              show(row.wau),
-              show(row.mau),
-            ])}
+            caption="Rolls filed"
+            columns={["Date", "Rolls"]}
+            rows={stats.roll.map((row) => [formatDay(row.date), show(row.roll)])}
           />
         }
       />
-
-      <Panel
-        title="Roll and attendance"
+      <ChartCard
+        title="Attendance"
         chart={
-          <GoldChart
-            label="Rolls filed and attendance"
-            rows={stats.roll.map((row) => ({
-              label: shortDay(row.date),
-              series: [
-                { name: "Rolls", opacity: 1, value: row.roll },
-                { name: "Attendance", opacity: 0.55, value: row.attendance },
-              ],
-            }))}
+          <ColumnChart
+            label="Attendance"
+            noun="Attendance"
+            rows={stats.roll.map((row) => ({ label: shortDay(row.date), count: row.attendance }))}
           />
         }
         table={
           <CountTable
-            caption="Roll and attendance"
-            columns={["Date", "Rolls", "Attendance"]}
-            rows={stats.roll.map((row) => [
-              formatDay(row.date),
-              show(row.roll),
-              show(row.attendance),
-            ])}
+            caption="Attendance"
+            columns={["Date", "Attendance"]}
+            rows={stats.roll.map((row) => [formatDay(row.date), show(row.attendance)])}
           />
         }
       />
-
-      <Panel
-        title="Rooms"
-        note="A room met in a week when it had a gathering, or a host filed the roll. The chart is the total across rooms."
-        extra={
-          <p className="text-sm text-fg">
-            Rooms that met in at least 3 of the last 4 weeks:{" "}
-            <span className="font-semibold">{show(stats.rooms.steady)}</span>
-          </p>
-        }
+      <ChartCard
+        title="Posts"
+        note={`Rooms that met in at least 3 of the last 4 weeks: ${show(stats.rooms.steady)}`}
         chart={
-          <GoldChart
-            label="Posts and gatherings per week"
+          <ColumnChart
+            label="Posts per week"
+            noun="Posts"
+            rows={stats.rooms.weeks.map((row) => ({ label: shortDay(row.week), count: row.posts }))}
+          />
+        }
+        table={
+          <RoomTable
+            caption="Posts per room per week"
+            columns={["Room", "Week", "Posts"]}
+            rows={roomRows.map((row) => [row.room, formatDay(row.week), show(row.posts)])}
+          />
+        }
+      />
+      <ChartCard
+        title="Gatherings"
+        chart={
+          <ColumnChart
+            label="Gatherings per week"
+            noun="Gatherings"
             rows={stats.rooms.weeks.map((row) => ({
               label: shortDay(row.week),
-              series: [
-                { name: "Posts", opacity: 1, value: row.posts },
-                { name: "Gatherings", opacity: 0.55, value: row.gatherings },
-              ],
+              count: row.gatherings,
             }))}
           />
         }
         table={
-          <CountTable
-            caption="Posts and gatherings per room per week"
-            columns={["Week", "Room", "Posts", "Gatherings"]}
-            rows={stats.rooms.rows.map((row) => [
-              formatDay(row.week),
-              row.room,
-              show(row.posts),
-              show(row.gatherings),
-            ])}
+          <RoomTable
+            caption="Gatherings per room per week"
+            columns={["Room", "Week", "Gatherings"]}
+            rows={roomRows.map((row) => [row.room, formatDay(row.week), show(row.gatherings)])}
           />
         }
       />
 
-      <Panel
+      <div className="col-span-12 mt-8">
+        <h2 className="text-2xl text-fg">More counts</h2>
+      </div>
+      <ChartCard
         title="Features"
         note={featureNote(stats.mostUsed, stats.leastUsed)}
         chart={
-          <GoldChart
+          <ColumnChart
             label="Feature use by endpoint group"
-            rows={stats.features.map((row) => ({
-              label: row.label,
-              series: [{ name: "Uses", opacity: 1, value: row.count }],
-            }))}
+            noun="Uses"
+            rows={stats.features.map((row) => ({ label: row.label, count: row.count }))}
           />
         }
         table={
@@ -156,32 +241,17 @@ export function StatsView({
           />
         }
       />
-
-      <Panel
+      <ChartCard
         title="Intent"
         note={stats.intent.rsvpNote}
-        extra={
-          <dl className="grid gap-2 text-sm text-fg">
-            <div className="flex justify-between gap-4">
-              <dt>At an in-person gathering this month</dt>
-              <dd className="font-semibold">{inPerson(stats)}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt>Active in two or more rooms</dt>
-              <dd className="font-semibold">{show(stats.intent.crossRoomMembers)}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt>Vouches across rooms</dt>
-              <dd className="font-semibold">{show(stats.intent.crossRoomVouches)}</dd>
-            </div>
-          </dl>
-        }
+        extra={<IntentFacts stats={stats} />}
         chart={
-          <GoldChart
+          <ColumnChart
             label="Attendance over time"
+            noun="Attendance"
             rows={stats.intent.attendance.map((row) => ({
               label: shortDay(row.date),
-              series: [{ name: "Attendance", opacity: 1, value: row.count }],
+              count: row.count,
             }))}
           />
         }
@@ -194,10 +264,10 @@ export function StatsView({
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="col-span-12 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          className="btn-primary inline-flex min-h-[44px] items-center rounded-md bg-signal px-4 text-sm font-semibold text-signal-ink"
+          className="inline-flex min-h-[44px] items-center rounded-md bg-signal px-4 text-sm font-semibold text-signal-ink"
           onClick={onCsv}
         >
           Download CSV
@@ -208,11 +278,95 @@ export function StatsView({
           </p>
         ) : null}
       </div>
+    </>
+  );
+}
+
+function Alerts({ alerts }: { alerts: StatsPayload["alerts"] }) {
+  if (alerts.reports === 0 && alerts.health === "ok") return null;
+  const text =
+    alerts.health === "down" ? "Stats health is down." : `${alerts.reports} reports waiting`;
+  return (
+    <section
+      role="alert"
+      className="col-span-12 flex min-w-0 items-center gap-3 rounded-lg border border-danger p-6 text-danger"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-hidden="true">
+        <path d="M12 3 2 21h20L12 3zm1 14h-2v-2h2v2zm0-4h-2V9h2v4z" fill="currentColor" />
+      </svg>
+      <p>{text}</p>
+    </section>
+  );
+}
+
+function ChangeLine({ change }: { change: number | null }) {
+  if (change === null) {
+    return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">—</p>;
+  }
+  if (change === 0) {
+    return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">No change</p>;
+  }
+  const up = change > 0;
+  const abs = Math.abs(change);
+  return (
+    <p
+      className="mt-2 text-[0.85rem] text-muted tabular-nums"
+      aria-label={`${up ? "up" : "down"} ${abs} versus prior 30 days`}
+    >
+      {up ? "▲" : "▼"} {abs} vs prior 30 days
+    </p>
+  );
+}
+
+function ActiveMembers({ stats }: { stats: StatsPayload }) {
+  const [table, setTable] = useState(false);
+  return (
+    <section className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6">
+      <ChartHead title="Active members" table={table} setTable={setTable} />
+      {table ? (
+        <CountTable
+          caption="Active members"
+          columns={["Date", "That day", "7 days", "30 days"]}
+          rows={stats.active.map((row) => [
+            formatDay(row.date),
+            show(row.dau),
+            show(row.wau),
+            show(row.mau),
+          ])}
+        />
+      ) : (
+        <div className="grid gap-6">
+          <LabeledSeries
+            name="That day"
+            noun="Members that day"
+            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.dau }))}
+          />
+          <LabeledSeries
+            name="7 days"
+            noun="Members in 7 days"
+            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.wau }))}
+          />
+          <LabeledSeries
+            name="30 days"
+            noun="Members in 30 days"
+            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.mau }))}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LabeledSeries({ name, noun, rows }: { name: string; noun: string; rows: Bar[] }) {
+  return (
+    <div className="min-w-0">
+      <h3 className="mb-2 text-[0.85rem] text-muted">{name}</h3>
+      <ColumnChart label={`${name} active members`} noun={noun} rows={rows} />
     </div>
   );
 }
 
-function Panel({
+function ChartCard({
   title,
   note,
   extra,
@@ -225,96 +379,182 @@ function Panel({
   chart: ReactNode;
   table: ReactNode;
 }) {
-  const [mode, setMode] = useState<"chart" | "table">("chart");
+  const [open, setOpen] = useState(false);
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={titleId(title)}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 id={titleId(title)} className="text-2xl text-fg">
-          {title}
-        </h2>
-        <div className="flex gap-2" role="group" aria-label={`${title} view`}>
-          <button
-            type="button"
-            className={modeButton(mode === "chart")}
-            aria-pressed={mode === "chart"}
-            onClick={() => setMode("chart")}
-          >
-            Chart
-          </button>
-          <button
-            type="button"
-            className={modeButton(mode === "table")}
-            aria-pressed={mode === "table"}
-            onClick={() => setMode("table")}
-          >
-            Table
-          </button>
-        </div>
-      </div>
-      {note ? <p className="max-w-prose text-sm text-muted">{note}</p> : null}
+    <section className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6 lg:col-span-6">
+      <ChartHead title={title} table={open} setTable={setOpen} />
+      {note ? <p className="mb-3 max-w-prose text-sm text-muted">{note}</p> : null}
       {extra}
-      <div hidden={mode !== "chart"}>{chart}</div>
-      <div hidden={mode !== "table"}>{table}</div>
+      {open ? table : chart}
     </section>
   );
 }
 
-function GoldChart({ label, rows }: { label: string; rows: ChartRow[] }) {
-  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
-  const names = rows[0]?.series.map((item) => item.name) ?? [];
-  const numeric = rows.flatMap((row) =>
-    row.series.map((item) => (item.value === "<5" ? 0 : item.value)),
+function ChartHead({
+  title,
+  table,
+  setTable,
+}: {
+  title: string;
+  table: boolean;
+  setTable: (value: boolean) => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+      <h2 id={titleId(title)} className="text-2xl text-fg">
+        {title}
+      </h2>
+      <button
+        type="button"
+        className="inline-flex min-h-[44px] items-center rounded-md border border-line px-3 text-sm font-semibold text-fg"
+        aria-expanded={table}
+        aria-controls={titleId(title)}
+        onClick={() => setTable(!table)}
+      >
+        {table ? "View as chart" : "View as table"}
+      </button>
+    </div>
   );
-  const max = Math.max(5, ...numeric);
+}
+
+function ColumnChart({ label, noun, rows }: { label: string; noun: string; rows: Bar[] }) {
+  const plot = rows.flatMap((row) => (typeof row.count === "number" ? [row] : []));
+  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
+  const max = Math.max(5, ...plot.map((row) => row.count as number));
   const width = 640;
   const height = 180;
-  const pad = 16;
-  const group = (width - pad * 2) / rows.length;
-  const bar = Math.max(2, (group - 6) / Math.max(names.length, 1));
+  const left = 36;
+  const bottom = 28;
+  const plotWidth = width - left - 8;
+  const plotHeight = height - bottom - 8;
+  const group = plotWidth / rows.length;
   return (
-    <figure className="flex flex-col gap-2">
+    <figure className="min-w-0">
       <svg role="img" aria-label={label} viewBox={`0 0 ${width} ${height}`} className="h-44 w-full">
-        {rows.map((row, index) =>
-          row.series.map((item, seriesIndex) => {
-            const suppressed = item.value === "<5";
-            const portion = suppressed ? 0.12 : (item.value as number) / max;
-            const barHeight = Math.max(2, portion * (height - 36));
-            const x = pad + index * group + seriesIndex * bar;
-            return (
+        {[1, 2, 3, 4].map((step) => {
+          const y = 8 + plotHeight - (plotHeight * step) / 4;
+          return (
+            <g key={step}>
               <rect
-                key={`${row.label}-${item.name}`}
-                x={x}
-                y={height - 22 - barHeight}
-                width={Math.max(1, bar - 1)}
-                height={barHeight}
-                fill={GOLD}
-                opacity={suppressed ? 0.45 : item.opacity}
+                x={left}
+                y={y}
+                width={plotWidth}
+                height={1}
+                fill="none"
+                stroke={GRID}
+                strokeWidth={1}
               />
-            );
-          }),
-        )}
-        <text x={pad} y={height - 4} fill="#bcae94" fontSize="11">
+              <text x={left - 6} y={y + 4} fill={AXIS} fontSize={12} textAnchor="end">
+                {Math.round((max * step) / 4)}
+              </text>
+            </g>
+          );
+        })}
+        {rows.map((row, index) => {
+          const hidden = row.count === "<5" || row.count === null;
+          const portion = hidden ? 0.12 : (row.count as number) / max;
+          const barHeight = Math.max(2, portion * plotHeight);
+          return (
+            <rect
+              key={`${row.label}-${index}`}
+              data-count={hidden ? "hidden" : "shown"}
+              x={left + index * group + 1}
+              y={8 + plotHeight - barHeight}
+              width={Math.max(1, group - 2)}
+              height={barHeight}
+              fill={GOLD}
+            />
+          );
+        })}
+        <text x={left} y={height - 6} fill={AXIS} fontSize={12}>
           {rows[0]?.label}
         </text>
         {rows.length > 1 ? (
-          <text x={width - pad} y={height - 4} fill="#bcae94" fontSize="11" textAnchor="end">
+          <text x={width - 8} y={height - 6} fill={AXIS} fontSize={12} textAnchor="end">
             {rows[rows.length - 1]?.label}
           </text>
         ) : null}
       </svg>
-      {names.length > 1 ? (
-        <ul className="flex flex-wrap gap-4 text-sm text-muted">
-          {names.map((name, index) => (
-            <li key={name} className="inline-flex items-center gap-2">
-              <span
-                className="inline-block h-3 w-3 rounded-sm"
-                style={{ background: GOLD, opacity: rows[0]?.series[index]?.opacity ?? 1 }}
+      <figcaption className="sr-only">{seriesSummary(noun, numericRows(rows))}</figcaption>
+    </figure>
+  );
+}
+
+function HorizontalBars({ label, summary, rows }: { label: string; summary: string; rows: Bar[] }) {
+  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
+  const max = Math.max(
+    5,
+    ...rows.flatMap((row) => (typeof row.count === "number" ? [row.count] : [])),
+  );
+  const width = 640;
+  const labelWidth = 148;
+  const valueWidth = 88;
+  const rowHeight = 36;
+  const height = rows.length * rowHeight + 8;
+  const plotWidth = width - labelWidth - valueWidth;
+  return (
+    <figure className="min-w-0">
+      <svg
+        role="img"
+        aria-label={label}
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-auto w-full"
+      >
+        {[1, 2, 3, 4].map((step) => {
+          const x = labelWidth + (plotWidth * step) / 4;
+          return (
+            <g key={step}>
+              <rect
+                x={x}
+                y={0}
+                width={1}
+                height={height}
+                fill="none"
+                stroke={GRID}
+                strokeWidth={1}
               />
-              {name}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+              <text x={x} y={12} fill={AXIS} fontSize={12} textAnchor="middle">
+                {Math.round((max * step) / 4)}
+              </text>
+            </g>
+          );
+        })}
+        {rows.map((row, index) => {
+          const y = 16 + index * rowHeight;
+          const missing = row.count === null;
+          const hidden = row.count === "<5";
+          const portion = missing || hidden ? 0.12 : (row.count as number) / max;
+          const barWidth = missing ? 0 : Math.max(2, portion * (plotWidth - 8));
+          return (
+            <g key={row.label}>
+              <text x={0} y={y + 12} fill={AXIS} fontSize={12}>
+                {row.label}
+              </text>
+              {missing ? null : (
+                <rect
+                  data-count={hidden ? "hidden" : "shown"}
+                  x={labelWidth}
+                  y={y}
+                  width={barWidth}
+                  height={14}
+                  fill={GOLD}
+                />
+              )}
+              <text
+                x={width}
+                y={y + 12}
+                fill={AXIS}
+                fontSize={12}
+                textAnchor="end"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {missing ? "Not collected" : show(row.count)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <figcaption className="sr-only">{summary}</figcaption>
     </figure>
   );
 }
@@ -346,7 +586,7 @@ function CountTable({
           {rows.map((row, index) => (
             <tr key={`${row.join("-")}-${index}`} className="border-b border-line">
               {row.map((cell, cellIndex) => (
-                <td key={`${columns[cellIndex]}-${cell}`} className="px-2 py-2 text-fg">
+                <td key={`${columns[cellIndex]}-${cell}-${index}`} className="px-2 py-2 text-fg">
                   {cell}
                 </td>
               ))}
@@ -355,6 +595,67 @@ function CountTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function RoomTable({
+  caption,
+  columns,
+  rows,
+}: {
+  caption: string;
+  columns: string[];
+  rows: string[][];
+}) {
+  const [rest, setRest] = useState(false);
+  const shown = rest ? rows : rows.slice(0, ROOM_PAGE);
+  return (
+    <div>
+      <CountTable caption={caption} columns={columns} rows={shown} />
+      {rows.length > ROOM_PAGE ? (
+        <button
+          type="button"
+          className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-fg"
+          onClick={() => setRest(!rest)}
+        >
+          {rest ? "Show fewer rooms" : `Show the rest (${rows.length - ROOM_PAGE})`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function IntentFacts({ stats }: { stats: StatsPayload }) {
+  return (
+    <dl className="mb-3 grid gap-2 text-sm text-fg">
+      <div className="flex justify-between gap-4">
+        <dt>At an in-person gathering this month</dt>
+        <dd className="font-semibold tabular-nums">{inPerson(stats)}</dd>
+      </div>
+      <div className="flex justify-between gap-4">
+        <dt>Active in two or more rooms</dt>
+        <dd className="font-semibold tabular-nums">{show(stats.intent.crossRoomMembers)}</dd>
+      </div>
+      <div className="flex justify-between gap-4">
+        <dt>Vouches across rooms</dt>
+        <dd className="font-semibold tabular-nums">{show(stats.intent.crossRoomVouches)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function funnelSummary(steps: FunnelStep[]): string {
+  return seriesSummary(
+    "Invites",
+    steps.flatMap((step) =>
+      step.count === null ? [] : [{ label: step.label, count: step.count }],
+    ),
+  );
+}
+
+function numericRows(rows: Bar[]): { label: string; count: ShownCount }[] {
+  return rows.flatMap((row) =>
+    row.count === null ? [] : [{ label: row.label, count: row.count }],
   );
 }
 
@@ -374,11 +675,10 @@ function featureNote(most: string | null, least: string | null): string {
   return "Too few uses to name a most or least.";
 }
 
-function modeButton(active: boolean): string {
-  return active
-    ? "inline-flex min-h-[44px] items-center rounded-md bg-signal px-3 text-sm font-semibold text-signal-ink"
-    : "inline-flex min-h-[44px] items-center rounded-md border border-line bg-surface px-3 text-sm font-semibold text-muted";
-}
+const choiceOn =
+  "inline-flex min-h-[44px] items-center rounded-md bg-signal px-3 text-sm font-semibold text-signal-ink";
+const choiceOff =
+  "inline-flex min-h-[44px] items-center rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg";
 
 function titleId(title: string): string {
   return `stats-${title.toLowerCase().replaceAll(" ", "-")}`;

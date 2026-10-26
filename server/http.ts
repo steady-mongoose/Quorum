@@ -135,6 +135,18 @@ function clientIp(request: Request): string {
   return rateLimitIp(value || "local");
 }
 
+function memoSession(deps: AppDeps, headers: Headers): AppDeps {
+  let pending: Promise<SessionUser | null> | undefined;
+  return {
+    ...deps,
+    readSession: (incoming) => {
+      if (incoming !== headers) return deps.readSession(incoming);
+      pending ??= deps.readSession(incoming);
+      return pending;
+    },
+  };
+}
+
 async function touchActivity(deps: AppDeps, request: Request, url: URL): Promise<void> {
   try {
     const session = await deps.readSession(request.headers);
@@ -171,8 +183,12 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
   return async (request) => {
     const url = new URL(request.url);
+    const scoped = memoSession(deps, request.headers);
     try {
-      const response = await route(deps, media, calls, request, url);
+      const response = await route(scoped, media, calls, request, url);
+      if (response.ok && request.method !== "OPTIONS" && url.pathname !== "/api/health") {
+        await touchActivity(scoped, request, url);
+      }
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -223,8 +239,6 @@ async function route(
       return json(503, { ok: false, error: "db-unavailable" });
     }
   }
-
-  await touchActivity(deps, request, url);
 
   if (isOpenSignupPath(url.pathname)) {
     return json(403, {

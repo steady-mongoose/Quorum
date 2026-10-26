@@ -6,6 +6,9 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
   endpointGroup,
+  parseStatsQuery,
+  protectBreakdown,
+  recoverableHidden,
   showCount,
   showPercent,
   toStatsCsv,
@@ -40,6 +43,25 @@ test("activity retention defaults to 90 days", () => {
   assert.throws(() => activityRetentionDays("0"), /whole number|1 to 3650/);
   assert.throws(() => activityRetentionDays("nope"), /whole number/);
   assert.throws(() => activityRetentionDays("3651"), /1 to 3650/);
+});
+
+test("a rounded total does not give a hidden cell back", () => {
+  const rooms = protectBreakdown([10, 2]);
+  assert.deepEqual(rooms.parts, [10, "<5"]);
+  assert.equal(rooms.total, 10);
+  const roomChoices = recoverableHidden([10, 2], rooms.total);
+  assert.ok(roomChoices.length > 1);
+  assert.equal(roomChoices.length === 1, false);
+
+  const joins = protectBreakdown([6, 1]);
+  assert.equal(joins.parts[1], "<5");
+  assert.notEqual(joins.total, 7);
+  assert.ok(recoverableHidden([6, 1], joins.total).length > 1);
+
+  const leak = protectBreakdown([7, 0]);
+  assert.equal(leak.total, "<5");
+  assert.deepEqual(recoverableHidden([7, 0], leak.total), []);
+  assert.deepEqual(recoverableHidden([7, 0], 5), [0]);
 });
 
 test("counts under 5 are hidden and a percent needs five people on both sides", () => {
@@ -241,14 +263,25 @@ test("the nightly rollup writes counts and the read hides anything under 5", asy
     assert.equal(body.includes(ada), false);
     assert.equal(body.includes(bob), false);
     assert.equal(stats.asOf, "2026-10-25");
-    assert.equal(stats.tiles[0]?.value, "<5");
-    assert.equal(stats.tiles[3]?.value, 8);
+    assert.equal(stats.days, 30);
+    assert.equal(stats.category, "all");
+    assert.equal(stats.tiles[0]?.id, "members");
+    assert.equal(stats.tiles[0]?.value, 10);
+    assert.equal(stats.tiles[0]?.change, null);
+    assert.equal(stats.tiles[1]?.value, "<5");
+    assert.equal(stats.tiles[2]?.value, "<5");
+    assert.equal(stats.tiles[3]?.id, "gatherings");
+    assert.equal(stats.tiles[3]?.value, 5);
+    assert.equal(stats.joins.length, 30);
     assert.equal(stats.joins.find((row) => row.date === "2026-10-20")?.count, 6);
     assert.equal(stats.joins.find((row) => row.date === "2026-10-21")?.count, "<5");
+    assert.equal(stats.funnel.find((step) => step.id === "opened")?.count, null);
+    assert.equal(stats.alerts.health, "ok");
+    assert.equal(stats.alerts.reports, 0);
     assert.equal(stats.roll.find((row) => row.date === "2026-10-20")?.attendance, 6);
     assert.equal(stats.roll.find((row) => row.date === "2026-10-21")?.attendance, "<5");
     const week = stats.rooms.weeks.find((row) => row.week === "2026-10-19");
-    assert.equal(week?.posts, 6);
+    assert.equal(week?.posts, 5);
     assert.equal(week?.gatherings, "<5");
     const shop = stats.rooms.rows.find(
       (row) => row.week === "2026-10-19" && row.room === "The Shop",
@@ -276,6 +309,9 @@ test("the nightly rollup writes counts and the read hides anything under 5", asy
     const csv = await readStatsCsv(db, NOW);
     assert.match(csv, /<5/);
     assert.match(csv, /,6/);
+    assert.match(csv, /rooms,2026-10-19,posts,,5/);
+    assert.equal(csv.includes("rooms,2026-10-19,posts,,6"), false);
+    assert.equal(csv.includes("Members,,8"), false);
     assert.equal(csv.includes("Lovelace"), false);
     assert.equal(csv.includes(ada), false);
   } finally {
@@ -346,7 +382,7 @@ test("an authenticated request records one day and increments the endpoint group
     );
     assert.equal(days.length, 1);
     assert.equal(isoDate(days[0]?.date), "2026-10-26");
-    assert.equal(await countOf(db, "feature", "2026-10-26", "board"), 2);
+    assert.equal(await countOf(db, "feature", "2026-10-26", "board"), 1);
     assert.equal(await countOf(db, "feature", "2026-10-26", "admin"), null);
     await noteAuthenticatedRequest(db, ada, new Date("2026-10-27T01:00:00Z"), "/api/gatherings");
     const later = await db.query(
@@ -355,6 +391,67 @@ test("an authenticated request records one day and increments the endpoint group
     );
     assert.equal(later.length, 2);
     assert.equal(await countOf(db, "feature", "2026-10-27", "gatherings"), 1);
+  } finally {
+    await close();
+  }
+});
+
+test("published totals do not let a hidden count be subtracted back", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await db.query(
+      `insert into room (id, name) values ('big-room', 'Big Room'), ('small-room', 'Small Room')`,
+    );
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values
+       ('2026-10-25'::date, 'dau', '', 2),
+       ('2026-10-24'::date, 'dau', '', 10),
+       ('2026-10-23'::date, 'dau', '', 4),
+       ('2026-10-24'::date, 'wau', '', 10),
+       ('2026-10-25'::date, 'wau', '', 12),
+       ('2026-10-23'::date, 'wau', '', 4),
+       ('2026-10-10'::date, 'joins', '', 6),
+       ('2026-10-20'::date, 'joins', '', 1),
+       ('2026-10-12'::date, 'room_posts', 'big-room', 10),
+       ('2026-10-12'::date, 'room_posts', 'small-room', 2)`,
+    );
+    const stats = await readStats(db, NOW);
+    assert.equal(stats.tiles.find((tile) => tile.id === "members")?.value, 5);
+    assert.equal(stats.joins.find((row) => row.date === "2026-10-10")?.count, 6);
+    assert.equal(stats.joins.find((row) => row.date === "2026-10-20")?.count, "<5");
+    const week = stats.rooms.weeks.find((row) => row.week === "2026-10-12");
+    assert.equal(week?.posts, 10);
+    assert.notEqual(week?.posts, 12);
+    assert.equal(stats.rooms.rows.find((row) => row.room === "Big Room")?.posts, 10);
+    assert.equal(stats.rooms.rows.find((row) => row.room === "Small Room")?.posts, "<5");
+    const oct24 = stats.active.find((row) => row.date === "2026-10-24");
+    const oct25 = stats.active.find((row) => row.date === "2026-10-25");
+    const oct23 = stats.active.find((row) => row.date === "2026-10-23");
+    assert.equal(oct24?.wau, 10);
+    assert.equal(oct25?.wau, 10);
+    assert.equal(oct25?.dau, "<5");
+    assert.equal(oct23?.wau, "<5");
+    assert.notEqual(oct23?.wau, 5);
+    const csv = await readStatsCsv(db, NOW);
+    assert.equal(csv.includes("rooms,2026-10-12,posts,,12"), false);
+    assert.match(csv, /rooms,2026-10-12,posts,,10/);
+    assert.match(csv, /rooms,2026-10-12,posts,Big Room,10/);
+    assert.match(csv, /rooms,2026-10-12,posts,Small Room,<5/);
+    assert.equal(csv.includes("Members,,7"), false);
+
+    const weekWindow = await readStats(db, NOW, { days: 7, category: "churches" });
+    assert.equal(weekWindow.days, 7);
+    assert.equal(weekWindow.category, "churches");
+    assert.equal(weekWindow.joins.length, 7);
+    assert.deepEqual(
+      weekWindow.tiles.map((tile) => tile.value),
+      stats.tiles.map((tile) => tile.value),
+    );
+    assert.equal(weekWindow.roomsByCategory.length, stats.roomsByCategory.length);
+    assert.deepEqual(parseStatsQuery(new URLSearchParams("days=3&category=nope")), {
+      days: 30,
+      category: "all",
+    });
   } finally {
     await close();
   }
@@ -450,16 +547,21 @@ async function countOf(
 function emptyStats(): StatsPayload {
   return {
     asOf: "2026-10-25",
+    days: 30,
+    category: "all",
     tiles: [
-      { id: "dau", label: "On that day", value: "<5" },
-      { id: "wau", label: "In 7 days", value: "<5" },
-      { id: "mau", label: "In 30 days", value: "<5" },
-      { id: "joins", label: "Joins, 30 days", value: "<5" },
+      { id: "members", label: "Members", value: "<5", change: null },
+      { id: "invites", label: "Invites accepted (30 days)", value: "<5", change: null },
+      { id: "rooms", label: "Active rooms (30 days)", value: "<5", change: null },
+      { id: "gatherings", label: "Gatherings held (30 days)", value: "<5", change: null },
     ],
     joins: [],
     active: [],
     roll: [],
     rooms: { weeks: [], rows: [], steady: null },
+    roomsByCategory: [],
+    funnel: [],
+    alerts: { reports: 0, health: "ok" },
     features: [],
     mostUsed: null,
     leastUsed: null,

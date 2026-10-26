@@ -1,16 +1,25 @@
 import type { Db } from "../db.ts";
 import {
   RSVP_NOTE,
+  SMALL_COUNT,
+  STATS_CATEGORIES,
   endpointLabel,
+  protectBreakdown,
+  roundToFive,
   showCount,
   showPercent,
+  shownChange,
   toStatsCsv,
   type ActiveDay,
+  type CategoryCount,
   type DayCount,
   type FeatureUse,
+  type FunnelStep,
   type RollDay,
   type RoomWeek,
   type ShownCount,
+  type StatsAlerts,
+  type StatsDays,
   type StatsPayload,
   type StatsTile,
   type TotalWeek,
@@ -19,32 +28,55 @@ import { addUtcDays, asCount, isoDate, utcDate } from "./dates.ts";
 
 type Stored = { date: string; metric: string; dimension: string; count: number };
 
-const WINDOW_DAYS = 179;
 const FEATURE_DAYS = 27;
+const TILE_DAYS = 30;
 
-export async function readStats(db: Db, now: Date): Promise<StatsPayload> {
+export async function readStats(
+  db: Db,
+  now: Date,
+  filter: { days: StatsDays; category: string } = { days: 30, category: "all" },
+): Promise<StatsPayload> {
   const today = utcDate(now);
   const stored = await load(db, addUtcDays(today, -400));
   const names = await roomNames(db);
   const dauDays = stored.filter((row) => row.metric === "dau").map((row) => row.date);
   const asOf = dauDays.length > 0 ? dauDays[dauDays.length - 1] : null;
-  const start = asOf ? addUtcDays(asOf, -WINDOW_DAYS) : null;
-  const inWindow = (date: string) => (start ? date >= start && date <= (asOf ?? date) : false);
+  const chartStart = asOf ? addUtcDays(asOf, -(filter.days - 1)) : null;
+  const inChart = (date: string) =>
+    chartStart ? date >= chartStart && date <= (asOf ?? date) : false;
 
-  const joins = series(stored, "joins", "", inWindow);
-  const active = activeSeries(stored, inWindow);
-  const roll = rollSeries(stored, inWindow);
-  const rooms = roomSeries(stored, names, inWindow);
+  const joins = asOf
+    ? protectedDaily(stored, "joins", addUtcDays(asOf, -(filter.days - 1)), asOf)
+    : [];
+  const active = asOf ? activeSeries(stored, addUtcDays(asOf, -(filter.days - 1)), asOf) : [];
+  const roll = rollSeries(stored, inChart);
+  const rooms = roomSeries(stored, names, inChart);
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
+  const tiles = asOf ? await tilesOf(db, stored, asOf) : blankTiles();
+  const roomsByCategory = asOf
+    ? await categoriesOf(db, addUtcDays(asOf, -(filter.days - 1)), asOf)
+    : STATS_CATEGORIES.map((category) => ({
+        id: category.id,
+        label: category.label,
+        count: "<5" as const,
+      }));
+  const funnel = asOf
+    ? await funnelOf(db, addUtcDays(asOf, -(filter.days - 1)), asOf)
+    : emptyFunnel();
 
   return {
     asOf,
-    tiles: tilesOf(stored, asOf),
+    days: filter.days,
+    category: filter.category,
+    tiles,
     joins,
     active,
     roll,
     rooms,
+    roomsByCategory,
+    funnel,
+    alerts: await alertsOf(db),
     features: features.rows,
     mostUsed: features.most,
     leastUsed: features.least,
@@ -52,8 +84,12 @@ export async function readStats(db: Db, now: Date): Promise<StatsPayload> {
   };
 }
 
-export async function readStatsCsv(db: Db, now: Date): Promise<string> {
-  return toStatsCsv(await readStats(db, now));
+export async function readStatsCsv(
+  db: Db,
+  now: Date,
+  filter: { days: StatsDays; category: string } = { days: 30, category: "all" },
+): Promise<string> {
+  return toStatsCsv(await readStats(db, now, filter));
 }
 
 async function load(db: Db, since: string): Promise<Stored[]> {
@@ -89,26 +125,72 @@ function countOn(stored: Stored[], metric: string, date: string, dimension = "")
   return row ? row.count : null;
 }
 
-function tilesOf(stored: Stored[], asOf: string | null): StatsPayload["tiles"] {
-  const blank = (id: StatsTile["id"], label: string): StatsTile => ({ id, label, value: null });
-  if (!asOf) {
-    return [
-      blank("dau", "On that day"),
-      blank("wau", "In 7 days"),
-      blank("mau", "In 30 days"),
-      blank("joins", "Joins, 30 days"),
-    ];
-  }
-  const joinStart = addUtcDays(asOf, -29);
-  const joined = stored
-    .filter((row) => row.metric === "joins" && row.date >= joinStart && row.date <= asOf)
-    .reduce((sum, row) => sum + row.count, 0);
+function blankTiles(): StatsPayload["tiles"] {
+  const blank = (id: StatsTile["id"], label: string): StatsTile => ({
+    id,
+    label,
+    value: null,
+    change: null,
+  });
   return [
-    { id: "dau", label: "On that day", value: shownOrNull(countOn(stored, "dau", asOf)) },
-    { id: "wau", label: "In 7 days", value: shownOrNull(countOn(stored, "wau", asOf)) },
-    { id: "mau", label: "In 30 days", value: shownOrNull(countOn(stored, "mau", asOf)) },
-    { id: "joins", label: "Joins, 30 days", value: showCount(joined) },
+    blank("members", "Members"),
+    blank("invites", "Invites accepted (30 days)"),
+    blank("rooms", "Active rooms (30 days)"),
+    blank("gatherings", "Gatherings held (30 days)"),
   ];
+}
+
+async function tilesOf(db: Db, stored: Stored[], asOf: string): Promise<StatsPayload["tiles"]> {
+  const currentStart = addUtcDays(asOf, -(TILE_DAYS - 1));
+  const priorEnd = addUtcDays(asOf, -TILE_DAYS);
+  const priorStart = addUtcDays(priorEnd, -(TILE_DAYS - 1));
+  const members = compared(
+    "members",
+    "Members",
+    filledCounts(stored, "joins", currentStart, asOf),
+    filledCounts(stored, "joins", priorStart, priorEnd),
+  );
+  const invites = comparedCounts(
+    "invites",
+    "Invites accepted (30 days)",
+    await redeemed(db, currentStart, asOf),
+    await redeemed(db, priorStart, priorEnd),
+  );
+  const rooms = compared(
+    "rooms",
+    "Active rooms (30 days)",
+    await categoryParts(db, currentStart, asOf),
+    await categoryParts(db, priorStart, priorEnd),
+  );
+  const gatherings = compared(
+    "gatherings",
+    "Gatherings held (30 days)",
+    await gatheringParts(db, currentStart, asOf),
+    await gatheringParts(db, priorStart, priorEnd),
+  );
+  return [members, invites, rooms, gatherings];
+}
+
+function compared(
+  id: StatsTile["id"],
+  label: string,
+  current: number[],
+  prior: number[],
+): StatsTile {
+  const now = protectBreakdown(current);
+  const before = protectBreakdown(prior);
+  return { id, label, value: now.total, change: shownChange(now.total, before.total) };
+}
+
+function comparedCounts(
+  id: StatsTile["id"],
+  label: string,
+  current: number,
+  prior: number,
+): StatsTile {
+  const value = showCount(current);
+  const previous = showCount(prior);
+  return { id, label, value, change: shownChange(value, previous) };
 }
 
 function shownOrNull(count: number | null): ShownCount | null {
@@ -116,29 +198,29 @@ function shownOrNull(count: number | null): ShownCount | null {
   return showCount(count);
 }
 
-function series(
-  stored: Stored[],
-  metric: string,
-  dimension: string,
-  inWindow: (date: string) => boolean,
-): DayCount[] {
-  return stored
-    .filter((row) => row.metric === metric && row.dimension === dimension && inWindow(row.date))
-    .map((row) => ({ date: row.date, count: showCount(row.count) }));
-}
-
-function activeSeries(stored: Stored[], inWindow: (date: string) => boolean): ActiveDay[] {
-  const dates = [
-    ...new Set(
-      stored.filter((row) => row.metric === "dau" && inWindow(row.date)).map((row) => row.date),
-    ),
-  ];
-  return dates.map((date) => ({
+function activeSeries(stored: Stored[], start: string, end: string): ActiveDay[] {
+  return eachDay(start, end).map((date) => ({
     date,
     dau: showCount(countOn(stored, "dau", date) ?? 0),
-    wau: showCount(countOn(stored, "wau", date) ?? 0),
-    mau: showCount(countOn(stored, "mau", date) ?? 0),
+    wau: bucketActive(countOn(stored, "wau", date) ?? 0, lookback(stored, date, 6)),
+    mau: bucketActive(countOn(stored, "mau", date) ?? 0, lookback(stored, date, 29)),
   }));
+}
+
+/** A small day inside the window would fall out of an exact weekly or monthly total. */
+function bucketActive(count: number, window: number[]): ShownCount {
+  if (count < SMALL_COUNT) return "<5";
+  if (!window.some((day) => day < SMALL_COUNT)) return showCount(count);
+  const rounded = roundToFive(count);
+  return rounded < SMALL_COUNT ? "<5" : rounded;
+}
+
+function lookback(stored: Stored[], date: string, daysBack: number): number[] {
+  const counts: number[] = [];
+  for (let ago = daysBack; ago >= 0; ago -= 1) {
+    counts.push(countOn(stored, "dau", addUtcDays(date, -ago)) ?? 0);
+  }
+  return counts;
 }
 
 function rollSeries(stored: Stored[], inWindow: (date: string) => boolean): RollDay[] {
@@ -181,32 +263,30 @@ function roomSeries(
     else current.gatherings += row.count;
     keys.set(key, current);
   }
-  const rows: RoomWeek[] = [...keys.values()]
-    .sort(
-      (a, b) =>
-        a.week.localeCompare(b.week) ||
-        roomLabel(names, a.roomId).localeCompare(roomLabel(names, b.roomId)),
-    )
-    .map((row) => ({
-      week: row.week,
-      room: roomLabel(names, row.roomId),
-      posts: showCount(row.posts),
-      gatherings: showCount(row.gatherings),
-    }));
-  const totals = new Map<string, { posts: number; gatherings: number }>();
+  const byWeek = new Map<string, { roomId: string; posts: number; gatherings: number }[]>();
   for (const row of keys.values()) {
-    const total = totals.get(row.week) ?? { posts: 0, gatherings: 0 };
-    total.posts += row.posts;
-    total.gatherings += row.gatherings;
-    totals.set(row.week, total);
+    const list = byWeek.get(row.week) ?? [];
+    list.push(row);
+    byWeek.set(row.week, list);
   }
-  const weeks: TotalWeek[] = [...totals.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([week, total]) => ({
-      week,
-      posts: showCount(total.posts),
-      gatherings: showCount(total.gatherings),
-    }));
+  const rows: RoomWeek[] = [];
+  const weeks: TotalWeek[] = [];
+  for (const [week, rooms] of byWeek) {
+    rooms.sort((a, b) => roomLabel(names, a.roomId).localeCompare(roomLabel(names, b.roomId)));
+    const posts = protectBreakdown(rooms.map((room) => room.posts));
+    const gatherings = protectBreakdown(rooms.map((room) => room.gatherings));
+    weeks.push({ week, posts: posts.total, gatherings: gatherings.total });
+    rooms.forEach((room, index) => {
+      rows.push({
+        week,
+        room: roomLabel(names, room.roomId),
+        posts: posts.parts[index] ?? "<5",
+        gatherings: gatherings.parts[index] ?? "<5",
+      });
+    });
+  }
+  weeks.sort((a, b) => a.week.localeCompare(b.week));
+  rows.sort((a, b) => a.room.localeCompare(b.room) || a.week.localeCompare(b.week));
   const steadyDate = stored
     .filter((row) => row.metric === "rooms_steady")
     .map((row) => row.date)
@@ -276,4 +356,177 @@ function intentOf(stored: Stored[], asOf: string | null, roll: RollDay[]): Stats
     crossRoomMembers: shownOrNull(countOn(stored, "cross_room_members", asOf)),
     crossRoomVouches: shownOrNull(countOn(stored, "cross_room_vouches", asOf)),
   };
+}
+
+/** Seeded rooms and the seven browse categories. Uncategorized is not one of the seven. */
+const ROOM_CATEGORY: Record<string, string> = {
+  baptist: "churches",
+  presbyterian: "churches",
+  latin: "churches",
+  orthodox: "churches",
+  "cong-epiphany": "churches",
+  "cong-grace": "churches",
+  "cong-redeemer": "churches",
+  "cong-st-john": "churches",
+  question: "discussion",
+  shelf: "discussion",
+  coop: "discussion",
+  shop: "business-trades",
+  "rv-shop": "business-trades",
+  dispatch: "civic",
+  "rv-town": "civic",
+  "brandon-town": "civic",
+  "valrico-town": "civic",
+  "tampa-town": "civic",
+  county: "county",
+  "region-hillsborough": "county",
+};
+
+function eachDay(start: string, end: string): string[] {
+  const days: string[] = [];
+  for (let day = start; day <= end; day = addUtcDays(day, 1)) days.push(day);
+  return days;
+}
+
+function filledCounts(stored: Stored[], metric: string, start: string, end: string): number[] {
+  return eachDay(start, end).map((date) => countOn(stored, metric, date) ?? 0);
+}
+
+function protectedDaily(stored: Stored[], metric: string, start: string, end: string): DayCount[] {
+  const dates = eachDay(start, end);
+  const protectedCounts = protectBreakdown(filledCounts(stored, metric, start, end));
+  return dates.map((date, index) => ({ date, count: protectedCounts.parts[index] ?? "<5" }));
+}
+
+async function redeemed(db: Db, start: string, end: string): Promise<number> {
+  const rows = await db.query<{ count: unknown }>(
+    `select count(*)::int as count
+     from invite_redemption
+     where (redeemed_at at time zone 'utc')::date between $1::date and $2::date`,
+    [start, end],
+  );
+  return asCount(rows[0]?.count);
+}
+
+async function activeRoomIds(db: Db, start: string, end: string): Promise<string[]> {
+  const rows = await db.query<{ room_id: string }>(
+    `select distinct room_id from board_post
+     where removed = false
+       and (created_at at time zone 'utc')::date between $1::date and $2::date
+     union
+     select room_id from public_gathering
+     where removed = false
+       and room_id <> ''
+       and gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+       and gather_on::date between $1::date and $2::date`,
+    [start, end],
+  );
+  return rows.map((row) => row.room_id);
+}
+
+/** Seven categories, then uncategorized, so a hidden remainder cannot be subtracted. */
+async function categoryParts(db: Db, start: string, end: string): Promise<number[]> {
+  const counts = new Map<string, number>(STATS_CATEGORIES.map((category) => [category.id, 0]));
+  let other = 0;
+  for (const roomId of await activeRoomIds(db, start, end)) {
+    const category = ROOM_CATEGORY[roomId];
+    if (category && counts.has(category)) counts.set(category, (counts.get(category) ?? 0) + 1);
+    else other += 1;
+  }
+  return [...STATS_CATEGORIES.map((category) => counts.get(category.id) ?? 0), other];
+}
+
+async function categoriesOf(db: Db, start: string, end: string): Promise<CategoryCount[]> {
+  const parts = protectBreakdown(await categoryParts(db, start, end));
+  return STATS_CATEGORIES.map((category, index) => ({
+    id: category.id,
+    label: category.label,
+    count: parts.parts[index] ?? "<5",
+  }));
+}
+
+async function gatheringParts(db: Db, start: string, end: string): Promise<number[]> {
+  const rows = await db.query<{ date: string; count: unknown }>(
+    `select day as date, count(*)::int as count from (
+       select on_date as day
+       from board_post
+       where type = 'hosted'
+         and removed = false
+         and on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         and on_date::date between $1::date and $2::date
+       union all
+       select gather_on as day
+       from public_gathering
+       where removed = false
+         and gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         and gather_on::date between $1::date and $2::date
+     ) held
+     group by day`,
+    [start, end],
+  );
+  const byDay = new Map(rows.map((row) => [isoDate(row.date), asCount(row.count)]));
+  return eachDay(start, end).map((date) => byDay.get(date) ?? 0);
+}
+
+async function funnelOf(db: Db, start: string, end: string): Promise<FunnelStep[]> {
+  const sent = await db.query<{ count: unknown }>(
+    `select count(*)::int as count
+     from invite_code
+     where (created_at at time zone 'utc')::date between $1::date and $2::date`,
+    [start, end],
+  );
+  const accepted = await redeemed(db, start, end);
+  const first = await db.query<{ count: unknown }>(
+    `select count(distinct redemption.invited_user_id)::int as count
+     from invite_redemption redemption
+     where (redemption.redeemed_at at time zone 'utc')::date between $1::date and $2::date
+       and (
+         exists (
+           select 1 from board_post post
+           where post.author_user_id = redemption.invited_user_id
+             and post.type = 'hosted'
+             and post.removed = false
+             and post.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             and post.on_date::date >= (redemption.redeemed_at at time zone 'utc')::date
+             and post.on_date::date <= $2::date
+         )
+         or exists (
+           select 1 from public_gathering gathering
+           where gathering.host_user_id = redemption.invited_user_id
+             and gathering.removed = false
+             and gathering.gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             and gathering.gather_on::date >= (redemption.redeemed_at at time zone 'utc')::date
+             and gathering.gather_on::date <= $2::date
+         )
+       )`,
+    [start, end],
+  );
+  return [
+    { id: "sent", label: "Sent", count: showCount(asCount(sent[0]?.count)) },
+    { id: "opened", label: "Opened", count: null },
+    { id: "accepted", label: "Accepted", count: showCount(accepted) },
+    { id: "first", label: "First gathering", count: showCount(asCount(first[0]?.count)) },
+  ];
+}
+
+function emptyFunnel(): FunnelStep[] {
+  return [
+    { id: "sent", label: "Sent", count: null },
+    { id: "opened", label: "Opened", count: null },
+    { id: "accepted", label: "Accepted", count: null },
+    { id: "first", label: "First gathering", count: null },
+  ];
+}
+
+async function alertsOf(db: Db): Promise<StatsAlerts> {
+  try {
+    const rows = await db.query<{ count: unknown }>(
+      `select count(*)::int as count
+       from board_csam_hold
+       where purged_at is null and filed_at is null`,
+    );
+    return { reports: asCount(rows[0]?.count), health: "ok" };
+  } catch {
+    return { reports: 0, health: "down" };
+  }
 }

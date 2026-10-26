@@ -127,6 +127,10 @@ test("only a signed-in member can join, and an admin who has not stood there can
       error: "You have not stood in that room.",
       record: false,
     });
+    assert.equal(
+      seen.queries.some((sql) => sql.toLowerCase().includes("member_active_days")),
+      false,
+    );
 
     const logs: string[] = [];
     const original = console.log;
@@ -169,6 +173,7 @@ test("only a signed-in member can join, and an admin who has not stood there can
     const roomWrites = seen.queries.filter((sql) => {
       const lower = sql.toLowerCase();
       if (lower.includes("ratelimit")) return false;
+      if (lower.includes("member_active_days") || lower.includes("stats_daily")) return false;
       return !lower.trim().startsWith("select");
     });
     assert.deepEqual(roomWrites, []);
@@ -362,11 +367,7 @@ test("a barred member cannot join a call, even with a membership row", async () 
     await db.query(
       `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
        values ($1, 'ada', 'Ada', 'threat', 'Tom', 1, $2, $3)`,
-      [
-        "ban-ada",
-        new Date("2026-11-20T12:00:00Z"),
-        new Date("2026-10-21T12:00:00Z"),
-      ],
+      ["ban-ada", new Date("2026-11-20T12:00:00Z"), new Date("2026-10-21T12:00:00Z")],
     );
     const again = await app(
       call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),

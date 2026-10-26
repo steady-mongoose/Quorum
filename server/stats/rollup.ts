@@ -7,6 +7,8 @@ import { addUtcDays, asCount, isoDate, utcDate, weekStart } from "./dates.ts";
  * were, except yesterday, which is written again. Message tables are not read.
  */
 
+const STATS_LOCK = 4220022;
+
 const REPLACE_METRICS = [
   "joins",
   "roll",
@@ -28,7 +30,7 @@ export async function rollStats(
   db: Db,
   now: Date,
   retentionDays: number,
-): Promise<{ pruned: number }> {
+): Promise<{ pruned: number; skipped?: boolean }> {
   if (!Number.isInteger(retentionDays) || retentionDays < 1) {
     throw new Error("ACTIVITY_RETENTION_DAYS must be a whole number of days.");
   }
@@ -36,6 +38,11 @@ export async function rollStats(
   const yesterday = addUtcDays(today, -1);
   const cutoff = addUtcDays(today, -retentionDays);
   return db.transaction(async (tx) => {
+    const lock = await tx.query<{ locked: unknown }>(
+      `select pg_try_advisory_xact_lock($1::bigint) as locked`,
+      [STATS_LOCK],
+    );
+    if (!lockHeld(lock[0]?.locked)) return { pruned: 0, skipped: true };
     const rows = [
       ...(await joinRows(tx, today)),
       ...(await rollRows(tx, today)),
@@ -55,6 +62,10 @@ export async function rollStats(
     );
     return { pruned: asCount(pruned[0]?.count) };
   });
+}
+
+function lockHeld(value: unknown): boolean {
+  return value === true || value === "t" || value === "true";
 }
 
 async function joinRows(db: Db, today: string): Promise<StatRow[]> {
