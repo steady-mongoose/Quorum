@@ -5,7 +5,8 @@ import { cn } from "@/lib/cn";
 /**
  * A modal confirmation. Escape and the cancel button dismiss it. Focus
  * starts on the safe action so Enter does not confirm a wipe. A destructive
- * confirm uses the danger token. A grant uses the neutral button.
+ * confirm uses the danger token. A grant uses the neutral button. The
+ * default tone stays danger, so Clear and Revoke keep the warning colour.
  */
 export function ConfirmDialog({
   open,
