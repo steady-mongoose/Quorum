@@ -353,7 +353,12 @@ test("only an admin can import a listing, and only the given fields are stored",
     assert.equal(room?.what, "");
     assert.equal(room?.town_name, "Brandon");
     assert.equal(room?.county, "Hillsborough");
-    assert.equal(room?.category, "Church");
+    assert.equal(room && "category" in room, false);
+    const categoryColumn = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_name = 'room' and column_name = 'category'`,
+    );
+    assert.equal(categoryColumn.length, 0);
     assert.equal(room?.source_url, "https://grace.example/about");
     assert.equal(room?.status, "unclaimed");
     assert.equal(room?.host_user_id, null);

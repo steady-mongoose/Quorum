@@ -221,7 +221,6 @@ type RoomRow = {
   status?: string;
   town_name?: string;
   county?: string;
-  category?: string;
   source_url?: string;
 };
 
@@ -248,7 +247,7 @@ function toRoom(row: RoomRow): BoardRoom {
     status: row.status === "draft" || row.status === "unclaimed" ? row.status : "active",
     town: row.town_name ?? "",
     county: row.county ?? "",
-    category: row.category ?? "",
+    category: "",
     sourceUrl: row.source_url ?? "",
   };
 }
@@ -313,7 +312,7 @@ async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
 
 const ROOM_COLUMNS = `id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
             scope_kind, town_id, congregation_id, region_id`;
-const LISTING_COLUMNS = `, status, town_name, county, category, source_url`;
+const LISTING_COLUMNS = `, status, town_name, county, source_url`;
 
 async function roomById(db: Db, id: string): Promise<BoardRoom | null> {
   if (!ROOM_ID.test(id)) return null;

@@ -59,7 +59,6 @@ type RoomListing = {
   status: string;
   town_name: string;
   county: string;
-  category: string;
   source_url: string;
   what: string;
   host_user_id: string | null;
@@ -81,7 +80,6 @@ type ClaimRow = {
   name: string;
   town_name: string;
   county: string;
-  category: string;
   source_url: string;
   room_status: string;
 };
@@ -173,7 +171,7 @@ function toView(row: ClaimRow, reveal: boolean, userId: string): ClaimView | nul
     name: row.name,
     town: row.town_name,
     county: row.county,
-    category: row.category,
+    category: "",
     sourceUrl: row.source_url,
     method: row.method,
     state: row.state,
@@ -190,7 +188,7 @@ function toView(row: ClaimRow, reveal: boolean, userId: string): ClaimView | nul
 
 const CLAIM_SELECT = `select c.id, c.room_id, c.claimant, c.claimant_name, c.method, c.evidence, c.state,
   c.reviewer, c.created_at, c.updated_at, c.decided_at, c.expires_at,
-  r.name, r.town_name, r.county, r.category, r.source_url, r.status as room_status
+  r.name, r.town_name, r.county, r.source_url, r.status as room_status
   from claim_request c
   join room r on r.id = c.room_id`;
 
@@ -288,11 +286,11 @@ async function writeListings(
           `insert into room (
              id, name, what, takes, steward_takes, card_kinds, card_noun,
              requires_next_date, parish, sort_order, created_by, created_at,
-             status, seeded_by, source_url, town_name, county, category
+             status, seeded_by, source_url, town_name, county
            ) values (
              $1, $2, '', $3, $4, $5, 'Meeting',
              false, false, $6, $7, $8,
-             $9, $7, $10, $11, $12, $13
+             $9, $7, $10, $11, $12
            )`,
           [
             id,
@@ -307,7 +305,6 @@ async function writeListings(
             listing.sourceUrl,
             listing.town,
             listing.county,
-            listing.category,
           ],
         );
         saved.push({
@@ -315,7 +312,7 @@ async function writeListings(
           name: listing.name,
           town: listing.town,
           county: listing.county,
-          category: listing.category,
+          category: "",
           sourceUrl: listing.sourceUrl,
           status: listing.status,
           createdAt: input.now.getTime(),
@@ -337,14 +334,14 @@ async function findUnclaimed(
   const id = key.trim().toLowerCase();
   if (ROOM_ID.test(id)) {
     const byId = await db.query<RoomListing>(
-      `select id, name, status, town_name, county, category, source_url, what, host_user_id
+      `select id, name, status, town_name, county, source_url, what, host_user_id
        from room where id = $1 and status = 'unclaimed'`,
       [id],
     );
     if (byId[0]) return { ok: true, room: byId[0] };
   }
   const byName = await db.query<RoomListing>(
-    `select id, name, status, town_name, county, category, source_url, what, host_user_id
+    `select id, name, status, town_name, county, source_url, what, host_user_id
      from room where status = 'unclaimed' and lower(name) = lower($1)`,
     [key.trim()],
   );
@@ -796,12 +793,11 @@ export async function listClaims(
       name: string;
       town_name: string;
       county: string;
-      category: string;
       source_url: string;
       status: string;
       created_at: Date | string;
     }>(
-      `select id, name, town_name, county, category, source_url, status, created_at
+      `select id, name, town_name, county, source_url, status, created_at
        from room where status = 'unclaimed' and name <> ''
        order by created_at asc, id asc`,
     );
@@ -816,7 +812,7 @@ export async function listClaims(
           name: row.name,
           town: row.town_name,
           county: row.county,
-          category: row.category,
+          category: "",
           sourceUrl: row.source_url,
           status: "unclaimed" as const,
           createdAt: atMs(row.created_at) ?? 0,
@@ -834,12 +830,11 @@ export async function listClaims(
     name: string;
     town_name: string;
     county: string;
-    category: string;
     source_url: string;
     status: string;
     created_at: Date | string;
   }>(
-    `select id, name, town_name, county, category, source_url, status, created_at
+    `select id, name, town_name, county, source_url, status, created_at
      from room where status in ('draft', 'unclaimed') and name <> ''
      order by created_at asc, id asc`,
   );
@@ -860,7 +855,7 @@ export async function listClaims(
             name: row.name,
             town: row.town_name,
             county: row.county,
-            category: row.category,
+            category: "",
             sourceUrl: row.source_url,
             status: row.status,
             createdAt: atMs(row.created_at) ?? 0,
@@ -873,7 +868,7 @@ export async function listClaims(
 
 export async function seededRoom(db: Db, id: string): Promise<RoomListing | null> {
   const rows = await db.query<RoomListing>(
-    `select id, name, status, town_name, county, category, source_url, what, host_user_id
+    `select id, name, status, town_name, county, source_url, what, host_user_id
      from room where id = $1`,
     [id],
   );

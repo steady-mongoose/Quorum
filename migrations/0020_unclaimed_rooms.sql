@@ -17,8 +17,11 @@ alter table room
   add column if not exists source_url text not null default '',
   add column if not exists town_name text not null default '',
   add column if not exists county text not null default '',
-  add column if not exists category text not null default '',
   add column if not exists host_user_id text references "user" (id) on delete set null;
+
+-- Category is not a free-text column on room. PR #51 adds categories and
+-- room.category_id. A seed file still names a category; that name is not
+-- stored until category_id exists.
 
 alter table room drop constraint if exists room_status_check;
 alter table room add constraint room_status_check
@@ -35,10 +38,6 @@ alter table room add constraint room_town_name_len
 alter table room drop constraint if exists room_county_len;
 alter table room add constraint room_county_len
   check (char_length(county) <= 80);
-
-alter table room drop constraint if exists room_category_len;
-alter table room add constraint room_category_len
-  check (char_length(category) <= 80);
 
 -- One request from one member for one room. The state is the record.
 -- claimant and reviewer are user ids. A removed account keeps the row.

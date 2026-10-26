@@ -5,7 +5,9 @@ import { createPool, pgDb } from "./db.ts";
 
 /**
  * Import seeded listings. The file is JSON (an array or { listings }) or CSV
- * with name, town, county, category, and source_url. Nothing else is stored
+ * with name, town, county, category, and source_url. Town, county, and the
+ * source page are stored. Category is checked and is not a room column;
+ * category_id arrives with the categories migration. Nothing else is stored
  * as a fact about the organization.
  *
  * The actor is the founding admin, or SEED_LISTINGS_ACTOR when that user is

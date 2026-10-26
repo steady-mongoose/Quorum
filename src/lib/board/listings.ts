@@ -12,6 +12,7 @@ export type Listing = {
   name: string;
   town: string;
   county: string;
+  /** Checked on the file. Not written to room until category_id exists. */
   category: string;
   sourceUrl: string;
   status: ListingStatus;
