@@ -8,6 +8,7 @@ import {
   Kicker,
   useCopy,
 } from "@/components/quorum/bits";
+import { GatheringShareControl } from "@/components/board/gathering-share";
 import { RsvpControl } from "@/components/board/rsvp-control";
 import { cn } from "@/lib/cn";
 import {
@@ -307,6 +308,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             {card.pinned ? "Unpin" : "Pin at the top of the room"}
           </button>
         ) : null}
+        {isHost ? <GatheringShareControl card={card} /> : null}
         {isHost ? (
           <button
             type="button"

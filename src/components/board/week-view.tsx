@@ -15,6 +15,7 @@ import {
   type MeetingCard,
 } from "@/lib/board/model";
 import { HomePanel } from "@/components/board/home-view";
+import { GatheringShareControl } from "@/components/board/gathering-share";
 import { RsvpControl } from "@/components/board/rsvp-control";
 import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
@@ -122,7 +123,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
         {card.host !== me ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : (
-          <span className="self-center text-sm text-muted">You host this.</span>
+          <GatheringShareControl card={card} />
         )}
       </div>
     </article>

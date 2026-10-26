@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { gatheringShare, SHARE_GATHERINGS, townOf } from "./gathering.ts";
+import { gatheringShare, townOf } from "./gathering.ts";
 import { publicQuote, quoteCardLines, quoteCardSize, quoteHoldKept } from "./quote.ts";
 
 test("a shared gathering is the title, the date, the time, and the town", () => {
@@ -96,8 +96,8 @@ test("tap interactions add no count, badge, or feed gesture", () => {
   assert.equal(/aria-pressed\s*=/.test(rsvp), false);
   assert.match(week, /RsvpControl/);
   assert.match(find, /RsvpControl/);
-  assert.equal(SHARE_GATHERINGS, false);
-  assert.match(rsvp, /SHARE_GATHERINGS \? <ShareGathering/);
+  assert.match(rsvp, /card\.sharePublic \? <ShareGathering/);
+  assert.equal(rsvp.includes("SHARE_GATHERINGS"), false);
   assert.match(rsvp, /Share this gathering/);
   assert.equal(rsvp.includes("execCommand"), false);
   assert.equal(read("../../components/quorum/bits.tsx").includes("execCommand"), false);
@@ -126,7 +126,10 @@ test("tap interactions add no count, badge, or feed gesture", () => {
   assert.equal(root.includes("interactions.css"), false);
   assert.match(root, /EBGaramond-latin\.woff2/);
   assert.equal(existsSync(new URL("../../../public/interactions.css", import.meta.url)), false);
-  assert.equal(existsSync(new URL("../../routes/e/$id.tsx", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../../routes/e/$id.tsx", import.meta.url)), true);
+  const publicPage = read("../../routes/e/$id.tsx");
+  assert.match(publicPage, /noindex/);
+  assert.match(publicPage, /notFound\(\)/);
   const quote = read("../../components/board/quote-card.tsx");
   assert.match(quote, /quote-hold/);
   assert.match(quote, /onContextMenu/);

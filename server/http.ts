@@ -6,6 +6,7 @@ import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
+import { handlePublicGathering } from "./board/public-gathering.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleMedia, type MediaRuntime } from "./media/routes.ts";
@@ -388,6 +389,9 @@ async function route(
       json(404, { error: "Not found." })
     );
   }
+
+  const gathering = await handlePublicGathering(deps, request, url);
+  if (gathering) return gathering;
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
   return json(404, { error: "Not found." });

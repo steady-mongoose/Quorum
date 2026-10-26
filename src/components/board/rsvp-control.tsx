@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { Laurel } from "@/components/board/laurel";
 import { btn } from "@/components/quorum/bits";
-import { gatheringShare, SHARE_GATHERINGS } from "@/lib/board/gathering";
+import { gatheringShare } from "@/lib/board/gathering";
 import { cn } from "@/lib/cn";
 import type { MeetingCard } from "@/lib/board/model";
 
 /**
  * "I'll be there" becomes "You're going". The check is not part of the
  * name, and the button does not also set aria-pressed. The laurel runs
- * once, as the next sibling of the filled button. Sharing stays off until
- * a public gathering page is approved.
+ * once, as the next sibling of the filled button. The share control stays
+ * off until the organizer turns sharing on for this gathering.
  */
 export function RsvpControl({
   card,
@@ -41,7 +41,7 @@ export function RsvpControl({
           <Laurel />
         </div>
       </div>
-      {going && SHARE_GATHERINGS ? <ShareGathering card={card} /> : null}
+      {going && card.sharePublic ? <ShareGathering card={card} /> : null}
     </div>
   );
 }

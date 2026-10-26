@@ -34,14 +34,9 @@ export type GatheringShare = {
 };
 
 /**
- * Public gathering pages are not built. Josh has not decided to publish
- * cards, so the share control stays off and the app never links to /e.
- */
-export const SHARE_GATHERINGS = false;
-
-/**
- * What may leave the app once sharing is on. Title, date, time, and town.
- * No street, host, attendee, or invite code.
+ * What may leave the app once the organizer has turned sharing on.
+ * Title, date, time, and town. No street, host, attendee, or invite code.
+ * The public page itself shows only the title, the date, and the town.
  */
 export function gatheringShare(card: {
   id: string;
