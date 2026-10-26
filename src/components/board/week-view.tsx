@@ -49,7 +49,7 @@ export function WeekView() {
       <HomePanel />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex min-w-0 flex-col gap-8">
-          <section className="plate flex flex-col gap-2">
+          <section className="plate plate--hero flex flex-col gap-2">
             <Kicker>This week</Kicker>
             <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
               {week.length === 0 ? "Nothing on the calendar yet." : "This week"}

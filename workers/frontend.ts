@@ -13,7 +13,10 @@ import { isGatheringId, publicGatheringHtml } from "../src/lib/board/public-gath
  */
 
 /**
- * Scripts and objects come only from this site. Styles and fonts also allow
+ * Scripts come only from this site, plus the Cloudflare Insights beacon the
+ * edge injects. The build moves the shell's inline boot scripts into files
+ * (scripts/externalize-inline-scripts.mjs) because inline scripts are refused.
+ * Objects come only from this site. Styles and fonts also allow
  * the typefaces the shell already loads. Trusted Types are not required:
  * React writes the page without a policy, and turning the requirement on
  * would stop the app from booting. The policy still refuses injected script
@@ -21,11 +24,11 @@ import { isGatheringId, publicGatheringHtml } from "../src/lib/board/public-gath
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' https://static.cloudflareinsights.com",
   "style-src 'self' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob:",
-  "connect-src 'self' https://api.avouchsocial.com",
+  "connect-src 'self' https://api.avouchsocial.com https://cloudflareinsights.com",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
