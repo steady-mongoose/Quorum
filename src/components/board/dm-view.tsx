@@ -140,7 +140,7 @@ export function DmView() {
         <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
           You can message someone you have been on an "I went" list with, or who replied to your
-          post. Open one from their post or their card. The words stay in this browser, are not encrypted, and are deleted after {DM_RETENTION_DAYS} days. {DM_DEMO_NOTICE}
+          post. Open one from their post or their card. {DM_DEMO_NOTICE}
         </p>
       </section>
       {mine.length === 0 ? (
