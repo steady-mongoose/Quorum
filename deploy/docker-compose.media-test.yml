@@ -1,0 +1,9 @@
+# Test-only override. The production command uses deploy/docker-compose.yml
+# alone, so a leftover EGRESS_ALLOW_HOST in deploy/.env cannot change where
+# the proxy dials. media-proxy has no env_file. It receives only the keys
+# this file adds on top of the production service.
+services:
+  media-proxy:
+    environment:
+      EGRESS_ALLOW_HOST: ${EGRESS_ALLOW_HOST:-storage-sink}
+      EGRESS_ALLOW_PORT: ${EGRESS_ALLOW_PORT:-9000}

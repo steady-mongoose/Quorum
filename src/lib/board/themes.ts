@@ -1,7 +1,7 @@
-// Looks for The Hall. One mark, set by the owner, on every screen. The
-// others stay here for when the owner changes it.
+// One mark, set by the owner, on every screen. The green and cream live in
+// styles.css. The other marks stay for when the owner changes the emblem.
 
-export type ThemeId = "plain" | "appeal" | "jerusalem" | "gadsden";
+export type ThemeId = "appeal" | "jerusalem" | "gadsden";
 
 /** The owner's choice. The council's pick: American, Christian, 1775, and no church room objects. */
 export const OWNER_THEME: ThemeId = "appeal";
@@ -24,12 +24,6 @@ export type Theme = {
 };
 
 export const THEMES: Theme[] = [
-  {
-    id: "plain",
-    name: "Plain",
-    motto: "",
-    colors: { bg: "#0e0e0c", surface: "#171714", raised: "#221f1a", fg: "#f3efe6", muted: "#a39b8c", line: "#322e28", signal: "#e6a23c", signalInk: "#1a1206" },
-  },
   {
     id: "appeal",
     name: "An Appeal to Heaven",

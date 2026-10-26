@@ -1,0 +1,89 @@
+# Static frontend → Cloudflare Workers.
+#
+# Push to `the-board` deploys the preview Worker only (a workers.dev URL).
+# Custom domains are a separate, manual step: run this workflow with
+# "Attach custom domains" checked. That runs `wrangler deploy --env production`
+# and attaches avouchsocial.com and www.avouchsocial.com.
+#
+# This workflow does not run database migrations and does not start Postgres.
+
+name: Deploy static frontend
+
+on:
+  push:
+    branches:
+      - the-board
+  workflow_dispatch:
+    inputs:
+      attach_custom_domains:
+        description: "CUSTOM DOMAINS — attach avouchsocial.com and www.avouchsocial.com. Leave this off to publish only the workers.dev preview."
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-frontend-${{ github.ref }}-${{ github.event_name }}-${{ inputs.attach_custom_domains }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # build:frontend does not run db:migrate. VITE_API_BASE_URL is optional
+      # and public; leave the variable unset until api.avouchsocial.com exists.
+      - name: Build static frontend
+        run: npm run build:frontend
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_PUBLIC_HOSTNAME: ${{ vars.VITE_PUBLIC_HOSTNAME }}
+
+      - name: Deploy preview (workers.dev, no custom domains)
+        id: preview
+        if: github.event_name != 'workflow_dispatch' || inputs.attach_custom_domains != true
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Empty --env selects the top-level config. Wrangler warns, and can
+          # pick the wrong environment, when a file defines `env` and the
+          # command omits --env. The top-level config has no custom domains.
+          command: deploy --env=
+          packageManager: npm
+
+      - name: Print preview URL
+        if: github.event_name != 'workflow_dispatch' || inputs.attach_custom_domains != true
+        run: |
+          echo "Preview workers.dev URL: ${{ steps.preview.outputs.deployment-url }}"
+          echo "Stable shape: https://avouchsocial-preview.<account-subdomain>.workers.dev"
+          echo "Wrangler also prints a version URL (<version>-avouchsocial-preview.<account-subdomain>.workers.dev) because preview_urls is on."
+          echo "Custom domains were not attached."
+
+      - name: "CUSTOM DOMAINS — attach avouchsocial.com and www.avouchsocial.com"
+        id: domains
+        if: github.event_name == 'workflow_dispatch' && inputs.attach_custom_domains == true
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env production
+          packageManager: npm
+
+      - name: Print custom-domain deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.attach_custom_domains == true
+        run: |
+          echo "Production workers.dev URL: ${{ steps.domains.outputs.deployment-url }}"
+          echo "Custom domains: https://avouchsocial.com and https://www.avouchsocial.com"

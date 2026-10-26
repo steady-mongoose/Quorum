@@ -44,3 +44,75 @@ export function pendingMigrations(paths, applied) {
     .sort((a, b) => a.name.localeCompare(b.name))
     .filter(({ name }) => !done.has(name));
 }
+
+/**
+ * Directives in the leading comment block, such as `migrate: skip-embedded`.
+ * @param {string} sql
+ * @returns {Set<string>}
+ */
+export function migrationDirectives(sql) {
+  const directives = new Set();
+  for (const line of sql.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (!trimmed.startsWith("--")) break;
+    const match = trimmed.match(/^--\s*migrate:\s*(\S+)\s*$/);
+    if (match?.[1]) directives.add(match[1]);
+  }
+  return directives;
+}
+
+/**
+ * Embedded preview databases do not create logins.
+ * @param {string} sql
+ */
+export function isSkipEmbedded(sql) {
+  return migrationDirectives(sql).has("skip-embedded");
+}
+
+/**
+ * Statements such as CREATE ROLE cannot run inside a transaction block.
+ * @param {string} sql
+ */
+export function isNoTransaction(sql) {
+  return migrationDirectives(sql).has("no-transaction");
+}
+
+/**
+ * Split a migration into statements. A semicolon is a statement boundary.
+ * @param {string} sql
+ * @returns {string[]}
+ */
+export function sqlStatements(sql) {
+  /** @type {string[]} */
+  const statements = [];
+  let current = "";
+  let comment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1];
+    if (comment) {
+      current += char;
+      if (char === "\n") comment = false;
+      continue;
+    }
+    if (char === "-" && next === "-") {
+      comment = true;
+      current += char;
+      continue;
+    }
+    if (char === ";") {
+      if (current.trim()) statements.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) statements.push(current.trim());
+  return statements.filter((statement) =>
+    statement.split("\n").some((line) => {
+      const trimmed = line.trim();
+      return trimmed !== "" && !trimmed.startsWith("--");
+    }),
+  );
+}

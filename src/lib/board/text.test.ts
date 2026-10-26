@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { isEnglish, looksLikeBlasphemy, looksLikeDoxxing, oneSentence } from "./text.ts";
+import { MARK_LABEL, blankDraft, composerCheck } from "./model.ts";
+
+test("a mark reason is one English sentence", () => {
+  assert.equal(
+    oneSentence("The notice does not say where that came from."),
+    "The notice does not say where that came from.",
+  );
+  assert.equal(oneSentence("No."), null);
+  assert.equal(oneSentence("One sentence. And then another."), null);
+  assert.equal(oneSentence("This has no stop"), null);
+});
+
+test("unsupported is labeled No legs, and the stored value stays", () => {
+  assert.equal(MARK_LABEL.unsupported, "No legs");
+  assert.equal(MARK_LABEL.out_of_scope, "Out of scope");
+});
+
+test("doxxing and mockery of God or Christ do not post", () => {
+  assert.equal(looksLikeDoxxing("Her phone is 555-014-2291."), true);
+  assert.equal(looksLikeDoxxing("Call the shop at noon."), false);
+  assert.equal(looksLikeBlasphemy("Jesus is a joke."), true);
+  assert.equal(looksLikeBlasphemy("God is not a joke."), false);
+  assert.equal(looksLikeBlasphemy("God is good, and the meal is after the service."), false);
+  assert.equal(looksLikeBlasphemy("Q&A 4, what is God."), false);
+  const base = {
+    author: "Maria",
+    steward: false,
+    posts: [],
+    cards: [],
+    removals: [],
+    now: Date.parse("2026-10-19T12:00:00Z"),
+  };
+  const draft = {
+    ...blankDraft("shop"),
+    type: "did" as const,
+    on: "2026-10-18",
+    reason: "Tom checked them on Thursday.",
+  };
+  assert.equal(composerCheck({ ...draft, claim: "Her phone is 555-014-2291." }, base).ok, false);
+  assert.equal(composerCheck({ ...draft, claim: "Jesus is a joke." }, base).ok, false);
+  assert.equal(
+    composerCheck({ ...draft, claim: "God is good, and the meal is after the service." }, base).ok,
+    true,
+  );
+});
+
+test("posts are English", () => {
+  assert.equal(isEnglish("Heard it on the net, from Dale."), true);
+  assert.equal(isEnglish("Слышал это в сети."), false);
+  assert.equal(isEnglish("道路が閉まっている。"), false);
+});

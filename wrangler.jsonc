@@ -1,0 +1,57 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Static frontend. A small script keeps `/api` and missing files out of the
+  // SPA shell. The API and Postgres stay on a dedicated box.
+  //
+  // Default `wrangler deploy` publishes the preview Worker (workers.dev, no
+  // custom domains). Custom domains are the `production` environment and are
+  // attached only by `wrangler deploy --env production`.
+  //
+  // Do not set `name` to "quorum". A separate Worker with that name
+  // (quorum.xpkiro.workers.dev) is connected to this repo through Cloudflare
+  // Workers Builds and reads this file. Giving it this name would publish
+  // this site onto that Worker. Disconnect that connection in the dashboard:
+  // Workers & Pages → quorum → Settings → Builds → Disconnect.
+  "name": "avouchsocial-preview",
+  "compatibility_date": "2026-10-15",
+  "workers_dev": true,
+  // Each upload also gets a version URL:
+  // https://<version>-avouchsocial-preview.<subdomain>.workers.dev
+  "preview_urls": true,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+    },
+  },
+  "main": "workers/frontend.ts",
+  "assets": {
+    "directory": "./dist/frontend/client",
+    "binding": "ASSETS",
+    // The script serves index.html for extensionless routes. Misses stay
+    // 404s, and /index.html must not redirect back to / (that loops).
+    "not_found_handling": "none",
+    "html_handling": "none",
+    // Hashed /assets/* are served directly. Everything else hits the script
+    // first, including navigations to /api and to missing icons.
+    "run_worker_first": ["/*", "!/assets/*"],
+  },
+  "env": {
+    // CUSTOM DOMAINS. Do not deploy this environment until QA has checked the
+    // workers.dev preview. It creates proxied DNS for the apex and www.
+    "production": {
+      "name": "avouchsocial",
+      "workers_dev": true,
+      "preview_urls": true,
+      "routes": [
+        { "pattern": "avouchsocial.com", "custom_domain": true },
+        { "pattern": "www.avouchsocial.com", "custom_domain": true },
+      ],
+    },
+  },
+}
