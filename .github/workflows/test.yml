@@ -51,7 +51,7 @@ jobs:
           for attempt in 1 2 3; do
             if timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
               && timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
-                install -y --no-install-recommends age postgresql-client ffmpeg; then
+                install -y age postgresql-client ffmpeg; then
               exit 0
             fi
             echo "apt attempt $attempt failed; retrying"
