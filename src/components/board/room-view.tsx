@@ -58,6 +58,7 @@ import {
   type Post,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -228,7 +229,7 @@ export function RoomView() {
 
           {boardError ? (
             <p className="text-sm text-danger" role="alert">
-              {boardError}
+              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
             </p>
           ) : null}
           {ban ? (

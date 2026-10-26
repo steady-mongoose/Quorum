@@ -30,13 +30,14 @@ import {
   type MeetingCard,
   type RoomId,
 } from "@/lib/board/model";
-import { useBoard } from "@/lib/board/store";
+import { REMOVAL_UNDO_MS, useBoard } from "@/lib/board/store";
+import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
-  const boardError = useBoard((state) => state.boardError);
+  const scrollCardId = useBoard((state) => state.scrollCardId);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
 
@@ -65,15 +66,15 @@ export function FindView() {
 
   const removal = useUndoCardRemoval();
   const rowProps = { me, steward, peers, clear, onRemove: removal.remove };
+  useEffect(() => {
+    if (!scrollCardId) return;
+    if (!scrollRestoredCard(scrollCardId)) return;
+    useBoard.setState({ scrollCardId: null });
+  }, [scrollCardId, cards]);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
-        {boardError ? (
-          <p role="alert" className="text-sm text-danger">
-            {boardError}
-          </p>
-        ) : null}
         {removal.removed ? (
           <p role="status" className="flex flex-wrap items-center gap-3 text-sm text-muted">
             Removed {removal.removed.name}.
@@ -163,22 +164,28 @@ type RowProps = {
 function useUndoCardRemoval() {
   const removeCard = useBoard((state) => state.removeCard);
   const [removed, setRemoved] = useState<MeetingCard | null>(null);
+  const cards = useBoard((state) => state.cards);
   useEffect(() => {
     if (!removed) return;
-    const id = window.setTimeout(() => setRemoved(null), 5000);
+    if (cards.some((card) => card.id === removed.id)) setRemoved(null);
+  }, [cards, removed]);
+  useEffect(() => {
+    if (!removed) return;
+    const id = window.setTimeout(() => setRemoved(null), REMOVAL_UNDO_MS);
     return () => window.clearTimeout(id);
   }, [removed]);
   return {
     removed,
     async remove(card: MeetingCard) {
+      await removeCard(card.id);
       setRemoved(card);
-      const result = await removeCard(card.id);
-      if (!result.ok) setRemoved((current) => (current?.id === card.id ? null : current));
     },
     undo() {
       if (!removed) return;
       const card = removed;
       setRemoved(null);
+      if (useBoard.getState().undoRemoveCard(card.id)) return;
+      if (useBoard.getState().remote) return;
       useBoard.setState((state) => ({
         cards: state.cards.some((item) => item.id === card.id) ? state.cards : [...state.cards, card],
       }));
@@ -226,7 +233,10 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
 function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[] }) {
   const shown = witnesses.length >= 2;
   return (
-    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article
+      id={`card-${card.id}`}
+      className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}
+    >
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
@@ -300,7 +310,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const going = card.going.includes(rest.me);
 
   return (
-    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article
+      id={`card-${card.id}`}
+      className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}
+    >
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}

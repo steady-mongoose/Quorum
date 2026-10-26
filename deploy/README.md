@@ -113,6 +113,10 @@ TTLs are 300 seconds in normal operation, and 60 to 300 seconds before a planned
 
 The open items (Porkbun records, an optional Hurricane Electric zone, a monthly zone export, the Caddy static block, and a failover drill) are the checklist in `BACKLOG.md`.
 
+## Browser origins on state-changing requests
+
+`POST`, `PUT`, `PATCH`, and `DELETE` are rejected with 403 when the browser names an origin that is not on the allow-list. `Origin` is checked first. If it is missing, the origin of `Referer` is checked the same way. A request with neither header is allowed: `curl`, `/api/health` (a GET, so it is not in this check), and other non-browser callers send neither, and a same-origin browser that omits both is treated the same way. `GET`, `HEAD`, and `OPTIONS` are not rejected for a missing origin. An allowed browser origin still gets `Vary: Origin` on the CORS response, including a rejected preflight.
+
 ## Limits
 
 Better Auth stores its limiter in the `rateLimit` table, so every API process shares it. Sign-in is 5 attempts a minute per client address. The API applies that same cap, per address and per email, to sign-in, `/api/signup`, and `/api/invites`. A further attempt while the window is closed doubles the wait, up to 16 minutes. The response is HTTP 429 with `Retry-After`.

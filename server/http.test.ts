@@ -249,6 +249,8 @@ test("a preflight allows DELETE and authorization, and an unknown origin is reje
     assert.equal(stranger.status, 403);
     assert.equal(stranger.headers.get("access-control-allow-origin"), null);
     assert.equal(stranger.headers.get("access-control-allow-credentials"), null);
+    assert.equal(stranger.headers.get("vary"), "Origin");
+    assert.equal(gathering.headers.get("vary"), "Origin");
   } finally {
     await close();
   }
@@ -285,7 +287,55 @@ test("DELETE /api/rooms/:id/join leaves the room for an allowed origin", async (
   }
 });
 
-test("sign-in is forwarded and a stranger origin is not echoed", async () => {
+test("a text/plain POST from an unknown origin is rejected, and a caller with no origin is not", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db, { origins: ["https://avouchsocial.com"] });
+    const evil = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { origin: "https://evil.com", "content-type": "text/plain" },
+        body: "name=Ada",
+      }),
+    );
+    assert.equal(evil.status, 403);
+    assert.equal(evil.headers.get("access-control-allow-origin"), null);
+    assert.equal(evil.headers.get("vary"), "Origin");
+    const referred = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { referer: "https://evil.com/phish", "content-type": "text/plain" },
+        body: "name=Ada",
+      }),
+    );
+    assert.equal(referred.status, 403);
+    const health = await handler(new Request("http://127.0.0.1:8787/api/health"));
+    assert.equal(health.status, 200);
+    const sameOrigin = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada" }),
+      }),
+    );
+    assert.notEqual(sameOrigin.status, 403);
+    const listedReferer = await handler(
+      new Request("http://127.0.0.1:8787/api/signup", {
+        method: "POST",
+        headers: {
+          referer: "https://avouchsocial.com/find",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ name: "Ada" }),
+      }),
+    );
+    assert.notEqual(listedReferer.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("sign-in from an allowed origin is forwarded, and a stranger origin is rejected", async () => {
   const { db, close } = await openTestDb();
   try {
     let forwarded = "";
@@ -301,13 +351,25 @@ test("sign-in is forwarded and a stranger origin is not echoed", async () => {
     const response = await handler(
       new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
         method: "POST",
-        headers: { origin: "https://evil.example", "content-type": "application/json" },
+        headers: { origin: "http://localhost:8080", "content-type": "application/json" },
         body: JSON.stringify({ email: "josh@example.com", password: "correct-horse" }),
       }),
     );
     assert.equal(forwarded, JSON.stringify({ email: "josh@example.com", password: "correct-horse" }));
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get("access-control-allow-origin"), null);
+    assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:8080");
+    forwarded = "";
+    const stranger = await handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { origin: "https://evil.example", "content-type": "application/json" },
+        body: JSON.stringify({ email: "josh@example.com", password: "correct-horse" }),
+      }),
+    );
+    assert.equal(forwarded, "");
+    assert.equal(stranger.status, 403);
+    assert.equal(stranger.headers.get("access-control-allow-origin"), null);
+    assert.equal(stranger.headers.get("vary"), "Origin");
   } finally {
     await close();
   }
