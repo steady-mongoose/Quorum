@@ -33,7 +33,8 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-tagline\{[^}]*color:#bcae94/);
   assert.match(css, /\.mast-door\{[^}]*color:#f0e7d3/);
   assert.match(css, /\.mast-door\{[^}]*min-height:44px/);
-  assert.match(css, /\.mast-flag\{[^}]*height:clamp\(36px,4\.5vw,56px\)/);
+  assert.match(css, /--flag-h:clamp\(36px,4\.5vw,56px\)/);
+  assert.match(css, /\.mast-flag\{[^}]*height:var\(--flag-h\)/);
   assert.match(css, /\.mast-flag\{[^}]*width:auto/);
   assert.match(css, /\.mast-bar\{[^}]*container-name:mast/);
   assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);

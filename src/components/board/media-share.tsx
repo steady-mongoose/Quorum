@@ -238,7 +238,7 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
           poster={view.thumbUrl}
           src={view.url}
         />
-        <figcaption className="mt-1 text-xs text-muted">Video with this post.</figcaption>
+        <figcaption className="mt-1 text-[0.8125rem] text-muted">Video with this post.</figcaption>
       </figure>
     );
   }
@@ -250,7 +250,7 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
         alt="Picture with this post"
       />
       {view.thumbUrl ? (
-        <figcaption className="mt-1 text-xs text-muted">
+        <figcaption className="mt-1 text-[0.8125rem] text-muted">
           <a className="text-signal underline" href={view.url} target="_blank" rel="noreferrer">
             Full size
           </a>
@@ -260,14 +260,14 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
   );
 }
 
-/** Shown on the messages page. The messaging change turns the real control on. */
+/** Shown where a message can carry a picture. Encryption is on only after keys are registered. */
 export function MessagePictureNote() {
   const ready = getDmMediaCrypto() !== null;
   return (
     <p className="max-w-prose text-sm text-muted">
       {ready
         ? "A picture in a message is encrypted on this device before it is sent."
-        : "A picture in a message is encrypted on this device before it is sent. That step is not in place yet."}
+        : "Pictures in messages are not encrypted yet."}
     </p>
   );
 }

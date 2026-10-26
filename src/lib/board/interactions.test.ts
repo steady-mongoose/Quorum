@@ -100,7 +100,10 @@ test("tap interactions add no count, badge, or feed gesture", () => {
   assert.equal(rsvp.includes("SHARE_GATHERINGS"), false);
   assert.match(rsvp, /Share this gathering/);
   assert.equal(rsvp.includes("execCommand"), false);
-  assert.equal(read("../../components/quorum/bits.tsx").includes("execCommand"), false);
+  const bits = read("../../components/quorum/bits.tsx");
+  assert.match(bits, /createElement\("textarea"\)/);
+  assert.match(bits, /execCommand\("copy"\)/);
+  assert.match(bits, /Couldn't copy/);
   assert.match(rsvp, /Link copied/);
   assert.match(rsvp, /role="status"/);
   assert.equal(week.includes("I'll be there · undo"), false);

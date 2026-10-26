@@ -4,6 +4,7 @@ import {
   CalendarDays,
   LayoutList,
   MessageSquare,
+  Users,
   Phone,
   Search,
   User,
@@ -14,6 +15,11 @@ import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } fr
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { DM_SIGNOUT_HISTORY_WARNING } from "@/lib/e2ee/copy";
+import { browserVaultStore } from "@/lib/e2ee/browser";
+import { signOutClearsReadHistory } from "@/lib/e2ee/read-history";
+import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
@@ -23,6 +29,7 @@ import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
+import { DesktopMore } from "@/components/board/desktop-more";
 import { AppealMark } from "@/components/board/emblem";
 import { PrimaryHaptic } from "@/components/board/haptics";
 import { desktopNav } from "@/lib/board/phone-nav";
@@ -35,6 +42,7 @@ import { useEngravedDocument } from "@/components/board/engraved-ground";
 const ICONS = {
   week: CalendarDays,
   rooms: LayoutList,
+  groups: Users,
   find: Search,
   civic: Phone,
   messages: MessageSquare,
@@ -80,6 +88,7 @@ function BoardShell() {
   const ownAppeals = useBoard((state) => state.appeals);
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
@@ -172,6 +181,7 @@ function BoardShell() {
       {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
+      {entered && shown === "groups" && <GroupsView />}
       {entered && shown === "find" && <FindView />}
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}
@@ -204,11 +214,22 @@ function BoardShell() {
             {entered ? (
               <div className="topnav">
                 <IconNav
+                  className="flex-nowrap gap-1"
+                  itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                  iconClassName="max-[1099px]:hidden"
                   items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
                   current={shown}
                   onSelect={openSection}
                   label="Sections"
-                />
+                >
+                  <DesktopMore
+                    current={shown}
+                    deskOn={deskOn}
+                    onSelect={openSection}
+                    itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                    iconClassName="max-[1099px]:hidden"
+                  />
+                </IconNav>
               </div>
             ) : (
               <a
@@ -224,9 +245,17 @@ function BoardShell() {
                 type="button"
                 className="mast-door"
                 onClick={() => {
-                  void server.signOut().then(() => {
-                    useBoard.getState().disconnectRemote();
-                  });
+                  const leave = () => {
+                    setConfirmSignOut(false);
+                    void server.signOut().finally(() => {
+                      useBoard.getState().disconnectRemote();
+                    });
+                  };
+                  if (signOutClearsReadHistory(browserVaultStore().read())) {
+                    setConfirmSignOut(true);
+                    return;
+                  }
+                  leave();
                 }}
               >
                 Sign out
@@ -315,6 +344,20 @@ function BoardShell() {
       {entered ? (
         <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
       ) : null}
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="Sign out"
+        description={DM_SIGNOUT_HISTORY_WARNING}
+        confirmLabel="Sign out and clear"
+        cancelLabel="Stay signed in"
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void server.signOut().finally(() => {
+            useBoard.getState().disconnectRemote();
+          });
+        }}
+      />
     </div>
   );
 }

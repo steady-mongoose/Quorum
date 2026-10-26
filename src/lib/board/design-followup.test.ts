@@ -182,6 +182,12 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
 
   assert.match(dialog, /border-danger\/60 text-danger/);
   assert.equal(dialog.includes("#f0b4a4"), false);
+  assert.match(dialog, /className="plate /);
+  assert.match(dialog, /cancelRef\.current\?\.focus\(\)/);
+  const fluid = source("../../../public/fluid.css");
+  assert.match(fluid, /dialog\.plate:not\(\[open\]\)\{display:none\}/);
+  assert.match(fluid, /dialog\.plate\{width:min\(28rem,calc\(100% - 2rem\)\);max-width:28rem\}/);
+  assert.match(app, /<ConfirmDialog/);
   assert.match(dialog, /backdrop:bg-bg\/80/);
   assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
   assert.match(css, /--color-bg:\s*#14100c/);

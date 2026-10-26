@@ -17,12 +17,18 @@ export function IconNav<T extends string>({
   onSelect,
   label,
   className,
+  itemClassName,
+  iconClassName,
+  children,
 }: {
   items: { id: T; label: string; icon?: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }> }[];
-  current: T;
+  current: T | string;
   onSelect: (id: T) => void;
   label: string;
   className?: string;
+  itemClassName?: string;
+  iconClassName?: string;
+  children?: ReactNode;
 }) {
   return (
     <nav className={cn("flex flex-wrap gap-2 lg:justify-end", className)} aria-label={label}>
@@ -34,13 +40,14 @@ export function IconNav<T extends string>({
             type="button"
             aria-current={current === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}
-            className={pill(current === item.id)}
+            className={pill(current === item.id, itemClassName)}
           >
-            {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
+            {Icon ? <Icon className={cn("size-4", iconClassName)} aria-hidden="true" /> : null}
             {item.label}
           </button>
         );
       })}
+      {children}
     </nav>
   );
 }
@@ -66,20 +73,66 @@ export function useNow(): Date | null {
   return now;
 }
 
+export const COPY_FAILED = "Couldn't copy";
+
+/** Idle label, "Copied", or "Couldn't copy" for one copy button. */
+export function copyStatus(
+  copied: string | null,
+  failed: string | null,
+  key: string,
+  idle: string,
+  done = "Copied",
+): string {
+  if (failed === key) return COPY_FAILED;
+  if (copied === key) return done;
+  return idle;
+}
+
 export function useCopy() {
   const [copied, setCopied] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   async function copy(key: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
+    const ok = await writeClipboard(text);
+    if (!ok) {
+      setCopied((current) => (current === key ? null : current));
+      setFailed(key);
+      window.setTimeout(() => {
+        setFailed((current) => (current === key ? null : current));
+      }, 1600);
       return;
     }
+    setFailed((current) => (current === key ? null : current));
     setCopied(key);
     window.setTimeout(() => {
       setCopied((current) => (current === key ? null : current));
     }, 1600);
   }
-  return { copied, copy };
+  return { copied, failed, copy };
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return copyWithTextarea(text);
+  }
+}
+
+/** Used when the clipboard API is blocked. False means the copy did not land. */
+function copyWithTextarea(text: string): boolean {
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 export function Meter({ value, max }: { value: number; max: number }) {

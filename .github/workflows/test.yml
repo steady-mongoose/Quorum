@@ -1,5 +1,5 @@
 # Node 22 is required for --experimental-strip-types.
-# The script suite, the app suite, and the backup drill each fail the job.
+# The script suite, the app suite, the frontend build, and the backup drill each fail the job.
 # Later steps still run so one suite cannot hide another. age is required
 # to encrypt and restore the drill dump.
 
@@ -14,7 +14,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -42,8 +42,17 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-test-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-test-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age, psql, and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client ffmpeg
+        timeout-minutes: 6
+        run: sh .github/scripts/apt-install.sh age postgresql-client ffmpeg
 
       - name: Template script tests
         id: scripts
@@ -53,6 +62,11 @@ jobs:
         id: app
         if: always()
         run: node scripts/run-tests.mjs app
+
+      - name: Frontend build
+        id: frontend
+        if: always()
+        run: npm run build
 
       - name: Backup restore drill
         id: backup
@@ -67,8 +81,9 @@ jobs:
         run: |
           echo "script tests: ${{ steps.scripts.outcome }}"
           echo "app tests: ${{ steps.app.outcome }}"
+          echo "frontend build: ${{ steps.frontend.outcome }}"
           echo "backup drill: ${{ steps.backup.outcome }}"
-          if [ "${{ steps.scripts.outcome }}" != "success" ] || [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
+          if [ "${{ steps.scripts.outcome }}" != "success" ] || [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.frontend.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
 
@@ -104,13 +119,22 @@ jobs:
 
   failover-restore:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-failover-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-failover-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age and the Postgres client
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+        timeout-minutes: 6
+        run: sh .github/scripts/apt-install.sh age postgresql-client
 
       - name: Dry-run restore into a throwaway Postgres
         run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh
