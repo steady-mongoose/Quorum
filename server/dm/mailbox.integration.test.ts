@@ -12,6 +12,7 @@ import {
   loadBrowserVault,
   settleBrowserVault,
 } from "../../src/lib/e2ee/browser.ts";
+import { signOutClearsReadHistory } from "../../src/lib/e2ee/read-history.ts";
 import {
   confirmSafety,
   createLocalDevice,
@@ -686,7 +687,7 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
     const alice = await member(db, "Alice");
     const bob = await member(db, "Bob");
     const aliceState = await createLocalDevice(alice, "Browser");
-    await loadBrowserVault();
+    await loadBrowserVault(alice);
     const aliceVault = browserVaultStore();
     aliceVault.write(aliceState);
     await settleBrowserVault();
@@ -728,6 +729,15 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
       ).ok,
       true,
     );
+    assert.equal(signOutClearsReadHistory(aliceVault.read()), false);
+    await forgetBrowserVault(alice);
+    const kept = aliceVault.read();
+    assert.equal(kept?.device.identitySecret, aliceState.device.identitySecret);
+    assert.equal(kept?.device.boxSecret, aliceState.device.boxSecret);
+    const signedInUnread = await loadBrowserVault(alice);
+    assert.equal(signedInUnread?.device.deviceId, aliceState.device.deviceId);
+    assert.equal(signedInUnread?.device.identitySecret, aliceState.device.identitySecret);
+    assert.equal(signedInUnread?.opened, undefined);
     const first = await readEncrypted(
       transport(handler, alice),
       aliceVault,
@@ -741,13 +751,14 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
     if (!first.ok) return;
     assert.equal(first.messages[0]?.text, TEXT);
     await settleBrowserVault();
+    assert.equal(signOutClearsReadHistory(aliceVault.read()), true);
 
-    await forgetBrowserVault();
+    await forgetBrowserVault(alice);
     const signedOut = aliceVault.read();
     assert.equal(signedOut?.device.identitySecret, aliceState.device.identitySecret);
     assert.equal(signedOut?.device.boxSecret, aliceState.device.boxSecret);
     assert.equal(signedOut?.opened, undefined);
-    const signedIn = await loadBrowserVault();
+    const signedIn = await loadBrowserVault(alice);
     assert.equal(signedIn?.device.deviceId, aliceState.device.deviceId);
     assert.equal(signedIn?.device.identitySecret, aliceState.device.identitySecret);
     assert.equal(signedIn?.opened, undefined);
@@ -779,6 +790,10 @@ test("sign-out keeps the device keys, and sign-in still decrypts a new message",
     assert.equal(
       second.messages.some((message) => message.text === nextText),
       true,
+    );
+    assert.equal(
+      second.messages.some((message) => message.text === TEXT),
+      false,
     );
   } finally {
     await close();

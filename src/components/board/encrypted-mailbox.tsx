@@ -75,8 +75,12 @@ export function EncryptedMailbox() {
   const peers = useMemo(() => stoodWith(gateName, cards, posts), [gateName, cards, posts]);
 
   useEffect(() => {
+    if (!me?.id) return;
     let cancelled = false;
-    void loadBrowserVault().then((loadedVault) => {
+    setVault(null);
+    setMessages([]);
+    setLoaded(false);
+    void loadBrowserVault(me.id).then((loadedVault) => {
       if (cancelled) return;
       setVault(loadedVault);
       setLoaded(true);
@@ -84,7 +88,7 @@ export function EncryptedMailbox() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [me?.id]);
 
   useEffect(() => {
     return subscribeMessageCache(() => {
@@ -113,10 +117,29 @@ export function EncryptedMailbox() {
     if (listed.ok) setDevices(listed.devices);
   }
 
-  async function refreshThreads() {
+  async function refreshThreads(): Promise<ThreadSummary[]> {
     const listed = await listEncryptedThreads(transport);
-    if (listed.ok) setThreads(listed.threads);
-    else setNotice(listed.message);
+    if (!listed.ok) {
+      setNotice(listed.message);
+      return [];
+    }
+    setThreads(listed.threads);
+    return listed.threads;
+  }
+
+  async function restoreReadableHistory(rows: ThreadSummary[]) {
+    if (!me) return;
+    for (const thread of rows) {
+      await readEncrypted(
+        transport,
+        store,
+        thread.id,
+        me.id,
+        me.name,
+        thread.otherName,
+        thread.otherUserId,
+      );
+    }
   }
 
   useEffect(() => {
@@ -131,7 +154,11 @@ export function EncryptedMailbox() {
       }
       await installDmMediaCrypto(createDmMediaCrypto({ transport, vault: store }));
       await refreshDevices(store.read() ?? vault);
-      await refreshThreads();
+      const rows = await refreshThreads();
+      if (cancelled) return;
+      await restoreReadableHistory(rows);
+      if (cancelled) return;
+      setVault(store.read());
     })();
     return () => {
       cancelled = true;

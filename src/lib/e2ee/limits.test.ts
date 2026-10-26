@@ -8,6 +8,7 @@ import {
   DM_KEYS_MISSING,
   DM_PASSPHRASE_WARNING,
   DM_SAFETY_HINT,
+  DM_SIGNOUT_HISTORY_WARNING,
 } from "./copy.ts";
 import { DM_RETENTION_DAYS, DM_TEXT_MAX, dmTextError, passphraseError } from "./limits.ts";
 
@@ -41,6 +42,7 @@ test("message copy is English and does not add a feed, likes, reshares, or score
     DM_SAFETY_HINT,
     DM_KEYS_MISSING,
     DM_PASSPHRASE_WARNING,
+    DM_SIGNOUT_HISTORY_WARNING,
   ]) {
     assert.equal(line.toLowerCase().includes("like"), false);
     assert.equal(line.toLowerCase().includes("reshare"), false);
@@ -95,6 +97,7 @@ test("the mailbox copy matches the screen and the controls stay tappable", () =>
   assert.equal(mailbox.includes("plain text, not encrypted"), false);
   assert.equal(demo.includes("MessagePictureNote"), false);
   assert.equal(demo.includes("plain text, not encrypted"), false);
+  assert.match(demo, /Demo only: not encrypted, deleted after \{DM_RETENTION_DAYS\} days\./);
   assert.match(demo, /min-h-\[44px\]/);
   assert.match(demo, /aria-label=\{`Conversation with \$\{/);
 });

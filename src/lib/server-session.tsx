@@ -10,14 +10,18 @@ import {
   type AccountUser,
 } from "@/lib/account-api";
 import { probeApiMode, readDemoFlag } from "@/lib/api-mode";
-import { forgetBrowserVault } from "@/lib/e2ee/browser";
+import { focusBrowserVault, forgetBrowserVault } from "@/lib/e2ee/browser";
 import { SessionContext, type ServerSession } from "@/lib/server-session-state";
 
 export function ServerSessionProvider({ children }: { children: ReactNode }) {
   const demo = readDemoFlag();
   const configured = !demo;
   const [mode, setMode] = useState<ServerSession["mode"]>(demo ? "demo" : "pending");
-  const [user, setUser] = useState<AccountUser | null>(null);
+  const [user, setUserState] = useState<AccountUser | null>(null);
+  function setUser(next: AccountUser | null) {
+    focusBrowserVault(next?.id ?? null);
+    setUserState(next);
+  }
 
   useEffect(() => {
     if (demo) return;
@@ -65,7 +69,7 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       try {
-        await forgetBrowserVault();
+        await forgetBrowserVault(user?.id);
       } finally {
         try {
           await signOutServer();
