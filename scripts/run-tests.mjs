@@ -55,6 +55,7 @@ const appTests = [
   "src/lib/board/text.test.ts",
   "src/lib/board/api.test.ts",
   "src/lib/board/store.test.ts",
+  "src/lib/board/clear-board.test.ts",
   "src/lib/board/chat.test.ts",
   "src/lib/board/home.test.ts",
   "src/lib/board/access-rules.test.ts",
