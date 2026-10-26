@@ -60,6 +60,7 @@ test("the mailbox copy matches the screen and the controls stay tappable", () =>
   assert.match(mailbox, /DM_ENCRYPTED_NOTICE/);
   assert.match(mailbox, /DM_KEYS_MISSING/);
   assert.match(mailbox, /DM_PASSPHRASE_WARNING/);
+  assert.match(mailbox, /If you forget this passphrase, nobody can recover your messages\./);
   assert.match(mailbox, /type=\{showPassphrase \? "text" : "password"\}/);
   assert.match(mailbox, /autoComplete="new-password"/);
   assert.match(mailbox, /autoComplete="current-password"/);
@@ -72,6 +73,9 @@ test("the mailbox copy matches the screen and the controls stay tappable", () =>
   assert.match(mailbox, /aria-label=\{`Conversation with \$\{/);
   assert.match(mailbox, /text-\[0\.8125rem\]/);
   assert.equal(mailbox.includes("text-xs"), false);
+  const media = readFileSync(new URL("../../components/board/media-share.tsx", import.meta.url), "utf8");
+  assert.match(media, /figcaption className="mt-1 text-\[0\.8125rem\]/);
+  assert.equal(media.includes('figcaption className="mt-1 text-xs'), false);
   assert.equal(mailbox.includes("plain text, not encrypted"), false);
   assert.equal(demo.includes("MessagePictureNote"), false);
   assert.equal(demo.includes("plain text, not encrypted"), false);

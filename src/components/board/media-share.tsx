@@ -238,7 +238,7 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
           poster={view.thumbUrl}
           src={view.url}
         />
-        <figcaption className="mt-1 text-xs text-muted">Video with this post.</figcaption>
+        <figcaption className="mt-1 text-[0.8125rem] text-muted">Video with this post.</figcaption>
       </figure>
     );
   }
@@ -250,7 +250,7 @@ export function SharedMediaFigure({ item }: { item: SharedMedia }) {
         alt="Picture with this post"
       />
       {view.thumbUrl ? (
-        <figcaption className="mt-1 text-xs text-muted">
+        <figcaption className="mt-1 text-[0.8125rem] text-muted">
           <a className="text-signal underline" href={view.url} target="_blank" rel="noreferrer">
             Full size
           </a>
