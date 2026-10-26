@@ -1,26 +1,46 @@
 @import "tailwindcss";
 
+/* EB Garamond (SIL OFL 1.1), Latin subset, WOFF2. See public/art/ATTRIBUTION.md. */
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("/fonts/EBGaramond-italic-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: italic;
+  font-display: swap;
+}
+
 @theme {
-  --color-bg: #0f1a14;
-  --color-surface: #16241b;
-  --color-raised: #1e3025;
-  --color-fg: #f3efe6;
-  --color-muted: #a6b5a4;
-  --color-line: #2c4034;
-  --color-line-strong: #857c6f;
-  --color-signal: #e9e2c8;
-  --color-signal-ink: #14251a;
+  /* Ink & Bone, the default plate palette. Parchment is [data-palette="parchment"] in backgrounds.css. */
+  --color-bg: #14100c;
+  --color-surface: #1f1914;
+  --color-raised: #241d16;
+  --color-fg: #f0e7d3;
+  --color-muted: #bcae94;
+  --color-line: #3a3026;
+  --color-line-strong: #8a7a62;
+  --color-signal: #f0e7d3;
+  --color-signal-ink: #14100c;
+  --color-parchment: #ece2cc;
+  --color-ink: #1f1912;
+  --color-gilt: #c9a45c;
+  --color-rubric: #b4483e;
+  --color-danger: #f0b4a4;
   --font-sans: "Public Sans", "Segoe UI", sans-serif;
-  --font-display: "Fraunces", Georgia, serif;
+  --font-display: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
 }
 
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Everything is in rem, so this one line scales the app with the window:
-       15px on a phone, 20px on a wide desktop. */
-    font-size: clamp(15px, 0.45vw + 12.5px, 20px);
+    /* Body text: 16px on a phone, 18px on a wide desktop. */
+    font-size: clamp(16px, 0.95rem + 0.25vw, 18px);
   }
 
   body {
@@ -44,11 +64,6 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
-  }
-
-  :focus-visible {
-    outline: 2px solid var(--color-signal);
-    outline-offset: 2px;
   }
 
   ::selection {
@@ -112,111 +127,11 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
-/* Phone: five slots in one row. The rest sit in the More sheet. */
-.tabbar {
-  display: none;
-}
-
-@media (max-width: 767px) {
-  .topnav {
-    display: none;
-  }
-
-  .tabbar {
-    display: flex;
-    flex-wrap: nowrap;
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 30;
-    background: var(--color-surface);
-    border-top: 1px solid var(--color-line);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .tabbar button {
-    flex: 1;
-    min-width: 44px;
-    min-height: max(44px, 56px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    padding: 6px 4px;
-    border: 0;
-    border-top: 2px solid transparent;
-    background: transparent;
-    color: var(--color-muted);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    line-height: 1.15;
-    text-align: center;
-    white-space: normal;
-  }
-
-  .tabbar button svg {
-    width: 24px;
-    height: 24px;
-  }
-
-  .tabbar button[aria-current="page"] {
-    color: var(--color-fg);
-    border-top: 2px solid var(--color-signal);
-  }
-
-  .more-sheet[open] {
-    position: fixed;
-    inset: auto 0 0 0;
-    width: 100%;
-    max-width: none;
-    margin: 0;
-    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
-    border: 0;
-    border-top: 1px solid var(--color-signal);
-    border-radius: 16px 16px 0 0;
-    background: var(--color-surface);
-    color: var(--color-fg);
-  }
-
-  .more-sheet::backdrop {
-    background: color-mix(in srgb, var(--color-bg) 55%, transparent);
-  }
-
-  .more-grab {
-    width: 2.5rem;
-    height: 4px;
-    margin: 4px auto 8px;
-    border-radius: 999px;
-    background: var(--color-line-strong);
-  }
-
-  .more-sheet ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  .more-row {
-    min-height: max(44px, 48px);
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
-    border: 0;
-    background: transparent;
-    color: var(--color-fg);
-    font-size: 1rem;
-    font-weight: 500;
-    text-align: left;
-  }
-
-  .more-row svg {
-    width: 24px;
-    height: 24px;
-  }
-
-  .more-row[aria-current="page"] {
-    box-shadow: inset 2px 0 0 var(--color-signal);
-  }
+/* Small caps for eyebrows. The engraved sheet's .kicker colour is the muted bone. */
+.kicker {
+  font-family: var(--font-display);
+  font-variant-caps: all-small-caps;
+  font-size: 0.8125rem;
+  letter-spacing: 0.18em;
+  color: var(--color-muted);
 }

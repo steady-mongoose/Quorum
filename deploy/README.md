@@ -73,7 +73,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
    ./scripts/seed-owner.sh
    ```
 
-   The script asks for `BOOTSTRAP_OWNER`, `BOOTSTRAP_OWNER_EMAIL`, and `BOOTSTRAP_OWNER_PASSWORD`. The password is not echoed. `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. They are handed to the seed process with `docker compose exec -e` and are not written into `deploy/.env`. A second run prints that the founding admin is already seated and exits 1. If a password was left in `deploy/.env`, the script clears that line and recreates the API so it is not left in the process. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
+   The script asks for `BOOTSTRAP_OWNER`, `BOOTSTRAP_OWNER_EMAIL`, and `BOOTSTRAP_OWNER_PASSWORD`. The password is not echoed. `BOOTSTRAP_OWNER` must be `Josh`, `1`, or `true`. They are handed to the seed process with `docker compose exec -e` and are not written into `deploy/.env`. The script never edits `deploy/.env`. The seed blanks a leftover `BOOTSTRAP_OWNER_PASSWORD` line in the mounted file. A second run prints that Josh is already seated and exits 0. If a password was left in `deploy/.env` and the seed clears it, the script recreates the API so it is not left in the process. If that line is still set afterwards, the script does not recreate the API and exits non-zero. A clean run, and a clean re-run, do not recreate the API. `COMPOSE_PROFILES` and extra files in `COMPOSE_FILE` are passed through to Compose. `pipefail` is turned on when the shell supports it. Two seed processes at once can race; run it once. The `bootstrap_seat` row still refuses a second founding account.
 
 9. Check health:
 
@@ -171,15 +171,17 @@ That line runs at 3:15 UTC with the host clock on UTC.
 
 Set `BACKUP_HEALTHCHECK_URL` to a monitor's success URL if a nightly run should ping. Leave it blank and nothing is pinged. A successful run pings that URL. A failed run pings the same URL with `/fail` appended (Healthchecks.io). If the value already ends in `/fail`, that URL is the failure ping and the success ping is the URL with `/fail` removed. The script does not print the URL, and it does not put the URL on curl's command line.
 
-Restore, after stopping the API. Copy the identity onto the box only for this command, then remove it:
+Restore, after stopping the API. This database already has rows, so `--overwrite` is required: the script lists the dump, then drops and recreates it. Without that flag the database must be empty and nothing is dropped. Copy the identity onto the box only for this command, then remove it:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop api
-AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh /var/backups/avouch/avouch-STAMP.dump.age
+AGE_IDENTITY_FILE=/tmp/avouch-backup-identity.txt ./scripts/restore-postgres.sh --overwrite /var/backups/avouch/avouch-STAMP.dump.age
 rm -f /tmp/avouch-backup-identity.txt
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml start api
 curl -fsS https://api.avouchsocial.com/api/health
 ```
+
+To restore the newest dump from the bucket onto a fresh host, follow `deploy/FAILOVER.md` and run `scripts/restore-from-backup.sh`. That script uses these same `BACKUP_S3_*` names.
 
 If the copy you need is only in the bucket:
 

@@ -188,7 +188,7 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
         This call is not recorded. Only people who have stood in this room can join.
       </p>
       {error ? (
-        <p className="text-sm text-fg" role="alert">
+        <p className="text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}

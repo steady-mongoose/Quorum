@@ -170,7 +170,7 @@ export function AttachPicture({
         </label>
       )}
       {error ? (
-        <p className="text-sm text-signal" role="alert">
+        <p className="text-sm text-danger" role="alert">
           {error}
         </p>
       ) : null}

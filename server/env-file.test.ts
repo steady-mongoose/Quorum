@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,24 @@ test("the owner password line is cleared and the rest of the file stays", () => 
   const dir = mkdtempSync(join(tmpdir(), "avouch-env-"));
   const path = join(dir, ".env");
   writeFileSync(path, source);
-  assert.equal(clearOwnerPasswordFile(path), true);
+  assert.equal(clearOwnerPasswordFile(path), "cleared");
   assert.equal(readFileSync(path, "utf8").includes("correct-horse"), false);
+});
+
+test("a clean env file is not rewritten and no password line is appended", () => {
+  const clean = "POSTGRES_PASSWORD=db\n";
+  const empty = "BOOTSTRAP_OWNER_PASSWORD=\nPOSTGRES_PASSWORD=db\n";
+  const quoted = 'BOOTSTRAP_OWNER_PASSWORD=""\n';
+  assert.equal(stripOwnerPassword(clean), clean);
+  assert.equal(stripOwnerPassword(empty), empty);
+  assert.equal(stripOwnerPassword(quoted), quoted);
+  assert.equal(stripOwnerPassword(""), "");
+
+  const dir = mkdtempSync(join(tmpdir(), "avouch-env-"));
+  const path = join(dir, ".env");
+  writeFileSync(path, clean);
+  const before = statSync(path).mtimeMs;
+  assert.equal(clearOwnerPasswordFile(path), "clean");
+  assert.equal(readFileSync(path, "utf8"), clean);
+  assert.equal(statSync(path).mtimeMs, before);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { btnGhost, btnSignal } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 
@@ -14,6 +14,8 @@ export function ConfirmDialog({
   cancelLabel,
   onConfirm,
   onCancel,
+  confirmDisabled = false,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -22,6 +24,8 @@ export function ConfirmDialog({
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmDisabled?: boolean;
+  children?: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -71,11 +75,14 @@ export function ConfirmDialog({
       <p id={descriptionId} className="mt-2 max-w-prose text-sm text-muted">
         {description}
       </p>
+      {children}
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
           className={cn(btnGhost, "min-h-[44px] border-[#f0b4a4]/60 text-[#f0b4a4]")}
+          disabled={confirmDisabled}
           onClick={() => {
+            if (confirmDisabled) return;
             confirming.current = true;
             onConfirm();
           }}

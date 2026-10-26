@@ -10,10 +10,7 @@ export const PHONE_TABS = [
 
 export const MORE_TAB = { id: "more", label: "More" } as const;
 
-/**
- * One entry that slots into the More sheet. Groups is not a phone tab.
- * You, The desk, and About stay with it.
- */
+/** Groups, then You, then The desk, then About. The desk is listed only when it is on. */
 export const MORE_ENTRIES = [
   { id: "groups", label: "Groups" },
   { id: "profile", label: "You" },
@@ -21,7 +18,7 @@ export const MORE_ENTRIES = [
   { id: "about", label: "About" },
 ] as const;
 
-/** Desktop keeps every section in the header, including Groups. */
+/** Desktop keeps the old order, with Groups beside the rooms. The desk drops out until the member opts in. */
 export const DESKTOP_NAV = [
   { id: "week", label: "This week" },
   { id: "rooms", label: "Rooms" },
@@ -54,9 +51,7 @@ export function desktopNav(deskOn: boolean) {
 
 /** Groups, You, The desk, and About light the More tab. */
 export function moreTabCurrent(section: Section): boolean {
-  return (
-    section === "groups" || section === "profile" || section === "civic" || section === "about"
-  );
+  return section === "groups" || section === "profile" || section === "civic" || section === "about";
 }
 
 export function tabAriaCurrent(active: boolean): "page" | undefined {

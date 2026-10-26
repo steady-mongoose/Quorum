@@ -168,7 +168,7 @@ test("?code= opens the code form and an empty code does not", () => {
   assert.deepEqual(entryFromSearch(""), { mode: "sign-in", code: "" });
 });
 
-test("the live green and cream are the colour tokens, and the amber theme is gone", () => {
+test("ink and bone are the colour tokens, and the amber theme is gone", () => {
   const css = source("../../styles.css");
   const theme = themeById(OWNER_THEME);
   const tokens: Record<string, string> = {
@@ -184,8 +184,8 @@ test("the live green and cream are the colour tokens, and the amber theme is gon
   for (const [name, value] of Object.entries(tokens)) {
     assert.match(css, new RegExp(`${name}:\\s*${value}`), name);
   }
-  assert.match(css, /--color-line-strong:\s*#857c6f/);
-  assert.ok(contrast("#857c6f", "#1e3025") >= 3);
+  assert.match(css, /--color-line-strong:\s*#8a7a62/);
+  assert.ok(contrast("#8a7a62", "#241d16") >= 3);
   const load = source("../../components/quorum/load-view.tsx");
   assert.match(load, /<select className="[^"]*border-line-strong[^"]*bg-raised/);
   assert.equal(css.includes("#e6a23c"), false);
@@ -198,8 +198,8 @@ test("the live green and cream are the colour tokens, and the amber theme is gon
     THEMES.some((item) => item.colors.signal === "#e6a23c"),
     false,
   );
-  assert.equal(theme.colors.raised, "#1e3025");
-  assert.equal(theme.colors.signal, "#e9e2c8");
+  assert.equal(theme.colors.raised, "#241d16");
+  assert.equal(theme.colors.signal, "#f0e7d3");
 });
 
 test("the week, the door, and the fields use the review's markup", () => {
@@ -224,7 +224,8 @@ test("the week, the door, and the fields use the review's markup", () => {
   const labelClose = account.indexOf("</label>", inputAt);
   const alertAt = account.indexOf('role="alert"');
   assert.ok(inputAt > 0 && labelClose > inputAt && alertAt > labelClose);
-  assert.match(account, /text-\[#f0b4a4\]/);
+  assert.match(account, /text-danger/);
+  assert.match(source("../../styles.css"), /--color-danger:\s*#f0b4a4/);
   assert.match(account, /aria-invalid=\{codeError \? true : undefined\}/);
   assert.match(account, /aria-describedby=\{codeError \? INVITE_CODE_ERROR_ID : undefined\}/);
   assert.match(account, /inline-flex min-h-\[44px\] items-center/);

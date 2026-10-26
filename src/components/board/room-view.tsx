@@ -57,7 +57,7 @@ import {
   type MeetingCard,
   type Post,
 } from "@/lib/board/model";
-import { checklistFor } from "@/lib/board/council";
+import { CouncilBar } from "@/components/board/council-bar";
 import { useBoard } from "@/lib/board/store";
 import { NeedCard } from "@/components/board/week-view";
 
@@ -103,7 +103,7 @@ export function RoomView() {
   const shelfBlock = (
     <>
       {shelf.map((card) => (
-        <article key={card.id} className="rounded-lg border border-signal bg-surface p-4">
+        <article key={card.id} className="card rounded-lg border border-signal bg-surface p-4">
           <Kicker className="flex items-center gap-2">
             <Pin className="size-3" aria-hidden="true" />
             {card.kind === "candidate"
@@ -136,8 +136,16 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <section className="plate flex flex-col gap-2">
+        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
+        <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
+        <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <RoomCall roomId={room} />
+        <RoomChat roomId={room} />
+      </section>
+
       <nav
-        className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible"
+        className="relative z-10 flex flex-wrap gap-2 pb-1"
         aria-label="Rooms"
       >
         {rooms.map((item) => (
@@ -153,19 +161,11 @@ export function RoomView() {
         ))}
       </nav>
 
-      <section className="flex flex-col gap-2">
-        <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
-        <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{meta.name}</h1>
-        <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <RoomCall roomId={room} />
-        <RoomChat roomId={room} />
-      </section>
-
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
-          {boardError ? <p className="text-sm text-signal">{boardError}</p> : null}
+          {boardError ? <p className="text-sm text-danger">{boardError}</p> : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
               {ban.reason === "csam"
@@ -181,7 +181,7 @@ export function RoomView() {
           )}
 
           {steward && feed.length > 0 ? (
-            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-xs text-muted">
+            <label className="inline-flex min-h-[44px] items-center gap-2 self-end text-[0.8125rem] text-muted">
               <input
                 type="checkbox"
                 className="size-5"
@@ -241,7 +241,7 @@ export function RoomView() {
 function FieldError({ id, messages }: { id: string; messages: string[] }) {
   if (messages.length === 0) return null;
   return (
-    <p id={id} className="text-sm text-[#f0b4a4]">
+    <p id={id} className="text-sm text-danger">
       {messages.join(" ")}
     </p>
   );
@@ -751,13 +751,6 @@ const PostCard = memo(function PostCard({
   const appeal = useBoard((state) => state.appeal);
   const appeals = useBoard((state) => state.appeals);
   const openDm = useBoard((state) => state.openDm);
-  const remote = useBoard((state) => state.remote);
-  const councilMember = useBoard((state) => state.council);
-  const admin = useBoard((state) => state.admin);
-  const setCouncil = useBoard((state) => state.setCouncil);
-  const [checks, setChecks] = useState<string[]>([]);
-  const [councilReason, setCouncilReason] = useState("");
-  const [councilError, setCouncilError] = useState("");
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -779,7 +772,7 @@ const PostCard = memo(function PostCard({
   const type = typeMeta(post.type);
 
   return (
-    <article className={cn("py-5 first:pt-0", post.mark && "opacity-60")}>
+    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">
@@ -800,76 +793,7 @@ const PostCard = memo(function PostCard({
           </span>
         ) : null}
       </div>
-      {post.council ? (
-        <div className="mt-2">
-          <p className="text-sm text-muted">{post.council.reason}</p>
-          <ul className="mt-1 list-disc pl-5 text-sm text-muted">
-            {post.council.checklist.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          {remote && admin ? (
-            <button
-              type="button"
-              className={cn(btnQuiet, "mt-2 px-0")}
-              onClick={() => {
-                void setCouncil(post.id, { action: "revoke", reason: "", checklist: [] }).then(
-                  (result) => {
-                    if (!result.ok) setCouncilError(result.error ?? "That approval was not saved.");
-                  },
-                );
-              }}
-            >
-              Revoke council approval
-            </button>
-          ) : null}
-        </div>
-      ) : remote && councilMember && post.subject && !post.parentId ? (
-        <form
-          className="mt-3 flex flex-col gap-2 border-t border-line pt-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void setCouncil(post.id, {
-              action: "approve",
-              reason: councilReason,
-              checklist: checks,
-            }).then((result) => {
-              setCouncilError(result.ok ? "" : (result.error ?? "That approval was not saved."));
-            });
-          }}
-        >
-          <p className="text-xs tracking-widest text-muted uppercase">Council review</p>
-          {checklistFor(post.subject).map((item) => (
-            <label key={item} className="flex items-start gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                className="mt-1 size-4"
-                checked={checks.includes(item)}
-                onChange={() =>
-                  setChecks((current) =>
-                    current.includes(item)
-                      ? current.filter((row) => row !== item)
-                      : [...current, item],
-                  )
-                }
-              />
-              {item}
-            </label>
-          ))}
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            One sentence
-            <input
-              className={fieldClass}
-              value={councilReason}
-              onChange={(event) => setCouncilReason(event.target.value)}
-            />
-          </label>
-          <button type="submit" className={btnSignal}>
-            Council-approved
-          </button>
-        </form>
-      ) : null}
-      {councilError ? <p className="mt-2 text-sm text-muted">{councilError}</p> : null}
+      <CouncilBar post={post} />
 
       {editing ? (
         <div className="mt-3 flex flex-col gap-2">
@@ -1005,7 +929,7 @@ const PostCard = memo(function PostCard({
       {steward ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
           <div className="flex flex-wrap gap-2">
-            <span className="self-center text-xs tracking-widest text-muted uppercase">
+            <span className="self-center text-[0.8125rem] tracking-widest text-muted uppercase">
               Steward
             </span>
             {MARKS.map((item) => (
@@ -1060,7 +984,7 @@ const PostCard = memo(function PostCard({
                   setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
                 }
               />
-              {markDraft.error ? <span className="text-signal">{markDraft.error}</span> : null}
+              {markDraft.error ? <span className="text-danger">{markDraft.error}</span> : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1084,7 +1008,7 @@ const PostCard = memo(function PostCard({
               </span>
             </label>
           ) : null}
-          {removeError ? <p className="text-sm text-signal">{removeError}</p> : null}
+          {removeError ? <p className="text-sm text-danger">{removeError}</p> : null}
           {appealing ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
               One sentence to the stewards
@@ -1097,7 +1021,7 @@ const PostCard = memo(function PostCard({
                   setAppealError("");
                 }}
               />
-              {appealError ? <span className="text-signal">{appealError}</span> : null}
+              {appealError ? <span className="text-danger">{appealError}</span> : null}
               <span className="flex gap-2">
                 <button
                   type="button"
@@ -1179,7 +1103,7 @@ function AppealLog() {
                       setError("");
                     }}
                   />
-                  {error ? <span className="text-signal">{error}</span> : null}
+                  {error ? <span className="text-danger">{error}</span> : null}
                   <span className="flex flex-wrap gap-2">
                     <button
                       type="button"
