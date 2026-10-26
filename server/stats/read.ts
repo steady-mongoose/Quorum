@@ -30,7 +30,6 @@ import { addUtcDays, asCount, isoDate, utcDate } from "./dates.ts";
 type Stored = { date: string; metric: string; dimension: string; count: number };
 
 const FEATURE_DAYS = 27;
-const TILE_DAYS = 30;
 
 export async function readStats(
   db: Db,
@@ -56,7 +55,9 @@ export async function readStats(
   const rooms = roomSeries(stored, names, inChart, inCategory);
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
-  const tiles = asOf ? await tilesOf(db, stored, asOf, filter.category, membership) : blankTiles();
+  const tiles = asOf
+    ? await tilesOf(db, stored, asOf, filter.days, filter.category, membership)
+    : blankTiles(filter.days);
   const roomsByCategory = asOf
     ? await categoriesOf(
         db,
@@ -134,7 +135,8 @@ function countOn(stored: Stored[], metric: string, date: string, dimension = "")
   return row ? row.count : null;
 }
 
-function blankTiles(): StatsPayload["tiles"] {
+function blankTiles(days: StatsDays): StatsPayload["tiles"] {
+  const labels = tileLabels(days);
   const blank = (id: StatsTile["id"], label: string): StatsTile => ({
     id,
     label,
@@ -142,32 +144,48 @@ function blankTiles(): StatsPayload["tiles"] {
     change: null,
   });
   return [
-    blank("members", "Members"),
-    blank("invites", "Invites accepted (30 days)"),
-    blank("rooms", "Active rooms (30 days)"),
-    blank("gatherings", "Gatherings held (30 days)"),
+    blank("members", labels.members),
+    blank("invites", labels.invites),
+    blank("rooms", labels.rooms),
+    blank("gatherings", labels.gatherings),
   ];
+}
+
+function tileLabels(days: StatsDays): {
+  members: string;
+  invites: string;
+  rooms: string;
+  gatherings: string;
+} {
+  return {
+    members: "Members",
+    invites: `Invites accepted (${days} days)`,
+    rooms: `Active rooms (${days} days)`,
+    gatherings: `Gatherings held (${days} days)`,
+  };
 }
 
 async function tilesOf(
   db: Db,
   stored: Stored[],
   asOf: string,
+  days: StatsDays,
   category: string,
   membership: Map<string, Set<string>>,
 ): Promise<StatsPayload["tiles"]> {
-  const currentStart = addUtcDays(asOf, -(TILE_DAYS - 1));
-  const priorEnd = addUtcDays(asOf, -TILE_DAYS);
-  const priorStart = addUtcDays(priorEnd, -(TILE_DAYS - 1));
+  const labels = tileLabels(days);
+  const currentStart = addUtcDays(asOf, -(days - 1));
+  const priorEnd = addUtcDays(asOf, -days);
+  const priorStart = addUtcDays(priorEnd, -(days - 1));
   const members = compared(
     "members",
-    "Members",
+    labels.members,
     filledCounts(stored, "joins", currentStart, asOf),
     filledCounts(stored, "joins", priorStart, priorEnd),
   );
   const invites = comparedCounts(
     "invites",
-    "Invites accepted (30 days)",
+    labels.invites,
     await redeemed(db, currentStart, asOf),
     await redeemed(db, priorStart, priorEnd),
   );
@@ -175,11 +193,12 @@ async function tilesOf(
     await categorySnapshot(db, currentStart, asOf, membership),
     await categorySnapshot(db, priorStart, priorEnd, membership),
     category,
+    labels.rooms,
   );
   const inCategory = roomIdsFor(membership, category);
   const gatherings = compared(
     "gatherings",
-    "Gatherings held (30 days)",
+    labels.gatherings,
     await gatheringParts(db, currentStart, asOf, inCategory),
     await gatheringParts(db, priorStart, priorEnd, inCategory),
   );
@@ -190,10 +209,11 @@ function roomsTile(
   current: CategorySnapshot,
   prior: CategorySnapshot,
   category: string,
+  label: string,
 ): StatsTile {
   return {
     id: "rooms",
-    label: "Active rooms (30 days)",
+    label,
     value: publishedRooms(current, category),
     change: shownChange(publishedRooms(current, category), publishedRooms(prior, category)),
   };

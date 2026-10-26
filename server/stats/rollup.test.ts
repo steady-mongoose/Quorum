@@ -581,19 +581,33 @@ test("published totals do not let a hidden count be subtracted back", async () =
     assert.match(csv, /rooms,2026-10-12,posts,Small Room,<5/);
     assert.equal(csv.includes("Members,,7"), false);
 
+    assert.equal(
+      stats.tiles.find((tile) => tile.id === "invites")?.label,
+      "Invites accepted (30 days)",
+    );
     const weekWindow = await readStats(db, NOW, { days: 7, category: "churches" });
     assert.equal(weekWindow.days, 7);
     assert.equal(weekWindow.category, "churches");
     assert.equal(weekWindow.joins.length, 7);
-    assert.deepEqual(
-      weekWindow.tiles.map((tile) => tile.value),
-      stats.tiles.map((tile) => tile.value),
+    assert.equal(weekWindow.tiles.find((tile) => tile.id === "members")?.value, "<5");
+    assert.equal(
+      weekWindow.tiles.find((tile) => tile.id === "invites")?.label,
+      "Invites accepted (7 days)",
     );
+    assert.equal(
+      weekWindow.tiles.find((tile) => tile.id === "rooms")?.label,
+      "Active rooms (7 days)",
+    );
+    assert.equal(
+      weekWindow.tiles.find((tile) => tile.id === "gatherings")?.label,
+      "Gatherings held (7 days)",
+    );
+    const weekAll = await readStats(db, NOW, { days: 7, category: "all" });
+    assert.equal(weekWindow.tiles[0]?.value, weekAll.tiles[0]?.value);
+    assert.equal(weekWindow.tiles[1]?.value, weekAll.tiles[1]?.value);
     assert.equal(stats.roomsByCategory.length, 7);
     assert.equal(weekWindow.roomsByCategory.length, 1);
     assert.equal(weekWindow.roomsByCategory[0]?.id, "churches");
-    assert.equal(weekWindow.tiles[0]?.value, stats.tiles[0]?.value);
-    assert.equal(weekWindow.tiles[1]?.value, stats.tiles[1]?.value);
     assert.deepEqual(parseStatsQuery(new URLSearchParams("days=3&category=nope")), {
       days: 30,
       category: "all",

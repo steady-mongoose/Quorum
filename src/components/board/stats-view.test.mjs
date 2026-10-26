@@ -133,34 +133,65 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   assert.match(text, /<5/);
   assert.match(text, /Most used: Board/);
   assert.match(text, /no RSVP count/);
+  assert.match(
+    text,
+    /Category shows only rooms in that category and their gatherings\. A room in more than one category appears under each, but totals count it once\./,
+  );
   assert.equal(text.includes("Lovelace"), false);
   const up = document.querySelector("[aria-label='up 4 versus prior 30 days']");
   assert.ok(up);
   assert.match(document.body.innerHTML, /text-danger/);
   assert.match(document.body.innerHTML, /border-danger/);
 
-  const bars = [...document.querySelectorAll("rect[data-count]")];
-  assert.ok(bars.length > 0);
+  const marks = [...document.querySelectorAll("[data-count]")];
+  assert.ok(marks.length > 0);
   assert.equal(
-    bars.every((rect) => rect.getAttribute("fill") === "#c9a45c"),
+    marks.every((mark) => mark.getAttribute("fill") === "#c9a45c"),
     true,
   );
   assert.equal(
-    bars.every((rect) => !rect.getAttribute("opacity") || rect.getAttribute("opacity") === "1"),
+    marks.every((mark) => !mark.getAttribute("opacity") || mark.getAttribute("opacity") === "1"),
     true,
   );
   const grids = [...document.querySelectorAll("rect[stroke='#857c6f']")];
   assert.ok(grids.length >= 3);
   const axis = [...document.querySelectorAll("text")].map((node) => node.getAttribute("font-size"));
   assert.ok(axis.includes("12"));
-  const hiddenBars = bars.filter((rect) => rect.getAttribute("data-count") === "hidden");
-  assert.ok(hiddenBars.length > 1);
-  const heights = new Set(
-    hiddenBars
-      .filter((rect) => rect.closest("svg")?.getAttribute("aria-label") === "Joins over time")
-      .map((rect) => rect.getAttribute("height")),
+  const joinsSvg = [...document.querySelectorAll("svg")].find(
+    (svg) => svg.getAttribute("aria-label") === "Joins over time",
   );
-  assert.equal(heights.size, 1);
+  assert.ok(joinsSvg);
+  const joinsLine = joinsSvg.querySelector("polyline");
+  assert.equal(joinsLine?.getAttribute("stroke"), "#c9a45c");
+  assert.equal(joinsLine?.getAttribute("stroke-width"), "1");
+  const hiddenJoins = [...joinsSvg.querySelectorAll("[data-count='hidden']")];
+  assert.equal(new Set(hiddenJoins.map((node) => node.getAttribute("cy"))).size, 1);
+
+  const features = [...document.querySelectorAll("section")].find(
+    (section) => section.querySelector("h2")?.textContent === "Features",
+  );
+  assert.ok(features);
+  const featureBar = features.querySelector("rect[data-count]");
+  assert.ok(featureBar);
+  assert.ok(Number(featureBar.getAttribute("width")) > Number(featureBar.getAttribute("height")));
+
+  const moreHeading = [...document.querySelectorAll("h2")].find(
+    (heading) => heading.textContent === "More counts",
+  );
+  const activeHeading = [...document.querySelectorAll("h2")].find(
+    (heading) => heading.textContent === "Active members",
+  );
+  assert.ok(moreHeading);
+  assert.ok(activeHeading);
+  assert.notEqual(moreHeading.compareDocumentPosition(activeHeading) & 4, 0);
+  const active = activeHeading.closest("section");
+  if (!active) throw new Error("Active members is missing.");
+  assert.match(active.className, /lg:col-span-6/);
+  const activeLabels = [...active.querySelectorAll("text")].map((node) => node.textContent);
+  assert.ok(activeLabels.includes("That day"));
+  assert.ok(activeLabels.includes("7 days"));
+  assert.ok(activeLabels.includes("30 days"));
+  assert.equal(active.querySelectorAll("polyline").length, 3);
 
   const range = document.querySelector("[aria-label='Range']");
   assert.ok(range);
@@ -179,10 +210,12 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   );
   assert.ok(joins);
   assert.equal(joins.querySelector("table"), null);
-  const tableButton = [...joins.querySelectorAll("button")].find(
+  const tableButtons = [...document.querySelectorAll("button")].filter(
     (button) => button.textContent === "View as table",
   );
-  assert.ok(tableButton);
+  assert.equal(tableButtons.length, 1);
+  const tableButton = tableButtons[0];
+  assert.equal(tableButton.closest("section"), null);
   assert.equal(tableButton.getAttribute("aria-expanded"), "false");
   assert.match(tableButton.className, /min-h-\[44px\]/);
   await act(async () => {
@@ -195,18 +228,13 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   assert.equal(joins.querySelector("svg"), null);
   assert.match(table.textContent ?? "", /<5/);
   assert.match(table.textContent ?? "", /6/);
+  assert.equal(features.querySelector("svg"), null);
+  assert.ok(active.querySelector("table"));
 
   const posts = [...document.querySelectorAll("section")].find(
     (section) => section.querySelector("h2")?.textContent === "Posts",
   );
   assert.ok(posts);
-  const postsToggle = [...posts.querySelectorAll("button")].find(
-    (button) => button.textContent === "View as table",
-  );
-  assert.ok(postsToggle);
-  await act(async () => {
-    postsToggle.click();
-  });
   assert.equal(posts.textContent?.includes("Room 21"), false);
   const more = [...posts.querySelectorAll("button")].find((button) =>
     button.textContent?.startsWith("Show the rest"),
@@ -225,6 +253,36 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
     csv.click();
   });
   assert.equal(downloaded, true);
+
+  act(() => {
+    root.render(
+      createElement(StatsView, {
+        stats: {
+          ...stats,
+          days: 7,
+          tiles: [
+            stats.tiles[0],
+            { ...stats.tiles[1], label: "Invites accepted (7 days)" },
+            { ...stats.tiles[2], label: "Active rooms (7 days)" },
+            { ...stats.tiles[3], label: "Gatherings held (7 days)" },
+          ],
+        },
+        days: 7,
+        category: "all",
+        onDays: () => {},
+        onCategory: () => {},
+        onCsv: () => {},
+        csvError: "",
+      }),
+    );
+  });
+  const ranged = document.body.textContent ?? "";
+  assert.match(ranged, /Invites accepted \(7 days\)/);
+  assert.match(ranged, /Active rooms \(7 days\)/);
+  assert.match(ranged, /Gatherings held \(7 days\)/);
+  assert.match(ranged, /▲ 4 vs prior 7 days/);
+  assert.match(ranged, /▼ 2 vs prior 7 days/);
+  assert.ok(document.querySelector("[aria-label='up 4 versus prior 7 days']"));
 
   act(() => root.unmount());
   host.remove();

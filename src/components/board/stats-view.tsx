@@ -13,6 +13,18 @@ const GOLD = "#c9a45c";
 const GRID = "#857c6f";
 const AXIS = "#bcae94";
 const ROOM_PAGE = 20;
+const CHART_IDS = [
+  "stats-rooms",
+  "stats-invites",
+  "stats-joins",
+  "stats-rolls",
+  "stats-attendance",
+  "stats-posts",
+  "stats-gatherings",
+  "stats-active-members",
+  "stats-features",
+  "stats-intent",
+].join(" ");
 
 type Bar = { label: string; count: ShownCount | null };
 
@@ -33,44 +45,57 @@ export function StatsView({
   onDays: (days: StatsDays) => void;
   onCategory: (category: string) => void;
 }) {
+  const [table, setTable] = useState(false);
   const roomRows = [...stats.rooms.rows].sort(
     (a, b) => a.room.localeCompare(b.room) || a.week.localeCompare(b.week),
   );
   return (
     <>
       <Alerts alerts={stats.alerts} />
-      <div className="col-span-12 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-        <div role="group" aria-label="Range" className="flex flex-wrap gap-2">
-          {STATS_DAYS.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              aria-pressed={days === choice}
-              className={days === choice ? choiceOn : choiceOff}
-              onClick={() => onDays(choice)}
-            >
-              {choice} days
-            </button>
-          ))}
-        </div>
-        <label className="flex min-w-0 flex-col gap-1 text-[0.85rem] text-muted">
-          Category
-          <select
-            className="min-h-[44px] rounded-md border border-line bg-surface px-3 text-fg"
-            value={category}
-            aria-label="Category"
-            onChange={(event) => onCategory(event.target.value)}
-          >
-            <option value="all">All</option>
-            {STATS_CATEGORIES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
+      <div className="col-span-12 flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <div role="group" aria-label="Range" className="flex flex-wrap gap-2">
+            {STATS_DAYS.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                aria-pressed={days === choice}
+                className={days === choice ? choiceOn : choiceOff}
+                onClick={() => onDays(choice)}
+              >
+                {choice} days
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+          <label className="flex min-w-0 flex-col gap-1 text-[0.85rem] text-muted">
+            Category
+            <select
+              className="min-h-[44px] rounded-md border border-line bg-surface px-3 text-fg"
+              value={category}
+              aria-label="Category"
+              onChange={(event) => onCategory(event.target.value)}
+            >
+              <option value="all">All</option>
+              {STATS_CATEGORIES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="inline-flex min-h-[44px] items-center rounded-md border border-line px-3 text-sm font-semibold text-fg"
+            aria-expanded={table}
+            aria-controls={CHART_IDS}
+            onClick={() => setTable(!table)}
+          >
+            {table ? "View as chart" : "View as table"}
+          </button>
+        </div>
         <p className="max-w-prose text-[0.85rem] text-muted">
-          A category narrows rooms and gatherings. A room in two categories counts in each.
+          Category shows only rooms in that category and their gatherings. A room in more than one
+          category appears under each, but totals count it once.
         </p>
       </div>
 
@@ -83,11 +108,13 @@ export function StatsView({
           <p className="mt-2 font-display text-[2.5rem] leading-none text-fg tabular-nums">
             {show(tile.value)}
           </p>
-          <ChangeLine change={tile.change} />
+          <ChangeLine change={tile.change} days={days} />
         </article>
       ))}
 
       <ChartCard
+        id="stats-rooms"
+        showTable={table}
         title="Rooms by category"
         chart={
           <HorizontalBars
@@ -108,6 +135,8 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-invites"
+        showTable={table}
         title="Invites"
         chart={
           <HorizontalBars
@@ -128,12 +157,12 @@ export function StatsView({
         }
       />
 
-      <ActiveMembers stats={stats} />
-
       <ChartCard
+        id="stats-joins"
+        showTable={table}
         title="Joins"
         chart={
-          <ColumnChart
+          <LineChart
             label="Joins over time"
             noun="Joins"
             rows={stats.joins.map((row) => ({ label: shortDay(row.date), count: row.count }))}
@@ -148,9 +177,11 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-rolls"
+        showTable={table}
         title="Rolls"
         chart={
-          <ColumnChart
+          <LineChart
             label="Rolls filed"
             noun="Rolls"
             rows={stats.roll.map((row) => ({ label: shortDay(row.date), count: row.roll }))}
@@ -165,9 +196,11 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-attendance"
+        showTable={table}
         title="Attendance"
         chart={
-          <ColumnChart
+          <LineChart
             label="Attendance"
             noun="Attendance"
             rows={stats.roll.map((row) => ({ label: shortDay(row.date), count: row.attendance }))}
@@ -182,10 +215,12 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-posts"
+        showTable={table}
         title="Posts"
         note={`Rooms that met in at least 3 of the last 4 weeks: ${show(stats.rooms.steady)}`}
         chart={
-          <ColumnChart
+          <LineChart
             label="Posts per week"
             noun="Posts"
             rows={stats.rooms.weeks.map((row) => ({ label: shortDay(row.week), count: row.posts }))}
@@ -200,9 +235,11 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-gatherings"
+        showTable={table}
         title="Gatherings"
         chart={
-          <ColumnChart
+          <LineChart
             label="Gatherings per week"
             noun="Gatherings"
             rows={stats.rooms.weeks.map((row) => ({
@@ -223,13 +260,19 @@ export function StatsView({
       <div className="col-span-12 mt-8">
         <h2 className="text-2xl text-fg">More counts</h2>
       </div>
+      <ActiveMembers stats={stats} showTable={table} />
       <ChartCard
+        id="stats-features"
+        showTable={table}
         title="Features"
         note={featureNote(stats.mostUsed, stats.leastUsed)}
         chart={
-          <ColumnChart
+          <HorizontalBars
             label="Feature use by endpoint group"
-            noun="Uses"
+            summary={seriesSummary(
+              "Uses",
+              stats.features.map((row) => ({ label: row.label, count: row.count })),
+            )}
             rows={stats.features.map((row) => ({ label: row.label, count: row.count }))}
           />
         }
@@ -242,11 +285,13 @@ export function StatsView({
         }
       />
       <ChartCard
+        id="stats-intent"
+        showTable={table}
         title="Intent"
         note={stats.intent.rsvpNote}
         extra={<IntentFacts stats={stats} />}
         chart={
-          <ColumnChart
+          <LineChart
             label="Attendance over time"
             noun="Attendance"
             rows={stats.intent.attendance.map((row) => ({
@@ -299,7 +344,7 @@ function Alerts({ alerts }: { alerts: StatsPayload["alerts"] }) {
   );
 }
 
-function ChangeLine({ change }: { change: number | null }) {
+function ChangeLine({ change, days }: { change: number | null; days: StatsDays }) {
   if (change === null) {
     return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">—</p>;
   }
@@ -311,19 +356,40 @@ function ChangeLine({ change }: { change: number | null }) {
   return (
     <p
       className="mt-2 text-[0.85rem] text-muted tabular-nums"
-      aria-label={`${up ? "up" : "down"} ${abs} versus prior 30 days`}
+      aria-label={`${up ? "up" : "down"} ${abs} versus prior ${days} days`}
     >
-      {up ? "▲" : "▼"} {abs} vs prior 30 days
+      {up ? "▲" : "▼"} {abs} vs prior {days} days
     </p>
   );
 }
 
-function ActiveMembers({ stats }: { stats: StatsPayload }) {
-  const [table, setTable] = useState(false);
+function ActiveMembers({ stats, showTable }: { stats: StatsPayload; showTable: boolean }) {
+  const series = [
+    {
+      name: "That day",
+      noun: "Members that day",
+      rows: stats.active.map((row) => ({ label: shortDay(row.date), count: row.dau })),
+    },
+    {
+      name: "7 days",
+      noun: "Members in 7 days",
+      rows: stats.active.map((row) => ({ label: shortDay(row.date), count: row.wau })),
+    },
+    {
+      name: "30 days",
+      noun: "Members in 30 days",
+      rows: stats.active.map((row) => ({ label: shortDay(row.date), count: row.mau })),
+    },
+  ];
   return (
-    <section className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6">
-      <ChartHead title="Active members" table={table} setTable={setTable} />
-      {table ? (
+    <section
+      id="stats-active-members"
+      className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6 lg:col-span-6"
+    >
+      <h2 id={titleId("Active members")} className="mb-3 text-2xl text-fg">
+        Active members
+      </h2>
+      {showTable ? (
         <CountTable
           caption="Active members"
           columns={["Date", "That day", "7 days", "30 days"]}
@@ -335,147 +401,218 @@ function ActiveMembers({ stats }: { stats: StatsPayload }) {
           ])}
         />
       ) : (
-        <div className="grid gap-6">
-          <LabeledSeries
-            name="That day"
-            noun="Members that day"
-            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.dau }))}
-          />
-          <LabeledSeries
-            name="7 days"
-            noun="Members in 7 days"
-            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.wau }))}
-          />
-          <LabeledSeries
-            name="30 days"
-            noun="Members in 30 days"
-            rows={stats.active.map((row) => ({ label: shortDay(row.date), count: row.mau }))}
-          />
-        </div>
+        <LabelledLines label="Active members" series={series} />
       )}
     </section>
   );
 }
 
-function LabeledSeries({ name, noun, rows }: { name: string; noun: string; rows: Bar[] }) {
-  return (
-    <div className="min-w-0">
-      <h3 className="mb-2 text-[0.85rem] text-muted">{name}</h3>
-      <ColumnChart label={`${name} active members`} noun={noun} rows={rows} />
-    </div>
-  );
-}
-
 function ChartCard({
+  id,
   title,
   note,
   extra,
   chart,
   table,
+  showTable,
 }: {
+  id: string;
   title: string;
   note?: string;
   extra?: ReactNode;
   chart: ReactNode;
   table: ReactNode;
+  showTable: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <section className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6 lg:col-span-6">
-      <ChartHead title={title} table={open} setTable={setOpen} />
+    <section
+      id={id}
+      className="col-span-12 min-w-0 rounded-lg border border-line bg-surface p-6 lg:col-span-6"
+    >
+      <h2 id={titleId(title)} className="mb-3 text-2xl text-fg">
+        {title}
+      </h2>
       {note ? <p className="mb-3 max-w-prose text-sm text-muted">{note}</p> : null}
       {extra}
-      {open ? table : chart}
+      {showTable ? table : chart}
     </section>
   );
 }
 
-function ChartHead({
-  title,
-  table,
-  setTable,
-}: {
-  title: string;
-  table: boolean;
-  setTable: (value: boolean) => void;
-}) {
-  return (
-    <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-      <h2 id={titleId(title)} className="text-2xl text-fg">
-        {title}
-      </h2>
-      <button
-        type="button"
-        className="inline-flex min-h-[44px] items-center rounded-md border border-line px-3 text-sm font-semibold text-fg"
-        aria-expanded={table}
-        aria-controls={titleId(title)}
-        onClick={() => setTable(!table)}
-      >
-        {table ? "View as chart" : "View as table"}
-      </button>
-    </div>
-  );
+type PlotPoint = { x: number; y: number; hidden: boolean; label: string };
+
+function plotPoints(rows: Bar[], max: number, geometry: PlotGeometry): PlotPoint[] {
+  return rows.map((row, index) => {
+    const hidden = row.count === "<5" || row.count === null;
+    const portion = hidden ? 0.12 : (row.count as number) / max;
+    const y = 8 + geometry.plotHeight - Math.max(2, portion * geometry.plotHeight);
+    const x = geometry.left + index * geometry.group + geometry.group / 2;
+    return { x, y, hidden, label: row.label };
+  });
 }
 
-function ColumnChart({ label, noun, rows }: { label: string; noun: string; rows: Bar[] }) {
-  const plot = rows.flatMap((row) => (typeof row.count === "number" ? [row] : []));
-  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
-  const max = Math.max(5, ...plot.map((row) => row.count as number));
+type PlotGeometry = {
+  width: number;
+  height: number;
+  left: number;
+  plotWidth: number;
+  plotHeight: number;
+  group: number;
+};
+
+function plotGeometry(count: number, right = 8): PlotGeometry {
   const width = 640;
   const height = 180;
   const left = 36;
   const bottom = 28;
-  const plotWidth = width - left - 8;
+  const plotWidth = width - left - right;
   const plotHeight = height - bottom - 8;
-  const group = plotWidth / rows.length;
+  return { width, height, left, plotWidth, plotHeight, group: plotWidth / Math.max(count, 1) };
+}
+
+function GridLines({ max, geometry }: { max: number; geometry: PlotGeometry }) {
+  return (
+    <>
+      {[1, 2, 3, 4].map((step) => {
+        const y = 8 + geometry.plotHeight - (geometry.plotHeight * step) / 4;
+        return (
+          <g key={step}>
+            <rect
+              x={geometry.left}
+              y={y}
+              width={geometry.plotWidth}
+              height={1}
+              fill="none"
+              stroke={GRID}
+              strokeWidth={1}
+            />
+            <text x={geometry.left - 6} y={y + 4} fill={AXIS} fontSize={12} textAnchor="end">
+              {Math.round((max * step) / 4)}
+            </text>
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
+function AxisDates({ rows, geometry }: { rows: Bar[]; geometry: PlotGeometry }) {
+  return (
+    <>
+      <text x={geometry.left} y={geometry.height - 6} fill={AXIS} fontSize={12}>
+        {rows[0]?.label}
+      </text>
+      {rows.length > 1 ? (
+        <text
+          x={geometry.left + geometry.plotWidth}
+          y={geometry.height - 6}
+          fill={AXIS}
+          fontSize={12}
+          textAnchor="end"
+        >
+          {rows[rows.length - 1]?.label}
+        </text>
+      ) : null}
+    </>
+  );
+}
+
+function LineChart({ label, noun, rows }: { label: string; noun: string; rows: Bar[] }) {
+  const plot = rows.flatMap((row) => (typeof row.count === "number" ? [row] : []));
+  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
+  const max = Math.max(5, ...plot.map((row) => row.count as number));
+  const geometry = plotGeometry(rows.length);
+  const points = plotPoints(rows, max, geometry);
   return (
     <figure className="min-w-0">
-      <svg role="img" aria-label={label} viewBox={`0 0 ${width} ${height}`} className="h-44 w-full">
-        {[1, 2, 3, 4].map((step) => {
-          const y = 8 + plotHeight - (plotHeight * step) / 4;
+      <svg
+        role="img"
+        aria-label={label}
+        viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+        className="h-44 w-full"
+      >
+        <GridLines max={max} geometry={geometry} />
+        <polyline
+          points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+          fill="none"
+          stroke={GOLD}
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+        {points.map((point, index) => (
+          <circle
+            key={`${point.label}-${index}`}
+            data-count={point.hidden ? "hidden" : "shown"}
+            cx={point.x}
+            cy={point.y}
+            r={2.5}
+            fill={GOLD}
+          />
+        ))}
+        <AxisDates rows={rows} geometry={geometry} />
+      </svg>
+      <figcaption className="sr-only">{seriesSummary(noun, numericRows(rows))}</figcaption>
+    </figure>
+  );
+}
+
+function LabelledLines({
+  label,
+  series,
+}: {
+  label: string;
+  series: { name: string; noun: string; rows: Bar[] }[];
+}) {
+  const rows = series[0]?.rows ?? [];
+  if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
+  const max = Math.max(
+    5,
+    ...series.flatMap((item) =>
+      item.rows.flatMap((row) => (typeof row.count === "number" ? [row.count] : [])),
+    ),
+  );
+  const geometry = plotGeometry(rows.length, 88);
+  return (
+    <figure className="min-w-0">
+      <svg
+        role="img"
+        aria-label={label}
+        viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+        className="h-44 w-full"
+      >
+        <GridLines max={max} geometry={geometry} />
+        {series.map((item) => {
+          const points = plotPoints(item.rows, max, geometry);
+          const last = points[points.length - 1];
           return (
-            <g key={step}>
-              <rect
-                x={left}
-                y={y}
-                width={plotWidth}
-                height={1}
+            <g key={item.name}>
+              <polyline
+                points={points.map((point) => `${point.x},${point.y}`).join(" ")}
                 fill="none"
-                stroke={GRID}
+                stroke={GOLD}
                 strokeWidth={1}
-              />
-              <text x={left - 6} y={y + 4} fill={AXIS} fontSize={12} textAnchor="end">
-                {Math.round((max * step) / 4)}
-              </text>
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>{item.name}</title>
+              </polyline>
+              {last ? (
+                <text
+                  x={geometry.left + geometry.plotWidth + 8}
+                  y={last.y + 4}
+                  fill={AXIS}
+                  fontSize={12}
+                >
+                  {item.name}
+                </text>
+              ) : null}
             </g>
           );
         })}
-        {rows.map((row, index) => {
-          const hidden = row.count === "<5" || row.count === null;
-          const portion = hidden ? 0.12 : (row.count as number) / max;
-          const barHeight = Math.max(2, portion * plotHeight);
-          return (
-            <rect
-              key={`${row.label}-${index}`}
-              data-count={hidden ? "hidden" : "shown"}
-              x={left + index * group + 1}
-              y={8 + plotHeight - barHeight}
-              width={Math.max(1, group - 2)}
-              height={barHeight}
-              fill={GOLD}
-            />
-          );
-        })}
-        <text x={left} y={height - 6} fill={AXIS} fontSize={12}>
-          {rows[0]?.label}
-        </text>
-        {rows.length > 1 ? (
-          <text x={width - 8} y={height - 6} fill={AXIS} fontSize={12} textAnchor="end">
-            {rows[rows.length - 1]?.label}
-          </text>
-        ) : null}
+        <AxisDates rows={rows} geometry={geometry} />
       </svg>
-      <figcaption className="sr-only">{seriesSummary(noun, numericRows(rows))}</figcaption>
+      <figcaption className="sr-only">
+        {series.map((item) => seriesSummary(item.noun, numericRows(item.rows))).join(" ")}
+      </figcaption>
     </figure>
   );
 }
@@ -546,7 +683,7 @@ function HorizontalBars({ label, summary, rows }: { label: string; summary: stri
                 fill={AXIS}
                 fontSize={12}
                 textAnchor="end"
-                style={{ fontVariantNumeric: "tabular-nums" }}
+                className="tabular-nums"
               >
                 {missing ? "Not collected" : show(row.count)}
               </text>
