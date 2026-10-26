@@ -76,14 +76,20 @@ test("an open confirm dialog stays fixed in the viewport", () => {
   host.remove();
 });
 
-test("a plate inside a plate does not pull up into the hero", () => {
+test("sibling plates sit flat and the hero plate still pulls up", () => {
   const host = document.createElement("div");
-  host.innerHTML =
-    '<section class="plate" id="outer"><section class="plate" id="inner">Inside</section></section>';
+  host.innerHTML = [
+    '<section class="plate plate--hero" id="hero">Hero</section>',
+    '<section class="plate" id="one">One</section>',
+    '<section class="plate" id="two">Two</section>',
+  ].join("");
   document.body.append(host);
-  const outer = getComputedStyle(document.getElementById("outer"));
-  const inner = getComputedStyle(document.getElementById("inner"));
-  assert.equal(inner.marginTop === "0" || inner.marginTop === "0px", true);
-  assert.equal(outer.marginTop === "0" || outer.marginTop === "0px", false);
+  const hero = getComputedStyle(document.getElementById("hero"));
+  const one = getComputedStyle(document.getElementById("one"));
+  const two = getComputedStyle(document.getElementById("two"));
+  const flat = (value) => value === "" || value === "0" || value === "0px";
+  assert.equal(flat(one.marginTop), true);
+  assert.equal(flat(two.marginTop), true);
+  assert.match(hero.marginTop, /-0\.42/);
   host.remove();
 });

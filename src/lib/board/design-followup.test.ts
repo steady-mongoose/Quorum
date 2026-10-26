@@ -186,7 +186,9 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
   assert.match(dialog, /cancelRef\.current\?\.focus\(\)/);
   const fluid = source("../../../public/fluid.css");
   assert.match(fluid, /dialog\.plate:not\(\[open\]\)\{display:none\}/);
-  assert.match(fluid, /\.plate \.plate\{margin-top:0\}/);
+  assert.equal(fluid.includes(".plate .plate"), false);
+  const backgrounds = source("../../../public/backgrounds.css");
+  assert.match(backgrounds, /\.plate--hero\{margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/);
   assert.match(
     fluid,
     /dialog\.plate\{position:fixed;inset:0;width:min\(28rem,calc\(100% - 2rem\)\);max-width:28rem;height:fit-content;margin:auto\}/,
