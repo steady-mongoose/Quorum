@@ -58,6 +58,7 @@ const appTests = [
   "src/lib/board/chat.test.ts",
   "src/lib/board/home.test.ts",
   "src/lib/board/group-client.test.ts",
+  "src/lib/board/phone-nav.test.ts",
   "src/lib/board/access-rules.test.ts",
   "src/lib/board/room-requests.test.ts",
   "src/lib/board/council.test.ts",

@@ -13,9 +13,10 @@ import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
-import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
+import { APP_NAME, TAGLINE } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
 import { GroupsView } from "@/components/board/groups-view";
+import { SectionTabs } from "@/components/board/section-tabs";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
@@ -25,20 +26,26 @@ import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
+import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
 
-const NAV = [
-  { id: "week", label: "This week", icon: CalendarDays },
-  { id: "rooms", label: "Rooms", icon: LayoutList },
-  { id: "groups", label: "Groups", icon: Users },
-  { id: "find", label: "Find", icon: Search },
-  { id: "civic", label: "The desk", icon: Phone },
-  { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "profile", label: "You", icon: User },
-  { id: "about", label: "About", icon: BookOpen },
-] satisfies { id: Section; label: string; icon: typeof CalendarDays }[];
+const ICONS = {
+  week: CalendarDays,
+  rooms: LayoutList,
+  groups: Users,
+  find: Search,
+  civic: Phone,
+  messages: MessageSquare,
+  profile: User,
+  about: BookOpen,
+} as const;
+
+const NAV = desktopNav(true).map((item) => ({
+  ...item,
+  icon: ICONS[item.id],
+}));
 
 export function BoardApp() {
   return (
@@ -120,12 +127,14 @@ function BoardShell() {
             <Emblem theme={theme.id} size="header" />
           </div>
           {entered ? (
-            <IconNav
-              items={NAV}
-              current={section}
-              onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
-              label="Sections"
-            />
+            <div className="topnav">
+              <IconNav
+                items={NAV}
+                current={section}
+                onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+                label="Sections"
+              />
+            </div>
           ) : null}
           {server.user ? (
             <button
@@ -211,6 +220,13 @@ function BoardShell() {
         {entered && section === "about" && <AboutView />}
       </main>
       {entered ? <SessionLine /> : null}
+      {entered ? (
+        <SectionTabs
+          current={section}
+          deskOn
+          onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
+        />
+      ) : null}
     </div>
   );
 }
