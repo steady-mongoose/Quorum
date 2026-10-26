@@ -1,4 +1,5 @@
 import { actorRole, stewardsRoom } from "./access.ts";
+import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
 import { townOf } from "../../src/lib/board/gathering.ts";
@@ -54,6 +55,24 @@ function toRecord(row: Row, userId: string): GatheringRecord {
     shared: row.shared,
     mine: row.host_user_id === userId,
   };
+}
+
+/** Participation. A steward who does not match is refused, the same as any member. */
+async function gatheringAudience(db: Db, userId: string, roomId: string, now: Date): Promise<Fail | null> {
+  const gate = await guardRoomAudience(db, {
+    userId,
+    roomId,
+    now,
+    path: "read",
+  });
+  if (gate.ok) return null;
+  if (gate.status === 404) return fail(404, "Not found.");
+  return fail(gate.status, gate.error);
+}
+
+async function roomIsOpen(db: Db, roomId: string): Promise<boolean> {
+  const audience = await roomAudience(db, roomId);
+  return audience === null || audience === "all";
 }
 
 async function roomExists(db: Db, roomId: string): Promise<boolean> {
@@ -120,6 +139,8 @@ export async function saveGathering(
   if (!ROOM_ID.test(roomId) || !(await roomExists(db, roomId))) {
     return fail(400, "That room is not on the board.");
   }
+  const blocked = await gatheringAudience(db, input.userId, roomId, input.now);
+  if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
   if (!actor.member && !actor.steward) return fail(403, "You are not a member.");
   if (await openBan(db, input.userId, input.now, roomId)) return fail(404, "Not found.");
@@ -166,11 +187,16 @@ export async function setGatheringShared(
   const row = await loadRow(db, input.id);
   if (!row || (await hidden(db, row, input.now))) return fail(404, "Not found.");
   if (await openBan(db, input.userId, input.now, row.room_id)) return fail(404, "Not found.");
+  const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
+  if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
   const host = row.host_user_id === input.userId;
   const steward = stewardsRoom(actor, row.room_id);
   if (input.shared) {
     if (!host) return fail(403, "Only the organizer can share this gathering.");
+    if (!(await roomIsOpen(db, row.room_id))) {
+      return fail(403, "A public page is only for a room everyone can join.");
+    }
   } else if (!host && !steward) {
     return fail(403, "Only the organizer can change sharing.");
   }
@@ -189,6 +215,8 @@ export async function removeGathering(
   const row = await loadRow(db, input.id);
   if (!row || row.removed) return fail(404, "Not found.");
   if (await openBan(db, input.userId, input.now, row.room_id)) return fail(404, "Not found.");
+  const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
+  if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
   const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
   if (!allowed) return fail(403, "Only the organizer can change this gathering.");
@@ -206,6 +234,8 @@ export async function readGatheringFor(
   if (!isGatheringId(input.id)) return fail(404, "Not found.");
   const row = await loadRow(db, input.id);
   if (!row || (await hidden(db, row, input.now))) return fail(404, "Not found.");
+  const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
+  if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
   const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
   if (!allowed) return fail(404, "Not found.");
@@ -228,6 +258,7 @@ export async function listGatheringsFor(
   const visible: GatheringRecord[] = [];
   for (const row of rows) {
     if (await hidden(db, row, input.now)) continue;
+    if (await gatheringAudience(db, input.userId, row.room_id, input.now)) continue;
     visible.push(toRecord(row, input.userId));
   }
   return visible;
@@ -242,5 +273,6 @@ export async function loadSharedGathering(
   if (!isGatheringId(id)) return null;
   const row = await loadRow(db, id);
   if (!row || !row.shared || (await hidden(db, row, now))) return null;
+  if (!(await roomIsOpen(db, row.room_id))) return null;
   return { title: row.title, date: row.gather_on, time: row.gather_time, town: row.town };
 }

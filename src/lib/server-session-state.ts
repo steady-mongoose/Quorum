@@ -15,6 +15,8 @@ export type ServerSession = {
   signUp: typeof signUpWithInvite;
   signIn: typeof signInWithPassword;
   signOut: () => Promise<void>;
+  /** Run the health probe again. Used when sign-in is unavailable. */
+  recheck: () => Promise<void>;
   createInvite: typeof createServerInvite;
 };
 
@@ -25,6 +27,7 @@ export const EMPTY_SERVER_SESSION: ServerSession = {
   signUp: signUpWithInvite,
   signIn: signInWithPassword,
   signOut: async () => undefined,
+  recheck: async () => undefined,
   createInvite: createServerInvite,
 };
 

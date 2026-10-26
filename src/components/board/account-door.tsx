@@ -30,6 +30,7 @@ export function AccountDoor() {
 
   return (
     <form
+      id="sign-in"
       className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
       onSubmit={(event) => {
         event.preventDefault();

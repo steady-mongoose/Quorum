@@ -14,7 +14,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -42,8 +42,17 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-test-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-test-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age, psql, and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client ffmpeg
+        timeout-minutes: 6
+        run: sh .github/scripts/apt-install.sh age postgresql-client ffmpeg
 
       - name: Template script tests
         id: scripts
@@ -110,13 +119,22 @@ jobs:
 
   failover-restore:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-failover-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-failover-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age and the Postgres client
-        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+        timeout-minutes: 6
+        run: sh .github/scripts/apt-install.sh age postgresql-client
 
       - name: Dry-run restore into a throwaway Postgres
         run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh

@@ -81,6 +81,7 @@ function fromResult(status: number, result: ChatResult<unknown>): Response {
     return json(result.status, {
       error: result.error,
       ...(result.ban ? { ban: result.ban } : {}),
+      ...(result.code ? { code: result.code } : {}),
     });
   }
   return json(status, result.value);
