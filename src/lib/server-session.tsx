@@ -30,6 +30,14 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     };
   }, [demo]);
 
+  const recheck = async () => {
+    if (demo) return;
+    const next = await probeApiMode(apiBaseUrl(), fetch, 2500, false);
+    if (next === "live") setUser(await readServerSession());
+    else setUser(null);
+    setMode(next);
+  };
+
   const value: ServerSession = {
     configured,
     mode,
@@ -48,6 +56,7 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
       await signOutServer();
       setUser(null);
     },
+    recheck,
     createInvite: createServerInvite,
   };
 

@@ -33,15 +33,26 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-tagline\{[^}]*color:#bcae94/);
   assert.match(css, /\.mast-door\{[^}]*color:#f0e7d3/);
   assert.match(css, /\.mast-door\{[^}]*min-height:44px/);
-  assert.match(css, /\.mast-flag\{[^}]*height:28px/);
+  assert.match(css, /\.mast-flag\{[^}]*height:clamp\(36px,4\.5vw,56px\)/);
+  assert.match(css, /\.mast-flag\{[^}]*width:auto/);
+  assert.match(css, /\.mast-bar\{[^}]*container-name:mast/);
+  assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*white-space:nowrap/);
+  assert.match(css, /@container mast \(max-width:420px\)\{[^}]*text-overflow:ellipsis/);
 
   assert.match(app, /<header className="top mast-bar">/);
   assert.match(app, /className="mast"/);
   assert.match(app, /<AppealMark \/>/);
   assert.match(app, /className="mast-name">\{APP_NAME\}/);
   assert.match(app, /className="mast-tagline">\{TAGLINE\}/);
+  assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
+  assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
   assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);
   assert.match(app, /\{signingIn \? "Sign in" : "Open the door"\}/);
+  assert.match(app, /onClick=\{focusDoorField\}/);
+  assert.match(app, /querySelector<HTMLElement>\("input, textarea, select, button"\)/);
+  assert.match(app, /field\?\.focus\(\)/);
   assert.equal(app.includes('size="header"'), false);
   assert.equal(app.includes("bg-[#f7f4ec]"), false);
 
@@ -58,6 +69,32 @@ test("the gold flag is one colour and has no white field", () => {
   assert.equal(gold.includes("#3b9442"), false);
   assert.equal(/<script/i.test(gold), false);
   assert.equal(/\son[a-z]+=/i.test(gold), false);
+  assert.equal(/clipPath|clip-path/i.test(gold), false);
+  assert.equal(/q[-+]?\d/.test(gold), false, "motto lettering is not drawn");
+  const viewBox = gold.match(/viewBox="([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)"/);
+  assert.ok(viewBox);
+  const drawnWidth = Number(viewBox[3]);
+  const drawnHeight = Number(viewBox[4]);
+  assert.ok(drawnWidth < 300 && drawnHeight < 420 && drawnHeight > drawnWidth);
+});
+
+test("a down API keeps Sign in and offers another check", () => {
+  const app = source("../../components/board/app.tsx");
+  const door = source("../../components/board/door.tsx");
+  const session = source("../server-session.tsx");
+  const gates = source("../auth/gates.tsx");
+  assert.match(door, /Sign-in is unavailable right now/);
+  assert.match(door, /Try again/);
+  assert.match(door, /server\.recheck\(\)/);
+  assert.match(door, /server\.configured && server\.mode === "demo"/);
+  assert.match(door, /id="sign-in"/);
+  assert.match(door, /Membership is\s+by invitation only/);
+  assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
+  assert.match(door, /\{live \?/);
+  assert.match(session, /const recheck = async \(\) => \{[\s\S]*probeApiMode\(/);
+  assert.match(gates, /SIGN_IN_PATH = "\/#sign-in"/);
+  assert.match(gates, /hash=\{hash\}/);
+  assert.match(app, /apiDown/);
 });
 
 test("the door column starts with the invite line", () => {

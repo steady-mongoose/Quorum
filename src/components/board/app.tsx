@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -71,7 +71,8 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
-  const signingIn = server.mode === "live" && !entered;
+  const apiDown = server.configured && server.mode === "demo";
+  const signingIn = !entered && (server.mode === "live" || apiDown);
   const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
@@ -129,6 +130,16 @@ function BoardShell() {
 
   const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
 
+  const focusDoorField = (event: MouseEvent<HTMLAnchorElement>) => {
+    const id = event.currentTarget.getAttribute("href")?.slice(1);
+    if (!id) return;
+    window.setTimeout(() => {
+      const root = document.getElementById(id);
+      const field = root?.querySelector<HTMLElement>("input, textarea, select, button");
+      field?.focus();
+    }, 0);
+  };
+
   const page = (
     <>
       {waiting ? <p className="card px-4 py-3 text-sm text-muted">Checking the server.</p> : null}
@@ -168,7 +179,11 @@ function BoardShell() {
                 />
               </div>
             ) : (
-              <a className="mast-door" href={signingIn ? "#sign-in" : "#open-the-door"}>
+              <a
+                className="mast-door"
+                href={signingIn ? "#sign-in" : "#open-the-door"}
+                onClick={focusDoorField}
+              >
                 {signingIn ? "Sign in" : "Open the door"}
               </a>
             )}

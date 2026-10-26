@@ -15,8 +15,9 @@ const SIZE = {
 };
 
 /**
- * Header mark. The Appeal to Heaven flag, engraved in one colour of gold,
- * with the white field taken off so the ink ground shows through.
+ * Header mark. The Appeal to Heaven pine, engraved in one colour of gold,
+ * with the white field and the motto lettering taken off. The motto stays
+ * in the alt text; at header size the letters would not be readable.
  */
 export function AppealMark() {
   return (
@@ -24,8 +25,8 @@ export function AppealMark() {
       className="mast-flag"
       src="/flags/appeal-to-heaven-gold.svg"
       alt="An Appeal to Heaven flag"
-      width={42}
-      height={28}
+      width={38}
+      height={56}
     />
   );
 }

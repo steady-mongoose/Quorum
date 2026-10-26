@@ -167,6 +167,8 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   width:100%;
   background:var(--bg);
   border-bottom:1px solid #c9a45c;
+  container-name:mast;
+  container-type:inline-size;
 }
 .mast{
   grid-column:2;
@@ -231,11 +233,20 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 }
 .mast-flag{
   display:block;
-  height:28px;
+  height:clamp(36px,4.5vw,56px);
   width:auto;
   flex:none;
   background:none;
   border:0;
+}
+/* Narrow header: one tagline line, so the bar stays about 80px. */
+@container mast (max-width:420px){
+  .mast-tagline{
+    font-size:.85rem;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
 }
 #open-the-door,#sign-in{scroll-margin-top:6rem}
 /* The door column starts with Invite only, rather than sitting in the vertical centre. */
