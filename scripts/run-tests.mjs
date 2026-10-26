@@ -89,6 +89,8 @@ const appTests = [
   "server/board/alert-mail.test.ts",
   "server/board/places-store.test.ts",
   "server/board/http.test.ts",
+  "server/board/reports.test.ts",
+  "src/lib/board/report-control.render.test.mjs",
   "server/board/public-gathering.test.ts",
   "server/board/groups.test.ts",
   "server/board/audience.test.ts",

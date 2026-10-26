@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
+import { ReportControl } from "@/components/board/report-control";
 import { cn } from "@/lib/cn";
 import {
   CHAT_POLL_MS,
@@ -11,6 +12,7 @@ import {
   type RoomChatMessage,
 } from "@/lib/board/chat";
 import { RULE_LABEL, formatWhen, type HardRule } from "@/lib/board/model";
+import { sendReport } from "@/lib/board/report-api";
 import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -169,6 +171,21 @@ export function RoomChat({ roomId }: { roomId: string }) {
             <p className="mt-1 text-xs text-muted">
               {message.author} · <When at={message.at} format={formatWhen} />
             </p>
+            {message.author !== me ? (
+              <div className="mt-2">
+                <ReportControl
+                  onSubmit={(input) =>
+                    sendReport({
+                      roomId,
+                      subjectKind: "chat",
+                      subjectId: message.id,
+                      reason: input.reason,
+                      note: input.note,
+                    })
+                  }
+                />
+              </div>
+            ) : null}
             {canRemove ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {removing === message.id ? (
