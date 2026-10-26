@@ -17,7 +17,7 @@ export function PublicGatheringFrame({ children }: { children: ReactNode }) {
       <div className="hero-band" role="img" aria-label={HERO} />
       <div className="shell-body">
         <main>
-          <article className="plate gathering-plate">{children}</article>
+          <article className="plate plate--hero gathering-plate">{children}</article>
         </main>
       </div>
     </div>

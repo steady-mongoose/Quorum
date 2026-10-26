@@ -216,7 +216,7 @@ ${metaTags(gathering, id)}
 <div class="hero-band" role="img" aria-label="${escapeHtml(HERO)}"></div>
 <div class="shell-body">
 <main>
-<article class="plate gathering-plate">
+<article class="plate plate--hero gathering-plate">
 ${main}
 </article>
 </main>

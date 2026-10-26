@@ -181,7 +181,7 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="plate flex flex-col gap-2">
+      <section className="plate plate--hero flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
           className="illum font-display text-4xl text-balance text-fg lg:text-5xl"

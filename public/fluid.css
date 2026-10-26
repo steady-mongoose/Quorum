@@ -25,7 +25,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   min-width:0;
   width:100%;
   padding:var(--space-3);
-  padding-inline:max(var(--space-3),env(safe-area-inset-left)) max(var(--space-3),env(safe-area-inset-right));
+  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
   padding-bottom:var(--space-4);
 }
 .outer-art,.side-art{display:none}
@@ -83,7 +83,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 .plate{display:block;width:100%;container-type:normal}
 /* .plate would otherwise show a closed dialog and stretch it across the page. */
 dialog.plate:not([open]){display:none}
-dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
+dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width:28rem;height:fit-content;margin:auto}
 
 .cards{display:grid;gap:var(--space-2);grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
 
@@ -160,3 +160,115 @@ dialog.plate{width:min(28rem,calc(100% - 2rem));max-width:28rem}
 @media (prefers-reduced-data:reduce){
   .hero-band,.outer-art,.side-art{background-image:none}
 }
+
+/* Signed-out header. The bar is the same centred 72rem column as the page. */
+.mast-bar{
+  position:sticky;
+  top:0;
+  z-index:20;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) min(var(--content-max),100%) minmax(0,1fr);
+  width:100%;
+  background:var(--bg);
+  border-bottom:1px solid #c9a45c;
+  container-name:mast;
+  container-type:inline-size;
+}
+.mast{
+  grid-column:2;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px 16px;
+  box-sizing:border-box;
+  width:100%;
+  max-width:72rem;
+  margin-inline:auto;
+  min-width:0;
+  padding-block:0.75rem;
+  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
+}
+.mast-brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex:1 1 0%;
+  min-width:0;
+}
+.mast-titles{min-width:0}
+.mast-name{
+  margin:0;
+  font-family:var(--font-display),"EB Garamond",Georgia,serif;
+  font-size:clamp(1.05rem,0.35rem + 3vw,2.5rem);
+  line-height:1.05;
+  color:var(--fg);
+  overflow-wrap:break-word;
+}
+.mast-tagline{
+  margin:0.25rem 0 0;
+  font-size:0.95rem;
+  line-height:1.35;
+  color:#bcae94;
+  overflow-wrap:break-word;
+}
+.mast-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:12px;
+  margin-left:auto;
+  min-width:0;
+}
+.mast-door{
+  display:inline-flex;
+  align-items:center;
+  flex:none;
+  min-height:44px;
+  padding:0 2px;
+  border:0;
+  background:none;
+  color:#f0e7d3;
+  font:inherit;
+  font-size:1rem;
+  line-height:1.2;
+  text-decoration:underline;
+  text-underline-offset:0.18em;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.mast-flag{
+  display:block;
+  height:var(--flag-h);
+  width:auto;
+  flex:none;
+  background:none;
+  border:0;
+}
+/* Signed-in desktop bar. #5's py-3 and a tighter title stack keep it at 96px or less. */
+.mast[data-entered="true"] .mast-name{
+  font-size:clamp(1.875rem,0.35rem + 2vw,2.25rem);
+  line-height:1;
+}
+.mast[data-entered="true"] .mast-tagline{
+  margin-top:0.25rem;
+  font-size:0.875rem;
+  line-height:1;
+  white-space:nowrap;
+}
+@media (max-width:1279px){
+  .mast[data-entered="true"] .mast-tagline{display:none}
+}
+/* Narrow header: two tagline lines, so the bar stays at 94px or less. */
+@container mast (max-width:420px){
+  .mast-tagline{
+    font-size:.85rem;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+}
+#open-the-door,#sign-in{scroll-margin-top:6rem}
+/* The door column starts with Invite only, rather than sitting in the vertical centre. */
+.door-columns{align-items:start}

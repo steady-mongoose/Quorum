@@ -7,16 +7,19 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "scripts/externalize-inline-scripts.test.mjs",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
   "src/lib/account-api.test.ts",
   "src/lib/board/design-review.test.ts",
+  "src/lib/board/landing-header.test.ts",
   "src/lib/board/interactions.test.ts",
   "src/lib/board/public-gathering.test.ts",
   "src/lib/board/engraved.test.ts",
   "src/lib/board/phone-nav.test.ts",
   "src/lib/board/more-menu.render.test.mjs",
   "src/lib/board/audience.render.test.mjs",
+  "src/lib/board/confirm-dialog.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
   "src/lib/board/design-critic.test.ts",
   "src/lib/app-data/app-data.test.ts",
