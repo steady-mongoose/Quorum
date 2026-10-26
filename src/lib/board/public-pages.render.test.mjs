@@ -78,11 +78,42 @@ test("about renders signed out, with no account", async () => {
     const text = document.body.textContent ?? "";
     assert.match(text, /What we stand for/);
     assert.match(text, /Avouch exists so you can see what is happening in your community/);
+    assert.match(text, /Josh files that report by hand/);
     assert.equal(text.includes("Invite someone"), false);
+    assert.equal(text.includes("Your name, as it appears on your posts"), false);
+    assert.equal(text.includes("Clear the board"), false);
+    assert.equal(text.includes("Export first"), false);
+    assert.equal(text.includes("Clear it"), false);
+    assert.equal(text.includes("Keep it"), false);
+    assert.equal(text.includes("Put the board back"), false);
+    assert.equal(document.querySelector('input[placeholder="Your name"]'), null);
+    assert.equal(document.querySelector("dialog"), null);
     assert.equal(document.querySelector("#sign-in"), null);
     footerLinks();
   } finally {
     cleanup();
+  }
+});
+
+test("the member about page still shows the You section", async () => {
+  const { AboutView } = await import("../../components/board/about-view.tsx");
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(createElement(AboutView));
+  });
+  try {
+    const text = document.body.textContent ?? "";
+    assert.match(text, /What we stand for/);
+    assert.match(text, /Your name, as it appears on your posts/);
+    assert.ok(document.querySelector('input[placeholder="Your name"]'));
+    assert.match(text, /Clear the board/);
+    assert.match(text, /Export first/);
+    assert.match(text, /Josh files that report by hand/);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
   }
 });
 

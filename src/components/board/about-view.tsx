@@ -26,6 +26,9 @@ import {
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+const EXPORT_FILE_NOTE =
+  "The file includes the posts, messages, invites, bans, marks, removals, appeals, and reports saved in this browser.";
+
 function downloadBoardExport(json: string) {
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -85,7 +88,7 @@ const HOW = [
   },
 ];
 
-export function AboutView() {
+export function AboutView({ publicView = false }: { publicView?: boolean }) {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
@@ -134,7 +137,7 @@ export function AboutView() {
 
   return (
     <div className="flex flex-col gap-10">
-      <ServerInvite />
+      {publicView ? null : <ServerInvite />}
       <section className="flex flex-col gap-3">
         <Kicker>About</Kicker>
         <h1 className="illum max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
@@ -204,15 +207,15 @@ export function AboutView() {
         </ul>
       </section>
 
-      {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+      {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
 
-      {remote && admin ? (
+      {!publicView && remote && admin ? (
         <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
           <MemberGenderForm />
         </section>
       ) : null}
 
-      {remote && admin ? (
+      {!publicView && remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}
@@ -220,104 +223,103 @@ export function AboutView() {
         />
       ) : null}
 
-      {remote && admin ? <CsamQueue reports={csamReports} /> : null}
+      {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
-      <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <h2 className="text-2xl text-fg">You</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Your name, as it appears on your posts
-            <input
-              className={fieldClass}
-              value={me}
-              placeholder="Your name"
-              onChange={(event) => setMe(event.target.value)}
-            />
-          </label>
-          <p className="self-end text-sm text-muted">
-            {steward
-              ? "You are a steward of a room. You can post notices and mark a post. A mark dims it."
-              : "A steward needs the inviter and a steward of that room. The first steward of a room needs the inviter and the council chair."}
-          </p>
-        </div>
-        {remote ? (
-          <p className="mt-6 max-w-prose text-sm text-muted">
-            Posts, marks, removals, and bans are on the server.
-          </p>
-        ) : (
-          <>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {mayClear ? (
-                <button
-                  type="button"
-                  className={cn(btnGhost, "min-h-[44px]")}
-                  onClick={() => {
-                    setClearPhrase("");
-                    setConfirmClear(true);
-                  }}
-                >
-                  Clear the board
-                </button>
-              ) : null}
-            </div>
-            <ConfirmDialog
-              open={confirmClear}
-              title="Clear the board?"
-              description="Everything here will be removed."
-              confirmLabel="Clear it"
-              cancelLabel="Keep it"
-              confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
-              onConfirm={() => {
-                if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
-                setConfirmClear(false);
-                setClearPhrase("");
-                clearLocalBoard();
-              }}
-              onCancel={() => {
-                setConfirmClear(false);
-                setClearPhrase("");
-              }}
-            >
-              <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
-                Type {APP_NAME} or CLEAR
-                <input
-                  className={cn(fieldClass, "min-h-[44px]")}
-                  value={clearPhrase}
-                  autoComplete="off"
-                  onChange={(event) => setClearPhrase(event.target.value)}
-                />
-              </label>
-              <p className="mt-3 max-w-prose text-sm text-muted">
-                The file includes the posts, messages, invites, bans, marks, removals, appeals, and
-                reports saved in this browser.
-              </p>
-              <button
-                type="button"
-                className={cn(btnGhost, "mt-3 min-h-[44px]")}
-                onClick={() => downloadBoardExport(boardSnapshot())}
-              >
-                Export first
-              </button>
-            </ConfirmDialog>
-            {undoClear ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <p className="max-w-prose text-sm text-muted">
-                  The board was cleared. You can still put it back.
-                </p>
-                <button
-                  type="button"
-                  className={cn(btnGhost, "min-h-[44px]")}
-                  onClick={() => undoClearBoard()}
-                >
-                  Put the board back
-                </button>
+      {publicView ? null : (
+        <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+          <h2 className="text-2xl text-fg">You</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Your name, as it appears on your posts
+              <input
+                className={fieldClass}
+                value={me}
+                placeholder="Your name"
+                onChange={(event) => setMe(event.target.value)}
+              />
+            </label>
+            <p className="self-end text-sm text-muted">
+              {steward
+                ? "You are a steward of a room. You can post notices and mark a post. A mark dims it."
+                : "A steward needs the inviter and a steward of that room. The first steward of a room needs the inviter and the council chair."}
+            </p>
+          </div>
+          {remote ? (
+            <p className="mt-6 max-w-prose text-sm text-muted">
+              Posts, marks, removals, and bans are on the server.
+            </p>
+          ) : (
+            <>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {mayClear ? (
+                  <button
+                    type="button"
+                    className={cn(btnGhost, "min-h-[44px]")}
+                    onClick={() => {
+                      setClearPhrase("");
+                      setConfirmClear(true);
+                    }}
+                  >
+                    Clear the board
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-          </>
-        )}
-      </section>
+              <ConfirmDialog
+                open={confirmClear}
+                title="Clear the board?"
+                description="Everything here will be removed."
+                confirmLabel="Clear it"
+                cancelLabel="Keep it"
+                confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
+                onConfirm={() => {
+                  if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
+                  setConfirmClear(false);
+                  setClearPhrase("");
+                  clearLocalBoard();
+                }}
+                onCancel={() => {
+                  setConfirmClear(false);
+                  setClearPhrase("");
+                }}
+              >
+                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                  Type {APP_NAME} or CLEAR
+                  <input
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    value={clearPhrase}
+                    autoComplete="off"
+                    onChange={(event) => setClearPhrase(event.target.value)}
+                  />
+                </label>
+                <p className="mt-3 max-w-prose text-sm text-muted">{EXPORT_FILE_NOTE}</p>
+                <button
+                  type="button"
+                  className={cn(btnGhost, "mt-3 min-h-[44px]")}
+                  onClick={() => downloadBoardExport(boardSnapshot())}
+                >
+                  Export first
+                </button>
+              </ConfirmDialog>
+              {undoClear ? (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <p className="max-w-prose text-sm text-muted">
+                    The board was cleared. You can still put it back.
+                  </p>
+                  <button
+                    type="button"
+                    className={cn(btnGhost, "min-h-[44px]")}
+                    onClick={() => undoClearBoard()}
+                  >
+                    Put the board back
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      )}
 
-      {removals.length > 0 ? (
+      {!publicView && removals.length > 0 ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-2xl text-fg">Hard removals</h2>
           <ul className="flex flex-col gap-2">

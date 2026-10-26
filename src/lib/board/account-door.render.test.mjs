@@ -108,6 +108,13 @@ test("an empty sign-in is announced above the button", async () => {
     assert.equal(email.getAttribute("aria-invalid"), "true");
     assert.equal(password.getAttribute("aria-invalid"), "true");
     assert.equal(email.getAttribute("aria-describedby"), "sign-in-error");
+    assert.equal(document.activeElement, email);
+    await act(async () => {
+      setInput(email, "person@example.com");
+    });
+    assert.equal(email.getAttribute("aria-invalid"), null);
+    assert.equal(password.getAttribute("aria-invalid"), "true");
+    assert.equal(announced(), SIGN_IN_EMPTY_ERROR);
   } finally {
     cleanup();
   }
@@ -138,12 +145,48 @@ test("a wrong email and password is announced above the button", async () => {
     assert.equal(announced(), SIGN_IN_MISMATCH_ERROR);
     assert.equal(email.getAttribute("aria-invalid"), "true");
     assert.equal(password.getAttribute("aria-invalid"), "true");
+    assert.equal(document.activeElement, email);
+    await act(async () => {
+      setInput(email, "other@example.com");
+    });
+    assert.equal(email.getAttribute("aria-invalid"), null);
+    assert.equal(password.getAttribute("aria-invalid"), "true");
+    assert.equal(announced(), SIGN_IN_MISMATCH_ERROR);
+    await act(async () => {
+      setInput(password, "still-wrong");
+    });
+    assert.equal(password.getAttribute("aria-invalid"), null);
+    assert.equal(document.querySelector('[role="alert"]'), null);
   } finally {
     cleanup();
   }
 });
 
-test("code mode names the host's code and links the terms", async () => {
+test("a blank password is the field that receives focus", async () => {
+  const cleanup = renderDoor({ ...EMPTY_SERVER_SESSION, mode: "live", configured: true });
+  try {
+    const email = document.querySelector("#sign-in-email");
+    const password = document.querySelector("#sign-in-password");
+    assert.ok(email instanceof HTMLInputElement);
+    assert.ok(password instanceof HTMLInputElement);
+    await act(async () => {
+      setInput(email, "person@example.com");
+    });
+    await submitForm();
+    assert.equal(announced(), SIGN_IN_EMPTY_ERROR);
+    assert.equal(email.getAttribute("aria-invalid"), null);
+    assert.equal(password.getAttribute("aria-invalid"), "true");
+    assert.equal(document.activeElement, password);
+    await act(async () => {
+      setInput(email, "person@example.com ");
+    });
+    assert.equal(password.getAttribute("aria-invalid"), "true");
+  } finally {
+    cleanup();
+  }
+});
+
+test("code mode names the host's code and does not ask for agreement yet", async () => {
   const cleanup = renderDoor({ ...EMPTY_SERVER_SESSION, mode: "live", configured: true });
   try {
     const toggle = [...document.querySelectorAll("button")].find((button) =>
@@ -154,9 +197,9 @@ test("code mode names the host's code and links the terms", async () => {
       toggle.click();
     });
     assert.match(document.body.textContent ?? "", /Enter the code your host gave you\./);
-    assert.match(
-      document.body.textContent ?? "",
-      /By creating an account you agree to the Terms and Privacy notice\./,
+    assert.equal(
+      (document.body.textContent ?? "").includes("By creating an account you agree"),
+      false,
     );
     const intro = [...document.querySelectorAll("p")].find((node) =>
       node.textContent?.includes("Enter the code your host gave you."),
@@ -164,16 +207,40 @@ test("code mode names the host's code and links the terms", async () => {
     assert.match(intro?.className ?? "", /text-base/);
     assert.match(intro?.className ?? "", /text-muted/);
     assert.equal((intro?.className ?? "").includes("sm:text-sm"), false);
-    const terms = document.querySelector('a[href="/terms"]');
-    const privacy = document.querySelector('a[href="/privacy"]');
-    assert.equal(terms?.textContent, "Terms");
-    assert.equal(privacy?.textContent, "Privacy notice");
-    assert.match(terms?.className ?? "", /py-1/);
-    assert.match(privacy?.className ?? "", /py-1/);
+    assert.equal(document.querySelector('a[href="/terms"]'), null);
+    assert.equal(document.querySelector('a[href="/privacy"]'), null);
     const code = document.querySelector("#invite-code");
     assert.ok(code instanceof HTMLInputElement);
     assert.equal(code.required, true);
+    const name = document.querySelector("#sign-up-name");
+    assert.ok(name instanceof HTMLInputElement);
+    await submitForm();
+    assert.equal(document.activeElement, name);
+    assert.equal(name.getAttribute("aria-invalid"), "true");
+    await act(async () => {
+      setInput(name, "Ada");
+      setInput(emailFilled(), "ada@example.com");
+      setInput(passwordFilled(), "a-long-password");
+    });
+    await submitForm();
+    assert.equal(document.activeElement, code);
+    assert.equal(code.getAttribute("aria-invalid"), "true");
+    assert.equal(name.getAttribute("aria-invalid"), null);
   } finally {
     cleanup();
   }
 });
+
+/** @returns {HTMLInputElement} */
+function emailFilled() {
+  const email = document.querySelector("#sign-in-email");
+  if (!(email instanceof HTMLInputElement)) throw new Error("email missing");
+  return email;
+}
+
+/** @returns {HTMLInputElement} */
+function passwordFilled() {
+  const password = document.querySelector("#sign-in-password");
+  if (!(password instanceof HTMLInputElement)) throw new Error("password missing");
+  return password;
+}

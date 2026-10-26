@@ -8,11 +8,11 @@ export const Route = createFileRoute("/about")({
   component: AboutPage,
 });
 
-/** About, with no sign-in. The same view members open from the board. */
+/** About, with no sign-in. The member account section stays on the board. */
 function AboutPage() {
   return (
     <PublicDocument>
-      <AboutView />
+      <AboutView publicView />
     </PublicDocument>
   );
 }

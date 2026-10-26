@@ -20,7 +20,7 @@ test("about, privacy, and terms are public routes, outside the signed-in gate", 
   assert.match(about, /createFileRoute\("\/about"\)/);
   assert.match(privacy, /createFileRoute\("\/privacy"\)/);
   assert.match(terms, /createFileRoute\("\/terms"\)/);
-  assert.match(about, /<AboutView \/>/);
+  assert.match(about, /<AboutView publicView \/>/);
   assert.match(privacy, /<LegalNotice title="Privacy" \/>/);
   assert.match(terms, /<LegalNotice title="Terms" \/>/);
   for (const file of [about, privacy, terms]) {
@@ -75,18 +75,20 @@ test("the account form announces an empty or wrong sign-in above the button", ()
   assert.match(account, /Enter the code your host gave you\./);
   assert.match(account, /className="text-base text-muted"/);
   assert.equal(account.includes("sm:text-sm"), false);
-  assert.match(account, /href="\/terms" className="py-1 text-signal underline"/);
-  assert.match(account, /href="\/privacy" className="py-1 text-signal underline"/);
   assert.match(account, /text-base text-fg/);
   assert.equal(account.includes("There is no open sign-up"), false);
-  assert.match(account, /By creating an account you agree to the/);
-  assert.match(account, /href="\/terms"/);
-  assert.match(account, /Privacy notice/);
+  assert.match(
+    account,
+    /TODO: Restore the agreement line when the real Terms and Privacy text ships\./,
+  );
+  assert.equal(/<a\s[^>]*href="\/terms"/.test(account), false);
+  assert.equal(/<a\s[^>]*href="\/privacy"/.test(account), false);
   assert.match(account, /required/);
   assert.match(account, /aria-invalid=/);
+  assert.match(account, /setEmailInvalid\(false\)/);
+  assert.match(account, /setPasswordInvalid\(false\)/);
+  assert.match(account, /focusFirst\(/);
   const submitAt = account.indexOf('type="submit"');
   const alertAt = account.lastIndexOf('role="alert"', submitAt);
   assert.ok(alertAt > 0 && alertAt < submitAt);
-  const agreementAt = account.indexOf("By creating an account");
-  assert.ok(agreementAt > submitAt);
 });
