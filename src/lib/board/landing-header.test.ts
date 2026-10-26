@@ -153,6 +153,9 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
   assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
   assert.match(desk, /\.door-main\{display:contents\}/);
   assert.match(desk, /\.door-rooms\{grid-area:rooms/);
+  assert.match(css, /\.door-rooms p\{font-size:0\.95rem;line-height:1\.6\}/);
+  assert.match(css, /\.mast-door\{[^}]*display:inline-flex[^}]*align-items:center[^}]*min-height:44px/);
+  assert.equal(css.includes("a.mast-name"), false);
   const bg = source("../../../public/backgrounds.css");
   assert.match(bg, /body::after\{content:"";position:absolute;inset:12px/);
   assert.match(bg, /body\{position:relative;min-height:100dvh\}/);

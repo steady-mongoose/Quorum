@@ -285,5 +285,5 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   .door-week{grid-area:week;align-self:start}
   .door-rooms{grid-area:rooms;align-self:start}
 }
-/* The brand in the header is a 44px tap target wherever it is a link. */
-.mast-brand a,a.mast-brand,a.mast-name{min-height:44px;display:inline-flex;align-items:center}
+/* The rooms list on the door reads at body size. */
+.door-rooms p{font-size:0.95rem;line-height:1.6}
