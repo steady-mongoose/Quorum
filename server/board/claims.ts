@@ -2,14 +2,17 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { generateInviteCode, validEmail } from "../closed-test/rules.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { sendTextEmail, type MailDeps } from "./alert-mail.ts";
-import { actorRole } from "./access.ts";
+import { actorRole, stewardsRoom } from "./access.ts";
+import { openBan } from "./store.ts";
 import {
   CLAIM_ALLOWED_METHODS,
+  CLAIM_CODE_ATTEMPTS,
   CLAIM_CODE_MS,
   CLAIM_PENDING_MS,
   methodAllowed,
   proofRequired,
   roleLevel,
+  sharedClaimHost,
   type ClaimMethod,
 } from "../../src/lib/board/claim-policy.ts";
 import {
@@ -31,6 +34,24 @@ function fail(status: number, error: string): Fail {
 
 const HOST_NOTE = "Host, claimed this listing.";
 const PAGE_CAP = 65_536;
+const BARRED = "This account cannot claim a listing right now.";
+const NOT_THIS_ROOM = "Only a steward of this listing can decide a claim.";
+const OWN_CLAIM = "A steward does not decide their own claim.";
+const SHARED_HOST = "That page is on a shared site. Ask a steward to review the claim.";
+
+async function barredFrom(db: Db, userId: string, now: Date, roomId: string): Promise<Fail | null> {
+  const ban = await openBan(db, userId, now, roomId);
+  if (!ban) return null;
+  return fail(403, BARRED);
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
 
 type RoomListing = {
   id: string;
@@ -102,7 +123,8 @@ type Evidence = {
   codeExpiresAt?: string;
   verifiedAt?: string | null;
   token?: string;
-  checkedBy?: "" | "server" | "steward";
+  checkedBy?: "" | "server";
+  attempts?: number;
   decisionNote?: string;
 };
 
@@ -379,6 +401,8 @@ export async function requestClaim(
   const found = await findUnclaimed(db, input.roomKey);
   if (!found.ok) return found;
   const room = found.room;
+  const bar = await barredFrom(db, input.userId, input.now, room.id);
+  if (bar) return bar;
   const evidence: Evidence = {};
   let plainCode = "";
   if (input.method === "domain_email") {
@@ -387,12 +411,17 @@ export async function requestClaim(
     if (!emailOnOrgDomain(email, room.source_url)) {
       return fail(400, "That address is not on the organization's domain.");
     }
+    const emailDomain = email.split("@")[1] ?? "";
+    if (sharedClaimHost(hostOf(room.source_url)) || sharedClaimHost(emailDomain)) {
+      return fail(400, SHARED_HOST);
+    }
     plainCode = generateInviteCode();
     evidence.email = email;
     evidence.codeHash = hashCode(plainCode);
     evidence.codeExpiresAt = new Date(input.now.getTime() + CLAIM_CODE_MS).toISOString();
     evidence.verifiedAt = null;
   } else if (input.method === "site_code") {
+    if (sharedClaimHost(hostOf(room.source_url))) return fail(400, SHARED_HOST);
     evidence.token = siteToken();
     evidence.verifiedAt = null;
     evidence.checkedBy = "";
@@ -455,12 +484,32 @@ export async function confirmClaimCode(
   if (!row || row.claimant !== input.userId) return fail(404, "That claim is not here.");
   if (row.state !== "pending") return fail(400, "That claim is already decided.");
   if (row.method !== "domain_email") return fail(400, "This claim does not use an email code.");
+  const bar = await barredFrom(db, input.userId, input.now, row.room_id);
+  if (bar) return bar;
   const evidence = parseEvidence(row.evidence);
   const expires = evidence.codeExpiresAt ? new Date(evidence.codeExpiresAt).getTime() : 0;
   if (!evidence.codeHash || !expires || expires <= input.now.getTime()) {
     return fail(400, "That code has expired.");
   }
-  if (hashCode(input.code) !== evidence.codeHash) return fail(400, "That code does not match.");
+  if (hashCode(input.code) !== evidence.codeHash) {
+    const attempts = (evidence.attempts ?? 0) + 1;
+    evidence.attempts = attempts;
+    if (attempts >= CLAIM_CODE_ATTEMPTS) {
+      await db.query(
+        `update claim_request
+         set state = 'expired', evidence = $2, updated_at = $3, decided_at = $3
+         where id = $1 and state = 'pending'`,
+        [row.id, JSON.stringify(evidence), input.now],
+      );
+      console.log(JSON.stringify({ event: "claim-expired", claimId: row.id, roomId: row.room_id }));
+      return fail(400, "That code was tried too many times. The claim has expired.");
+    }
+    await db.query(
+      `update claim_request set evidence = $2, updated_at = $3 where id = $1 and state = 'pending'`,
+      [row.id, JSON.stringify(evidence), input.now],
+    );
+    return fail(400, "That code does not match.");
+  }
   evidence.verifiedAt = input.now.toISOString();
   await db.query(
     `update claim_request set evidence = $2, updated_at = $3 where id = $1 and state = 'pending'`,
@@ -509,7 +558,7 @@ async function readPublicPage(
 
 export async function checkSiteCode(
   db: Db,
-  input: { userId: string; claimId: string; found: boolean; now: Date },
+  input: { userId: string; claimId: string; now: Date },
   deps: ClaimDeps = {},
 ): Promise<Ok<{ claim: ClaimView }> | Fail> {
   if (!(await listingColumnsReady(db))) return fail(503, "Claims are not available yet.");
@@ -517,27 +566,28 @@ export async function checkSiteCode(
   const actor = await actorRole(db, input.userId);
   const row = await loadClaim(db, input.claimId);
   if (!row) return fail(404, "That claim is not here.");
-  const steward = canSeeHiddenRooms(actor);
-  const claimant = row.claimant === input.userId;
-  if (!steward && !claimant) return fail(404, "That claim is not here.");
+  if (row.claimant && row.claimant === input.userId) return fail(403, OWN_CLAIM);
+  if (!canSeeHiddenRooms(actor)) return fail(404, "That claim is not here.");
+  if (!stewardsRoom(actor, row.room_id)) return fail(403, NOT_THIS_ROOM);
+  const callerBar = await barredFrom(db, input.userId, input.now, row.room_id);
+  if (callerBar) return callerBar;
+  if (row.claimant) {
+    const claimantBar = await barredFrom(db, row.claimant, input.now, row.room_id);
+    if (claimantBar) return claimantBar;
+  }
   if (row.state !== "pending" || row.method !== "site_code") {
     return fail(400, "This claim does not use a site code.");
   }
   const evidence = parseEvidence(row.evidence);
   if (!evidence.token) return fail(400, "This claim does not use a site code.");
-  if (input.found) {
-    if (!steward) return fail(403, "A steward checks the page, or the server does.");
-    evidence.verifiedAt = input.now.toISOString();
-    evidence.checkedBy = "steward";
-  } else {
-    const read = deps.fetchPage ?? ((url: string) => readPublicPage(url, deps.fetch ?? fetch));
-    const page = await read(row.source_url);
-    if (!page.ok || !page.body.includes(evidence.token)) {
-      return fail(400, "The page did not show the code.");
-    }
-    evidence.verifiedAt = input.now.toISOString();
-    evidence.checkedBy = "server";
+  if (sharedClaimHost(hostOf(row.source_url))) return fail(400, SHARED_HOST);
+  const read = deps.fetchPage ?? ((url: string) => readPublicPage(url, deps.fetch ?? fetch));
+  const page = await read(row.source_url);
+  if (!page.ok || !page.body.includes(evidence.token)) {
+    return fail(400, "The page did not show the code.");
   }
+  evidence.verifiedAt = input.now.toISOString();
+  evidence.checkedBy = "server";
   await db.query(
     `update claim_request set evidence = $2, updated_at = $3 where id = $1 and state = 'pending'`,
     [row.id, JSON.stringify(evidence), input.now],
@@ -602,7 +652,6 @@ export async function decideClaim(
   if (!(await listingColumnsReady(db))) return fail(503, "Claims are not available yet.");
   await expireDue(db, input.now);
   const actor = await actorRole(db, input.userId);
-  if (!canSeeHiddenRooms(actor)) return fail(403, "Only a steward can decide a claim.");
   if (input.decision !== "approve" && input.decision !== "reject") {
     return fail(400, "Approve the claim or reject it.");
   }
@@ -610,17 +659,24 @@ export async function decideClaim(
   const row = await loadClaim(db, input.claimId);
   if (!row || row.state !== "pending") return fail(404, "That claim is not here.");
   if (!isMethod(row.method)) return fail(400, "That claim is not here.");
-  if (row.claimant && row.claimant === input.userId) {
-    return fail(403, "A steward does not decide their own claim.");
-  }
+  if (!stewardsRoom(actor, row.room_id)) return fail(403, NOT_THIS_ROOM);
+  if (row.claimant && row.claimant === input.userId) return fail(403, OWN_CLAIM);
   const evidence = parseEvidence(row.evidence);
   if (input.decision === "approve") {
+    if (row.claimant) {
+      const claimantBar = await barredFrom(db, row.claimant, input.now, row.room_id);
+      if (claimantBar) return claimantBar;
+    }
     if (row.method === "steward_review") {
       if (proofRequired(row.method, roleLevel(actor))) {
         return fail(
           403,
           "This claim needs a code on the site or an email on the organization's domain.",
         );
+      }
+    } else if (row.method === "site_code") {
+      if (!evidence.verifiedAt || evidence.checkedBy !== "server") {
+        return fail(400, "The code has not been checked yet.");
       }
     } else if (!evidence.verifiedAt) {
       return fail(400, "The code has not been checked yet.");
@@ -630,6 +686,10 @@ export async function decideClaim(
   if (note) evidence.decisionNote = note;
   try {
     const saved = await db.transaction(async (tx) => {
+      if (input.decision === "approve" && row.claimant) {
+        const again = await openBan(tx, row.claimant, input.now, row.room_id);
+        if (again) throw new Error("claimant-barred");
+      }
       const updated = await tx.query<{ id: string }>(
         `update claim_request
          set state = $2, reviewer = $3, evidence = $4, updated_at = $5, decided_at = $5
@@ -692,6 +752,9 @@ export async function decideClaim(
     if (error instanceof Error && error.message === "room-not-unclaimed") {
       return fail(409, "That listing is not open.");
     }
+    if (error instanceof Error && error.message === "claimant-barred") {
+      return fail(403, BARRED);
+    }
     throw error;
   }
   const decided = await loadClaim(db, row.id);
@@ -734,7 +797,38 @@ export async function listClaims(
     return view ? [view] : [];
   });
   if (!steward) {
-    return { ok: true, value: { methods: CLAIM_ALLOWED_METHODS, claims, log: [], listings: [] } };
+    const open = await db.query<{
+      id: string;
+      name: string;
+      town_name: string;
+      county: string;
+      category: string;
+      source_url: string;
+      status: string;
+      created_at: Date | string;
+    }>(
+      `select id, name, town_name, county, category, source_url, status, created_at
+       from room where status = 'unclaimed' and name <> ''
+       order by created_at asc, id asc`,
+    );
+    return {
+      ok: true,
+      value: {
+        methods: CLAIM_ALLOWED_METHODS,
+        claims,
+        log: [],
+        listings: open.map((row) => ({
+          id: row.id,
+          name: row.name,
+          town: row.town_name,
+          county: row.county,
+          category: row.category,
+          sourceUrl: row.source_url,
+          status: "unclaimed" as const,
+          createdAt: atMs(row.created_at) ?? 0,
+        })),
+      },
+    };
   }
   const logged = await db.query<ClaimRow>(
     `${CLAIM_SELECT} where c.state in ('rejected', 'expired', 'approved')

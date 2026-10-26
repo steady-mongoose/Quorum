@@ -6,7 +6,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import { sendChat } from "../chat/store.ts";
 import type { Db } from "../db.ts";
 import { memberOfRoom } from "../media/access.ts";
-import { roleLevel } from "../../src/lib/board/claim-policy.ts";
+import { CLAIM_CODE_ATTEMPTS, roleLevel } from "../../src/lib/board/claim-policy.ts";
 import { canReadRoom } from "./room-visibility.ts";
 import { actorRole, councilFlags } from "./access.ts";
 import {
@@ -396,6 +396,9 @@ test("email and site claims move through every state, and approval makes the cla
       listing("Maple Hall", "maple.example"),
     ]);
     assert.equal(imported.ok, true);
+    await grant(db, lee, "Lee", "steward", "grace-hall");
+    await grant(db, lee, "Lee", "steward", "north-hall");
+    await grant(db, lee, "Lee", "steward", "maple-hall");
 
     const draft = await requestClaim(db, {
       userId: ana,
@@ -601,7 +604,6 @@ test("email and site claims move through every state, and approval makes the cla
     const stranger = await checkSiteCode(db, {
       userId: cam,
       claimId: byId.value.claim.id,
-      found: false,
       now,
     });
     assert.equal(stranger.ok, false);
@@ -609,17 +611,18 @@ test("email and site claims move through every state, and approval makes the cla
     const selfAttest = await checkSiteCode(db, {
       userId: bea,
       claimId: byId.value.claim.id,
-      found: true,
       now,
     });
     assert.equal(selfAttest.ok, false);
-    if (!selfAttest.ok) assert.equal(selfAttest.status, 403);
+    if (!selfAttest.ok)
+      assert.equal(selfAttest.error, "A steward does not decide their own claim.");
     const missing = await checkSiteCode(
       db,
-      { userId: bea, claimId: byId.value.claim.id, found: false, now },
+      { userId: lee, claimId: byId.value.claim.id, now },
       { fetchPage: async () => ({ ok: true, body: "no code here" }) },
     );
     assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.error, "The page did not show the code.");
     const early = await decideClaim(db, {
       userId: pat,
       claimId: byId.value.claim.id,
@@ -629,12 +632,11 @@ test("email and site claims move through every state, and approval makes the cla
     });
     assert.equal(early.ok, false);
     if (!early.ok) assert.equal(early.error, "The code has not been checked yet.");
-    const checked = await checkSiteCode(db, {
-      userId: lee,
-      claimId: byId.value.claim.id,
-      found: true,
-      now,
-    });
+    const checked = await checkSiteCode(
+      db,
+      { userId: lee, claimId: byId.value.claim.id, now },
+      { fetchPage: async () => ({ ok: true, body: byId.value.claim.token }) },
+    );
     assert.equal(checked.ok, true);
     if (!checked.ok) return;
     assert.equal(checked.value.claim.verified, true);
@@ -642,7 +644,8 @@ test("email and site claims move through every state, and approval makes the cla
       `select evidence from claim_request where id = $1`,
       [byId.value.claim.id],
     );
-    assert.match(evidence[0]?.evidence ?? "", /"checkedBy":"steward"/);
+    assert.match(evidence[0]?.evidence ?? "", /"checkedBy":"server"/);
+    assert.equal(evidence[0]?.evidence.includes('"checkedBy":"steward"'), false);
 
     const maple = await requestClaim(db, {
       userId: ana,
@@ -655,7 +658,7 @@ test("email and site claims move through every state, and approval makes the cla
     if (!maple.ok) return;
     const serverChecked = await checkSiteCode(
       db,
-      { userId: ana, claimId: maple.value.claim.id, found: false, now },
+      { userId: lee, claimId: maple.value.claim.id, now },
       {
         fetchPage: async (url) => {
           assert.equal(url, "https://maple.example/about");
@@ -669,7 +672,14 @@ test("email and site claims move through every state, and approval makes the cla
     assert.equal(queue.ok, true);
     if (!queue.ok) return;
     assert.deepEqual(queue.value.methods.slice(0, 2), ["site_code", "domain_email"]);
-    assert.equal(queue.value.listings.length, 0);
+    assert.equal(
+      queue.value.listings.some((row) => row.id === "north-hall" && row.status === "unclaimed"),
+      true,
+    );
+    assert.equal(
+      queue.value.listings.some((row) => row.id === "oak-chapel"),
+      false,
+    );
     assert.equal(queue.value.log.length, 0);
     const hostQueue = await listClaims(db, { userId: ana, now });
     assert.equal(hostQueue.ok, true);
@@ -743,6 +753,7 @@ test("steward review alone is allowed only at or above the admin trust line", as
   try {
     const ana = await member(db, "Ana");
     const lee = await steward(db, "Lee");
+    const sam = await steward(db, "Sam");
     const kim = await chair(db, "Kim");
     const pat = await admin(db, "Pat");
     const owen = await owner(db, "Owen");
@@ -754,6 +765,10 @@ test("steward review alone is allowed only at or above the admin trust line", as
       listing("Lee Hall", "lee.example"),
     ]);
     assert.equal(imported.ok, true);
+    await grant(db, lee, "Lee", "steward", "river-chapel");
+    await grant(db, lee, "Lee", "steward", "oak-lodge");
+    await grant(db, lee, "Lee", "steward", "lee-hall");
+    await grant(db, kim, "Kim", "steward", "river-chapel");
 
     const kimRole = await actorRole(db, kim);
     const flags = await councilFlags(db, kim);
@@ -775,6 +790,18 @@ test("steward review alone is allowed only at or above the admin trust line", as
     });
     assert.equal(river.ok, true);
     if (!river.ok) return;
+    const otherRoom = await decideClaim(db, {
+      userId: sam,
+      claimId: river.value.claim.id,
+      decision: "approve",
+      note: "",
+      now,
+    });
+    assert.equal(otherRoom.ok, false);
+    if (!otherRoom.ok) {
+      assert.equal(otherRoom.status, 403);
+      assert.equal(otherRoom.error, "Only a steward of this listing can decide a claim.");
+    }
     const leeReview = await decideClaim(db, {
       userId: lee,
       claimId: river.value.claim.id,
@@ -872,7 +899,7 @@ test("steward review alone is allowed only at or above the admin trust line", as
     if (!unchecked.ok) assert.equal(unchecked.error, "The code has not been checked yet.");
     const verified = await checkSiteCode(
       db,
-      { userId: ana, claimId: lodge.value.claim.id, found: false, now },
+      { userId: lee, claimId: lodge.value.claim.id, now },
       { fetchPage: async () => ({ ok: true, body: lodge.value.claim.token }) },
     );
     assert.equal(verified.ok, true);
@@ -910,6 +937,277 @@ test("steward review alone is allowed only at or above the admin trust line", as
     });
     assert.equal(adminSkip.ok, false);
     if (!adminSkip.ok) assert.equal(adminSkip.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+async function bar(
+  db: Db,
+  userId: string,
+  name: string,
+  reason: "threat" | "porn",
+  roomId: string,
+  until: Date,
+) {
+  await db.query(
+    `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+     values ($1, $2, $3, $4, 'Pat', 1, $5, $6, $7)`,
+    [randomUUID(), userId, name, reason, until, roomId, now],
+  );
+}
+
+test("bans, shared hosts, and wrong email codes stop a claim", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const pat = await admin(db, "Pat");
+    const owen = await owner(db, "Owen");
+    const lee = await steward(db, "Lee");
+    const ned = await member(db, "Ned");
+    const meg = await member(db, "Meg");
+    const sue = await member(db, "Sue");
+    const una = await member(db, "Una");
+    const old = await member(db, "Old");
+    const imported = await seed(db, pat, [
+      listing("Site Hall", "facebook.com"),
+      listing("Photo Hall", "instagram.com"),
+      listing("Link Hall", "linktr.ee"),
+      listing("Page Hall", "wixsite.com"),
+      listing("Mail Hall", "gmail.com"),
+      listing("Grace Hall", "grace.example"),
+      listing("Room Hall", "room.example"),
+      listing("Other Hall", "other.example"),
+      listing("Pat Hall", "pat.example"),
+      listing("Owen Hall", "owen.example"),
+    ]);
+    assert.equal(imported.ok, true);
+    await grant(db, lee, "Lee", "steward", "grace-hall");
+
+    const until = new Date(now.getTime() + 7 * DAY);
+    await bar(db, ned, "Ned", "porn", "", until);
+    await bar(db, meg, "Meg", "porn", "room-hall", until);
+    await bar(db, sue, "Sue", "threat", "", until);
+    await bar(db, old, "Old", "threat", "", new Date(now.getTime() - DAY));
+
+    for (const person of [ned, sue]) {
+      const refused = await requestClaim(db, {
+        userId: person,
+        roomKey: "grace-hall",
+        method: "steward_review",
+        email: "",
+        now,
+      });
+      assert.equal(refused.ok, false);
+      if (!refused.ok) assert.equal(refused.status, 403);
+    }
+    const roomBan = await requestClaim(db, {
+      userId: meg,
+      roomKey: "room-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(roomBan.ok, false);
+    if (!roomBan.ok) assert.equal(roomBan.error, "This account cannot claim a listing right now.");
+    const otherRoom = await requestClaim(db, {
+      userId: meg,
+      roomKey: "other-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(otherRoom.ok, true);
+    const lapsed = await requestClaim(db, {
+      userId: old,
+      roomKey: "grace-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(lapsed.ok, true);
+
+    const pending = await requestClaim(db, {
+      userId: una,
+      roomKey: "grace-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(pending.ok, true);
+    if (!pending.ok) return;
+    await bar(db, una, "Una", "threat", "", until);
+    const approved = await decideClaim(db, {
+      userId: pat,
+      claimId: pending.value.claim.id,
+      decision: "approve",
+      note: "",
+      now,
+    });
+    assert.equal(approved.ok, false);
+    if (!approved.ok) assert.equal(approved.status, 403);
+    const still = await seededRoom(db, "grace-hall");
+    assert.equal(still?.status, "unclaimed");
+    assert.equal(still?.host_user_id, null);
+    const confirmBar = await requestClaim(
+      db,
+      {
+        userId: una,
+        roomKey: "other-hall",
+        method: "domain_email",
+        email: "office@other.example",
+        now,
+      },
+      { send: async () => ({ ok: true }) },
+    );
+    assert.equal(confirmBar.ok, false);
+
+    const sharedSite = await requestClaim(db, {
+      userId: old,
+      roomKey: "site-hall",
+      method: "site_code",
+      email: "",
+      now,
+    });
+    assert.equal(sharedSite.ok, false);
+    if (!sharedSite.ok) assert.match(sharedSite.error, /shared site/);
+    const instagram = await requestClaim(db, {
+      userId: old,
+      roomKey: "photo-hall",
+      method: "site_code",
+      email: "",
+      now,
+    });
+    assert.equal(instagram.ok, false);
+    if (!instagram.ok) assert.match(instagram.error, /shared site/);
+    const link = await requestClaim(db, {
+      userId: old,
+      roomKey: "link-hall",
+      method: "site_code",
+      email: "",
+      now,
+    });
+    assert.equal(link.ok, false);
+    const wix = await requestClaim(db, {
+      userId: old,
+      roomKey: "page-hall",
+      method: "domain_email",
+      email: "office@wixsite.com",
+      now,
+    });
+    assert.equal(wix.ok, false);
+    const gmail = await requestClaim(db, {
+      userId: old,
+      roomKey: "mail-hall",
+      method: "domain_email",
+      email: "office@gmail.com",
+      now,
+    });
+    assert.equal(gmail.ok, false);
+    const reviewShared = await requestClaim(db, {
+      userId: old,
+      roomKey: "site-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(reviewShared.ok, true);
+
+    let mailed = "";
+    const coded = await requestClaim(
+      db,
+      {
+        userId: old,
+        roomKey: "room-hall",
+        method: "domain_email",
+        email: "office@room.example",
+        now,
+      },
+      {
+        send: async (message) => {
+          mailed = message.text;
+          return { ok: true };
+        },
+      },
+    );
+    assert.equal(coded.ok, true);
+    if (!coded.ok) return;
+    const code = codeFrom(mailed);
+    for (let attempt = 1; attempt < CLAIM_CODE_ATTEMPTS; attempt += 1) {
+      const wrong = await confirmClaimCode(db, {
+        userId: old,
+        claimId: coded.value.claim.id,
+        code: "ZZZZZZZZ",
+        now,
+      });
+      assert.equal(wrong.ok, false);
+      if (!wrong.ok) assert.equal(wrong.error, "That code does not match.");
+    }
+    const expired = await withLogs(() =>
+      confirmClaimCode(db, {
+        userId: old,
+        claimId: coded.value.claim.id,
+        code: "ZZZZZZZZ",
+        now,
+      }),
+    );
+    assert.equal(expired.value.ok, false);
+    if (!expired.value.ok) assert.match(expired.value.error, /expired/);
+    assert.match(expired.lines.join("\n"), /claim-expired/);
+    const row = await db.query<{ state: string }>(`select state from claim_request where id = $1`, [
+      coded.value.claim.id,
+    ]);
+    assert.equal(row[0]?.state, "expired");
+    const after = await confirmClaimCode(db, {
+      userId: old,
+      claimId: coded.value.claim.id,
+      code,
+      now,
+    });
+    assert.equal(after.ok, false);
+
+    const ownAdmin = await requestClaim(db, {
+      userId: pat,
+      roomKey: "pat-hall",
+      method: "steward_review",
+      email: "",
+      now,
+    });
+    assert.equal(ownAdmin.ok, true);
+    if (!ownAdmin.ok) return;
+    const adminOwn = await decideClaim(db, {
+      userId: pat,
+      claimId: ownAdmin.value.claim.id,
+      decision: "approve",
+      note: "",
+      now,
+    });
+    assert.equal(adminOwn.ok, false);
+    if (!adminOwn.ok) assert.equal(adminOwn.error, "A steward does not decide their own claim.");
+    const ownOwner = await requestClaim(db, {
+      userId: owen,
+      roomKey: "owen-hall",
+      method: "site_code",
+      email: "",
+      now,
+    });
+    assert.equal(ownOwner.ok, true);
+    if (!ownOwner.ok) return;
+    const ownerCheck = await checkSiteCode(
+      db,
+      { userId: owen, claimId: ownOwner.value.claim.id, now },
+      { fetchPage: async () => ({ ok: true, body: ownOwner.value.claim.token }) },
+    );
+    assert.equal(ownerCheck.ok, false);
+    if (!ownerCheck.ok) assert.equal(ownerCheck.status, 403);
+    const ownerOwn = await decideClaim(db, {
+      userId: owen,
+      claimId: ownOwner.value.claim.id,
+      decision: "approve",
+      note: "",
+      now,
+    });
+    assert.equal(ownerOwn.ok, false);
+    if (!ownerOwn.ok) assert.equal(ownerOwn.error, "A steward does not decide their own claim.");
   } finally {
     await close();
   }

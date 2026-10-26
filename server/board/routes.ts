@@ -310,7 +310,6 @@ export async function handleBoard(
         await checkSiteCode(deps.db, {
           userId: session.id,
           claimId: claimAction[1] ?? "",
-          found: body.found === true,
           now,
         }),
       );

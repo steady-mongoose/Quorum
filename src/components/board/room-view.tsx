@@ -151,8 +151,8 @@ export function RoomView() {
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         {meta.status === "draft" || meta.status === "unclaimed" ? (
           <p className="max-w-prose text-sm text-muted">
-            {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Members do not see
-            it, and it is not on a public page.
+            {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Only stewards can
+            see this listing until a host claims it.
           </p>
         ) : null}
         {meta.town || meta.county || meta.category ? (

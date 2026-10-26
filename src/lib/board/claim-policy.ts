@@ -34,13 +34,88 @@ export const CLAIM_ALLOWED_METHODS: readonly ClaimMethod[] = [
 ];
 
 export const CLAIM_METHOD_LABEL: Record<ClaimMethod, string> = {
-  site_code: "A code on the organization's site",
-  domain_email: "An email on the organization's domain",
-  steward_review: "A steward's review",
+  site_code: "Add a short code to your organization's website (fastest)",
+  domain_email: "Use an email at your organization's address (like pastor@yourchurch.org)",
+  steward_review: "Ask a steward to vouch for you (slower)",
 };
 
 export const CLAIM_PENDING_MS = 14 * 24 * 60 * 60 * 1000;
 export const CLAIM_CODE_MS = 24 * 60 * 60 * 1000;
+
+/** Wrong email codes after this many tries expire the claim. */
+export const CLAIM_CODE_ATTEMPTS = 5;
+
+/**
+ * Hosts that are not one organization's site or mailbox.
+ * A claim cannot use site_code or domain_email on these names.
+ * Steward review is the remaining method.
+ */
+export const CLAIM_SHARED_HOSTS = [
+  "facebook.com",
+  "fb.com",
+  "instagram.com",
+  "facebookmail.com",
+  "gmail.com",
+  "googlemail.com",
+  "google.com",
+  "sites.google.com",
+  "youtube.com",
+  "youtu.be",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "icloud.com",
+  "me.com",
+  "proton.me",
+  "protonmail.com",
+  "aol.com",
+  "gmx.com",
+  "linktr.ee",
+  "linktree.com",
+  "wix.com",
+  "wixsite.com",
+  "squarespace.com",
+  "weebly.com",
+  "wordpress.com",
+  "blogspot.com",
+  "blogger.com",
+  "medium.com",
+  "substack.com",
+  "carrd.co",
+  "beacons.ai",
+  "bio.link",
+  "notion.so",
+  "notion.site",
+  "github.io",
+  "netlify.app",
+  "vercel.app",
+  "pages.dev",
+  "twitter.com",
+  "x.com",
+  "tiktok.com",
+  "linkedin.com",
+  "reddit.com",
+  "pinterest.com",
+  "snapchat.com",
+  "discord.com",
+  "discord.gg",
+  "t.me",
+  "telegram.org",
+  "whatsapp.com",
+] as const;
+
+/** True when the host is a shared site or a public mailbox, including a subdomain. */
+export function sharedClaimHost(host: string): boolean {
+  const name = host
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "")
+    .replace(/^www\./, "");
+  if (!name || name.includes(" ")) return false;
+  return CLAIM_SHARED_HOSTS.some((entry) => name === entry || name.endsWith(`.${entry}`));
+}
 
 export function roleLevel(input: { owner: boolean; admin: boolean; steward: boolean }): RoleLevel {
   if (input.owner) return "owner";

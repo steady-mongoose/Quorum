@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CLAIM_ALLOWED_METHODS,
+  CLAIM_CODE_ATTEMPTS,
   CLAIM_STEWARD_TRUST_MIN,
   roleAtLeast,
   roleLevel,
+  sharedClaimHost,
   stewardReviewSufficient,
 } from "./claim-policy.ts";
 import { emailOnOrgDomain, parseListingsCsv } from "./listings.ts";
@@ -27,6 +29,18 @@ test("trust follows the existing role order and not a score", () => {
   assert.equal(stewardReviewSufficient("steward"), false);
   assert.equal(stewardReviewSufficient("admin"), true);
   assert.equal(stewardReviewSufficient("owner"), true);
+});
+
+test("shared hosts are blocked for both claim checks", () => {
+  assert.equal(CLAIM_CODE_ATTEMPTS, 5);
+  assert.equal(sharedClaimHost("facebook.com"), true);
+  assert.equal(sharedClaimHost("www.instagram.com"), true);
+  assert.equal(sharedClaimHost("m.facebook.com"), true);
+  assert.equal(sharedClaimHost("gmail.com"), true);
+  assert.equal(sharedClaimHost("mysite.wixsite.com"), true);
+  assert.equal(sharedClaimHost("linktr.ee"), true);
+  assert.equal(sharedClaimHost("grace.example"), false);
+  assert.equal(sharedClaimHost("notfacebook.com"), false);
 });
 
 test("an org email matches the source host, including a www host", () => {
