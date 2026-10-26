@@ -9,6 +9,6 @@ export function scrollRestoredCard(
 ): boolean {
   const node = doc?.getElementById(`card-${id}`);
   if (!node?.scrollIntoView) return false;
-  node.scrollIntoView({ block: "nearest" });
+  node.scrollIntoView({ block: "center" });
   return true;
 }

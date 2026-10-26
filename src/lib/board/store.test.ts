@@ -841,7 +841,14 @@ test("the removal error is one alert with a dismiss control, and the card can be
     },
   });
   assert.equal(scrolled, true);
-  assert.deepEqual(seen, [{ block: "nearest" }]);
+  assert.deepEqual(seen, [{ block: "center" }]);
+  const sheet = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
+  assert.match(
+    sheet,
+    /\.card\{scroll-margin-bottom:calc\(var\(--tabbar-h,64px\) \+ env\(safe-area-inset-bottom\) \+ 9rem\)\}/,
+  );
+  const bits = readFileSync(new URL("../../components/quorum/bits.tsx", import.meta.url), "utf8");
+  assert.match(bits, /focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-\[var\(--color-fg\)\]/);
 });
 
 test("a banned member still sees the status of their own appeal", async () => {
