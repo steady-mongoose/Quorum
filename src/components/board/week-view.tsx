@@ -15,6 +15,9 @@ import {
   type MeetingCard,
 } from "@/lib/board/model";
 import { HomePanel } from "@/components/board/home-view";
+import { GatheringShareControl } from "@/components/board/gathering-share";
+import { RsvpControl } from "@/components/board/rsvp-control";
+import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
@@ -29,6 +32,7 @@ export function WeekView() {
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
+  const deskOn = useBoard((state) => state.deskOn);
   const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(() => weekFor(cards, witnessesByTrade(posts, cards), today), [cards, posts, today]);
@@ -38,10 +42,10 @@ export function WeekView() {
     <div className="flex flex-col gap-10">
       <HomePanel />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
-      <div className="flex flex-col gap-8">
-        <section className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-8">
+        <section className="plate flex flex-col gap-2">
           <Kicker>This week</Kicker>
-          <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
+          <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{week.length === 0 ? "Nothing on the calendar yet." : "This week"}</h1>
           {week.length > 0 ? (
             <p className="max-w-prose text-base text-muted">The next seven days. Press <strong className="font-semibold text-fg">I'll be there</strong> on anything you will go to; the host will take roll after.</p>
           ) : null}
@@ -59,12 +63,12 @@ export function WeekView() {
         </section>
 
         {week.map((day) => (
-          <section key={day.iso} className="flex flex-col gap-3">
-            <h2 className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
+          <section key={day.iso} className="day flex flex-col gap-3">
+            <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
               <span className="font-display text-2xl text-fg">{dayHeading(day.iso, today)}</span>
               <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">{formatDate(day.iso)}</span>
             </h2>
-            <div className="grid gap-3 xl:grid-cols-2">
+            <div className="cards">
               {day.cards.map((card) => (
                 <DayCard key={card.id} card={card} me={me} />
               ))}
@@ -74,7 +78,7 @@ export function WeekView() {
       </div>
 
       <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
-        <TheCall />
+        {deskOn ? <TheCall /> : null}
         {needs.length > 0 ? (
           <section className="flex flex-col gap-3">
             <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">A parish needs</h2>
@@ -94,9 +98,18 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   const setRoom = useBoard((state) => state.setRoom);
   const going = card.going.includes(me);
   return (
-    <article className="rounded-lg border border-line bg-surface p-4">
+    <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg" onClick={() => setRoom(card.room)}>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 font-semibold text-fg"
+          onClick={(event) => {
+            clearChipNames(event.currentTarget);
+            event.currentTarget.style.viewTransitionName = `card-${card.room}`;
+            armRoom(card.room);
+            withViewTransition(() => setRoom(card.room));
+          }}
+        >
           {roomById(card.room).name}
         </button>
         {card.kind === "candidate" ? <span className="rounded-sm border border-signal px-2 py-1 text-signal">Candidate event</span> : null}
@@ -108,12 +121,9 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
       {card.going.length > 0 ? <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {card.host !== me ? (
-          <button type="button" className={going ? btnGhost : btnSignal} onClick={() => rsvp(card.id)}>
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
-        ) : (
-          <span className="self-center text-sm text-muted">You host this.</span>
-        )}
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
+        ) : null}
+        <GatheringShareControl card={card} />
       </div>
     </article>
   );
@@ -122,7 +132,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
 export function NeedCard({ card }: { card: MeetingCard }) {
   const takeSlot = useBoard((state) => state.takeSlot);
   return (
-    <article className="rounded-lg border border-line bg-surface p-4">
+    <article className="card rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{roomById(card.room).name}</span>
         <span className="text-muted">organized by {card.host}</span>
@@ -166,7 +176,7 @@ function TheCall() {
       {live.map((campaign) => {
         const office = officeById(campaign.officeId, customOffices);
         return (
-          <article key={campaign.id} className="rounded-lg border border-signal bg-surface p-4">
+          <article key={campaign.id} className="card rounded-lg border border-signal bg-surface p-4">
             <h3 className="text-2xl text-fg">{campaign.title}</h3>
             <p className="text-sm text-muted">
               {office.name}, {office.role} · {formatWindow(campaign.surgeStart, campaign.surgeEnd)}

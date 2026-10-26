@@ -23,7 +23,7 @@ export function IconNav<T extends string>({
   label: string;
 }) {
   return (
-    <nav className="flex gap-2 overflow-x-auto lg:flex-wrap lg:justify-end lg:overflow-visible" aria-label={label}>
+    <nav className="flex flex-wrap gap-2 lg:justify-end" aria-label={label}>
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -44,9 +44,9 @@ export function IconNav<T extends string>({
 }
 
 export const btn =
-  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-transform duration-150 ease-out active:scale-95 disabled:opacity-50";
+  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold disabled:opacity-50 btn";
 
-export const btnSignal = cn(btn, "bg-signal text-signal-ink");
+export const btnSignal = cn(btn, "btn-primary bg-signal text-signal-ink");
 export const btnGhost = cn(btn, "border border-line bg-surface text-fg");
 export const btnQuiet = cn(btn, "bg-transparent text-muted");
 
@@ -70,13 +70,7 @@ export function useCopy() {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      const area = document.createElement("textarea");
-      area.value = text;
-      area.setAttribute("readonly", "");
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+      return;
     }
     setCopied(key);
     window.setTimeout(() => {
@@ -132,7 +126,7 @@ export function LevelSwitch({
 
 export function Kicker({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-xs font-semibold tracking-widest text-signal uppercase", className)}>{children}</p>
+    <p className={cn("kicker", className)}>{children}</p>
   );
 }
 

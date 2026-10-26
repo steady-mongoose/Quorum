@@ -14,6 +14,8 @@ export function ProfileView() {
   const viewing = useBoard((state) => state.viewing);
   const profile = useBoard((state) => state.profile);
   const setProfile = useBoard((state) => state.setProfile);
+  const deskOn = useBoard((state) => state.deskOn);
+  const setDeskOn = useBoard((state) => state.setDeskOn);
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
@@ -30,7 +32,7 @@ export function ProfileView() {
     return (
       <div className="flex flex-col gap-3">
         <Kicker>Profile</Kicker>
-        <h1 className="font-display text-4xl text-fg">{name}</h1>
+        <h1 className="illum font-display text-4xl text-fg">{name}</h1>
         <p className="max-w-2xl text-base text-muted">You can see a profile once you have been to the same meeting as that person. You and {name} have not been to one yet.</p>
       </div>
     );
@@ -40,7 +42,7 @@ export function ProfileView() {
     <div className="flex flex-col gap-8 lg:max-w-4xl">
       <section className="flex flex-col gap-2">
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
-        <h1 className="font-display text-4xl text-fg lg:text-5xl">{name}</h1>
+        <h1 className="illum font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
           <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
@@ -59,6 +61,24 @@ export function ProfileView() {
               <input className={fieldClass} placeholder="Electrician" value={profile.trade} onChange={(event) => setProfile({ trade: event.target.value })} />
             </label>
           </div>
+        ) : null}
+        {mine ? (
+          <section className="mt-4 flex flex-col gap-2">
+            <h2 className="text-2xl text-fg">The desk</h2>
+            <p className="max-w-prose text-sm text-muted">
+              Optional: coordinated calls to local officials. It stays off until you turn it on.
+              The emblems stay.
+            </p>
+            <label className="inline-flex min-h-[44px] items-center gap-3 text-sm text-fg">
+              <input
+                type="checkbox"
+                className="size-5"
+                checked={deskOn}
+                onChange={(event) => setDeskOn(event.target.checked)}
+              />
+              Show The desk
+            </label>
+          </section>
         ) : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>

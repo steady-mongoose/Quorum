@@ -24,6 +24,7 @@ import { orderPosts } from "./order.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
+import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -315,7 +316,8 @@ export async function openBan(
   now: Date,
   roomId = "",
 ): Promise<OpenBan | null> {
-  const rows = await db.query<{ strikes: number; until_at: Date | string; reason: string }>(
+  const rows = await queryBanTable<{ strikes: number; until_at: Date | string; reason: string }>(
+    db,
     `select strikes, until_at, reason
      from board_ban
      where user_id = $1 and (room_id = '' or room_id = $2)
@@ -333,8 +335,10 @@ export async function openBan(
 }
 
 /**
- * The ban, or none when the board tables are not in this database yet.
- * A missing `board_ban` is not a ban. Any other failure still throws.
+ * The open ban, or none when this person has no bar in force.
+ * A missing `board_ban` (migration 0008 not applied) is not "nobody is banned".
+ * That check fails closed: it logs the missing table and throws
+ * `BanCheckUnavailable` (HTTP 503).
  */
 export async function openBanOrNone(
   db: Db,
@@ -342,14 +346,7 @@ export async function openBanOrNone(
   now: Date,
   roomId = "",
 ): Promise<OpenBan | null> {
-  try {
-    return await openBan(db, userId, now, roomId);
-  } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    if (code === "42P01") return null;
-    throw error;
-  }
+  return openBan(db, userId, now, roomId);
 }
 
 function names(value: unknown): string[] {
@@ -539,7 +536,7 @@ export async function listBoard(
          order by r.created_at desc
          limit 500`,
   );
-  const banRows = await db.query<{
+  const banRows = await queryBanTable<{
     id: string;
     name: string;
     reason: string;
@@ -548,10 +545,12 @@ export async function listBoard(
     created_at: Date | string;
     room_id: string;
   }>(
+    db,
     `select id, name, reason, strikes, until_at, created_at, room_id
      from board_ban
      order by created_at desc
      limit 500`,
+    [],
   );
   const appealRows = await db.query<{
     id: string;
@@ -616,8 +615,7 @@ export async function listBoard(
     });
   }
   const seesRoom = (roomId: string | null) =>
-    actor.admin ||
-    (roomId !== null && roomId !== "" && actor.stewardRooms.includes(roomId));
+    actor.admin || (roomId !== null && roomId !== "" && actor.stewardRooms.includes(roomId));
   const visibleAppeals = appealRows.filter(
     (row) =>
       actor.admin || row.author_user_id === userId || actor.stewardRooms.includes(row.room_id),
@@ -711,7 +709,8 @@ export async function writeBan(
     removalAlreadyCounted?: boolean;
   },
 ): Promise<BanEntry> {
-  const prior = await tx.query<{ strikes: number }>(
+  const prior = await queryBanTable<{ strikes: number }>(
+    tx,
     `select strikes from board_ban
      where user_id = $1 and room_id = $2
      order by created_at desc limit 1`,
@@ -724,10 +723,9 @@ export async function writeBan(
          where r.author_user_id = $1 and p.room_id = $2`,
         [input.userId, input.roomId],
       )
-    : await tx.query<{ id: string }>(
-        `select id from board_removal where author_user_id = $1`,
-        [input.userId],
-      );
+    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1`, [
+        input.userId,
+      ]);
   const chatRemovals = (await roomChatReady(tx))
     ? await tx.query<{ id: string }>(
         input.roomId
@@ -941,9 +939,7 @@ export async function replyToPost(
   if (!room) return fail(404, "That post is not here.");
   if (await openBan(db, input.userId, input.now, room.id))
     return fail(403, "This account cannot post right now.");
-  const allowed = stewardsRoom(actor, room.id)
-    ? [...room.takes, ...room.stewardTakes]
-    : room.takes;
+  const allowed = stewardsRoom(actor, room.id) ? [...room.takes, ...room.stewardTakes] : room.takes;
   if (!allowed.includes(parent.type)) {
     return fail(
       403,
@@ -1260,7 +1256,14 @@ async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<b
 
 export async function banMember(
   db: Db,
-  input: { userId: string; name: string; email: string; reason: string; roomId?: string; now: Date },
+  input: {
+    userId: string;
+    name: string;
+    email: string;
+    reason: string;
+    roomId?: string;
+    now: Date;
+  },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin && actor.stewardRooms.length === 0) {

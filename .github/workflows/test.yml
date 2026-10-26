@@ -1,7 +1,7 @@
 # Node 22 is required for --experimental-strip-types.
-# The template script suite stays continue-on-error so a missing .grok
-# checkout cannot skip the app tests. The backup drill is its own step
-# and does fail the job. age is required to encrypt and restore the drill dump.
+# The script suite, the app suite, the frontend build, and the backup drill each fail the job.
+# Later steps still run so one suite cannot hide another. age is required
+# to encrypt and restore the drill dump.
 
 name: Test
 
@@ -47,7 +47,6 @@ jobs:
 
       - name: Template script tests
         id: scripts
-        continue-on-error: true
         run: node scripts/run-tests.mjs scripts
 
       - name: App and server tests
@@ -75,8 +74,7 @@ jobs:
           echo "app tests: ${{ steps.app.outcome }}"
           echo "frontend build: ${{ steps.frontend.outcome }}"
           echo "backup drill: ${{ steps.backup.outcome }}"
-          echo "The template script suite already fails on the base branch when .grok is absent. It no longer skips the app suite."
-          if [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.frontend.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
+          if [ "${{ steps.scripts.outcome }}" != "success" ] || [ "${{ steps.app.outcome }}" != "success" ] || [ "${{ steps.frontend.outcome }}" != "success" ] || [ "${{ steps.backup.outcome }}" != "success" ]; then
             exit 1
           fi
 
@@ -109,3 +107,40 @@ jobs:
 
       - name: Build the API image, migrate, and require /api/health
         run: chmod +x scripts/api-image-smoke.sh && ./scripts/api-image-smoke.sh
+
+  failover-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install age and the Postgres client
+        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+
+      - name: Dry-run restore into a throwaway Postgres
+        run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh
+
+  frontend-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the static frontend with auth on
+        run: npm run build:frontend
+        env:
+          VITE_AUTH_ENABLED: "true"
+
+      - name: Fail if the built bundle has auth disabled
+        run: node scripts/check-frontend-auth.mjs

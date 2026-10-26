@@ -8,6 +8,8 @@ import {
   Kicker,
   useCopy,
 } from "@/components/quorum/bits";
+import { GatheringShareControl } from "@/components/board/gathering-share";
+import { RsvpControl } from "@/components/board/rsvp-control";
 import { cn } from "@/lib/cn";
 import {
   CARD_LABELS,
@@ -66,7 +68,7 @@ export function FindView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
-          <h1 className="max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
+          <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
             Every meeting, in one list.
           </h1>
           <p className="max-w-prose text-base text-muted">
@@ -180,7 +182,7 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
   const removeCard = useBoard((state) => state.removeCard);
   const shown = witnesses.length >= 2;
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
@@ -252,7 +254,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const going = card.going.includes(rest.me);
 
   return (
-    <article className={cn("rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}
@@ -287,13 +289,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (
-          <button
-            type="button"
-            className={going ? btnGhost : btnSignal}
-            onClick={() => rsvp(card.id)}
-          >
-            {going ? "I'll be there · undo" : "I'll be there"}
-          </button>
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
         <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
           {went ? "You've been" : "I went"}
@@ -312,6 +308,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             {card.pinned ? "Unpin" : "Pin at the top of the room"}
           </button>
         ) : null}
+        <GatheringShareControl card={card} />
         {isHost ? (
           <button
             type="button"
@@ -359,7 +356,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 />
               ) : null}
               {refused.length > 0 ? (
-                <ul className="flex flex-col gap-1 text-sm text-signal">
+                <ul className="flex flex-col gap-1 text-sm text-danger">
                   {refused.map((stop) => (
                     <li key={stop}>{stop}</li>
                   ))}

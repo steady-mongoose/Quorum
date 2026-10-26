@@ -6,6 +6,7 @@ import { createCallStore } from "./calls/store.ts";
 import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
+import { handlePublicGathering } from "./board/public-gathering.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
@@ -159,6 +160,13 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
     } catch (error) {
       if (error instanceof HttpError)
         return withCors(request, json(error.status, { error: error.message }), deps.origins);
+      const status =
+        error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+      if (status === 503) {
+        const message =
+          error instanceof Error ? error.message : "The server could not finish that.";
+        return withCors(request, json(503, { error: message }), deps.origins);
+      }
       console.error(
         JSON.stringify({
           event: "api-error",
@@ -394,6 +402,9 @@ async function route(
       json(404, { error: "Not found." })
     );
   }
+
+  const gathering = await handlePublicGathering(deps, request, url);
+  if (gathering) return gathering;
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
   return json(404, { error: "Not found." });
