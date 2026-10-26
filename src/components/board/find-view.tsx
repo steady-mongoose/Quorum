@@ -308,7 +308,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             {card.pinned ? "Unpin" : "Pin at the top of the room"}
           </button>
         ) : null}
-        {isHost ? <GatheringShareControl card={card} /> : null}
+        <GatheringShareControl card={card} />
         {isHost ? (
           <button
             type="button"

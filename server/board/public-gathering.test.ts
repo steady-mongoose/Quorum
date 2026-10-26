@@ -4,7 +4,10 @@ import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
+import { gatheringViewLimitKey } from "./public-gathering.ts";
+import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT } from "../rate-limit.ts";
 
+const DALE_ID = "3f2a9c1e-8241-4c3e-9a11-8241abcd1234";
 const PRIVATE = {
   host: "Dale",
   going: ["Josh", "Pete"],
@@ -12,6 +15,9 @@ const PRIVATE = {
   posts: ["Josh came and brought the plates."],
   members: ["Dale", "Josh"],
   address: "1010 E Brandon Blvd",
+  title: "Free prize claim now",
+  town: "1010 E Brandon Blvd",
+  time: "Call Dale at 813-662-9622",
 };
 
 async function user(db: Db, name: string): Promise<string> {
@@ -22,6 +28,15 @@ async function user(db: Db, name: string): Promise<string> {
     [id, name, `${name.toLowerCase()}-${id.slice(0, 8)}@example.com`],
   );
   return id;
+}
+
+async function grant(db: Db, userId: string, name: string, role: "member" | "steward", roomId = "") {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
+     values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+    [randomUUID(), userId, name, role, roomId],
+  );
 }
 
 function app(db: Db) {
@@ -43,97 +58,292 @@ function app(db: Db) {
   } satisfies AppDeps);
 }
 
-test("a shared gathering is public, and every other gathering is a 404", async () => {
+async function save(handler: (request: Request) => Promise<Response>, userId: string, body: Record<string, unknown>) {
+  return handler(
+    new Request("http://127.0.0.1:8787/api/gatherings", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": userId },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("a member cannot publish someone else's gathering or a missing one", async () => {
   const { db, close } = await openTestDb();
   try {
     const dale = await user(db, "Dale");
     const maria = await user(db, "Maria");
+    await grant(db, dale, "Dale", "member");
+    await grant(db, maria, "Maria", "member");
     const handler = app(db);
-    const missing = await handler(new Request("http://127.0.0.1:8787/e/s-lifts"));
-    assert.equal(missing.status, 404);
-    assert.match(missing.headers.get("x-robots-tag") ?? "", /noindex/);
-    assert.match(await missing.text(), /not shared/);
 
     const unsigned = await handler(
-      new Request("http://127.0.0.1:8787/api/e/s-lifts", {
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ shared: true, title: "Saturday lifts", date: "2026-10-24", town: "Riverview" }),
+        body: JSON.stringify({ shared: true, title: "Free prize claim now" }),
       }),
     );
     assert.equal(unsigned.status, 401);
 
+    const missing = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": maria },
+        body: JSON.stringify({ shared: true, ...PRIVATE }),
+      }),
+    );
+    assert.equal(missing.status, 404);
+
+    const created = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts",
+      date: "2026-10-24",
+      time: "7 a.m.",
+      place: "Dale's garage, 1010 E Brandon Blvd, Riverview",
+      town: "Tampa",
+      host: PRIVATE.host,
+      going: PRIVATE.going,
+      posts: PRIVATE.posts,
+      members: PRIVATE.members,
+      address: PRIVATE.address,
+    });
+    assert.equal(created.status, 200);
+
+    const squatted = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": maria },
+        body: JSON.stringify({ shared: true, title: "Free prize claim now", town: "1010 E Brandon Blvd" }),
+      }),
+    );
+    assert.equal(squatted.status, 403);
+    const hidden = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
+    assert.equal(hidden.status, 404);
+
+    const guess = await handler(
+      new Request("http://127.0.0.1:8787/api/e/1", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": maria },
+        body: JSON.stringify({ shared: true, title: "Free prize claim now" }),
+      }),
+    );
+    assert.equal(guess.status, 404);
+    const guessPage = await handler(new Request("http://127.0.0.1:8787/e/1"));
+    assert.equal(guessPage.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test("the public page is the live stored gathering, and sharing loads from the server", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const dale = await user(db, "Dale");
+    const maria = await user(db, "Maria");
+    const ruth = await user(db, "Ruth");
+    await grant(db, dale, "Dale", "member");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, ruth, "Ruth", "member");
+    await grant(db, ruth, "Ruth", "steward", "shop");
+    const handler = app(db);
+    const created = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts",
+      date: "2026-10-24",
+      time: "7 a.m.",
+      place: "Dale's garage, 1010 E Brandon Blvd, Riverview",
+    });
+    assert.equal(created.status, 200);
+
+    const off = await handler(
+      new Request(`http://127.0.0.1:8787/api/gatherings/${DALE_ID}`, {
+        headers: { "x-user-id": dale },
+      }),
+    );
+    assert.equal(off.status, 200);
+    const offBody = (await off.json()) as { gathering: { shared: boolean; place: string } };
+    assert.equal(offBody.gathering.shared, false);
+
     const published = await handler(
-      new Request("http://127.0.0.1:8787/api/e/s-lifts", {
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-user-id": dale },
-        body: JSON.stringify({
-          shared: true,
-          title: "Saturday lifts, garage gym",
-          date: "2026-10-24",
-          town: "Riverview",
-          ...PRIVATE,
-        }),
+        body: JSON.stringify({ shared: true, ...PRIVATE }),
       }),
     );
     assert.equal(published.status, 200);
 
-    const page = await handler(new Request("http://127.0.0.1:8787/e/s-lifts"));
+    const page = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`));
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") ?? "", /text\/html/);
     assert.match(page.headers.get("x-robots-tag") ?? "", /noindex/);
     const html = await page.text();
     assert.match(html, /<meta name="robots" content="noindex">/);
-    assert.match(html, /Saturday lifts, garage gym/);
-    assert.match(html, /October 24, 2026/);
+    assert.match(html, /property="og:title" content="Saturday lifts"/);
+    assert.match(html, /property="og:description" content="October 24, 2026 · 7 a\.m\. · Riverview"/);
+    assert.match(html, /property="og:type" content="website"/);
+    assert.match(html, /name="twitter:title" content="Saturday lifts"/);
+    assert.match(html, /name="twitter:description" content="October 24, 2026 · 7 a\.m\. · Riverview"/);
+    assert.match(html, /7 a\.m\./);
     assert.match(html, /Riverview/);
+    assert.match(html, /hero-band/);
+    assert.equal(html.includes("Free prize"), false);
     assert.equal(html.includes("Dale"), false);
     assert.equal(html.includes("Josh"), false);
     assert.equal(html.includes("Pete"), false);
     assert.equal(html.includes("1010"), false);
     assert.equal(html.includes("plates"), false);
-    assert.equal(/\bgoing\b|\bposts\b|\baddress\b/i.test(html), false);
+    for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+      assert.equal(/Dale|Josh|Pete|1010|plates|Free prize/.test(tag), false, tag);
+    }
 
-    const jsonPage = await handler(new Request("http://127.0.0.1:8787/api/e/s-lifts"));
-    assert.equal(jsonPage.status, 200);
+    const jsonPage = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
     const body = (await jsonPage.json()) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(body).sort(), ["date", "title", "town"]);
-    assert.equal(body.title, "Saturday lifts, garage gym");
-    assert.equal("host" in body, false);
-    assert.equal("going" in body, false);
+    assert.deepEqual(Object.keys(body).sort(), ["date", "time", "title", "town"]);
+    assert.equal(body.title, "Saturday lifts");
+    assert.equal(body.time, "7 a.m.");
     assert.equal("place" in body, false);
-    assert.equal("posts" in body, false);
-    assert.equal("members" in body, false);
+    assert.equal("host" in body, false);
 
-    const stolen = await handler(
-      new Request("http://127.0.0.1:8787/api/e/s-lifts", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": maria },
-        body: JSON.stringify({ shared: false, title: "Saturday lifts", date: "2026-10-24", town: "Riverview" }),
+    const edited = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts, later",
+      date: "2026-10-31",
+      time: "8 a.m.",
+      place: "The shop, Riverview",
+    });
+    assert.equal(edited.status, 200);
+    const live = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
+    const liveBody = (await live.json()) as { title: string; time: string; date: string; town: string };
+    assert.equal(liveBody.title, "Saturday lifts, later");
+    assert.equal(liveBody.time, "8 a.m.");
+    assert.equal(liveBody.date, "2026-10-31");
+    assert.equal(liveBody.town, "Riverview");
+
+    const loaded = await handler(
+      new Request(`http://127.0.0.1:8787/api/gatherings/${DALE_ID}`, {
+        headers: { "x-user-id": dale },
       }),
     );
-    assert.equal(stolen.status, 403);
+    const loadedBody = (await loaded.json()) as { gathering: { shared: boolean; title: string } };
+    assert.equal(loadedBody.gathering.shared, true);
+    assert.equal(loadedBody.gathering.title, "Saturday lifts, later");
 
-    const closed = await handler(
-      new Request("http://127.0.0.1:8787/api/e/s-lifts", {
+    const steward = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": ruth },
+        body: JSON.stringify({ shared: false, title: "Free prize claim now" }),
+      }),
+    );
+    assert.equal(steward.status, 200);
+    const unshared = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`));
+    assert.equal(unshared.status, 404);
+    assert.match(await unshared.text(), /not shared/);
+
+    const again = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-user-id": dale },
-        body: JSON.stringify({ shared: false }),
+        body: JSON.stringify({ shared: true }),
       }),
     );
-    assert.equal(closed.status, 200);
-    const gone = await handler(new Request("http://127.0.0.1:8787/api/e/s-lifts"));
+    assert.equal(again.status, 200);
+    const removed = await handler(
+      new Request(`http://127.0.0.1:8787/api/gatherings/${DALE_ID}`, {
+        method: "DELETE",
+        headers: { "x-user-id": dale },
+      }),
+    );
+    assert.equal(removed.status, 200);
+    const gone = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
     assert.equal(gone.status, 404);
-    const goneBody = (await gone.json()) as Record<string, unknown>;
-    assert.deepEqual(goneBody, { error: "Not found." });
-    assert.equal("title" in goneBody, false);
+    assert.deepEqual(await gone.json(), { error: "Not found." });
 
-    const other = await handler(new Request("http://127.0.0.1:8787/api/e/s-ham"));
-    assert.equal(other.status, 404);
     const door = await handler(new Request("http://127.0.0.1:8787/api/invite-log"));
     assert.equal(door.status, 401);
-    const home = await handler(new Request("http://127.0.0.1:8787/"));
-    assert.equal(home.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test("a removed gathering or a banned host is not public", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const dale = await user(db, "Dale");
+    await grant(db, dale, "Dale", "member");
+    const handler = app(db);
+    assert.equal(
+      (await save(handler, dale, {
+        id: DALE_ID,
+        roomId: "shop",
+        title: "Saturday lifts",
+        date: "2026-10-24",
+        time: "7 a.m.",
+        place: "Riverview",
+      })).status,
+      200,
+    );
+    assert.equal(
+      (
+        await handler(
+          new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-user-id": dale },
+            body: JSON.stringify({ shared: true }),
+          }),
+        )
+      ).status,
+      200,
+    );
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Dale', 'threat', 'Tom', 1, $3, 'shop', $4)`,
+      [randomUUID(), dale, new Date("2026-12-01T00:00:00Z"), new Date("2026-10-19T12:00:00Z")],
+    );
+    const banned = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`));
+    assert.equal(banned.status, 404);
+    const bannedPost = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": dale },
+        body: JSON.stringify({ shared: true }),
+      }),
+    );
+    assert.equal(bannedPost.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test("share and view are rate limited", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const now = Date.now();
+    await db.query(
+      `insert into "rateLimit" ("id", "key", "count", "lastRequest") values ($1, $2, $3, $4)`,
+      [randomUUID(), gatheringViewLimitKey("local"), BOARD_READ_LIMIT.max, now],
+    );
+    const viewed = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`));
+    assert.equal(viewed.status, 429);
+
+    await db.query(
+      `insert into "rateLimit" ("id", "key", "count", "lastRequest") values ($1, $2, $3, $4)`,
+      [randomUUID(), "board-write:ip:local", BOARD_WRITE_LIMIT.max, now],
+    );
+    const posted = await handler(
+      new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ shared: true }),
+      }),
+    );
+    assert.equal(posted.status, 429);
   } finally {
     await close();
   }

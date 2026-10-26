@@ -122,6 +122,9 @@ test("migration 0018 adds the public gathering and does not replace a function",
   assert.match(sql, /title text not null/);
   assert.match(sql, /gather_on text not null/);
   assert.match(sql, /town text not null/);
+  assert.match(sql, /gather_time text not null/);
+  assert.match(sql, /removed boolean not null default false/i);
+  assert.match(sql, /0-9a-f/);
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/create trigger/i.test(sql), false);
 });

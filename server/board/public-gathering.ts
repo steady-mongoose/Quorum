@@ -1,10 +1,12 @@
 import type { Db } from "../db.ts";
+import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
+import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
+import { limitBoardWrite } from "./routes.ts";
+import { loadSharedGathering, setGatheringShared } from "./gathering-record.ts";
 import {
-  acceptPublicGathering,
   isGatheringId,
   publicGatheringHtml,
   publicGatheringJson,
-  type PublicGathering,
 } from "../../src/lib/board/public-gathering.ts";
 
 type SessionUser = { id: string; name: string; email: string };
@@ -15,17 +17,23 @@ export type GatheringDeps = {
   now: () => Date;
 };
 
-const PUBLIC_GET = /^\/(?:api\/)?e\/([A-Za-z0-9-]{1,64})$/;
+const PUBLIC_PATH = /^\/(?:api\/)?e\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      "x-robots-tag": "noindex",
-    },
-  });
+export function gatheringViewLimitKey(ip: string): string {
+  return `board-read:ip:${ip}`;
+}
+
+function clientIp(request: Request): string {
+  const value = request.headers.get(CLIENT_IP_HEADER)?.trim();
+  return rateLimitIp(value || "local");
+}
+
+function json(status: number, body: unknown, extra?: Headers): Response {
+  const headers = extra ?? new Headers();
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.set("cache-control", "no-store");
+  headers.set("x-robots-tag", "noindex");
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function html(status: number, body: string): Response {
@@ -39,73 +47,39 @@ function html(status: number, body: string): Response {
   });
 }
 
-async function loadShared(db: Db, id: string): Promise<PublicGathering | null> {
-  const rows = await db.query<{ title: string; gather_on: string; town: string }>(
-    `select title, gather_on, town from public_gathering where id = $1 and shared = true`,
-    [id],
+function tooMany(retryAfter: number): Response {
+  return json(
+    429,
+    { error: "Too many attempts. Wait and try again." },
+    new Headers({ "retry-after": String(retryAfter) }),
   );
-  const row = rows[0];
-  if (!row) return null;
-  return { title: row.title, date: row.gather_on, town: row.town };
-}
-
-async function setShared(
-  db: Db,
-  input: { userId: string; id: string; shared: boolean; gathering: PublicGathering },
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  if (!input.shared) {
-    const updated = await db.query<{ id: string }>(
-      `update public_gathering set shared = false, updated_at = now()
-       where id = $1 and host_user_id = $2
-       returning id`,
-      [input.id, input.userId],
-    );
-    if (updated.length > 0) return { ok: true };
-    const owner = await db.query<{ host_user_id: string }>(
-      `select host_user_id from public_gathering where id = $1`,
-      [input.id],
-    );
-    if (owner.length > 0 && owner[0]?.host_user_id !== input.userId) {
-      return { ok: false, status: 403, error: "Only the organizer can change sharing." };
-    }
-    return { ok: true };
-  }
-  const saved = await db.query<{ id: string }>(
-    `insert into public_gathering (id, title, gather_on, town, shared, host_user_id)
-     values ($1, $2, $3, $4, true, $5)
-     on conflict (id) do update
-       set title = excluded.title,
-           gather_on = excluded.gather_on,
-           town = excluded.town,
-           shared = true,
-           updated_at = now()
-       where public_gathering.host_user_id = excluded.host_user_id
-     returning id`,
-    [input.id, input.gathering.title, input.gathering.date, input.gathering.town, input.userId],
-  );
-  if (saved.length > 0) return { ok: true };
-  return { ok: false, status: 403, error: "Only the organizer can change sharing." };
 }
 
 /**
- * GET /e/<id> and GET /api/e/<id> need no session. Every other method on
- * this path, and every other path, stays with the caller.
+ * GET /e/<id> and GET /api/e/<id> need no session. POST /api/e/<id> only
+ * turns sharing on or off. The title, date, time, and town come from the
+ * stored gathering. Every other path stays with the caller.
  */
 export async function handlePublicGathering(
   deps: GatheringDeps,
   request: Request,
   url: URL,
 ): Promise<Response | null> {
-  const match = PUBLIC_GET.exec(url.pathname);
+  const match = PUBLIC_PATH.exec(url.pathname);
   if (!match) return null;
-  const id = match[1] ?? "";
+  const id = (match[1] ?? "").toLowerCase();
   const asHtml = !url.pathname.startsWith("/api/");
-  if (!isGatheringId(id)) return asHtml ? html(404, publicGatheringHtml(null).body) : json(404, { error: "Not found." });
+  if (!isGatheringId(id)) {
+    return asHtml ? html(404, publicGatheringHtml(null, id).body) : json(404, { error: "Not found." });
+  }
 
+  const ip = clientIp(request);
   if (request.method === "GET") {
-    const gathering = await loadShared(deps.db, id);
+    const hit = await consumeLimit(deps.db, gatheringViewLimitKey(ip), BOARD_READ_LIMIT, Date.now());
+    if (!hit.allowed) return tooMany(hit.retryAfter);
+    const gathering = await loadSharedGathering(deps.db, id, deps.now());
     if (asHtml) {
-      const page = publicGatheringHtml(gathering);
+      const page = publicGatheringHtml(gathering, id);
       return html(page.status, page.body);
     }
     const payload = publicGatheringJson(gathering);
@@ -115,7 +89,13 @@ export async function handlePublicGathering(
   if (request.method !== "POST" || asHtml) return json(405, { error: "Not found." });
 
   const session = await deps.readSession(request.headers);
-  if (!session) return json(401, { error: "Sign in first." });
+  if (!session) {
+    const hit = await consumeLimit(deps.db, `board-write:ip:${ip}`, BOARD_WRITE_LIMIT, Date.now());
+    if (!hit.allowed) return tooMany(hit.retryAfter);
+    return json(401, { error: "Sign in first." });
+  }
+  const limited = await limitBoardWrite(deps.db, request, session.id);
+  if (limited) return limited;
 
   let body: Record<string, unknown>;
   try {
@@ -133,21 +113,12 @@ export async function handlePublicGathering(
   if (body.shared !== true && body.shared !== false) {
     return json(400, { error: "Say whether sharing is on." });
   }
-  const accepted = acceptPublicGathering({
-    title: body.title,
-    date: body.date,
-    town: body.town,
-  });
-  if (body.shared === true && !accepted.ok) return json(400, { error: accepted.error });
-  const gathering = accepted.ok
-    ? accepted.gathering
-    : { title: "Gathering", date: "", town: "" };
-  const saved = await setShared(deps.db, {
+  const saved = await setGatheringShared(deps.db, {
     userId: session.id,
     id,
     shared: body.shared,
-    gathering,
+    now: deps.now(),
   });
   if (!saved.ok) return json(saved.status, { error: saved.error });
-  return json(200, { ok: true });
+  return json(200, { ok: true, shared: saved.shared });
 }

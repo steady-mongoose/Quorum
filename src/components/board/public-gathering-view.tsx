@@ -1,18 +1,68 @@
-import { publicDateLabel, type PublicGathering } from "@/lib/board/public-gathering";
+import type { ReactNode } from "react";
+import { INVITE_LINE, PRIVACY_LINE, publicDateLabel, type PublicGathering } from "@/lib/board/public-gathering";
+import { heroLabel } from "@/lib/board/engraved";
 
-/** Title, date, and town. Nothing else from the gathering is rendered. */
+const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
+
+/** The engraved band and the plate. Loading, the page, and not-found all use it. */
+export function PublicGatheringFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="shell gathering-page min-h-dvh overflow-x-clip text-fg" data-section="week">
+      <div className="hero-band" role="img" aria-label={HERO} />
+      <div className="shell-body">
+        <main>
+          <article className="plate gathering-plate">{children}</article>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export function PublicGatheringLoading() {
+  return (
+    <PublicGatheringFrame>
+      <p className="gathering-kicker">Avouch Social</p>
+      <h1 className="gathering-title illum font-display text-4xl text-fg lg:text-5xl">Loading.</h1>
+    </PublicGatheringFrame>
+  );
+}
+
+export function PublicGatheringMissing() {
+  return (
+    <PublicGatheringFrame>
+      <p className="gathering-kicker">Avouch Social</p>
+      <h1 className="gathering-title illum font-display text-4xl text-fg lg:text-5xl">This gathering is not shared.</h1>
+      <p className="gathering-copy">{INVITE_LINE}</p>
+      <p className="gathering-links">
+        <a href="/">The door</a>
+      </p>
+    </PublicGatheringFrame>
+  );
+}
+
+/** Title, date, time, and town. Nothing else from the gathering is rendered. */
 export function PublicGatheringView({ gathering }: { gathering: PublicGathering }) {
   const date = publicDateLabel(gathering.date);
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-4 px-6 py-16">
-      <p className="text-xs font-semibold tracking-widest text-muted uppercase">Avouch Social</p>
-      <h1 className="text-4xl text-fg">{gathering.title}</h1>
+    <PublicGatheringFrame>
+      <p className="gathering-kicker">Avouch Social</p>
+      <h1 className="gathering-title illum font-display text-4xl text-balance text-fg lg:text-5xl">{gathering.title}</h1>
       {date ? (
-        <p className="text-base text-fg">
+        <p className="gathering-line">
           <time dateTime={gathering.date}>{date}</time>
         </p>
       ) : null}
-      {gathering.town ? <p className="text-base text-muted">{gathering.town}</p> : null}
-    </main>
+      {gathering.time ? <p className="gathering-line">{gathering.time}</p> : null}
+      {gathering.town ? <p className="gathering-town">{gathering.town}</p> : null}
+      <p className="gathering-copy">{INVITE_LINE}</p>
+      <p className="gathering-links">
+        <a href="/">The door</a>
+        <a href="#privacy">Privacy</a>
+      </p>
+      <section id="privacy">
+        <h2 className="gathering-kicker">Privacy</h2>
+        <p className="gathering-copy">{PRIVACY_LINE}</p>
+      </section>
+    </PublicGatheringFrame>
   );
 }

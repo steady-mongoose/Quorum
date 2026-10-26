@@ -14,6 +14,12 @@ import {
   setCouncil,
 } from "./places-store.ts";
 import {
+  listGatheringsFor,
+  readGatheringFor,
+  removeGathering,
+  saveGathering,
+} from "./gathering-record.ts";
+import {
   banMember,
   closeAsked,
   createRoom,
@@ -143,7 +149,14 @@ export async function handleBoard(
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
+  const gatheringOne =
+    /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
+      url.pathname,
+    );
   const matched =
+    (url.pathname === "/api/gatherings" && (request.method === "GET" || request.method === "POST")) ||
+    (gatheringOne !== null &&
+      (request.method === "GET" || request.method === "DELETE" || request.method === "POST")) ||
     (url.pathname === "/api/board" && request.method === "GET") ||
     (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
@@ -171,6 +184,31 @@ export async function handleBoard(
     if (url.pathname === "/api/appeals" && request.method === "GET") {
       const appeals = await listOwnAppeals(deps.db, session.id);
       return json(200, { appeals });
+    }
+
+    if (url.pathname === "/api/gatherings" && request.method === "GET") {
+      const gatherings = await listGatheringsFor(deps.db, { userId: session.id, now });
+      return json(200, { gatherings });
+    }
+
+    if (gatheringOne && request.method === "GET") {
+      const one = await readGatheringFor(deps.db, {
+        userId: session.id,
+        id: gatheringOne[1] ?? "",
+        now,
+      });
+      if (!one.ok) return json(one.status, { error: one.error });
+      return json(200, { gathering: one.gathering });
+    }
+
+    if (gatheringOne && request.method === "DELETE") {
+      const removed = await removeGathering(deps.db, {
+        userId: session.id,
+        id: gatheringOne[1] ?? "",
+        now,
+      });
+      if (!removed.ok) return json(removed.status, { error: removed.error });
+      return json(200, { ok: true });
     }
 
     if (url.pathname === "/api/board") {
@@ -207,6 +245,24 @@ export async function handleBoard(
     }
 
     const body = await readJson(request);
+
+    if (
+      (url.pathname === "/api/gatherings" || gatheringOne) &&
+      request.method === "POST"
+    ) {
+      const saved = await saveGathering(deps.db, {
+        userId: session.id,
+        id: gatheringOne ? (gatheringOne[1] ?? "") : stringField(body, "id"),
+        roomId: stringField(body, "roomId"),
+        title: body.title,
+        date: body.date,
+        time: body.time,
+        place: body.place,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, { gathering: saved.gathering });
+    }
 
     if (url.pathname === "/api/rooms") {
       const created = await createRoom(deps.db, {

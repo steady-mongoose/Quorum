@@ -1,19 +1,37 @@
-import { useState } from "react";
-import { setGatheringShare } from "@/lib/board/gathering-public";
-import { townOf } from "@/lib/board/gathering";
+import { useEffect, useState } from "react";
+import { loadGathering, saveGathering, setGatheringShare } from "@/lib/board/gathering-public";
+import { authorName } from "@/lib/board/model";
 import type { MeetingCard } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 /**
- * The organizer's switch. Off until they turn it on. The public page then
- * shows the title, the date, and the town.
+ * The organizer's switch. Off until they turn it on. The flag is read from
+ * the server, and the public page then reads the stored gathering.
  */
 export function GatheringShareControl({ card }: { card: MeetingCard }) {
   const updateCard = useBoard((state) => state.updateCard);
   const remote = useBoard((state) => state.remote);
+  const me = useBoard((state) => authorName(state.me));
+  const admin = useBoard((state) => state.admin);
+  const stewardRooms = useBoard((state) => state.stewardRooms);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const allowed = card.host === me || admin || stewardRooms.includes(card.room);
   const shared = card.sharePublic === true;
+
+  useEffect(() => {
+    if (!remote || !allowed) return;
+    let live = true;
+    void loadGathering(card.id).then((row) => {
+      if (!live || !row) return;
+      updateCard(card.id, { sharePublic: row.shared });
+    });
+    return () => {
+      live = false;
+    };
+  }, [allowed, card.id, remote, updateCard]);
+
+  if (!allowed) return null;
 
   const change = (next: boolean) => {
     if (!remote) {
@@ -21,20 +39,28 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
       return;
     }
     setPending(true);
-    void setGatheringShare({
+    void saveGathering({
       id: card.id,
-      shared: next,
+      roomId: card.room,
       title: card.name,
       date: card.next,
-      town: townOf(card.place),
-    }).then((result) => {
-      setPending(false);
-      if (!result.ok) {
-        setError(result.error);
+      time: card.time,
+      place: card.place,
+    }).then((saved) => {
+      if (!saved.ok) {
+        setPending(false);
+        setError(saved.error);
         return;
       }
-      setError("");
-      updateCard(card.id, { sharePublic: next });
+      return setGatheringShare({ id: card.id, shared: next }).then((result) => {
+        setPending(false);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setError("");
+        updateCard(card.id, { sharePublic: next });
+      });
     });
   };
 
@@ -51,7 +77,7 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
         Share this gathering
       </label>
       <p className="max-w-prose text-sm text-muted">
-        Off until you turn it on. The public page shows the title, the date, and the town.
+        Off until you turn it on. The public page shows the title, the date, the time, and the town.
       </p>
       {error ? (
         <p className="text-sm text-signal" role="alert">

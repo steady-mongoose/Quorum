@@ -122,9 +122,8 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
       <div className="mt-3 flex flex-wrap gap-2">
         {card.host !== me ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
-        ) : (
-          <GatheringShareControl card={card} />
-        )}
+        ) : null}
+        <GatheringShareControl card={card} />
       </div>
     </article>
   );
