@@ -681,7 +681,7 @@ export type ResetQueueItem = {
   requestedBy: string;
   requesterName: string;
   status: string;
-  approvals: { approverId: string; at: string }[];
+  approvals: { approverId: string; approverName: string; at: string }[];
   createdAt: string;
 };
 
@@ -728,10 +728,12 @@ export async function listResets(db: Db, actor: SessionRef): Promise<
   const approvals =
     rows.length === 0
       ? []
-      : await db.query<{ reset_id: string; approver_id: string; at: Date | string }>(
-          `select reset_id, approver_id, at from mfa_reset_approval
-           where reset_id = any($1::text[])
-           order by at asc`,
+      : await db.query<{ reset_id: string; approver_id: string; approver_name: string; at: Date | string }>(
+          `select a.reset_id, a.approver_id, u.name as approver_name, a.at
+           from mfa_reset_approval a
+           join "user" u on u.id = a.approver_id
+           where a.reset_id = any($1::text[])
+           order by a.at asc`,
           [rows.map((row) => row.id)],
         );
   return {
@@ -747,7 +749,11 @@ export async function listResets(db: Db, actor: SessionRef): Promise<
       createdAt: new Date(row.created_at).toISOString(),
       approvals: approvals
         .filter((item) => item.reset_id === row.id)
-        .map((item) => ({ approverId: item.approver_id, at: new Date(item.at).toISOString() })),
+        .map((item) => ({
+          approverId: item.approver_id,
+          approverName: item.approver_name,
+          at: new Date(item.at).toISOString(),
+        })),
     })),
   };
 }

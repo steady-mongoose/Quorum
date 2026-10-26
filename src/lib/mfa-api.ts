@@ -97,7 +97,7 @@ export type MfaResetRow = {
   email: string;
   requestedBy: string;
   requesterName: string;
-  approvals: { approverId: string; at: string }[];
+  approvals: { approverId: string; approverName: string; at: string }[];
 };
 
 export async function listMfaResets(): Promise<MfaResult<{ resets: MfaResetRow[] }>> {

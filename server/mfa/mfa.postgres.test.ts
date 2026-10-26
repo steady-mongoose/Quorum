@@ -512,6 +512,19 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
     const once = await approve(adminA, adminAMfa.plain, "203.0.113.45");
     assert.equal(once.status, 200);
     assert.equal(((await once.json()) as { completed?: boolean }).completed, false);
+    const named = await app(
+      new Request("http://127.0.0.1:8787/api/mfa/reset", {
+        headers: headers(owner, "203.0.113.47"),
+      }),
+    );
+    const namedText = await named.text();
+    assert.equal(named.status, 200);
+    const namedBody = JSON.parse(namedText) as {
+      resets: { approvals: { approverName?: string }[] }[];
+    };
+    const approverNames = namedBody.resets.flatMap((row) => row.approvals.map((item) => item.approverName));
+    assert.equal(approverNames.includes("Ida"), true);
+    assertClean("named queue", namedText, [subjectMfa.secret, adminAMfa.secret, KEY]);
     const twice = await approve(adminA, adminAMfa.plain, "203.0.113.45");
     assert.equal(twice.status, 403);
     assert.equal(((await twice.json()) as { error?: string }).error, "mfa_reset_repeat");

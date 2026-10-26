@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { useServerSession } from "@/lib/server-session-state";
 import {
   approveMfaReset,
   confirmMfaEnroll,
@@ -38,26 +39,41 @@ function QrMark({ modules }: { modules: number[][] }) {
   );
 }
 
+function challengeError(message: string | undefined, recoveryMode: boolean): string {
+  if (recoveryMode) return message || "That code is not valid.";
+  if (message && /too many|wait/i.test(message)) return message;
+  return "That code didn't match. Codes change every 30 seconds, so try the newest one.";
+}
+
 export function MfaChallenge({
   onSubmit,
 }: {
   onSubmit: (code: string) => Promise<{ ok: boolean; message?: string }>;
 }) {
+  const fieldId = useId();
+  const errorId = useId();
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+
+  function send(value: string) {
+    if (pending || !value.trim()) return;
+    setError("");
+    setPending(true);
+    void onSubmit(value).then((result) => {
+      setPending(false);
+      if (!result.ok) setError(challengeError(result.message, recovery));
+    });
+  }
+
   return (
     <form
       className="flex w-full flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        setError("");
-        setPending(true);
-        void onSubmit(code).then((result) => {
-          setPending(false);
-          if (!result.ok) setError(result.message ?? "That code is not valid.");
-        });
+        const data = new FormData(event.currentTarget);
+        send(String(data.get("code") ?? ""));
       }}
     >
       <h2 className="font-display text-2xl text-fg">Authenticator</h2>
@@ -66,16 +82,33 @@ export function MfaChallenge({
           ? "Enter one recovery code. It works once."
           : "Enter the six-digit code from your authenticator app."}
       </p>
-      <label className="flex flex-col gap-2 text-sm text-muted">
+      <label className="flex flex-col gap-2 text-sm text-muted" htmlFor={fieldId}>
         {recovery ? "Recovery code" : "Code"}
         <input
+          id={fieldId}
+          name="code"
           className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
           value={code}
           inputMode={recovery ? "text" : "numeric"}
           autoComplete="one-time-code"
-          onChange={(event) => setCode(event.target.value)}
+          maxLength={recovery ? undefined : 6}
+          pattern={recovery ? undefined : "[0-9]*"}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => {
+            const raw = event.target.value;
+            const next = recovery ? raw : raw.replace(/\D/g, "").slice(0, 6);
+            if (event.target.value !== next) event.target.value = next;
+            setCode(next);
+            if (!recovery && /^\d{6}$/.test(next)) event.currentTarget.form?.requestSubmit();
+          }}
         />
       </label>
+      {error ? (
+        <p id={errorId} role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
       <button type="submit" className={cn(btnSignal, "w-full sm:w-auto")} disabled={pending}>
         {recovery ? "Use recovery code" : "Continue"}
       </button>
@@ -90,11 +123,6 @@ export function MfaChallenge({
       >
         {recovery ? "Use an authenticator code" : "Use a recovery code"}
       </button>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
     </form>
   );
 }
@@ -105,9 +133,22 @@ export function MfaSettings() {
   const [modules, setModules] = useState<number[][] | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
+  const [savedCodes, setSavedCodes] = useState(false);
+  const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+
+  async function copyValue(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied("Copied.");
+      setError("");
+    } catch {
+      setCopied("");
+      setError("Copy did not work. Select the text and copy it.");
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -127,9 +168,8 @@ export function MfaSettings() {
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
       <h2 className="font-display text-2xl text-fg">Authenticator</h2>
       <p className="max-w-prose text-sm text-muted">
-        A code from an app you keep, after your password. The owner, an admin, and a steward of a
-        room need one before they grant a role, approve a reset, or export. A member can turn it
-        on. A passkey can be added later.
+        Adds a six-digit code from an app on your phone after your password. Owners, admins and
+        stewards need it for sensitive actions. Members can turn it on any time.
       </p>
       {status?.required && !status.enrolled ? (
         <p className="text-sm text-fg">Turn this on before you use steward or admin tools.</p>
@@ -165,8 +205,17 @@ export function MfaSettings() {
       {modules && !status?.enrolled ? (
         <div className="flex flex-col gap-3">
           <QrMark modules={modules} />
-          <p className="text-sm text-muted">Or enter this key by hand.</p>
-          <p className="break-all font-mono text-base text-fg">{secret}</p>
+          <p className="text-sm text-muted">Can't scan? Enter this key in your app:</p>
+          <p className="break-all font-mono text-base tracking-wider text-fg select-all">
+            {secret.match(/.{1,4}/g)?.join(" ")}
+          </p>
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px] w-full sm:w-auto")}
+            onClick={() => void copyValue(secret)}
+          >
+            Copy key
+          </button>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Code from the app
             <input
@@ -190,6 +239,8 @@ export function MfaSettings() {
                   setError(result.message);
                   return;
                 }
+                setSavedCodes(false);
+                setCopied("");
                 setRecovery(result.value.recoveryCodes);
                 setModules(null);
                 setSecret("");
@@ -204,24 +255,57 @@ export function MfaSettings() {
       ) : null}
       {recovery ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-fg">Write these down. They are shown once.</p>
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <p className="text-base text-fg">
+            Save these 10 recovery codes now. They are shown only once. Each works one time if you
+            lose your phone. Keep them somewhere safe, apart from your password.
+          </p>
+          <ol className="grid grid-cols-1 gap-2 rounded-md border border-line bg-raised p-3 font-mono tabular-nums sm:grid-cols-2">
             {recovery.map((item) => (
-              <li key={item} className="font-mono text-base text-fg">
+              <li key={item} className="text-base text-fg">
                 {item}
               </li>
             ))}
-          </ul>
+          </ol>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px] w-full sm:w-auto")}
+              onClick={() => void copyValue(recovery.join("\n"))}
+            >
+              Copy codes
+            </button>
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px] w-full sm:w-auto")}
+              onClick={() => downloadRecoveryCodes(recovery)}
+            >
+              Download .txt
+            </button>
+          </div>
+          <label className="flex min-h-[44px] items-center gap-3 text-base text-fg">
+            <input
+              type="checkbox"
+              className="size-6 shrink-0"
+              checked={savedCodes}
+              onChange={(event) => setSavedCodes(event.target.checked)}
+            />
+            I've saved these codes
+          </label>
           <button
             type="button"
-            className={cn(btnGhost, "w-full sm:w-auto")}
-            onClick={() => setRecovery(null)}
+            className={cn(btnSignal, "w-full sm:w-auto")}
+            disabled={!savedCodes}
+            onClick={() => {
+              setRecovery(null);
+              setSavedCodes(false);
+              setCopied("");
+            }}
           >
-            I wrote them down
+            Continue
           </button>
         </div>
       ) : null}
-      {status?.enrolled && !status.required ? (
+      {status?.enrolled && !status.required && !recovery ? (
         <form
           className="flex flex-col gap-3"
           onSubmit={(event) => {
@@ -246,8 +330,9 @@ export function MfaSettings() {
             <input
               className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
               value={code}
-              onChange={(event) => setCode(event.target.value)}
+              inputMode="numeric"
               autoComplete="one-time-code"
+              onChange={(event) => setCode(event.target.value)}
             />
           </label>
           <button type="submit" className={cn(btnGhost, "w-full sm:w-auto")} disabled={pending}>
@@ -260,6 +345,11 @@ export function MfaSettings() {
           {error}
         </p>
       ) : null}
+      {copied ? (
+        <p role="status" className="text-sm text-muted">
+          {copied}
+        </p>
+      ) : null}
       {notice ? (
         <p role="status" className="text-sm text-muted">
           {notice}
@@ -269,7 +359,43 @@ export function MfaSettings() {
   );
 }
 
+function downloadRecoveryCodes(codes: string[]) {
+  const blob = new Blob([`${codes.join("\n")}\n`], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "avouch-recovery-codes.txt";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function waitingCopy(count: number): string {
+  const left = Math.max(0, 2 - count);
+  if (left >= 2) return "Waiting on 2 admins";
+  if (left === 1) return "Waiting on 1 more admin";
+  return "Both approvals are in";
+}
+
+function queueStatus(row: MfaResetRow): string {
+  const names = row.approvals
+    .map((item) => item.approverName)
+    .filter((name) => typeof name === "string" && name.length > 0);
+  const approved = names.length === 0 ? "" : `Approved by ${names.join(" and ")} · `;
+  return `Asked by ${row.requesterName} · ${approved}${waitingCopy(row.approvals.length)}`;
+}
+
+function approveBlock(row: MfaResetRow, viewerId: string): string | null {
+  if (!viewerId) return "Sign in again before approving.";
+  if (viewerId === row.userId) return "You cannot approve a reset of your own account.";
+  if (viewerId === row.requestedBy) return "You asked for this reset, so someone else approves it.";
+  if (row.approvals.some((item) => item.approverId === viewerId)) {
+    return "You already approved this. A different admin has to approve it.";
+  }
+  return null;
+}
+
 export function MfaResetQueue() {
+  const viewerId = useServerSession().user?.id ?? "";
   const [rows, setRows] = useState<MfaResetRow[] | null>(null);
   const [userId, setUserId] = useState("");
   const [code, setCode] = useState("");
@@ -318,7 +444,8 @@ export function MfaResetQueue() {
         }}
       >
         <label className="flex flex-col gap-2 text-sm text-muted md:col-span-2">
-          Account id
+          Member's account ID
+          <span className="text-sm text-muted">Find it on the member's profile.</span>
           <input
             className={cn(fieldClass, "min-h-[44px]")}
             value={userId}
@@ -339,47 +466,49 @@ export function MfaResetQueue() {
           onChange={(event) => setCode(event.target.value)}
         />
       </label>
+      {rows && rows.length === 0 ? <p className="text-sm text-muted">No resets are waiting.</p> : null}
       <ul className="flex flex-col gap-3">
-        {(rows ?? []).map((row) => (
-          <li key={row.id} className="flex flex-col gap-2 rounded-md border border-line p-3">
-            <p className="text-base text-fg">
-              {row.name} <span className="text-muted">{row.email}</span>
-            </p>
-            <p className="text-sm text-muted">
-              Asked by {row.requesterName}. {row.approvals.length} of 2 approvals.
-            </p>
-            <button
-              type="button"
-              className={cn(btnGhost, "w-full sm:w-auto")}
-              disabled={pending}
-              onClick={() => {
-                setError("");
-                setNotice("");
-                setPending(true);
-                void (async () => {
-                  const stepped = await stepUpMfa("mfa-reset", code.trim());
-                  if (!stepped.ok) {
+        {(rows ?? []).map((row) => {
+          const blocked = approveBlock(row, viewerId);
+          return (
+            <li key={row.id} className="flex flex-col gap-2 rounded-md border border-line p-3">
+              <p className="text-base text-fg">
+                {row.name} <span className="text-muted">{row.email}</span>
+              </p>
+              <p className="text-sm text-muted">{queueStatus(row)}</p>
+              <button
+                type="button"
+                className={cn(btnGhost, "w-full sm:w-auto")}
+                disabled={pending || Boolean(blocked)}
+                onClick={() => {
+                  setError("");
+                  setNotice("");
+                  setPending(true);
+                  void (async () => {
+                    const stepped = await stepUpMfa("mfa-reset", code.trim());
+                    if (!stepped.ok) {
+                      setPending(false);
+                      setError(stepped.message);
+                      return;
+                    }
+                    const result = await approveMfaReset(row.id);
                     setPending(false);
-                    setError(stepped.message);
-                    return;
-                  }
-                  const result = await approveMfaReset(row.id);
-                  setPending(false);
-                  if (!result.ok) {
-                    setError(result.message);
-                    return;
-                  }
-                  setNotice(result.value.completed ? "Reset finished." : "Approval saved.");
-                  load();
-                })();
-              }}
-            >
-              Approve reset
-            </button>
-          </li>
-        ))}
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setNotice(result.value.completed ? "Reset finished." : "Approval saved.");
+                    load();
+                  })();
+                }}
+              >
+                Approve reset
+              </button>
+              {blocked ? <p className="text-sm text-muted">{blocked}</p> : null}
+            </li>
+          );
+        })}
       </ul>
-      {rows && rows.length === 0 ? <p className="text-sm text-muted">No reset is waiting.</p> : null}
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}

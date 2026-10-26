@@ -33,6 +33,7 @@
   --color-danger: #f0b4a4;
   --font-sans: "Public Sans", "Segoe UI", sans-serif;
   --font-display: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 @layer base {
