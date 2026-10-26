@@ -190,9 +190,11 @@ async function route(
   url: URL,
 ): Promise<Response> {
   if (request.method === "OPTIONS") {
+    const origin = request.headers.get("origin");
+    if (!origin || !deps.origins.includes(origin)) return new Response(null, { status: 403 });
     const headers = new Headers({
-      "access-control-allow-methods": "GET, POST, OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-allow-headers": "content-type, authorization",
       "access-control-max-age": "600",
     });
     return new Response(null, { status: 204, headers });

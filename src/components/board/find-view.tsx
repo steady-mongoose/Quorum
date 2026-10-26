@@ -36,6 +36,7 @@ import { NeedCard } from "@/components/board/week-view";
 export function FindView() {
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
+  const boardError = useBoard((state) => state.boardError);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
 
@@ -68,6 +69,11 @@ export function FindView() {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <div className="flex flex-col gap-8">
+        {boardError ? (
+          <p role="alert" className="text-sm text-danger">
+            {boardError}
+          </p>
+        ) : null}
         {removal.removed ? (
           <p role="status" className="flex flex-wrap items-center gap-3 text-sm text-muted">
             Removed {removal.removed.name}.
@@ -164,9 +170,10 @@ function useUndoCardRemoval() {
   }, [removed]);
   return {
     removed,
-    remove(card: MeetingCard) {
-      removeCard(card.id);
+    async remove(card: MeetingCard) {
       setRemoved(card);
+      const result = await removeCard(card.id);
+      if (!result.ok) setRemoved((current) => (current?.id === card.id ? null : current));
     },
     undo() {
       if (!removed) return;

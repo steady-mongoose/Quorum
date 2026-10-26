@@ -188,7 +188,7 @@ type BoardState = {
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
   visited: (id: string) => void;
-  removeCard: (id: string) => void;
+  removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** A host makes a one-use code for one card. The card shows only after a name redeems it. */
   createInvite: (cardId: string) => string | null;
   /**
@@ -1130,9 +1130,29 @@ export const useBoard = create<BoardState>()(
             unverified: false,
             wentBy: addName(card.wentBy, me()),
           })),
-        removeCard: (id) => {
-          set({ cards: get().cards.filter((card) => card.id !== id) });
-          if (get().remote) void removeGathering(id);
+        removeCard: async (id) => {
+          const cards = get().cards;
+          const index = cards.findIndex((card) => card.id === id);
+          if (index < 0) return { ok: true };
+          const card = cards[index];
+          if (!card) return { ok: true };
+          set({
+            cards: cards.filter((item) => item.id !== id),
+            boardError: "",
+          });
+          if (!get().remote) return { ok: true };
+          const result = await removeGathering(id);
+          if (result.ok) return { ok: true };
+          const current = get().cards;
+          const restored = current.some((item) => item.id === id)
+            ? current
+            : [
+                ...current.slice(0, Math.min(index, current.length)),
+                card,
+                ...current.slice(Math.min(index, current.length)),
+              ];
+          set({ cards: restored, boardError: result.error });
+          return result;
         },
         createInvite: (cardId) => {
           const card = get().cards.find((item) => item.id === cardId);

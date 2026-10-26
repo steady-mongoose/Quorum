@@ -1,9 +1,10 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
 import type { HomePayload } from "./home.ts";
-import { blankDraft, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
+import { blankDraft, newCard, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
 import { UNDO_TTL_MS, dropSampleWeek, migrateBoardStorage, useBoard } from "./store.ts";
 
 const idle = async () => ({ ok: false as const, error: "unused" });
@@ -498,6 +499,60 @@ test("a live board keeps the server home order", async () => {
   );
   assert.equal(useBoard.getState().council, true);
   assert.equal(useBoard.getState().home?.sections[0]?.label, "What you've joined");
+});
+
+test("a failed gathering removal puts the card back and shows the error", async () => {
+  reset();
+  const card = newCard({
+    id: "3f2a9c1e-8241-4c3e-9a11-8241abcd1234",
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  useBoard.setState({ remote: true, cards: [other, card], boardError: "stale" });
+  const original = globalThis.fetch;
+  let method = "";
+  globalThis.fetch = async (input, init) => {
+    method = init?.method ?? "GET";
+    assert.match(String(input), /\/api\/gatherings\/3f2a9c1e-8241-4c3e-9a11-8241abcd1234$/);
+    assert.equal(init?.credentials, "include");
+    return new Response(JSON.stringify({ error: "Only the organizer can remove this gathering." }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const result = await useBoard.getState().removeCard(card.id);
+    assert.equal(method, "DELETE");
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.error, "Only the organizer can remove this gathering.");
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, card.id],
+    );
+    assert.equal(useBoard.getState().boardError, "Only the organizer can remove this gathering.");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("Find shows a removal error as an alert and waits for the server", () => {
+  const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  assert.match(find, /await removeCard\(card\.id\)/);
+  assert.match(find, /boardError \? \([\s\S]*role="alert"/);
+  assert.match(find, /text-danger/);
 });
 
 test("a banned member still sees the status of their own appeal", async () => {

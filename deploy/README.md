@@ -1,23 +1,20 @@
 # Dedicated box for api.avouchsocial.com
 
-This is the closed-test API: Better Auth, invite codes, and Postgres on one OVH VPS. The static site stays where it already is. Cloudflare is DNS only for `api.avouchsocial.com` (grey cloud, not proxied). Do not order the VPS from this repository's automation, and do not run the migrate profile until the owner has approved the SQL.
+This is the closed-test API: Better Auth, invite codes, and Postgres on one Vultr VPS. The static site stays where it already is. Cloudflare is DNS only for `api.avouchsocial.com` (grey cloud, not proxied). Do not order another VPS from this repository's automation, and do not run the migrate profile until the owner has approved the SQL.
 
-## What to order
+## The production host
 
-**VPS-2, 2027 range, datacenter in US East (Vint Hill, Virginia).** Not a Local Zone: OVH's own VPS page says Local Zone images do not include Docker, and this recipe uses Docker Compose.
+**Vultr Cloud Compute `vc2-2c-4gb` in New York, $20/month, chosen Oct 19.** Address `140.82.61.209`.
 
-|                       |                                                                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Plan                  | VPS-2 (2027 range)                                                                                                            |
-| vCores                | 4                                                                                                                             |
-| RAM                   | 8 GB                                                                                                                          |
-| Disk                  | 75 GB SSD NVMe                                                                                                                |
-| Region                | US East, Vint Hill, Virginia (`US-EAST-VA` in the order API). The location list calls it Washington DC (Vint Hill, Virginia). |
-| Price on the VPS page | Starting at $8.50 /month                                                                                                      |
-
-Sources: [VPS plans](https://us.ovhcloud.com/vps/) and [infrastructure locations](https://us.ovhcloud.com/about/global-infrastructure/locations/). The order funnel also asks for a renewal frequency, so read the figure on that screen before paying. The "Starting at" price is the number printed on the plan card.
-
-VPS-2 is inside the charter's $5 to $20 closed-test band. 8 GB is enough for Postgres, the API, and Caddy for 5 to 20 people. VPS-1's 4 GB is tight once dumps sit on the same disk. VPS-4 is the card nearest $20 and is more machine than this test needs.
+|           |                |
+| --------- | -------------- |
+| Plan      | vc2-2c-4gb     |
+| vCPU      | 2              |
+| RAM       | 4 GB           |
+| Region    | New York       |
+| Price     | $20 /month     |
+| Chosen    | Oct 19         |
+| Public IP | 140.82.61.209  |
 
 Image: Ubuntu 24.04. Do not add Plesk or cPanel.
 
@@ -30,7 +27,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 ## One-time steps for the owner
 
 1. `0008`, `0011`, and `0012` are already applied on production. **0010** (`migrations/0010_moderation.sql`), **0013** (`migrations/0013_room_chat.sql`), **0014** (`migrations/0014_board_ban_room.sql`), and **0015** (`migrations/0015_hard_rules.sql`) are not. Approve those files before anyone runs `npm run db:migrate`. Merging is not that approval. `0005` adds an index on `rateLimit.lastRequest`. `0004` and `0007` add media storage and the media worker login. `0008` adds room text, posts, steward marks, hard removals, and bans. `0011` adds towns, ZIP codes, congregations, room requests, and council approvals. **0010** adds doxxing and blasphemy, the out-of-scope mark, appeals, and the CSAM hold. It adds `anonymize_moderation_user`. It does not replace `anonymize_board_user`. `0012` adds theme groups (carpentry, gardening, brewing, distilling, and a literary society), per-group admins and stewards, posts, marks, removals, appeals, and the action log. `0013` adds the plain-text room transcript and its hard-removal log. Until you apply it, room chat answers that it is not available yet and the board still loads. `0014` adds `board_ban.room_id` so a room steward's bar covers that room. An empty room id is a site-wide bar. An admin writes that, and a CSAM removal writes it too. Applying 0014 again is safe. **0015** allows doxxing and blasphemy on the theme-group and room-chat removal checks when those tables exist. It does not replace an anonymize function. `0006` (`migrations/0006_dm_e2ee.sql`) is end-to-end messages between two members. A shared meeting is a real meeting card. A person named by the host counts only after they confirm, and only if their account already had that name when the host posted. If posts already exist when the file is applied, a name is recorded only when a name stored at or before that post — the post's author name, an access log, or an earlier post — is the name on the list, and only one account had it. An account with no such record is skipped. A fresh database has no posts yet, so that step records nothing. One hosted card has one host. Deleting an account runs `anonymize_dm_user`, which keeps the other person's thread and the ciphertext row, shows the deleted member as Former member, leaves messages they sent with a null sender, deletes their device row, their one-time keys, and envelopes addressed to that device, clears the sender device and identity on those messages, and removes rate-limit rows whose key contains that account id. It does not replace any other anonymize function. A signed prekey is rotated after 7 days, the previous three still open a message, and a signed prekey is not offered for a new message after 30 days. Approve that file before anyone applies it. Merging is not that approval, and the API process does not run it. `0009` is unused. Do not apply `0006`, `0010`, `0013`, `0014`, `0015`, `0017`, or `0018` before you say so. **0018** (`migrations/0018_public_gathering.sql`) adds `public_gathering`. The public page reads the live title, date, time, and town from that row. Sharing defaults to off. It does not replace a function. **0017** (`migrations/0017_csam_hold_key.sql`) adds `board_csam_hold.key_id`. `0016` is reserved for group-ban inheritance. 0017 does not replace a function. Applying it again is safe. Set `CSAM_HOLD_KEY` to a random 32-byte key (`openssl rand -hex 32`) or a passphrase of 16 or more characters. The server still boots when that key is unset. A CSAM removal still hides the post and its files, records the removal and the ban, and alerts an admin. With no key, the post text and the files stay held unencrypted where the board cannot serve them, and starting the server after a key is set encrypts those holds. The process logs a warning at startup when CSAM_HOLD_KEY is missing. Set RESEND_API_KEY, ADMIN_ALERT_EMAIL, and RESEND_FROM together to email an admin when a hold is recorded. If any of those three is blank, no email is sent and nothing is logged. The message has no post text. The app does not show held material and it does not file the CyberTipline report. Josh files that by hand. Evidence is kept for 365 days by default (`CSAM_HOLD_DAYS` can raise that). That period is pending counsel.
-2. Order the VPS above. Do not use AWS, Google, Azure, or Apple.
+2. The VPS above is the production host. Do not use AWS, Google, Azure, or Apple.
 3. Point `api.avouchsocial.com` at the VPS with an A (and AAAA, if you have one) record. In Cloudflare, set the record to DNS only. Do not proxy it.
 4. SSH in with a key. On the host:
 
@@ -87,7 +84,7 @@ A systemd unit per process would also fit a single box. Compose is the smaller t
 
 ## DNS fallback plan
 
-Cloudflare is the primary DNS for `avouchsocial.com`. The spare domain `avouchsocial.org` is registered at Porkbun. Porkbun DNS is the fallback. Hurricane Electric (`dns.he.net`, free) is a second option. The VPS is `140.82.61.209`.
+Cloudflare is the primary DNS for `avouchsocial.com`. The spare domain `avouchsocial.org` is registered at Porkbun. Porkbun DNS is the fallback. Hurricane Electric (`dns.he.net`, free) is a second option. The VPS is the Vultr `vc2-2c-4gb` in New York, `140.82.61.209`.
 
 Prepare now, before anything breaks:
 
@@ -167,7 +164,7 @@ sudo crontab -e
 
 That line runs at 3:15 UTC with the host clock on UTC.
 
-`deploy/.env` values must not contain spaces. OVH's included disk backup is a separate copy of the whole machine.
+`deploy/.env` values must not contain spaces. A Vultr automatic backup, if enabled, is a separate copy of the whole machine.
 
 Set `BACKUP_HEALTHCHECK_URL` to a monitor's success URL if a nightly run should ping. Leave it blank and nothing is pinged. A successful run pings that URL. A failed run pings the same URL with `/fail` appended (Healthchecks.io). If the value already ends in `/fail`, that URL is the failure ping and the success ping is the URL with `/fail` removed. The script does not print the URL, and it does not put the URL on curl's command line.
 
