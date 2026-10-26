@@ -42,22 +42,17 @@ jobs:
       - name: Install
         run: npm ci
 
-      # apt mirrors sometimes stall and hang this step for the whole job.
-      # Each attempt is capped, apt retries its own downloads, and the step
-      # gives up after 6 minutes so a stalled mirror fails fast.
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-test-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-test-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age, psql, and ffmpeg
         timeout-minutes: 6
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
-              && timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
-                install -y age postgresql-client ffmpeg; then
-              exit 0
-            fi
-            echo "apt attempt $attempt failed; retrying"
-            sleep 5
-          done
-          exit 1
+        run: sh .github/scripts/apt-install.sh age postgresql-client ffmpeg
 
       - name: Template script tests
         id: scripts
@@ -123,20 +118,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Same cap-and-retry as the test job's apt step: a stalled mirror fails fast.
+      - name: Cache apt .debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-failover-${{ runner.os }}-${{ hashFiles('.github/scripts/apt-install.sh') }}
+          restore-keys: apt-failover-${{ runner.os }}-
+
+      # A stalled mirror fails fast and retries on archive.ubuntu.com.
       - name: Install age and the Postgres client
         timeout-minutes: 6
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
-              && timeout 100 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
-                install -y age postgresql-client; then
-              exit 0
-            fi
-            echo "apt attempt $attempt failed; retrying"
-            sleep 5
-          done
-          exit 1
+        run: sh .github/scripts/apt-install.sh age postgresql-client
 
       - name: Dry-run restore into a throwaway Postgres
         run: chmod +x scripts/restore-from-backup.sh scripts/restore-postgres.sh scripts/failover-restore-drill.sh && ./scripts/failover-restore-drill.sh
