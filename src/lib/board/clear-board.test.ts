@@ -6,6 +6,7 @@ import {
   boardExportDocument,
   canClearBoard,
   clearPhraseMatches,
+  clearPhraseRequired,
   localBoardOwner,
 } from "./store.ts";
 
@@ -21,6 +22,11 @@ test("only an admin or an owner can clear the board", () => {
   assert.equal(localBoardOwner({ founded: false, sample: false }), false);
   assert.equal(localBoardOwner({ founded: true, sample: false }), true);
   assert.equal(localBoardOwner({ founded: false, sample: true }), true);
+});
+
+test("the sample week does not ask for a typed phrase", () => {
+  assert.equal(clearPhraseRequired(true), false);
+  assert.equal(clearPhraseRequired(false), true);
 });
 
 test("clear stays disabled until the board name or CLEAR is typed", () => {
@@ -85,8 +91,9 @@ test("the clear control is gated, typed, and offers export before the wipe", () 
   const dialog = source("../../components/board/confirm-dialog.tsx");
   assert.match(about, /canClearBoard\(\{ admin, owner: localBoardOwner/);
   assert.match(about, /\{mayClear \?/);
-  assert.match(about, /clearPhraseMatches\(clearPhrase, APP_NAME\)/);
-  assert.match(about, /confirmDisabled=\{!clearPhraseMatches/);
+  assert.match(about, /clearPhraseRequired\(sample\)/);
+  assert.match(about, /phraseRequired && !clearPhraseMatches\(clearPhrase, APP_NAME\)/);
+  assert.match(about, /\{phraseRequired \?/);
   assert.match(about, /Export first/);
   assert.match(about, /downloadBoardExport\(boardSnapshot\(\)\)/);
   assert.match(about, /clearLocalBoard\(\)/);

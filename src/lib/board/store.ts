@@ -237,6 +237,11 @@ export function localBoardOwner(state: { founded: boolean; sample: boolean }): b
   return state.founded === true || state.sample === true;
 }
 
+/** The sample week is only invented data, so clearing it does not ask for a typed phrase. */
+export function clearPhraseRequired(sample: boolean): boolean {
+  return sample !== true;
+}
+
 /** The confirm button stays off until the board name or CLEAR is typed. */
 export function clearPhraseMatches(typed: string, boardName: string): boolean {
   const value = typed.trim();

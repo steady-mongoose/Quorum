@@ -18,6 +18,7 @@ import {
   boardExportDocument,
   canClearBoard,
   clearPhraseMatches,
+  clearPhraseRequired,
   localBoardOwner,
   useBoard,
 } from "@/lib/board/store";
@@ -108,6 +109,7 @@ export function AboutView() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearPhrase, setClearPhrase] = useState("");
   const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
+  const phraseRequired = clearPhraseRequired(sample);
   const boardSnapshot = () =>
     boardExportDocument({
       me,
@@ -249,9 +251,9 @@ export function AboutView() {
               description="Everything here will be removed."
               confirmLabel="Clear it"
               cancelLabel="Keep it"
-              confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
+              confirmDisabled={phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)}
               onConfirm={() => {
-                if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
+                if (phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)) return;
                 setConfirmClear(false);
                 setClearPhrase("");
                 clearLocalBoard();
@@ -261,15 +263,17 @@ export function AboutView() {
                 setClearPhrase("");
               }}
             >
-              <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
-                Type {APP_NAME} or CLEAR
-                <input
-                  className={cn(fieldClass, "min-h-[44px]")}
-                  value={clearPhrase}
-                  autoComplete="off"
-                  onChange={(event) => setClearPhrase(event.target.value)}
-                />
-              </label>
+              {phraseRequired ? (
+                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                  Type {APP_NAME} or CLEAR
+                  <input
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    value={clearPhrase}
+                    autoComplete="off"
+                    onChange={(event) => setClearPhrase(event.target.value)}
+                  />
+                </label>
+              ) : null}
               <button
                 type="button"
                 className={cn(btnGhost, "mt-3 min-h-[44px]")}

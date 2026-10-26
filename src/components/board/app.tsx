@@ -65,7 +65,6 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
-  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -107,6 +106,8 @@ function BoardShell() {
     }
     void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
+
+  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
