@@ -92,7 +92,7 @@ export function AboutView() {
       <ServerInvite />
       <section className="flex flex-col gap-3">
         <Kicker>About</Kicker>
-        <h1 className="max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
+        <h1 className="illum max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
           A private app for the people you see at church, at the shop, and at the county.
         </h1>
         <p className="max-w-prose text-base text-muted">

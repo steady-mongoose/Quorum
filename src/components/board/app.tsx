@@ -19,23 +19,27 @@ import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
+import { SectionTabs } from "@/components/board/section-tabs";
 import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { Emblem } from "@/components/board/emblem";
+import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
+import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
+import { useEngravedDocument } from "@/components/board/engraved-ground";
 
-const NAV = [
-  { id: "week", label: "This week", icon: CalendarDays },
-  { id: "rooms", label: "Rooms", icon: LayoutList },
-  { id: "find", label: "Find", icon: Search },
-  { id: "civic", label: "The desk", icon: Phone },
-  { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "profile", label: "You", icon: User },
-  { id: "about", label: "About", icon: BookOpen },
-] satisfies { id: Section; label: string; icon: typeof CalendarDays }[];
+const ICONS = {
+  week: CalendarDays,
+  rooms: LayoutList,
+  find: Search,
+  civic: Phone,
+  messages: MessageSquare,
+  profile: User,
+  about: BookOpen,
+} satisfies Record<Section, typeof CalendarDays>;
 
 export function BoardApp() {
   return (
@@ -48,6 +52,7 @@ export function BoardApp() {
 function BoardShell() {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const deskOn = useBoard((state) => state.deskOn);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
@@ -63,6 +68,15 @@ function BoardShell() {
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const shown = section === "civic" && !deskOn ? "week" : section;
+  const art = artSection({
+    entered,
+    section: shown,
+    signingIn: server.mode === "live" && !entered,
+  });
+  const hero = heroLabel(art);
+  const margin = showsHero(art);
+  useEngravedDocument(art);
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -105,10 +119,32 @@ function BoardShell() {
     void useBoard.getState().connectRemote();
   }, [server.mode, server.user]);
 
+  useEffect(() => {
+    if (!deskOn && section === "civic") setSection("week");
+  }, [deskOn, section, setSection]);
+
+  const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
+
+  const page = (
+    <>
+      {waiting ? <p className="card px-4 py-3 text-sm text-muted">Checking the server.</p> : null}
+      {!waiting && !entered && <Door />}
+      {entered && shown === "week" && <WeekView />}
+      {entered && shown === "rooms" && <RoomView />}
+      {entered && shown === "find" && <FindView />}
+      {entered && shown === "civic" && deskOn && <QuorumPanel />}
+      {entered && shown === "messages" && <DmView />}
+      {entered && shown === "profile" && <ProfileView />}
+      {entered && shown === "about" && <AboutView />}
+    </>
+  );
+
   return (
-    <div className="min-h-screen overflow-x-hidden bg-bg text-fg" style={themeVars(theme)}>
-      <header className="sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+    <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+      {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
+      {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
+      <header className="top sticky top-0 z-20 border-b border-line bg-bg">
+        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,4rem)] pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="flex items-start justify-between gap-4 lg:shrink-0 lg:items-center lg:gap-6">
             <div>
               <p className="font-display text-3xl leading-none text-fg lg:text-4xl">{APP_NAME}</p>
@@ -117,12 +153,14 @@ function BoardShell() {
             <Emblem theme={theme.id} size="header" />
           </div>
           {entered ? (
-            <IconNav
-              items={NAV}
-              current={section}
-              onSelect={(id) => (id === "profile" ? view(me.trim()) : setSection(id))}
-              label="Sections"
-            />
+            <div className="topnav">
+              <IconNav
+                items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
+                current={shown}
+                onSelect={openSection}
+                label="Sections"
+              />
+            </div>
           ) : null}
           {server.user ? (
             <button
@@ -171,7 +209,7 @@ function BoardShell() {
       ) : null}
       {entered && undoClear && undoBar ? (
         <div className="border-b border-line bg-surface" role="status">
-          <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-3 px-[clamp(1rem,4vw,4rem)] py-3">
+          <div className="mx-auto flex w-full max-w-[72rem] flex-wrap items-center justify-between gap-3 px-[clamp(1rem,4vw,4rem)] py-3">
             <p className="max-w-prose text-sm text-muted">
               The board is cleared. You can put it back.
             </p>
@@ -195,18 +233,25 @@ function BoardShell() {
           </div>
         </div>
       ) : null}
-      <main className="mx-auto w-full max-w-[100rem] px-[clamp(1rem,4vw,4rem)] pt-6 pb-24">
-        {waiting ? <p className="text-sm text-muted">Checking the server.</p> : null}
-        {!waiting && !entered && <Door />}
-        {entered && section === "week" && <WeekView />}
-        {entered && section === "rooms" && <RoomView />}
-        {entered && section === "find" && <FindView />}
-        {entered && section === "civic" && <QuorumPanel />}
-        {entered && section === "messages" && <DmView />}
-        {entered && section === "profile" && <ProfileView />}
-        {entered && section === "about" && <AboutView />}
-      </main>
+      {hero ? <div className="hero-band full" role="img" aria-label={hero} /> : null}
+      <div className="shell-body">
+        {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
+        {margin ? <div className="outer-art r" aria-hidden="true" /> : null}
+        <main>
+          {margin ? (
+            <div className="with-side">
+              <div className="min-w-0">{page}</div>
+              <aside className="side-art" aria-hidden="true" />
+            </div>
+          ) : (
+            page
+          )}
+        </main>
+      </div>
       {entered ? <SessionLine /> : null}
+      {entered ? (
+        <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
+      ) : null}
     </div>
   );
 }

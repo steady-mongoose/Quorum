@@ -105,7 +105,7 @@ test("the clear dialog and the post form use the review markup", () => {
   const week = source("../../components/board/week-view.tsx");
   const css = source("../../styles.css");
 
-  assert.match(css, /--color-line-strong:\s*#857c6f/);
+  assert.match(css, /--color-line-strong:\s*#8a7a62/);
   assert.match(about, /Clear the sample week\?/);
   assert.match(about, /Everything here will be removed\./);
   assert.match(about, /confirmLabel="Clear it"/);
@@ -175,14 +175,14 @@ test("the clear button, undo bar, and backdrop follow the review", () => {
   const css = source("../../styles.css");
   const surface = css.match(/--color-surface:\s*(#[0-9a-fA-F]{6})/)?.[1]?.toLowerCase();
   const warning = "#f0b4a4";
-  assert.equal(surface, "#16241b");
+  assert.equal(surface, "#1f1914");
   assert.ok(contrast(warning, surface) >= 4.5);
   assert.ok(contrast(blend(warning, surface, 0.6), surface) >= 3);
 
   assert.match(dialog, /border-\[#f0b4a4\]\/60 text-\[#f0b4a4\]/);
   assert.match(dialog, /backdrop:bg-bg\/80/);
   assert.equal(dialog.includes("backdrop:bg-[#0f1a14]"), false);
-  assert.match(css, /--color-bg:\s*#0f1a14/);
+  assert.match(css, /--color-bg:\s*#14100c/);
 
   assert.match(app, /Clear the sample week…/);
   assert.equal(app.includes("Clear it under About"), false);
