@@ -1,9 +1,29 @@
-/** Calendar age from a stored birthdate. The date itself is never sent to a client. */
+/**
+ * Calendar age from a stored birthdate. The date itself is never sent to a client.
+ * "Today" is the calendar date in America/New_York, not UTC.
+ */
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export const MIN_PROFILE_AGE = 18;
 export const MAX_PROFILE_AGE = 120;
+export const PROFILE_TIME_ZONE = "America/New_York";
+
+/** Year, month, and day of `now` in `timeZone`. Month is 1–12. */
+export function civilDate(
+  now: Date,
+  timeZone = PROFILE_TIME_ZONE,
+): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return { year: value("year"), month: value("month"), day: value("day") };
+}
 
 /** `YYYY-MM-DD`, or null when the text is not a real calendar day. */
 export function parseBirthdate(value: string): string | null {
@@ -24,15 +44,14 @@ export function parseBirthdate(value: string): string | null {
   return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
-/** Whole years at `now`, in UTC. A birthday later this year does not count yet. */
+/** Whole years on the New York calendar date of `now`. A later birthday does not count yet. */
 export function ageOn(birthdate: string, now: Date): number {
   const parsed = parseBirthdate(birthdate);
   if (!parsed) return -1;
   const [year, month, day] = parsed.split("-").map(Number);
-  let age = now.getUTCFullYear() - (year ?? 0);
-  const nowMonth = now.getUTCMonth() + 1;
-  const nowDay = now.getUTCDate();
-  if (nowMonth < (month ?? 0) || (nowMonth === month && nowDay < (day ?? 0))) age -= 1;
+  const today = civilDate(now);
+  let age = today.year - (year ?? 0);
+  if (today.month < (month ?? 0) || (today.month === month && today.day < (day ?? 0))) age -= 1;
   return age;
 }
 

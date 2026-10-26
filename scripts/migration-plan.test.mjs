@@ -137,6 +137,8 @@ test("migration 0024 adds the member profile and leaves 0023 for MFA", () => {
   assert.doesNotMatch(sql, /\breshare\b/i);
   assert.doesNotMatch(sql, /like_count/);
   assert.match(sql, /No endpoint and no stats CSV selects/);
+  assert.match(sql, /change-birthdate/);
+  assert.match(sql, /set-birthdate/);
 });
 
 test("migration 0018 adds the public gathering and does not replace a function", () => {

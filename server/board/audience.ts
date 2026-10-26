@@ -32,7 +32,13 @@ export type GenderResult<T> =
   { ok: true; value: T } | { ok: false; status: number; error: string; code?: AudienceCode };
 
 type AuditAction =
-  "set-gender" | "change-gender" | "confirm-gender" | "set-audience" | "audience-override";
+  | "set-gender"
+  | "change-gender"
+  | "confirm-gender"
+  | "set-audience"
+  | "audience-override"
+  | "set-birthdate"
+  | "change-birthdate";
 
 function denial(
   path: AudiencePath,

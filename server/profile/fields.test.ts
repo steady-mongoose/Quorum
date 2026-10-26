@@ -14,13 +14,27 @@ import { PROFILE_EXPORT_COLUMNS, fieldVisible } from "./view.ts";
 
 const now = new Date("2026-10-19T15:00:00Z");
 
-test("age is 18 on the birthday and 17 the day before", () => {
+test("age is 18 on the birthday and 17 the day before, in New York", () => {
   assert.equal(ageOn("2008-10-19", now), 18);
   assert.equal(ageOn("2008-10-20", now), 17);
   assert.equal(birthdateError("2008-10-19", now), null);
   assert.equal(birthdateError("2008-10-20", now), "You must be 18.");
   assert.equal(parseBirthdate("1990-02-31"), null);
   assert.equal(parseBirthdate("1899-01-01"), null);
+  // 03:30 UTC is still the previous evening in New York (EDT, UTC-4).
+  const beforeMidnight = new Date("2026-10-19T03:30:00Z");
+  assert.equal(ageOn("2008-10-19", beforeMidnight), 17);
+  assert.equal(birthdateError("2008-10-19", beforeMidnight), "You must be 18.");
+  const atMidnight = new Date("2026-10-19T04:00:00Z");
+  assert.equal(ageOn("2008-10-19", atMidnight), 18);
+  assert.equal(birthdateError("2008-10-19", atMidnight), null);
+  // 02:00 UTC the next day is still that evening in New York.
+  const late = new Date("2026-10-20T02:00:00Z");
+  assert.equal(ageOn("2008-10-20", late), 17);
+  assert.equal(ageOn("2008-10-19", late), 18);
+  // January is EST, UTC-5, so the date flips at 05:00 UTC.
+  assert.equal(ageOn("2008-01-19", new Date("2026-01-19T04:30:00Z")), 17);
+  assert.equal(ageOn("2008-01-19", new Date("2026-01-19T05:00:00Z")), 18);
 });
 
 test("links accept https and refuse other schemes", () => {

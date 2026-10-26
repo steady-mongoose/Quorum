@@ -2,6 +2,7 @@ import { limitBoard } from "../board/routes.ts";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { MIN_PROFILE_AGE } from "./age.ts";
+import { setMemberBirthdate } from "./birthdate.ts";
 import { INTERESTS } from "./interests.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER } from "./permissions.ts";
 import { attachProfilePhoto, removeProfilePhoto } from "./photo.ts";
@@ -88,10 +89,16 @@ export async function handleProfile(
   const photo = url.pathname === "/api/profile/photo";
   const remove = /^\/api\/profile\/([A-Za-z0-9_-]{1,80})\/photo\/remove$/.exec(url.pathname);
   const removeId = remove?.[1] ?? "";
+  const birthdate = /^\/api\/profile\/([A-Za-z0-9_-]{1,80})\/birthdate$/.exec(url.pathname);
+  const birthdateId = birthdate?.[1] ?? "";
   const match = /^\/api\/profile\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
   const otherId = match?.[1] && match[1] !== "onboard" && match[1] !== "photo" ? match[1] : "";
-  if (!own && !onboard && !photo && !otherId && !removeId) return null;
-  if ((otherId && !USER_ID.test(otherId)) || (removeId && !USER_ID.test(removeId))) {
+  if (!own && !onboard && !photo && !otherId && !removeId && !birthdateId) return null;
+  if (
+    (otherId && !USER_ID.test(otherId)) ||
+    (removeId && !USER_ID.test(removeId)) ||
+    (birthdateId && !USER_ID.test(birthdateId))
+  ) {
     return json(404, { error: "That person is not a member." });
   }
 
@@ -101,6 +108,7 @@ export async function handleProfile(
     (onboard && method === "POST") ||
     (photo && method === "POST") ||
     (removeId && method === "POST") ||
+    (birthdateId && method === "POST") ||
     (otherId && method === "GET");
   if (!allowed) return json(405, { error: "Not found." });
 
@@ -131,6 +139,20 @@ export async function handleProfile(
       );
       if (!removed.ok) return fromFailure(removed);
       return json(200, removed.body);
+    }
+
+    if (birthdateId && method === "POST") {
+      const body = await readJson(request);
+      const saved = await setMemberBirthdate(
+        deps.db,
+        session.id,
+        birthdateId,
+        body.birthdate,
+        body.reason,
+        now,
+      );
+      if (!saved.ok) return fromFailure(saved);
+      return json(200, { profile: saved.profile });
     }
 
     if (otherId && method === "GET") {
