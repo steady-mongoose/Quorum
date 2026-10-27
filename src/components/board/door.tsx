@@ -69,7 +69,8 @@ export function Door() {
               {live ? (
                 <>
                   You can join only if an existing member invites you. Have an account? Sign in.
-                  Once you are in, you join each room by an invite from inside the app.
+                  Once you are in, you join each room by an invite
+                  from inside the app.
                 </>
               ) : apiDown ? (
                 <>Invite codes can't be checked right now. Try again in a moment.</>
@@ -77,8 +78,9 @@ export function Door() {
                 <>
                   You can join only if an existing member invites you. They give you an invite
                   code. Enter your name and the invite code to get in. Once you are in, you join
-                  each room by an invite from inside the app. There is no sign-up form and nothing
-                  to browse until then.
+                  each room by an invite from inside the app.
+                  There is no sign-up form and nothing to browse until
+                  then.
                 </>
               )}
             </p>
