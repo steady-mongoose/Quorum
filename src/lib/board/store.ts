@@ -161,6 +161,8 @@ type BoardState = {
     what: string;
     categoryIds: string[];
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   updateRoom: (input: {
     id: string;

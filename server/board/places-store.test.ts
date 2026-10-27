@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { firstSteward } from "./test-stewards.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -323,6 +324,7 @@ test("admins approve room requests, and home is nearest first", async () => {
     });
     assert.equal(own.ok, false);
     const approved = await decideRoom(db, {
+      ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
       userId: josh,
       requestId: asked.value.id,
       decision: "approved",

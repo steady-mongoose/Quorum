@@ -40,7 +40,12 @@ export type RoomRequestInput = {
   state: string;
 };
 
-export type RoomDecisionInput = { decision: "approved" | "refused"; note: string };
+export type RoomDecisionInput = {
+  decision: "approved" | "refused";
+  note: string;
+  stewardEmail?: string;
+  inviterEmail?: string;
+};
 
 export type ZipCorrectionInput = { zip: string; name: string; state: string; clear?: boolean };
 
@@ -51,6 +56,8 @@ export type AccessInput = {
   inviterEmail?: string;
   stewardEmail?: string;
   role?: "member" | "steward" | "admin";
+  /** A new steward named in the same step, when the last steward leaves a room. */
+  replacementEmail?: string;
 };
 
 export type CouncilInput = {
@@ -112,6 +119,8 @@ export type BoardClient = {
     what: string;
     categoryIds: string[];
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
   updateRoom: (
     id: string,
