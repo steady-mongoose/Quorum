@@ -38,6 +38,7 @@ const { AccountRemovalPanel } = await import("../../components/board/account-rem
 
 const widths = [390, 768, 1440];
 
+/** @param {import("react").ReactNode} node */
 function mount(node) {
   const host = document.createElement("div");
   document.body.append(host);
