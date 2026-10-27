@@ -13,6 +13,7 @@ import {
   removeForTakedown,
   submitTakedown,
   TAKEDOWN_WINDOW_MS,
+  takedownAlertMail,
   takedownLogLine,
   validateTakedown,
 } from "./store.ts";
@@ -63,7 +64,10 @@ test("request IDs are TD- plus 10 readable characters", () => {
 
 test("a request needs contact, a target, the good-faith statement, and a signature", () => {
   assert.equal(validateTakedown(good).ok, true);
-  assert.equal(validateTakedown({ ...good, contentUrl: "", description: "In the shop room, Oct 20." }).ok, true);
+  assert.equal(
+    validateTakedown({ ...good, contentUrl: "", description: "In the shop room, Oct 20." }).ok,
+    true,
+  );
   assert.equal(validateTakedown({ ...good, email: "nope" }).ok, false);
   assert.equal(validateTakedown({ ...good, contentUrl: "" }).ok, false);
   assert.equal(validateTakedown({ ...good, goodFaith: false }).ok, false);
@@ -144,7 +148,11 @@ test("only an admin sees the queue and removes; identical copies go too and the 
     if (queue.ok) assert.equal(queue.value[0]?.id, saved.value.id);
 
     const byMember = await removeForTakedown(db, {
-      userId: member, requestId: saved.value.id, media: [original], note: "Removed it.", now,
+      userId: member,
+      requestId: saved.value.id,
+      media: [original],
+      note: "Removed it.",
+      now,
     });
     assert.equal(byMember.ok, false);
 
@@ -169,7 +177,11 @@ test("only an admin sees the queue and removes; identical copies go too and the 
     assert.equal(await isBlockedHash(db, "b".repeat(64)), false);
 
     const again = await removeForTakedown(db, {
-      userId: admin, requestId: saved.value.id, media: [other], note: "Again.", now,
+      userId: admin,
+      requestId: saved.value.id,
+      media: [other],
+      note: "Again.",
+      now,
     });
     assert.equal(again.ok, false);
     const audit = await db.query<{ action: string; actor_user_id: string | null }>(
@@ -189,9 +201,15 @@ test("an admin can close a request without removing, with a reason", async () =>
     await user(db, admin, "admin");
     const saved = await submitTakedown(db, good, now, { env: {} });
     if (!saved.ok) return assert.fail("not saved");
-    assert.equal((await declineTakedown(db, { userId: admin, requestId: saved.value.id, note: "", now })).ok, false);
+    assert.equal(
+      (await declineTakedown(db, { userId: admin, requestId: saved.value.id, note: "", now })).ok,
+      false,
+    );
     const closed = await declineTakedown(db, {
-      userId: admin, requestId: saved.value.id, note: "The link is not on Avouch.", now,
+      userId: admin,
+      requestId: saved.value.id,
+      note: "The link is not on Avouch.",
+      now,
     });
     assert.equal(closed.ok, true);
     if (closed.ok) assert.equal(closed.value.status, "declined");
@@ -241,10 +259,25 @@ test("a banned admin cannot list, remove, or close requests", async () => {
     assert.equal((await listTakedowns(db, admin, now)).ok, true);
     await banSiteWide(db, admin);
     const listed = await listTakedowns(db, admin, now);
-    assert.deepEqual(listed, { ok: false, status: 403, error: "This account is banned and cannot act as an admin right now." });
-    const removed = await removeForTakedown(db, { userId: admin, requestId: saved.value.id, media: [], note: "x", now });
+    assert.deepEqual(listed, {
+      ok: false,
+      status: 403,
+      error: "This account is banned and cannot act as an admin right now.",
+    });
+    const removed = await removeForTakedown(db, {
+      userId: admin,
+      requestId: saved.value.id,
+      media: [],
+      note: "x",
+      now,
+    });
     assert.equal(removed.ok, false);
-    const declined = await declineTakedown(db, { userId: admin, requestId: saved.value.id, note: "Not ours.", now });
+    const declined = await declineTakedown(db, {
+      userId: admin,
+      requestId: saved.value.id,
+      note: "Not ours.",
+      now,
+    });
     assert.equal(declined.ok, false);
     if (!declined.ok) assert.equal(declined.status, 403);
   } finally {
@@ -280,15 +313,30 @@ test("the admin alert email is metadata only and goes to ADMIN_ALERT_EMAIL when 
       sent.push(JSON.parse(String(init.body)));
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    const secret = { ...good, description: "SECRET-DESCRIPTION", contentUrl: "https://avouchsocial.com/secret-link" };
+    const secret = {
+      ...good,
+      description: "SECRET-DESCRIPTION",
+      contentUrl: "https://avouchsocial.com/secret-link",
+    };
     const saved = await submitTakedown(db, secret, now, {
       fetch: fakeFetch,
-      env: { RESEND_API_KEY: "k", RESEND_FROM: "a@example.com", ADMIN_ALERT_EMAIL: "ops@example.com" },
+      env: {
+        RESEND_API_KEY: "k",
+        RESEND_FROM: "a@example.com",
+        ADMIN_ALERT_EMAIL: "ops@example.com",
+      },
     });
     assert.equal(saved.ok, true);
     const alert = sent.find((m) => m.to[0] === "ops@example.com");
     assert.ok(alert);
-    assert.match(alert.text, /Act by: 2026-10-29T12:00:00.000Z/);
+    assert.equal(alert.subject, "Avouch: removal request due by Thu, Oct 29, 8:00 AM EDT");
+    assert.match(alert.text, /^Act by: Thu, Oct 29, 8:00 AM EDT \(2026-10-29 12:00 UTC\)$/m);
+    assert.doesNotMatch(alert.text + alert.subject, /\d{4}-\d\d-\d\dT/, "no raw ISO");
+    assert.doesNotMatch(
+      alert.subject,
+      new RegExp(saved.ok ? saved.value.id : "never"),
+      "no id in the subject",
+    );
     for (const field of [alert.text, alert.subject]) {
       assert.doesNotMatch(field, /SECRET|secret-link|rae@example\.com/);
     }
@@ -320,4 +368,45 @@ test("a failing or throwing alert email does not stop the request", async () => 
     console.error = original;
     await close();
   }
+});
+
+test("the admin alert email has the exact body, in ADMIN_TIMEZONE, with the app URL", () => {
+  const received = new Date("2026-10-27T12:00:00Z");
+  const due = new Date(received.getTime() + TAKEDOWN_WINDOW_MS);
+  const mail = takedownAlertMail("req-123", received, due, {
+    WEB_ORIGINS: "https://app.example.com/, https://www.example.com",
+  });
+  assert.equal(mail.subject, "Avouch: removal request due by Thu, Oct 29, 8:00 AM EDT");
+  assert.equal(
+    mail.text,
+    [
+      "A new removal request for an intimate image was filed. By law we must act within 48 hours.",
+      "",
+      "Act by: Thu, Oct 29, 8:00 AM EDT (2026-10-29 12:00 UTC)",
+      "Received: Tue, Oct 27, 8:00 AM EDT",
+      "Request: req-123",
+      "",
+      "Review it: https://app.example.com/  (admin Home, Removal requests)",
+      "",
+      "This email leaves out the request's content on purpose.",
+    ].join("\n"),
+  );
+  assert.doesNotMatch(mail.subject, /req-123/);
+});
+
+test("the admin alert uses ADMIN_TIMEZONE and falls back to New York and avouchsocial.com", () => {
+  const received = new Date("2026-10-27T12:00:00Z");
+  const due = new Date("2026-10-29T12:00:00Z");
+  const la = takedownAlertMail("r", received, due, { ADMIN_TIMEZONE: "America/Los_Angeles" });
+  assert.equal(la.subject, "Avouch: removal request due by Thu, Oct 29, 5:00 AM PDT");
+  assert.match(la.text, /^Act by: Thu, Oct 29, 5:00 AM PDT \(2026-10-29 12:00 UTC\)$/m);
+  const bad = takedownAlertMail("r", received, due, { ADMIN_TIMEZONE: "Not/AZone" });
+  assert.match(bad.subject, /8:00 AM EDT$/);
+  assert.match(
+    bad.text,
+    /^Review it: https:\/\/avouchsocial\.com\/ {2}\(admin Home, Removal requests\)$/m,
+  );
+  // After DST ends the zone label follows.
+  const winter = takedownAlertMail("r", received, new Date("2026-11-03T13:00:00Z"), {});
+  assert.match(winter.subject, /Tue, Nov 3, 8:00 AM EST$/);
 });

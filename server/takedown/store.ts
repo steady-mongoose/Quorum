@@ -9,8 +9,10 @@ export const TAKEDOWN_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
 
-export type TakedownField = "name" | "email" | "phone" | "contentUrl" | "description" | "goodFaith" | "signature";
-export type TakedownResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string; field?: TakedownField };
+export type TakedownField =
+  "name" | "email" | "phone" | "contentUrl" | "description" | "goodFaith" | "signature";
+export type TakedownResult<T> =
+  { ok: true; value: T } | { ok: false; status: number; error: string; field?: TakedownField };
 
 const fail = (status: number, error: string, field?: TakedownField) =>
   field ? { ok: false as const, status, error, field } : { ok: false as const, status, error };
@@ -59,17 +61,28 @@ export function validateTakedown(input: TakedownInput): TakedownResult<Required<
   const description = (input.description ?? "").trim();
   const signature = input.signature.trim();
   if (!name || name.length > 120) return fail(400, "Enter your name.", "name");
-  if (!EMAIL.test(email) || email.length > 254) return fail(400, "Enter an email address we can reply to.", "email");
+  if (!EMAIL.test(email) || email.length > 254)
+    return fail(400, "Enter an email address we can reply to.", "email");
   if (phone.length > 40) return fail(400, "That phone number is too long.", "phone");
   if (!contentUrl && !description) {
-    return fail(400, "Give the link to the image, or describe where it is on Avouch.", "contentUrl");
+    return fail(
+      400,
+      "Give the link to the image, or describe where it is on Avouch.",
+      "contentUrl",
+    );
   }
   if (contentUrl.length > 2000) return fail(400, "That link is too long.", "contentUrl");
-  if (description.length > 4000) return fail(400, "Keep the description under 4,000 characters.", "description");
+  if (description.length > 4000)
+    return fail(400, "Keep the description under 4,000 characters.", "description");
   if (input.goodFaith !== true) {
-    return fail(400, "Confirm the statement that the image was shared without consent.", "goodFaith");
+    return fail(
+      400,
+      "Confirm the statement that the image was shared without consent.",
+      "goodFaith",
+    );
   }
-  if (!signature || signature.length > 120) return fail(400, "Type your full name as your signature.", "signature");
+  if (!signature || signature.length > 120)
+    return fail(400, "Type your full name as your signature.", "signature");
   return {
     ok: true,
     value: { name, email, phone, contentUrl, description, goodFaith: true, signature },
@@ -106,17 +119,75 @@ export function confirmationMail(id: string, dueAt: Date): { subject: string; te
 /** Where the admin alert goes. safety@ forwards to Josh. ADMIN_ALERT_EMAIL overrides it. */
 export const TAKEDOWN_ALERT_DEFAULT_TO = "safety@avouchsocial.com";
 
+export const DEFAULT_ADMIN_TIMEZONE = "America/New_York";
+export const DEFAULT_APP_URL = "https://avouchsocial.com";
+
+type AlertEnv = Record<string, string | undefined>;
+
+/** ADMIN_TIMEZONE when it is a real IANA zone, else America/New_York. */
+export function adminTimeZone(env: AlertEnv = process.env): string {
+  const zone = env.ADMIN_TIMEZONE?.trim();
+  if (!zone) return DEFAULT_ADMIN_TIMEZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return DEFAULT_ADMIN_TIMEZONE;
+  }
+}
+
+/** The web app: the first WEB_ORIGINS entry (the client origin), else https://avouchsocial.com. */
+export function appUrl(env: AlertEnv = process.env): string {
+  const first = (env.WEB_ORIGINS ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .find((item) => /^https?:\/\//.test(item));
+  return (first ?? DEFAULT_APP_URL).replace(/\/+$/, "");
+}
+
+/** "Thu, Oct 29, 8:00 AM EDT" in the given zone. */
+export function formatLocal(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("weekday")}, ${get("month")} ${get("day")}, ${get("hour")}:${get("minute")} ${get("dayPeriod")} ${get("timeZoneName")}`;
+}
+
+/** "2026-10-29 12:00" in UTC. */
+export function formatUtc(date: Date): string {
+  return date.toISOString().slice(0, 16).replace("T", " ");
+}
+
 /** The admin alert. Metadata only: never the requester's description, link, or the image. */
-export function takedownAlertMail(id: string, receivedAt: Date, dueAt: Date): { subject: string; text: string } {
+export function takedownAlertMail(
+  id: string,
+  receivedAt: Date,
+  dueAt: Date,
+  env: AlertEnv = process.env,
+): { subject: string; text: string } {
+  const zone = adminTimeZone(env);
+  const due = formatLocal(dueAt, zone);
   return {
-    subject: `Avouch: removal request ${id} is due by ${dueAt.toISOString()}`,
+    subject: `Avouch: removal request due by ${due}`,
     text: [
-      "A new intimate image removal request was filed.",
+      "A new removal request for an intimate image was filed. By law we must act within 48 hours.",
+      "",
+      `Act by: ${due} (${formatUtc(dueAt)} UTC)`,
+      `Received: ${formatLocal(receivedAt, zone)}`,
       `Request: ${id}`,
-      `Received: ${receivedAt.toISOString()}`,
-      `Act by: ${dueAt.toISOString()} (48 hours)`,
-      "Open the removal requests on admin Home to review it.",
-      "This message does not include the request's content.",
+      "",
+      `Review it: ${appUrl(env)}/  (admin Home, Removal requests)`,
+      "",
+      "This email leaves out the request's content on purpose.",
     ].join("\n"),
   };
 }
@@ -131,13 +202,20 @@ export async function sendTakedownAlert(
   try {
     const env = mail.env ?? process.env;
     const to = env.ADMIN_ALERT_EMAIL?.trim() || TAKEDOWN_ALERT_DEFAULT_TO;
-    const letter = takedownAlertMail(id, receivedAt, dueAt);
+    const letter = takedownAlertMail(id, receivedAt, dueAt, env);
     const sent = await sendTextEmail(
-      { to, subject: letter.subject, text: letter.text, idempotencyKey: `takedown-admin-alert/${id}` },
+      {
+        to,
+        subject: letter.subject,
+        text: letter.text,
+        idempotencyKey: `takedown-admin-alert/${id}`,
+      },
       mail,
     );
     if (!sent.ok) {
-      console.error(JSON.stringify({ event: "takedown-alert-email-failed", id, message: sent.error }));
+      console.error(
+        JSON.stringify({ event: "takedown-alert-email-failed", id, message: sent.error }),
+      );
     }
     return sent.ok;
   } catch (error) {
