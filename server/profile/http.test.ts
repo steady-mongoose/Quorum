@@ -220,7 +220,7 @@ test("two first gender writes cannot overwrite each other", async () => {
   }
 });
 
-test("a birthdate locks after onboarding, and an admin change is audited", async () => {
+test("a birthdate locks after onboarding, and only an approved correction changes it", async () => {
   const { db, close } = await openTestDb();
   try {
     await member(db, "ann", "Ann Vale");
@@ -245,39 +245,65 @@ test("a birthdate locks after onboarding, and an admin change is audited", async
     );
     assert.equal(stored[0]?.birthdate, "1990-04-02");
 
-    const unnamed = await send(handler, "ada", "/api/profile/ann/birthdate", "POST", {
+    // The old direct admin edit is gone.
+    const direct = await send(handler, "ada", "/api/profile/ann/birthdate", "POST", {
       birthdate: "1989-04-02",
+      reason: "No.",
+    });
+    assert.equal(direct.status === 404 || direct.status === 405, true);
+
+    const unnamed = await send(handler, "ann", "/api/profile/corrections", "POST", {
+      field: "birthdate",
+      value: "1989-04-02",
     });
     assert.equal(unnamed.status, 400);
-    const changed = await send(handler, "ada", "/api/profile/ann/birthdate", "POST", {
-      birthdate: "1989-04-02",
-      reason: "The year was wrong.",
+    const asked = await send(handler, "ann", "/api/profile/corrections", "POST", {
+      field: "birthdate",
+      value: "1989-04-02",
+      reason: "I typed the wrong year.",
     });
-    const changedText = await changed.text();
-    assert.equal(changed.status, 200, changedText);
-    assert.equal(changedText.includes("1989-04-02"), false);
-    assert.equal(Object.hasOwn(JSON.parse(changedText).profile, "birthdate"), false);
+    const askedText = await asked.text();
+    assert.equal(asked.status, 201, askedText);
+    assert.equal(askedText.includes("1989-04-02"), false);
+    const id = (JSON.parse(askedText) as { correction: { id: string } }).correction.id;
+    const twice = await send(handler, "ann", "/api/profile/corrections", "POST", {
+      field: "birthdate",
+      value: "1988-04-02",
+      reason: "Again.",
+    });
+    assert.equal(twice.status, 409);
+
+    const memberDecides = await send(handler, "ann", `/api/profile/corrections/${id}`, "POST", {
+      decision: "approve",
+    });
+    assert.equal(memberDecides.status, 403);
+    const queue = await send(handler, "ada", "/api/profile/corrections?scope=queue", "GET");
+    const queueText = await queue.text();
+    assert.equal(queue.status, 200);
+    assert.equal(queueText.includes("1989-04-02"), false);
+    assert.match(queueText, /age 37/);
+
+    const approved = await send(handler, "ada", `/api/profile/corrections/${id}`, "POST", {
+      decision: "approve",
+    });
+    assert.equal(approved.status, 200, await approved.clone().text());
     const next = await db.query<{ birthdate: string }>(
       `select to_char(birthdate, 'YYYY-MM-DD') as birthdate from members where user_id = 'ann'`,
     );
     assert.equal(next[0]?.birthdate, "1989-04-02");
-    const audit = await db.query<{ action: string; detail: string }>(
-      `select action, detail from gender_audit where action = 'change-birthdate' and subject_user_id = 'ann'`,
+    const audit = await db.query<{ action: string; actor_user_id: string; detail: string }>(
+      `select action, actor_user_id, detail from gender_audit
+       where subject_user_id = 'ann' and action in ('correction-request', 'change-birthdate')
+       order by at, action`,
     );
-    assert.equal(audit[0]?.action, "change-birthdate");
-    assert.match(audit[0]?.detail ?? "", /The year was wrong/);
-    assert.match(audit[0]?.detail ?? "", /1990-04-02 -> 1989-04-02/);
-
-    const self = await send(handler, "ada", "/api/profile/ada/birthdate", "POST", {
-      birthdate: "1980-01-01",
-      reason: "Mine.",
-    });
-    assert.equal(self.status, 403);
-    const memberTry = await send(handler, "ann", "/api/profile/ada/birthdate", "POST", {
-      birthdate: "1980-01-01",
-      reason: "No.",
-    });
-    assert.equal(memberTry.status, 403);
+    assert.deepEqual(
+      audit.map((row) => row.action).sort(),
+      ["change-birthdate", "correction-request"],
+    );
+    assert.equal(audit.find((row) => row.action === "change-birthdate")?.actor_user_id, "ada");
+    assert.match(audit.find((row) => row.action === "change-birthdate")?.detail ?? "", /1990-04-02 -> 1989-04-02/);
+    const again = await send(handler, "ada", `/api/profile/corrections/${id}`, "POST", { decision: "approve" });
+    assert.equal(again.status, 404);
   } finally {
     await close();
   }
@@ -314,6 +340,70 @@ test("the 18th birthday follows the New York date, not UTC", async () => {
     });
     assert.equal(ofAge.status, 200, await ofAge.clone().text());
     assert.equal((await ofAge.text()).includes("2008-10-18"), false);
+  } finally {
+    await close();
+  }
+});
+
+test("an admin cannot approve their own correction, and a refusal needs a reason", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ada", "Ada Glen");
+    await member(db, "bo", "Bo Reed");
+    await member(db, "cy", "Cy Marsh");
+    await db.query(`insert into member_role (user_id, is_admin) values ('ada', true), ('bo', true)`);
+    await db.query(
+      `insert into members (user_id, display_name, gender, birthdate, onboarded_at)
+       values ('ada', 'Ada Glen', 'woman', '1980-01-01', $1), ('cy', 'Cy Marsh', 'man', '1985-05-05', $1)`,
+      [now],
+    );
+    const handler = app(db);
+    const early = await send(handler, "bo", "/api/profile/corrections", "POST", {
+      field: "gender",
+      value: "man",
+      reason: "Wrong.",
+    });
+    assert.equal(early.status, 409, "not onboarded yet: edit directly");
+    const own = await send(handler, "ada", "/api/profile/corrections", "POST", {
+      field: "gender",
+      value: "man",
+      reason: "I picked the wrong one.",
+    });
+    assert.equal(own.status, 201);
+    const ownId = ((await own.json()) as { correction: { id: string } }).correction.id;
+    const self = await send(handler, "ada", `/api/profile/corrections/${ownId}`, "POST", { decision: "approve" });
+    assert.equal(self.status, 403);
+    const queue = (await (await send(handler, "ada", "/api/profile/corrections?scope=queue", "GET")).json()) as {
+      corrections: { id: string }[];
+    };
+    assert.equal(queue.corrections.some((item) => item.id === ownId), false);
+
+    const cy = await send(handler, "cy", "/api/profile/corrections", "POST", {
+      field: "gender",
+      value: "woman",
+      reason: "I tapped the wrong button.",
+    });
+    const cyId = ((await cy.json()) as { correction: { id: string } }).correction.id;
+    const bare = await send(handler, "bo", `/api/profile/corrections/${cyId}`, "POST", { decision: "refuse" });
+    assert.equal(bare.status, 400);
+    const refused = await send(handler, "bo", `/api/profile/corrections/${cyId}`, "POST", {
+      decision: "refuse",
+      note: "Please talk to an admin first.",
+    });
+    assert.equal(refused.status, 200);
+    const gender = await db.query<{ gender: string }>(`select gender from members where user_id = 'cy'`);
+    assert.equal(gender[0]?.gender, "man");
+    const logged = await db.query(`select 1 from gender_audit where action = 'correction-refuse' and subject_user_id = 'cy'`);
+    assert.equal(logged.length, 1);
+
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id)
+       values ('ban-bo', 'bo', 'Bo Reed', 'threat', 'test', 1, '2099-01-01T00:00:00Z', '')`,
+    );
+    const barred = await send(handler, "bo", `/api/profile/corrections/${ownId}`, "POST", { decision: "approve" });
+    assert.equal(barred.status, 403);
+    const still = await db.query<{ gender: string }>(`select gender from members where user_id = 'ada'`);
+    assert.equal(still[0]?.gender, "woman");
   } finally {
     await close();
   }
