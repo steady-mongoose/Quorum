@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { PhoneCall } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
-import { btnQuiet, btnSignal } from "@/components/quorum/bits";
+import { btnGhost } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { useCallsEnabled } from "@/components/board/room-call";
 import { parseRings, type IncomingRing } from "@/lib/calls/rings";
@@ -13,8 +13,6 @@ import { parseRings, type IncomingRing } from "@/lib/calls/rings";
 export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   const { enabled } = useCallsEnabled();
   const [rings, setRings] = useState<IncomingRing[]>([]);
-  const goRef = useRef<HTMLButtonElement | null>(null);
-  const firstId = rings[0]?.id;
 
   useEffect(() => {
     if (!enabled) {
@@ -42,10 +40,6 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
     };
   }, [enabled]);
 
-  useEffect(() => {
-    if (firstId) goRef.current?.focus();
-  }, [firstId]);
-
   const ring = rings[0];
   if (!ring) return null;
 
@@ -60,20 +54,26 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   };
 
   return (
-    <div
-      role="alertdialog"
-      aria-labelledby="call-ring-title"
-      className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg"
+    <section
+      role="status"
+      aria-live="polite"
+      aria-label="Incoming call"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          dismiss(ring.id);
+        }
+      }}
+      className="fixed inset-x-4 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg md:bottom-6"
     >
-      <p id="call-ring-title" className="flex items-center gap-2 font-semibold text-fg">
+      <p className="flex items-center gap-2 font-semibold text-fg">
         <PhoneCall className="size-4" aria-hidden="true" />
         {ring.fromName} is calling you to a room call.
       </p>
       <div className="flex flex-wrap gap-2">
         <button
-          ref={goRef}
           type="button"
-          className={cn(btnSignal, "min-h-[44px]")}
+          className={cn(btnGhost, "min-h-[44px]")}
           onClick={() => {
             dismiss(ring.id);
             onGo(ring.roomId);
@@ -83,12 +83,12 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
         </button>
         <button
           type="button"
-          className={cn(btnQuiet, "min-h-[44px]")}
+          className={cn(btnGhost, "min-h-[44px]")}
           onClick={() => dismiss(ring.id)}
         >
           Not now
         </button>
       </div>
-    </div>
+    </section>
   );
 }
