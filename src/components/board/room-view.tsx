@@ -152,7 +152,9 @@ export function RoomView() {
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
-              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
+                {title}
+              </h1>
               <RoomAudienceMark audience={audience} />
             </>
           )}
@@ -1096,45 +1098,6 @@ const PostCard = memo(function PostCard({
               {removeError}
             </p>
           ) : null}
-          {appealing ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              One sentence to the stewards
-              <input
-                className={fieldClass}
-                value={appealDraft}
-                placeholder="The mark names the side, not the missing reason."
-                onChange={(event) => {
-                  setAppealDraft(event.target.value);
-                  setAppealError("");
-                }}
-              />
-              {appealError ? (
-                <span className="text-danger" role="alert">
-                  {appealError}
-                </span>
-              ) : null}
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className={btnSignal}
-                  onClick={() => {
-                    void appeal(post.id, "mark", appealDraft).then((result) => {
-                      if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
-                      else {
-                        setAppealing(false);
-                        setAppealDraft("");
-                      }
-                    });
-                  }}
-                >
-                  File appeal
-                </button>
-                <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
-                  Cancel
-                </button>
-              </span>
-            </label>
-          ) : null}
           {removing ? (
             <p className="text-sm text-muted">
               Removing a post bars the account. The reason stays in the log. A mark never hides a
@@ -1142,6 +1105,45 @@ const PostCard = memo(function PostCard({
             </p>
           ) : null}
         </div>
+      ) : null}
+      {mine && appealing ? (
+        <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
+          One sentence to the stewards
+          <input
+            className={fieldClass}
+            value={appealDraft}
+            placeholder="The mark names the side, not the missing reason."
+            onChange={(event) => {
+              setAppealDraft(event.target.value);
+              setAppealError("");
+            }}
+          />
+          {appealError ? (
+            <span className="text-danger" role="alert">
+              {appealError}
+            </span>
+          ) : null}
+          <span className="flex gap-2">
+            <button
+              type="button"
+              className={btnSignal}
+              onClick={() => {
+                void appeal(post.id, "mark", appealDraft).then((result) => {
+                  if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
+                  else {
+                    setAppealing(false);
+                    setAppealDraft("");
+                  }
+                });
+              }}
+            >
+              File appeal
+            </button>
+            <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
+              Cancel
+            </button>
+          </span>
+        </label>
       ) : null}
     </article>
   );

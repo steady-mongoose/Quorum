@@ -6,7 +6,13 @@ import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
-import { actorRole, councilFlags, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
+import {
+  actorRole,
+  councilFlags,
+  moderationStop,
+  stewardsRoom,
+  type BoardActor,
+} from "./access.ts";
 import {
   canReadRoom,
   canSeeHiddenRooms,
@@ -602,8 +608,8 @@ export async function listBoard(
   }
   const gender = await statedGender(db, userId);
   const readable = new Set(audience.visible.map((room) => room.id));
-  const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter((room) =>
-    readable.has(room.id),
+  const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter(
+    (room) => readable.has(room.id),
   );
   const postRows: PostRow[] = [];
   const pages: RoomPage[] = [];
@@ -653,19 +659,23 @@ export async function listBoard(
     created_at: Date | string;
     room_id: string;
     room_chat: boolean;
+    author_user_id: string | null;
   }>(
     (await roomChatReady(db))
-      ? `select id, post_id, author_name, reason, created_at, room_id, room_chat from (
-           select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+      ? `select id, post_id, author_name, reason, created_at, room_id, room_chat, author_user_id from (
+           select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat,
+                  r.author_user_id
            from board_removal r
            join board_post p on p.id = r.post_id
            union all
-           select id, message_id, author_name, reason, created_at, room_id, true as room_chat
+           select id, message_id, author_name, reason, created_at, room_id, true as room_chat,
+                  author_user_id
            from room_chat_removal
          ) logged
          order by created_at desc
          limit 500`
-      : `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+      : `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat,
+                r.author_user_id
          from board_removal r
          join board_post p on p.id = r.post_id
          order by r.created_at desc
@@ -783,8 +793,13 @@ export async function listBoard(
         reason: row.reason,
         at: atMs(row.created_at),
       })),
+      // The removed author always sees their own removals, even after the
+      // room bar takes the room off their list, so they can appeal them.
       removals: removalRows
-        .filter((row) => seesRoom(row.room_id))
+        .filter(
+          (row) =>
+            seesRoom(row.room_id) || (row.author_user_id === userId && !hiddenIds.has(row.room_id)),
+        )
         .map((row) => ({
           id: row.id,
           postId: row.post_id,

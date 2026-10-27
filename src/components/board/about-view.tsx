@@ -319,7 +319,15 @@ export function AboutView() {
 
       {removals.length > 0 ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-2xl text-fg">Hard removals</h2>
+          <h2 className="text-2xl text-fg">
+            {steward || admin ? "Hard removals" : "Your removals"}
+          </h2>
+          {steward || admin ? null : (
+            <p className="max-w-prose text-sm text-muted">
+              A steward removed these posts of yours. You can appeal each one to that room's
+              stewards here, even while the room is off your list.
+            </p>
+          )}
           <ul className="flex flex-col gap-2">
             {removals.map((row) => (
               <li
@@ -328,7 +336,7 @@ export function AboutView() {
               >
                 {new Date(row.at).toLocaleString()} · {row.roomChat ? "Room chat" : "Post"} ·{" "}
                 {row.author} · {RULE_LABEL[row.reason]}
-                {row.author === authorName(me) ? (
+                {row.author === authorName(me) && !row.roomChat ? (
                   <RemovalAppeal
                     postId={row.postId}
                     filed={appeals.some(
@@ -562,7 +570,11 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -571,7 +583,11 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -611,7 +627,9 @@ function RoleForm({
   };
   return (
     <details className="rounded-md border border-line p-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
+        {title}
+      </summary>
       <form
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
@@ -673,7 +691,16 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+  return {
+    email,
+    setEmail,
+    roomId,
+    setRoomId,
+    inviterEmail,
+    setInviterEmail,
+    stewardEmail,
+    setStewardEmail,
+  };
 }
 
 function RevokeRole({
