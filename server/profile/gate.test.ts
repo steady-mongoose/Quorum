@@ -172,3 +172,23 @@ test("a profile photo upload stays open and a room upload waits for onboarding",
     await close();
   }
 });
+
+test("an existing member from before 0024 must finish the profile at the next sign-in", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const id = randomUUID();
+    await user(db, id, "Old Timer", true);
+    // A members row from before the profile migration: no onboarded_at.
+    await db.query(`insert into members (user_id, display_name, gender) values ($1, 'Old Timer', 'man') on conflict (user_id) do nothing`, [id]);
+    const { onboardingBlock } = await import("./gate.ts");
+    const block = await onboardingBlock(db, id);
+    assert.equal(block?.code, "profile-required");
+    const rows = await db.query<{ onboarded_at: Date | null }>(
+      `select onboarded_at from members where user_id = $1`,
+      [id],
+    );
+    assert.equal(rows[0]?.onboarded_at ?? null, null, "0024 does not backfill onboarded_at");
+  } finally {
+    await close();
+  }
+});
