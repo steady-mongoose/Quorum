@@ -1056,3 +1056,59 @@ test("fuzz: 10k random 8-category breakdowns never pin a hidden value, under bot
   }
   assert.deepEqual(bad.slice(0, 5), []);
 });
+
+test("the gatherings tile cannot be differenced against the per-room weekly table", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-diff@example.com", "2026-01-01T00:00:00Z");
+    await db.query(
+      `create table if not exists room_categories (
+         room_id text not null references room (id) on delete cascade,
+         category_id text not null,
+         primary key (room_id, category_id)
+       )`,
+    );
+    await db.query(
+      `insert into room (id, name) values ('qa-loud', 'Loud Hall'), ('qa-quiet', 'Quiet Hall')`,
+    );
+    await db.query(
+      `insert into room_categories (room_id, category_id) values
+       ('qa-loud', 'civic'), ('qa-quiet', 'civic')`,
+    );
+    // Week of Mon 2026-10-19; a 7-day window ending Sun 2026-10-25 covers it exactly.
+    const add = async (roomId: string, count: number) => {
+      for (let i = 0; i < count; i += 1) {
+        await db.query(
+          `insert into public_gathering (id, title, gather_on, room_id, host_user_id)
+           values ($1, 'Gathering', '2026-10-21', $2, $3)`,
+          [randomUUID(), roomId, ada],
+        );
+      }
+      await db.query(
+        `insert into stats_daily (date, metric, dimension, count)
+         values ('2026-10-19'::date, 'room_gatherings', $1, $2)`,
+        [roomId, count],
+      );
+    };
+    await add("qa-loud", 21);
+    await add("qa-quiet", 2);
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values ('2026-10-25'::date, 'dau', '', 6)`,
+    );
+    for (const category of ["civic", "all"]) {
+      const stats = await readStats(db, NOW, { days: 7, category });
+      const quiet = stats.rooms.rows.find((row) => row.room === "Quiet Hall");
+      const loud = stats.rooms.rows.find((row) => row.room === "Loud Hall");
+      assert.equal(quiet?.gatherings, "<5");
+      assert.equal(loud?.gatherings, 21);
+      const tile = gatheringsOf(stats);
+      assert.notEqual(tile, 23, `${category}: exact tile minus Loud Hall gives Quiet Hall back`);
+      if (typeof tile === "number") {
+        assert.equal(tile % 5, 0);
+        assert.ok(recoverableHidden([21, 2], tile).length !== 1);
+      }
+    }
+  } finally {
+    await close();
+  }
+});

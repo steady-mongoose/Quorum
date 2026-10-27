@@ -152,10 +152,15 @@ export function protectBreakdown(
  * 5 or more that pins no hidden cell. Then any published total leaves each
  * hidden cell at least two possible values.
  */
-export function roundedTotalIsSafe(parts: number[], rule: BreakdownRule = {}): boolean {
+export function roundedTotalIsSafe(
+  parts: number[],
+  rule: BreakdownRule = {},
+  knownExtra = 0,
+): boolean {
   const hidden = parts.filter((part) => isSmallCell(part, rule)).length;
   if (hidden === 0) return true;
-  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
+  const visible =
+    knownExtra + parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
   const low = rule.emptyShown ? 1 : 0;
   for (let rest = hidden * low; rest <= hidden * (SMALL_COUNT - 1); rest += 1) {
     const rounded = roundToFive(visible + rest);
@@ -164,6 +169,23 @@ export function roundedTotalIsSafe(parts: number[], rule: BreakdownRule = {}): b
     if (ranges.length === 0 || ranges.some(([a, b]) => a >= b)) return false;
   }
   return true;
+}
+
+/**
+ * A total published next to a table whose cells add up to part of it. Anything
+ * in the total beyond the cells (`total - sum(cells)`) is treated as known to
+ * the reader, the worst case. When any cell is hidden the total is rounded to
+ * 5, or hidden when even a rounded total could pin a cell, so subtracting the
+ * shown cells cannot recover a hidden one. An empty cell (0) names no one, as
+ * with category buckets, so a total that only shows a cell was empty stays exact.
+ */
+export function protectTotalOverCells(total: number, cells: number[]): ShownCount {
+  const rule = { emptyShown: true } as const;
+  if (!cells.some((cell) => isSmallCell(cell, rule))) return showCount(total);
+  const extra = Math.max(0, total - cells.reduce((sum, cell) => sum + cell, 0));
+  if (!roundedTotalIsSafe(cells, rule, extra)) return "<5";
+  const rounded = roundToFive(total);
+  return rounded < SMALL_COUNT ? "<5" : rounded;
 }
 
 /**

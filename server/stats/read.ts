@@ -6,6 +6,7 @@ import {
   STATS_CATEGORIES,
   endpointLabel,
   roundedTotalIsSafe,
+  protectTotalOverCells,
   protectBreakdown,
   roundToFive,
   showCount,
@@ -58,11 +59,12 @@ export async function readStats(
     : [];
   const active = asOf ? activeSeries(stored, addUtcDays(asOf, -(filter.days - 1)), asOf) : [];
   const roll = rollSeries(stored, inChart);
+  const roomCells = roomGatheringCells(stored, inChart, inCategory);
   const rooms = roomSeries(stored, names, inChart, inCategory);
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
   const tiles = asOf
-    ? await tilesOf(db, stored, asOf, filter.days, category, membership, catalog)
+    ? await tilesOf(db, stored, asOf, filter.days, category, membership, catalog, roomCells)
     : blankTiles(filter.days);
   const roomsByCategory = asOf
     ? await categoriesOf(
@@ -186,6 +188,7 @@ async function tilesOf(
   category: string,
   membership: Map<string, Set<string>>,
   catalog: CategoryInfo[],
+  roomCells: number[] = [],
 ): Promise<StatsPayload["tiles"]> {
   const labels = tileLabels(days);
   const currentStart = addUtcDays(asOf, -(days - 1));
@@ -210,12 +213,14 @@ async function tilesOf(
     labels.rooms,
     catalog,
   );
+  const currentGatherings = await gatheringSnapshot(db, currentStart, asOf, membership, catalog);
   const gatherings = gatheringsTile(
-    await gatheringSnapshot(db, currentStart, asOf, membership, catalog),
+    currentGatherings,
     await gatheringSnapshot(db, priorStart, priorEnd, membership, catalog),
     category,
     labels.gatherings,
     catalog,
+    roomCells,
   );
   return [members, invites, rooms, gatherings];
 }
@@ -244,16 +249,60 @@ function gatheringsTile(
   category: string,
   label: string,
   catalog: CategoryInfo[],
+  roomCells: number[] = [],
 ): StatsTile {
+  const value = besideRoomTable(
+    publishedBreakdown(current, category, catalog),
+    categoryTotal(current, category, catalog),
+    roomCells,
+  );
   return {
     id: "gatherings",
     label,
-    value: publishedBreakdown(current, category, catalog),
-    change: shownChange(
-      publishedBreakdown(current, category, catalog),
-      publishedBreakdown(prior, category, catalog),
-    ),
+    value,
+    change: shownChange(value, publishedBreakdown(prior, category, catalog)),
   };
+}
+
+/** The exact count behind a published breakdown value. */
+function categoryTotal(
+  snapshot: CategorySnapshot,
+  category: string,
+  catalog: CategoryInfo[],
+): number {
+  if (category === "all") return snapshot.total;
+  const index = catalog.findIndex((item) => item.id === category);
+  return index < 0 ? 0 : (snapshot.parts[index] ?? 0);
+}
+
+/**
+ * The gatherings tile sits next to the per-room weekly table for the same
+ * window and category, and which rooms are in a category is public. An exact
+ * tile minus the shown room cells would give back a hidden "<5" cell, so the
+ * tile is also protected against those cells.
+ */
+function besideRoomTable(shown: ShownCount, exact: number, roomCells: number[]): ShownCount {
+  if (typeof shown !== "number" || exact === 0) return shown;
+  const overCells = protectTotalOverCells(exact, roomCells);
+  if (typeof overCells !== "number") return "<5";
+  return shown === exact ? overCells : shown;
+}
+
+/** Every gatherings cell the per-room weekly table shows for this window and category. */
+function roomGatheringCells(
+  stored: Stored[],
+  inWindow: (date: string) => boolean,
+  inCategory: string[] | null,
+): number[] {
+  const cells = new Map<string, number>();
+  for (const row of stored) {
+    if (row.metric !== "room_posts" && row.metric !== "room_gatherings") continue;
+    if (!inWindow(row.date)) continue;
+    if (inCategory && !inCategory.includes(row.dimension)) continue;
+    const key = `${row.date}\n${row.dimension}`;
+    cells.set(key, (cells.get(key) ?? 0) + (row.metric === "room_gatherings" ? row.count : 0));
+  }
+  return [...cells.values()];
 }
 
 /**
