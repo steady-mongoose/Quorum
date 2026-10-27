@@ -121,12 +121,14 @@ test("signup is refused without consent, and the version and time are stored", a
   }
 });
 
-test("the consent links go to About and no draft legal document is published", async () => {
-  const { ABOUT_PATH, TERMS_PATH, PRIVACY_PATH } = await import("../../src/lib/board/consent.ts");
-  assert.equal(TERMS_PATH, ABOUT_PATH);
-  assert.equal(PRIVACY_PATH, ABOUT_PATH);
+test("the consent links are honestly labelled and no draft legal text ships in this PR", async () => {
+  const { TERMS_PATH, PRIVACY_PATH, CONSENT_TERMS, CONSENT_PRIVACY } = await import("../../src/lib/board/consent.ts");
+  assert.equal(TERMS_PATH, "/terms");
+  assert.equal(PRIVACY_PATH, "/privacy");
+  assert.equal(CONSENT_TERMS, "Terms");
+  assert.equal(CONSENT_PRIVACY, "Privacy Notice");
   const { existsSync } = await import("node:fs");
-  for (const route of ["terms", "privacy"]) {
-    assert.equal(existsSync(new URL(`../../src/routes/${route}.tsx`, import.meta.url)), false);
+  for (const draft of ["docs/terms.md", "docs/privacy.md", "public/terms.html", "public/privacy.html"]) {
+    assert.equal(existsSync(new URL(`../../${draft}`, import.meta.url)), false, draft);
   }
 });

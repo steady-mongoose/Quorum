@@ -11,12 +11,11 @@ export const CONSENT_TEXT_AFTER = ", including that my membership may show my re
 export const CONSENT_LABEL = `${CONSENT_TEXT_BEFORE}${CONSENT_TERMS}${CONSENT_AND}${CONSENT_PRIVACY}${CONSENT_TEXT_AFTER}`;
 export const CONSENT_ERROR = "Agree to the Terms and Privacy Notice to join.";
 /**
- * /terms and /privacy do not exist yet, and the draft Terms and Privacy Notice are not
- * published. Until Josh approves them, both links open the existing About page.
+ * The public Terms and Privacy pages come from #62, so this merges after #62. Those pages
+ * hold a placeholder, not the unapproved drafts; the drafts are not published here.
  */
-export const ABOUT_PATH = "/about";
-export const TERMS_PATH = ABOUT_PATH;
-export const PRIVACY_PATH = ABOUT_PATH;
+export const TERMS_PATH = "/terms";
+export const PRIVACY_PATH = "/privacy";
 
 /**
  * The version of the Terms and Privacy Notice a member agrees to. The drafts' effective

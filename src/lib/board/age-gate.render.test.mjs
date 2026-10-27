@@ -144,8 +144,7 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
       const consentLabel = view.host.querySelector('label[for="consent"]');
       assert.equal(consentLabel?.textContent, CONSENT_LABEL);
       const links = [...(consentLabel?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
-      // /terms and /privacy are not published yet; both links go to the About page.
-      assert.deepEqual(links, ["/about", "/about"]);
+      assert.deepEqual(links, ["/terms", "/privacy"]);
       assert.match(consent.parentElement?.className ?? "", /min-h-\[44px\]/);
       const consentError = view.host.querySelector("#consent-error");
       assert.equal(consentError?.getAttribute("role"), "alert");
