@@ -54,7 +54,10 @@ export function createAccountFactory(
         return {
           ok: false as const,
           status: response.status || 400,
-          message: reason === "invite" ? GENERIC_SIGNUP_ERROR : body.message || "The account was not created.",
+          message:
+            reason === "invite"
+              ? GENERIC_SIGNUP_ERROR
+              : body.message || "The account was not created.",
         };
       }
       return {
@@ -94,13 +97,23 @@ export function createSignIn(auth: ClosedAuth, baseURL: string): SignIn {
   return async (input) => {
     const headers = new Headers(input.headers);
     headers.set("content-type", "application/json");
-    const response = await auth.handler(
-      new Request(new URL("/api/auth/sign-in/email", baseURL), {
-        method: "POST",
+    // The account was just created inside the signup transaction, and
+    // /api/signup already spent its own per-IP and per-email attempt. Call
+    // the sign-in endpoint directly rather than through the HTTP router, so
+    // the router's 5-a-minute per-IP sign-in cap does not strand a new member
+    // whose code is already spent (everyone at one event shares one Wi-Fi IP).
+    void baseURL;
+    let response: Response;
+    try {
+      response = await auth.api.signInEmail({
+        body: { email: input.email, password: input.password },
         headers,
-        body: JSON.stringify({ email: input.email, password: input.password }),
-      }),
-    );
+        asResponse: true,
+      });
+    } catch {
+      console.error(JSON.stringify({ event: "signup-session-failed", status: 500 }));
+      return { ok: false, status: 500, message: GENERIC_SIGNUP_ERROR };
+    }
     const text = await response.text();
     if (!response.ok) {
       console.error(JSON.stringify({ event: "signup-session-failed", status: response.status }));

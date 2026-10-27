@@ -8,6 +8,7 @@ import {
   inviteCodeError,
 } from "@/lib/board/invite-entry";
 import { MfaChallenge } from "@/components/board/mfa-ui";
+import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
 import { useServerSession } from "@/lib/server-session-state";
 
 /** Account door. Shown only when the dedicated-box API answered. */
@@ -57,6 +58,12 @@ export function AccountDoor() {
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
+            if (result.code === SIGNED_UP_NO_SESSION) {
+              setMode("sign-in");
+              setCode("");
+              setOutcome(result.message);
+              return;
+            }
             const aboutCode = mode === "sign-up" ? inviteCodeError(code, result) : null;
             if (aboutCode) setCodeError(aboutCode);
             else setOutcome(result.message);
@@ -138,7 +145,11 @@ export function AccountDoor() {
       >
         {mode === "sign-in" ? "I have a code" : "I already have an account"}
       </button>
-      {outcome ? <p className="text-sm text-muted">{outcome}</p> : null}
+      {outcome ? (
+        <p className="text-sm text-fg" role="alert">
+          {outcome}
+        </p>
+      ) : null}
     </form>
   );
 }
