@@ -511,8 +511,14 @@ test("a chat removal and a later post removal are the second strike, in either o
     assert.equal(second.ok, true);
     if (!second.ok) return;
     assert.equal(second.value.ban?.strikes, 2);
-    const closed = await openBan(db, ruth, new Date(now.getTime() + 1_000));
-    assert.equal(closed?.strikes, 2);
+    assert.equal(second.value.ban?.pendingReview, true, "a steward's second strike suspends and flags for an admin");
+    const flagged = await db.query<{ strikes: number; status: string }>(
+      `select strikes, status from ban_review where user_id = $1`,
+      [ruth],
+    );
+    assert.deepEqual(flagged, [{ strikes: 2, status: "open" }]);
+    const suspended = await openBan(db, ruth, new Date(now.getTime() + 1_000));
+    assert.equal(suspended?.strikes, 2, "suspended site-wide at once, pending an admin");
   } finally {
     await close();
   }

@@ -274,6 +274,7 @@ export async function handleBoard(
         200,
         await decideBanReview(deps.db, {
           userId: session.id,
+          name: session.name,
           reviewId: banReview[1] ?? "",
           decision: typeof body.decision === "string" ? body.decision : "",
           now,
