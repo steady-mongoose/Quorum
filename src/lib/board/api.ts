@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { categoryForRoom, type BrowseRoom, type RoomCategory } from "./categories.ts";
 import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
 import type {
@@ -18,6 +19,17 @@ import { parseHomePayload } from "./home.ts";
 
 const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
 const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
+
+function categoryIdsFrom(row: Record<string, unknown>, roomId: string): string[] {
+  if (Array.isArray(row.categoryIds)) {
+    const listed = row.categoryIds.filter(
+      (item): item is string => typeof item === "string" && item.trim() !== "",
+    );
+    if (listed.length > 0) return listed;
+  }
+  if (typeof row.categoryId === "string" && row.categoryId.trim()) return [row.categoryId.trim()];
+  return [categoryForRoom(roomId)];
+}
 
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
@@ -45,12 +57,15 @@ function failure(json: unknown, fallback: string): BoardFailure {
 async function send(
   path: string,
   body?: unknown,
+  method?: "POST" | "PATCH" | "DELETE",
 ): Promise<{ ok: boolean; status: number; json: unknown }> {
+  const verb = method ?? (body === undefined ? "GET" : "POST");
   const response = await apiFetch(path, {
-    method: body === undefined ? "GET" : "POST",
+    method: verb,
     credentials: "include",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers:
+      verb === "GET" || body === undefined ? undefined : { "content-type": "application/json" },
+    body: verb === "GET" || body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await response.json().catch(() => null);
   return { ok: response.ok, status: response.status, json };
@@ -152,6 +167,10 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    categoryIds: categoryIdsFrom(row, row.id),
+    pinOrder:
+      typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
+    joined: row.joined === true,
     ...(row.status === "draft" || row.status === "unclaimed" || row.status === "active"
       ? { status: row.status }
       : {}),
@@ -163,6 +182,65 @@ function roomFrom(value: unknown): Room | null {
       ? { audience: row.audience }
       : {}),
     ...(row.host === true ? { host: true } : {}),
+  };
+}
+
+function categoryFrom(value: unknown): RoomCategory | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.slug !== "string" || typeof row.name !== "string") return null;
+  if (!row.slug || !row.name) return null;
+  const sortOrder =
+    typeof row.sortOrder === "number" && Number.isFinite(row.sortOrder) ? row.sortOrder : 0;
+  return {
+    slug: row.slug,
+    name: row.name,
+    description: typeof row.description === "string" ? row.description : "",
+    sortOrder,
+  };
+}
+
+function browseRoomFrom(value: unknown): BrowseRoom | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== "string" || typeof row.name !== "string" || typeof row.what !== "string")
+    return null;
+  const next =
+    typeof row.nextGathering === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.nextGathering)
+      ? row.nextGathering
+      : null;
+  return {
+    id: row.id,
+    name: row.name,
+    what: row.what,
+    categoryIds: categoryIdsFrom(row, row.id),
+    nextGathering: next,
+    pinOrder:
+      typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
+    joined: row.joined === true,
+    ...(typeof row.audience === "string" && row.audience ? { audience: row.audience } : {}),
+  };
+}
+
+/** A category list. Extra fields, including counts, are dropped. */
+export function parseCategoryList(json: unknown): RoomCategory[] | null {
+  if (!json || typeof json !== "object") return null;
+  const body = json as { categories?: unknown };
+  if (!Array.isArray(body.categories)) return null;
+  return body.categories.map(categoryFrom).filter((row): row is RoomCategory => row !== null);
+}
+
+/** One category page. Extra fields, including counts, are dropped. */
+export function parseCategoryPage(
+  json: unknown,
+): { category: RoomCategory; rooms: BrowseRoom[] } | null {
+  if (!json || typeof json !== "object") return null;
+  const body = json as { category?: unknown; rooms?: unknown };
+  const category = categoryFrom(body.category);
+  if (!category || !Array.isArray(body.rooms)) return null;
+  return {
+    category,
+    rooms: body.rooms.map(browseRoomFrom).filter((row): row is BrowseRoom => row !== null),
   };
 }
 
@@ -412,6 +490,48 @@ export const apiBoardClient: BoardClient = {
     const room = roomFrom(response.json);
     if (!room) return { ok: false, error: "The room was not added." };
     return { ok: true, room };
+  },
+  async updateRoom(id, input) {
+    const response = await send(`/api/rooms/${encodeURIComponent(id)}`, input, "PATCH");
+    if (!response.ok) return failure(response.json, "The room was not saved.");
+    const room = roomFrom(response.json);
+    if (!room) return { ok: false, error: "The room was not saved." };
+    return { ok: true, room };
+  },
+  async listCategories() {
+    const response = await send("/api/categories");
+    if (!response.ok) return failure(response.json, "Categories did not load.");
+    const categories = parseCategoryList(response.json);
+    if (!categories) return { ok: false, error: "Categories did not load." };
+    return { ok: true, categories };
+  },
+  async readCategory(slug) {
+    const response = await send(`/api/categories/${encodeURIComponent(slug)}`);
+    if (!response.ok) return failure(response.json, "That category is not listed.");
+    const page = parseCategoryPage(response.json);
+    if (!page) return { ok: false, error: "That category is not listed." };
+    return { ok: true, ...page };
+  },
+  async createCategory(input) {
+    const response = await send("/api/categories", input);
+    if (!response.ok) return failure(response.json, "That category was not added.");
+    const body = response.json as { category?: unknown } | null;
+    const category = categoryFrom(body?.category);
+    if (!category) return { ok: false, error: "That category was not added." };
+    return { ok: true, category };
+  },
+  async updateCategory(slug, input) {
+    const response = await send(`/api/categories/${encodeURIComponent(slug)}`, input, "PATCH");
+    if (!response.ok) return failure(response.json, "That category was not saved.");
+    const body = response.json as { category?: unknown } | null;
+    const category = categoryFrom(body?.category);
+    if (!category) return { ok: false, error: "That category was not saved." };
+    return { ok: true, category };
+  },
+  async deleteCategory(slug) {
+    const response = await send(`/api/categories/${encodeURIComponent(slug)}`, undefined, "DELETE");
+    if (!response.ok) return failure(response.json, "That category was not removed.");
+    return { ok: true };
   },
   async setRoomAudience(roomId, audience) {
     const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/audience`, { audience });
