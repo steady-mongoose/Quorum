@@ -7,13 +7,15 @@ import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
+  BANNED_DEACTIVATE_ERROR,
+  REPORTED_POST_ERROR,
   deactivateAccount,
   deleteOwnPost,
   listDeletionRequests,
   reactivateAccount,
   requestAccountDeletion,
 } from "./account.ts";
-import { createPost, listBoard, replyToPost } from "./store.ts";
+import { banMember, createPost, listBoard, replyToPost } from "./store.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 
@@ -316,6 +318,78 @@ test("the delete route removes the author's post", async () => {
     );
     assert.equal(response.status, 200);
     assert.equal(visibleIds(await listBoard(db, maria, now, { room: "shop" })).includes(posted.value.id), false);
+  } finally {
+    await close();
+  }
+});
+
+test("an open report blocks the author delete until it is closed", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await grant(db, maria, "Maria", "member");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    // Without the report queue (0029) the delete is not blocked by it.
+    // Here a minimal queue stands in for 0029.
+    await db.query(
+      `create table member_report (
+         id text primary key, room_id text not null, subject_kind text not null,
+         subject_id text not null, status text not null default 'open'
+       )`,
+    );
+    await db.query(
+      `insert into member_report (id, room_id, subject_kind, subject_id, status)
+       values ('r1', 'shop', 'post', $1, 'open')`,
+      [posted.value.id],
+    );
+    const blocked = await deleteOwnPost(db, { userId: maria, postId: posted.value.id, now });
+    assert.deepEqual(blocked, { ok: false, status: 409, error: REPORTED_POST_ERROR });
+    await db.query(`update member_report set status = 'closed' where id = 'r1'`);
+    const deleted = await deleteOwnPost(db, { userId: maria, postId: posted.value.id, now });
+    assert.equal(deleted.ok, true);
+  } finally {
+    await close();
+  }
+});
+
+test("a barred account cannot deactivate", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const josh = randomUUID();
+    const ruth = randomUUID();
+    await user(db, maria, "Maria", "maria@example.com");
+    await user(db, josh, "Josh", "josh@example.com");
+    await user(db, ruth, "Ruth", "ruth@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, ruth, "Ruth", "member");
+    await grant(db, josh, "Josh", "member");
+    await grant(db, josh, "Josh", "admin");
+    const site = await banMember(db, { userId: josh, name: "Josh", email: "maria@example.com", reason: "threat", now });
+    assert.equal(site.ok, true);
+    const refused = await deactivateAccount(db, { userId: maria, name: "Maria", now });
+    assert.deepEqual(refused, { ok: false, status: 403, error: BANNED_DEACTIVATE_ERROR });
+    const flagged = await db.query<{ deactivated_at: unknown }>(
+      `select deactivated_at from "user" where id = $1`,
+      [maria],
+    );
+    assert.equal(flagged[0]?.deactivated_at, null);
+    const room = await banMember(db, {
+      userId: josh,
+      name: "Josh",
+      email: "ruth@example.com",
+      reason: "threat",
+      roomId: "shop",
+      now,
+    });
+    assert.equal(room.ok, true);
+    const roomRefused = await deactivateAccount(db, { userId: ruth, name: "Ruth", now });
+    assert.equal(roomRefused.ok, false);
+    const unbarred = await deactivateAccount(db, { userId: josh, name: "Josh", now });
+    assert.equal(unbarred.ok, true);
   } finally {
     await close();
   }

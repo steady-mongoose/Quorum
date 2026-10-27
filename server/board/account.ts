@@ -3,6 +3,7 @@ import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import { HELD_POST_ERROR } from "../../src/lib/board/account-copy.ts";
 import { actorRole } from "./access.ts";
+import { openBan } from "./store.ts";
 
 type Ok<T> = { ok: true; value: T };
 type Err = { ok: false; status: number; error: string };
@@ -13,6 +14,38 @@ function fail(status: number, error: string): Err {
 }
 
 const NOTE_LIMIT = 500;
+
+export const REPORTED_POST_ERROR = "This post has an open report and cannot be deleted until a steward looks at it.";
+export const BANNED_DEACTIVATE_ERROR = "This account is barred and cannot be deactivated while the bar is in force.";
+
+/** True when any bar on this account, site-wide or in a room, is in force. */
+async function barredAnywhere(db: Db, userId: string, now: Date): Promise<boolean> {
+  if (await openBan(db, userId, now)) return true;
+  const rooms = await db.query<{ room_id: string }>(
+    `select distinct room_id from board_ban where user_id = $1 and room_id <> ''`,
+    [userId],
+  );
+  for (const row of rooms) {
+    if (await openBan(db, userId, now, row.room_id)) return true;
+  }
+  return false;
+}
+
+/** The member report queue may not exist yet on this database. */
+async function openReportOn(db: Db, postId: string): Promise<boolean> {
+  const table = await db.query<{ name: string | null }>(
+    `select to_regclass('public.member_report')::text as name`,
+  );
+  if (!table[0]?.name) return false;
+  const rows = await db.query<{ id: string }>(
+    `select id from member_report
+     where status = 'open' and subject_kind = 'post'
+       and (subject_id = $1 or subject_id in (select id from board_post where parent_id = $1))
+     limit 1`,
+    [postId],
+  );
+  return Boolean(rows[0]);
+}
 
 function memberName(name: string): string {
   const trimmed = name.trim();
@@ -45,6 +78,7 @@ export async function deleteOwnPost(
       [input.postId],
     );
     if (held[0]) return "held" as const;
+    if (await openReportOn(tx, input.postId)) return "reported" as const;
     await tx.query(`update board_post set author_deleted_at = $2 where id = $1`, [
       input.postId,
       input.now,
@@ -52,6 +86,7 @@ export async function deleteOwnPost(
     return "deleted" as const;
   });
   if (outcome === "held") return fail(403, HELD_POST_ERROR);
+  if (outcome === "reported") return fail(409, REPORTED_POST_ERROR);
   if (outcome === "missing") return fail(404, "That post is not here.");
   return { ok: true, value: { id: input.postId } };
 }
@@ -97,6 +132,7 @@ export async function deactivateAccount(
 ): Promise<AccountResult<{ deactivated: true }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can change this account.");
+  if (await barredAnywhere(db, input.userId, input.now)) return fail(403, BANNED_DEACTIVATE_ERROR);
   const name = memberName(input.name);
   await db.transaction(async (tx) => {
     const rows = await tx.query<{ id: string }>(
