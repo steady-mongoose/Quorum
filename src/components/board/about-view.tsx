@@ -218,6 +218,14 @@ export function AboutView() {
       {remote && admin ? <MfaResetQueue /> : null}
 
       {remote && admin ? (
+        <p>
+          <a className={btnGhost} href="/admin/stats">
+            Stats
+          </a>
+        </p>
+      ) : null}
+
+      {remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}
