@@ -1,4 +1,5 @@
-import { apiFetch } from "../api-base.ts";
+import { apiFetch, apiUrl, noteUnauthorized, softenApiResponse } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { isGatheringId, readPublicGathering, type PublicGathering } from "./public-gathering.ts";
 
 export type { PublicGathering };
@@ -22,7 +23,7 @@ function failure(json: unknown, fallback: string): { ok: false; error: string } 
     json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string"
       ? (json as { error: string }).error
       : fallback;
-  return { ok: false, error };
+  return { ok: false, error: userFacingError(error, fallback) };
 }
 
 function storedFrom(value: unknown): StoredGathering | null {
@@ -93,13 +94,24 @@ export async function saveGathering(input: {
   return failure(await response.json().catch(() => null), "The gathering was not saved.");
 }
 
-export async function removeGathering(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const response = await apiFetch(`/api/gatherings/${encodeURIComponent(id)}`, {
+function gatheringDelete(id: string, keepalive = false): Promise<Response> {
+  return fetch(apiUrl(`/api/gatherings/${encodeURIComponent(id)}`), {
     method: "DELETE",
     credentials: "include",
+    ...(keepalive ? { keepalive: true } : { signal: AbortSignal.timeout(LOAD_MS) }),
   });
+}
+
+export async function removeGathering(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = softenApiResponse(await gatheringDelete(id));
+  noteUnauthorized(response);
   if (response.ok) return { ok: true };
   return failure(await response.json().catch(() => null), "The gathering was not removed.");
+}
+
+/** The page is leaving, so the DELETE cannot wait or restore the card. */
+export function removeGatheringKeepalive(id: string): void {
+  void gatheringDelete(id, true).catch(() => undefined);
 }
 
 export async function loadGathering(id: string): Promise<StoredGathering | null> {

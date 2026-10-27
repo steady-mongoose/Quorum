@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 
 /** How often a signed-in member asks the server for new lines. */
 export const CHAT_POLL_MS = 4_000;
@@ -71,11 +72,11 @@ async function send(
 }
 
 function failure(status: number, json: unknown, fallback: string): ChatFailure {
-  const error =
+  const raw =
     json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string"
       ? (json as { error: string }).error
       : fallback;
-  return { ok: false, status, error };
+  return { ok: false, status, error: raw === "banned" ? raw : userFacingError(raw, fallback) };
 }
 
 export async function loadRoomChat(

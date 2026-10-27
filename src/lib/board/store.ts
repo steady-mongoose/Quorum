@@ -13,9 +13,14 @@ import {
   type ZipCorrectionInput,
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
+import { removalFailedCopy } from "./errors.ts";
+
+/** How long Find offers Undo before the DELETE is sent. */
+export const REMOVAL_UNDO_MS = 5000;
 import {
   loadGatherings,
   removeGathering,
+  removeGatheringKeepalive,
   saveGathering,
   type StoredGathering,
 } from "./gathering-public.ts";
@@ -103,6 +108,12 @@ type BoardState = {
   /** True while this browser is writing rooms and posts to the API. */
   remote: boolean;
   boardError: string;
+  /** Names in the current removal failure, oldest first. Not stored. */
+  failedRemovalNames: string[];
+  /** Removals still inside the undo window, oldest first. Not stored. */
+  undoQueue: MeetingCard[];
+  /** A card just put back after a failed removal. Find scrolls it into view. Not stored. */
+  scrollCardId: string | null;
   rooms: Room[];
   posts: Post[];
   cards: MeetingCard[];
@@ -188,7 +199,14 @@ type BoardState = {
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
   visited: (id: string) => void;
-  removeCard: (id: string) => void;
+  removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Cancel a removal that has not been sent yet and put the card back. */
+  undoRemoveCard: (id: string) => boolean;
+  /**
+   * Send removals that are still inside the undo window.
+   * `keepalive` is for the document going away; `now` is for leaving Find.
+   */
+  commitPendingRemovals: (mode: "now" | "keepalive") => void;
   /** A host makes a one-use code for one card. The card shows only after a name redeems it. */
   createInvite: (cardId: string) => string | null;
   /**
@@ -585,6 +603,65 @@ export const useBoard = create<BoardState>()(
         return { ok: true };
       };
 
+      type PendingRemoval = {
+        card: MeetingCard;
+        timer: ReturnType<typeof setTimeout>;
+        remote: boolean;
+      };
+      const pendingRemovals = new Map<string, PendingRemoval>();
+      let removalOrder: string[] = [];
+      const syncRemovalOrder = (cards: MeetingCard[]) => {
+        const seen = new Set(removalOrder);
+        for (const card of cards) {
+          if (seen.has(card.id)) continue;
+          removalOrder.push(card.id);
+          seen.add(card.id);
+        }
+      };
+      const placeRemovedCard = (cards: MeetingCard[], card: MeetingCard) => {
+        if (cards.some((item) => item.id === card.id)) return cards;
+        syncRemovalOrder(cards);
+        if (!removalOrder.includes(card.id)) removalOrder.push(card.id);
+        const byId = new Map(cards.map((item) => [item.id, item]));
+        byId.set(card.id, card);
+        const used = new Set<string>();
+        const next: MeetingCard[] = [];
+        for (const id of removalOrder) {
+          const item = byId.get(id);
+          if (!item || used.has(id)) continue;
+          next.push(item);
+          used.add(id);
+        }
+        for (const item of cards) {
+          if (!used.has(item.id)) next.push(item);
+        }
+        return next;
+      };
+      const settleRemoval = async (pending: PendingRemoval) => {
+        let failed = false;
+        try {
+          const result = await removeGathering(pending.card.id);
+          failed = !result.ok;
+        } catch {
+          failed = true;
+        }
+        if (!failed) return;
+        set((state) => {
+          const prior =
+            state.boardError && state.failedRemovalNames.length > 0 ? state.failedRemovalNames : [];
+          const names = prior.includes(pending.card.name)
+            ? prior
+            : [...prior, pending.card.name];
+          return {
+            cards: placeRemovedCard(state.cards, pending.card),
+            failedRemovalNames: names,
+            boardError: removalFailedCopy(names),
+            scrollCardId: pending.card.id,
+            undoQueue: state.undoQueue.filter((item) => item.id !== pending.card.id),
+          };
+        });
+      };
+
       return {
         section: "week",
         room: "county",
@@ -608,6 +685,9 @@ export const useBoard = create<BoardState>()(
         home: null,
         remote: false,
         boardError: "",
+        failedRemovalNames: [],
+        undoQueue: [],
+        scrollCardId: null,
         rooms: ROOMS,
         posts: [],
         cards: SEED_CARDS,
@@ -1130,9 +1210,59 @@ export const useBoard = create<BoardState>()(
             unverified: false,
             wentBy: addName(card.wentBy, me()),
           })),
-        removeCard: (id) => {
-          set({ cards: get().cards.filter((card) => card.id !== id) });
-          if (get().remote) void removeGathering(id);
+        removeCard: async (id) => {
+          const cards = get().cards;
+          const index = cards.findIndex((card) => card.id === id);
+          if (index < 0) return { ok: true };
+          const card = cards[index];
+          if (!card) return { ok: true };
+          if (pendingRemovals.size === 0) removalOrder = [];
+          syncRemovalOrder(cards);
+          const remote = get().remote;
+          set({
+            cards: cards.filter((item) => item.id !== id),
+            boardError: "",
+            failedRemovalNames: [],
+            undoQueue: [...get().undoQueue.filter((item) => item.id !== id), card],
+          });
+          const timer = setTimeout(() => {
+            const pending = pendingRemovals.get(id);
+            if (!pending) return;
+            pendingRemovals.delete(id);
+            set((state) => ({
+              undoQueue: state.undoQueue.filter((item) => item.id !== id),
+            }));
+            if (pending.remote) void settleRemoval(pending);
+          }, REMOVAL_UNDO_MS);
+          pendingRemovals.set(id, { card, timer, remote });
+          return { ok: true };
+        },
+        undoRemoveCard: (id) => {
+          const pending = pendingRemovals.get(id);
+          if (!pending) return false;
+          clearTimeout(pending.timer);
+          pendingRemovals.delete(id);
+          set((state) => ({
+            cards: placeRemovedCard(state.cards, pending.card),
+            boardError: "",
+            failedRemovalNames: [],
+            undoQueue: state.undoQueue.filter((item) => item.id !== id),
+          }));
+          return true;
+        },
+        commitPendingRemovals: (mode) => {
+          const waiting = [...pendingRemovals.values()];
+          pendingRemovals.clear();
+          const ids = new Set(waiting.map((pending) => pending.card.id));
+          set((state) => ({
+            undoQueue: state.undoQueue.filter((item) => !ids.has(item.id)),
+          }));
+          for (const pending of waiting) {
+            clearTimeout(pending.timer);
+            if (!pending.remote) continue;
+            if (mode === "keepalive") removeGatheringKeepalive(pending.card.id);
+            else void settleRemoval(pending);
+          }
         },
         createInvite: (cardId) => {
           const card = get().cards.find((item) => item.id === cardId);
@@ -1479,3 +1609,18 @@ export const useBoard = create<BoardState>()(
     },
   ),
 );
+
+useBoard.subscribe((state, previous) => {
+  if (previous.section === "find" && state.section !== "find") {
+    state.commitPendingRemovals("now");
+  }
+});
+
+const leaveTarget = globalThis as typeof globalThis & {
+  addEventListener?: (type: string, listener: () => void) => void;
+};
+if (typeof leaveTarget.addEventListener === "function") {
+  const sendPending = () => useBoard.getState().commitPendingRemovals("keepalive");
+  leaveTarget.addEventListener("pagehide", sendPending);
+  leaveTarget.addEventListener("beforeunload", sendPending);
+}
