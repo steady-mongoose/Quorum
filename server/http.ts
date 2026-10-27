@@ -8,6 +8,8 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { noteAuthenticatedRequest } from "./stats/activity.ts";
+import { handleStats } from "./stats/routes.ts";
 import { handleProfile } from "./profile/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
@@ -190,6 +192,33 @@ function clientIp(request: Request): string {
   return rateLimitIp(value || "local");
 }
 
+function memoSession(deps: AppDeps, headers: Headers): AppDeps {
+  let pending: Promise<SessionUser | null> | undefined;
+  return {
+    ...deps,
+    readSession: (incoming) => {
+      if (incoming !== headers) return deps.readSession(incoming);
+      pending ??= deps.readSession(incoming);
+      return pending;
+    },
+  };
+}
+
+async function touchActivity(deps: AppDeps, request: Request, url: URL): Promise<void> {
+  try {
+    const session = await deps.readSession(request.headers);
+    if (!session) return;
+    await noteAuthenticatedRequest(deps.db, session.id, deps.now(), url.pathname);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "stats-activity-failed",
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+  }
+}
+
 function tooMany(retryAfter: number): Response {
   return json(
     429,
@@ -211,8 +240,12 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
   return async (request) => {
     const url = new URL(request.url);
+    const scoped = memoSession(deps, request.headers);
     try {
-      const response = await route(deps, media, calls, request, url);
+      const response = await route(scoped, media, calls, request, url);
+      if (response.ok && request.method !== "OPTIONS" && url.pathname !== "/api/health") {
+        await touchActivity(scoped, request, url);
+      }
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -514,6 +547,9 @@ async function route(
 
   const gathering = await handlePublicGathering(deps, request, url);
   if (gathering) return gathering;
+
+  const stats = await handleStats(deps, request, url);
+  if (stats) return stats;
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
   return json(404, { error: "Not found." });

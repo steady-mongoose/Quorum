@@ -81,7 +81,7 @@ export function MfaChallenge({
         send(String(data.get("code") ?? ""));
       }}
     >
-      <h2 className="font-display text-2xl text-fg">Authenticator</h2>
+      <h2 className="text-2xl text-fg">Authenticator</h2>
       <p className="text-sm text-muted">
         {recovery
           ? "Enter one recovery code. It works once."
@@ -171,7 +171,7 @@ export function MfaSettings() {
 
   return (
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
-      <h2 className="font-display text-2xl text-fg">Authenticator</h2>
+      <h2 className="text-2xl text-fg">Authenticator</h2>
       <p className="max-w-prose text-sm text-muted">
         Adds a six-digit code from an app on your phone after your password. Owners, admins and
         stewards need it for sensitive actions. Members can turn it on any time.
@@ -427,7 +427,7 @@ export function MfaResetQueue() {
 
   return (
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
-      <h2 className="font-display text-2xl text-fg">Authenticator reset</h2>
+      <h2 className="text-2xl text-fg">Authenticator reset</h2>
       <p className="max-w-prose text-sm text-muted">
         Two different admins approve. The person who asked cannot approve, and nobody approves a
         reset of their own account. The owner counts as an admin. Enter a fresh code first.

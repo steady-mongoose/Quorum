@@ -137,6 +137,8 @@ export type RemovalEntry = {
   at: number;
   /** Set when the row is a room chat line. A post leaves this off. */
   roomChat?: boolean;
+  /** Set only on the viewer's own removals, matched by user id, never by name. */
+  mine?: boolean;
 };
 
 export type BanEntry = {
@@ -551,6 +553,11 @@ async function pagePosts(
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
      from board_post
      where removed = false
+       and author_deleted_at is null
+       and not exists (
+         select 1 from "user" u
+         where u.id = board_post.author_user_id and u.deactivated_at is not null
+       )
        and room_id = $1
        and (
          $2::timestamptz is null
@@ -707,19 +714,23 @@ export async function listBoard(
     created_at: Date | string;
     room_id: string;
     room_chat: boolean;
+    author_user_id: string | null;
   }>(
     (await roomChatReady(db))
-      ? `select id, post_id, author_name, reason, created_at, room_id, room_chat from (
-           select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+      ? `select id, post_id, author_name, reason, created_at, room_id, room_chat, author_user_id from (
+           select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat,
+                  r.author_user_id
            from board_removal r
            join board_post p on p.id = r.post_id
            union all
-           select id, message_id, author_name, reason, created_at, room_id, true as room_chat
+           select id, message_id, author_name, reason, created_at, room_id, true as room_chat,
+                  author_user_id
            from room_chat_removal
          ) logged
          order by created_at desc
          limit 500`
-      : `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat
+      : `select r.id, r.post_id, r.author_name, r.reason, r.created_at, p.room_id, false as room_chat,
+                r.author_user_id
          from board_removal r
          join board_post p on p.id = r.post_id
          order by r.created_at desc
@@ -837,8 +848,13 @@ export async function listBoard(
         reason: row.reason,
         at: atMs(row.created_at),
       })),
+      // The removed author always sees their own removals, even after the
+      // room bar takes the room off their list, so they can appeal them.
       removals: removalRows
-        .filter((row) => seesRoom(row.room_id))
+        .filter(
+          (row) =>
+            seesRoom(row.room_id) || (row.author_user_id === userId && !hiddenIds.has(row.room_id)),
+        )
         .map((row) => ({
           id: row.id,
           postId: row.post_id,
@@ -846,6 +862,7 @@ export async function listBoard(
           reason: ruleId(row.reason),
           at: atMs(row.created_at),
           ...(row.room_chat ? { roomChat: true } : {}),
+          ...(row.author_user_id !== null && row.author_user_id === userId ? { mine: true } : {}),
         })),
       bans: banRows
         .filter((row) => seesRoom(row.room_id))

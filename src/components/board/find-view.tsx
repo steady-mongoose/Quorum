@@ -197,7 +197,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
   if (!host || (!showError && !removal.removed)) return null;
   if (showError) {
     return createPortal(
-      <div className={cn(TOAST_CLASS, "border-danger text-danger")} role="alert" style={themeVars(themeById(OWNER_THEME))}>
+      <div
+        className={cn(TOAST_CLASS, "border-danger text-danger")}
+        role="alert"
+        style={themeVars(themeById(OWNER_THEME))}
+      >
         <p className="text-sm">{errorText}</p>
         <button
           type="button"
@@ -211,7 +215,8 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
             {appeals.map((row) => (
               <li key={row.id}>
                 Your {row.kind} appeal is{" "}
-                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}
+                .
               </li>
             ))}
           </ul>
@@ -221,7 +226,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
     );
   }
   return createPortal(
-    <div className={cn(TOAST_CLASS, "border-line text-muted")} role="status" style={themeVars(themeById(OWNER_THEME))}>
+    <div
+      className={cn(TOAST_CLASS, "border-line text-muted")}
+      role="status"
+      style={themeVars(themeById(OWNER_THEME))}
+    >
       <p className="text-sm">Removed {removal.removed.name}.</p>
       <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
         Undo
@@ -610,9 +619,9 @@ function AddCard({ me }: { me: string }) {
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">List a card</h2>
       <p className="mt-1 text-sm text-muted">
-        You count as the first visit. It lists after a second person marks "I went." A trade lists
-        after two members name its work. A parish need is posted by whoever is organizing it, with
-        the family's say-so.
+        You count as the first visit. It shows to the room's members as soon as you save it, so they
+        can say they'll be there. A trade lists after two members name its work. A parish need is
+        posted by whoever is organizing it, with the family's say-so.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
