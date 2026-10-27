@@ -330,6 +330,22 @@ async function standingStewards(db: Db, log: readonly LogRow[], roomId: string, 
   return standing;
 }
 
+/** True when this person has no open bar, site-wide or for this room. */
+async function standingStewardCandidate(db: Db, userId: string, roomId: string, now: Date) {
+  const bars = await queryBanTable<{ strikes: number; until_at: Date | string; reason: string }>(
+    db,
+    `select strikes, until_at, reason from board_ban
+     where user_id = $1 and (room_id = '' or room_id = $2)`,
+    [userId, roomId],
+  );
+  return !bars.some((row) =>
+    banOpen(
+      { reason: ruleId(row.reason), strikes: Number(row.strikes), until: atMs(row.until_at) },
+      now.getTime(),
+    ),
+  );
+}
+
 /** Rooms where this person is the only standing steward, read under the lock. */
 export async function soleStandingRooms(
   db: Db,
@@ -398,6 +414,30 @@ export async function keepStewarded(
   }
   const roomId = sole[0]!;
   if (!input.replacementEmail.trim()) return fail(409, LAST_STEWARD_ERROR);
+  const replacement = await personByEmail(db, input.replacementEmail);
+  if (!replacement) return fail(404, "No member has the new steward's email.");
+  if (replacement.id === input.outgoingId) {
+    return fail(409, "Name someone other than the outgoing steward as the new steward.");
+  }
+  const inRoom = await db.query<{ one: number }>(
+    `select 1 as one from room_member where room_id = $1 and user_id = $2
+     union all
+     select 1 as one from room_join where room_id = $1 and user_id = $2
+     limit 1`,
+    [roomId, replacement.id],
+  );
+  if (!inRoom[0]) {
+    return fail(
+      409,
+      `${replacement.name} is not in this room right now. The new steward must be a current member of the room.`,
+    );
+  }
+  if (!(await standingStewardCandidate(db, replacement.id, roomId, input.now))) {
+    return fail(
+      409,
+      `${replacement.name} is barred, from this room or from Avouch, so they can't be the new steward. Name someone else.`,
+    );
+  }
   const rows = input.selfLeaving
     ? log
     : withoutSteward(log, input.outgoingId, roomId, input.now.getTime());
@@ -498,7 +538,11 @@ export async function grantAccess(
         const snapshot =
           role === "admin"
             ? []
-            : await stewardSnapshot(tx, target.id, role === "steward" ? [planned.plan.roomId] : "all");
+            : await stewardSnapshot(
+                tx,
+                target.id,
+                role === "steward" ? [planned.plan.roomId] : "all",
+              );
         if (role !== "admin") {
           const kept = await keepStewarded(tx, {
             actorId: input.userId,
@@ -899,43 +943,43 @@ export async function joinRoom(
     let left: Awaited<ReturnType<typeof keepStewarded>>;
     try {
       left = await db.transaction(async (tx) => {
-      const snapshot = await stewardSnapshot(tx, input.userId, [input.roomId]);
-      const { sole } = await soleStandingRooms(tx, input.userId, [input.roomId], input.now);
-      if (!sole.includes(input.roomId)) return null;
-      {
-        // The last steward hands the room on, then leaves it and its seat.
-        const kept = await keepStewarded(tx, {
-          actorId: input.userId,
-          outgoingId: input.userId,
-          rooms: [input.roomId],
-          replacementEmail: input.replacementEmail ?? "",
-          inviterEmail: input.inviterEmail ?? "",
-          selfLeaving: true,
-          now: input.now,
-        });
-        if (kept) return kept;
-        const me = await personById(tx, input.userId);
-        await writeGrant(tx, {
-          plan: {
-            action: "revoke",
-            role: "steward",
-            roomId: input.roomId,
-            targetId: input.userId,
-            vouchedByUserId: "",
-            approvedByUserId: input.userId,
-            note: REVOKE_NOTE,
-          },
-          actorName: me?.name ?? "",
-          now: input.now,
-        });
-        await confirmStewardsLeft(tx, {
-          outgoingId: input.userId,
-          roomIds: snapshot,
-          removed: true,
-          now: input.now,
-        });
-        return null;
-      }
+        const snapshot = await stewardSnapshot(tx, input.userId, [input.roomId]);
+        const { sole } = await soleStandingRooms(tx, input.userId, [input.roomId], input.now);
+        if (!sole.includes(input.roomId)) return null;
+        {
+          // The last steward hands the room on, then leaves it and its seat.
+          const kept = await keepStewarded(tx, {
+            actorId: input.userId,
+            outgoingId: input.userId,
+            rooms: [input.roomId],
+            replacementEmail: input.replacementEmail ?? "",
+            inviterEmail: input.inviterEmail ?? "",
+            selfLeaving: true,
+            now: input.now,
+          });
+          if (kept) return kept;
+          const me = await personById(tx, input.userId);
+          await writeGrant(tx, {
+            plan: {
+              action: "revoke",
+              role: "steward",
+              roomId: input.roomId,
+              targetId: input.userId,
+              vouchedByUserId: "",
+              approvedByUserId: input.userId,
+              note: REVOKE_NOTE,
+            },
+            actorName: me?.name ?? "",
+            now: input.now,
+          });
+          await confirmStewardsLeft(tx, {
+            outgoingId: input.userId,
+            roomIds: snapshot,
+            removed: true,
+            now: input.now,
+          });
+          return null;
+        }
       });
     } catch (error) {
       if (error instanceof StewardStop) return fail(error.status, error.message);

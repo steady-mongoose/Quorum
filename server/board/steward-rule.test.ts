@@ -148,6 +148,24 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     assert.equal(leave.ok, false);
     if (!leave.ok) assert.equal(leave.error, LAST_STEWARD_ERROR);
 
+    const outsider = await joinRoom(db, {
+      userId: tom.id,
+      roomId: "bench",
+      now: at(35),
+      leave: true,
+      replacementEmail: sam.email,
+      inviterEmail: ann.email,
+    });
+    assert.equal(outsider.ok, false, "the new steward must be in the room");
+    if (!outsider.ok) {
+      assert.equal(outsider.status, 409);
+      assert.match(outsider.error, /not in this room/);
+    }
+    assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
+
+    const samJoined = await joinRoom(db, { userId: sam.id, roomId: "bench", now: at(38) });
+    assert.equal(samJoined.ok, true);
+
     const handOff = await joinRoom(db, {
       userId: tom.id,
       roomId: "bench",
@@ -158,6 +176,28 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     });
     assert.equal(handOff.ok, true);
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [sam.id]);
+
+    const leftSwap = await grantAccess(
+      db,
+      access(josh.id, {
+        action: "revoke",
+        role: "steward",
+        email: sam.email,
+        roomId: "bench",
+        replacementEmail: tom.email,
+        inviterEmail: ann.email,
+        now: at(45),
+      }),
+    );
+    assert.equal(leftSwap.ok, false, "someone who left the room cannot be named steward");
+    if (!leftSwap.ok) {
+      assert.equal(leftSwap.status, 409);
+      assert.match(leftSwap.error, /not in this room/);
+    }
+    assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [sam.id]);
+
+    const tomBack = await joinRoom(db, { userId: tom.id, roomId: "bench", now: at(48) });
+    assert.equal(tomBack.ok, true);
 
     const swap = await grantAccess(
       db,
@@ -172,6 +212,52 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
       }),
     );
     assert.equal(swap.ok, true);
+    assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
+  } finally {
+    await close();
+  }
+});
+
+test("a barred replacement is refused with the reason", async () => {
+  const { db, close, josh, tom, ann, sam } = await setup();
+  try {
+    const made = await createRoom(db, {
+      userId: josh.id,
+      categoryIds: ["men"],
+      id: "bench",
+      name: "The bench",
+      what: "Saturday bench work.",
+      stewardEmail: tom.email,
+      inviterEmail: ann.email,
+      now,
+    });
+    assert.equal(made.ok, true);
+    assert.equal((await joinRoom(db, { userId: sam.id, roomId: "bench", now: at(5) })).ok, true);
+    const barred = await banMember(db, {
+      userId: josh.id,
+      name: "Josh",
+      email: sam.email,
+      reason: "threat",
+      now: at(10),
+    });
+    assert.equal(barred.ok, true);
+    const swap = await grantAccess(
+      db,
+      access(josh.id, {
+        action: "revoke",
+        role: "steward",
+        email: tom.email,
+        roomId: "bench",
+        replacementEmail: sam.email,
+        inviterEmail: ann.email,
+        now: at(20),
+      }),
+    );
+    assert.equal(swap.ok, false);
+    if (!swap.ok) {
+      assert.equal(swap.status, 409);
+      assert.match(swap.error, /barred/);
+    }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
   } finally {
     await close();
