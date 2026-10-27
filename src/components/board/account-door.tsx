@@ -180,10 +180,12 @@ export function AccountDoor() {
               {CONSENT_TEXT_BEFORE}
               <a href={TERMS_PATH} target="_blank" rel="noopener" className="underline">
                 {CONSENT_TERMS}
+                <span className="sr-only"> (opens in a new tab)</span>
               </a>
               {CONSENT_AND}
               <a href={PRIVACY_PATH} target="_blank" rel="noopener" className="underline">
                 {CONSENT_PRIVACY}
+                <span className="sr-only"> (opens in a new tab)</span>
               </a>
               {CONSENT_TEXT_AFTER}
             </label>

@@ -142,7 +142,12 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
       assert.ok(consent instanceof HTMLInputElement, String(width));
       assert.equal(consent.checked, false);
       const consentLabel = view.host.querySelector('label[for="consent"]');
-      assert.equal(consentLabel?.textContent, CONSENT_LABEL);
+      assert.equal(
+        (consentLabel?.textContent ?? "").replaceAll(" (opens in a new tab)", ""),
+        CONSENT_LABEL,
+      );
+      const newTab = [...(consentLabel?.querySelectorAll('a[target="_blank"] .sr-only') ?? [])];
+      assert.deepEqual(newTab.map((span) => span.textContent), [" (opens in a new tab)", " (opens in a new tab)"]);
       const links = [...(consentLabel?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
       assert.deepEqual(links, ["/terms", "/privacy"]);
       assert.match(consent.parentElement?.className ?? "", /min-h-\[44px\]/);
