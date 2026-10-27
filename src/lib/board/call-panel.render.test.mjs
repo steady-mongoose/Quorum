@@ -109,6 +109,8 @@ test("camera denied: sound only, camera button aria-disabled, Mute focused, Join
   assert.equal(cam.disabled, false, "no disabled attribute; stays focusable");
   assert.equal(cam.getAttribute("aria-disabled"), "true");
   assert.equal(cam.getAttribute("aria-pressed"), "true");
+  const described = document.getElementById(cam.getAttribute("aria-describedby") ?? "");
+  assert.match(described?.textContent ?? "", /sound only/, "camera button points at the sound-only notice");
   await act(async () => cam.click());
   assert.equal(button("Camera off").getAttribute("aria-pressed"), "true", "click is a no-op");
   assert.equal(host.querySelector("video"), null, "still no self-view");
@@ -174,6 +176,7 @@ test("the camera button keeps a stable label and toggles aria-pressed", async ()
   assert.ok(cam, "stable label");
   assert.equal(cam.getAttribute("aria-pressed"), "false", "camera on: not pressed");
   assert.equal(cam.hasAttribute("aria-disabled"), false);
+  assert.equal(cam.hasAttribute("aria-describedby"), false);
   await act(async () => cam.click());
   await flush();
   assert.equal(button("Turn camera on"), undefined, "no changing label");

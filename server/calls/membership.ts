@@ -43,16 +43,19 @@ export async function roomCallMember(
     return { kind: "unavailable" };
   }
   try {
-    const rows = await db.query<{ user_id: string }>(
-      `select user_id from room_member where room_id = $1 and user_id = $2
+    const rows = await db.query<{ via: string }>(
+      `select 'stood' as via from room_member where room_id = $1 and user_id = $2
        union all
-       select user_id from room_join where room_id = $1 and user_id = $2
-       limit 1`,
+       select 'saved' as via from room_join where room_id = $1 and user_id = $2`,
       [roomId, userId],
     );
-    if (!rows[0]) {
+    if (!rows.some((row) => row.via === "stood")) {
+      // A saved room or a steward grant only counts for a live member:
+      // a revoked or barred member keeps neither call nor TURN access.
       const actor = await actorRole(db, userId);
-      if (!actor.stewardRooms.includes(roomId)) return { kind: "outsider" };
+      if (!actor.member) return { kind: "outsider" };
+      const saved = rows.some((row) => row.via === "saved");
+      if (!saved && !actor.stewardRooms.includes(roomId)) return { kind: "outsider" };
     }
     const gate = await guardRoomAudience(db, {
       userId,

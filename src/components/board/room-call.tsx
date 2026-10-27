@@ -208,6 +208,7 @@ export function CallPanel({
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [notice, setNotice] = useState("");
+  const soundOnlyId = useId();
   const muteRef = useRef<HTMLButtonElement | null>(null);
   const joinRef = useRef<HTMLButtonElement | null>(null);
   const focusJoin = useRef(false);
@@ -358,7 +359,16 @@ export function CallPanel({
             ? "Joining the call."
             : ""}
       </p>
-      {notice ? <p className="text-sm text-fg">{notice}</p> : null}
+      {notice ? (
+        <p id={notice === CAMERA_DENIED ? soundOnlyId : undefined} className="text-sm text-fg">
+          {notice}
+        </p>
+      ) : null}
+      {cameraDenied && notice !== CAMERA_DENIED ? (
+        <span id={soundOnlyId} className="sr-only">
+          {CAMERA_DENIED}
+        </span>
+      ) : null}
       {error ? (
         <p className="text-sm text-danger" role="alert">
           {error}
@@ -417,6 +427,7 @@ export function CallPanel({
               className={cn(btnGhost, "min-h-[44px]")}
               aria-pressed={!cameraOn}
               aria-disabled={cameraDenied || undefined}
+              aria-describedby={cameraDenied ? soundOnlyId : undefined}
               onClick={() => toggle("video")}
             >
               {cameraOn ? (
