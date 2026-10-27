@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { InviteTracker } from "./invite-tracker";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
@@ -227,6 +228,8 @@ export function AboutView() {
       {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
+
+      {remote && admin ? <InviteTracker /> : null}
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>
