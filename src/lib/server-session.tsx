@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { addUnauthorizedHandler, apiBaseUrl, apiFetch } from "@/lib/api-base";
-import { parseSessionBody } from "@/lib/account-result";
+import { parseMfaPhase, parseSessionBody } from "@/lib/account-result";
+import { submitMfaChallenge } from "@/lib/mfa-api";
 import {
   createServerInvite,
-  readServerSession,
   signInWithPassword,
   signOutServer,
   signUpWithInvite,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/account-api";
 import { probeApiMode, readDemoFlag } from "@/lib/api-mode";
 import { focusBrowserVault, forgetBrowserVault } from "@/lib/e2ee/browser";
+import { SIGNED_UP_NO_SESSION, SIGNED_UP_NO_SESSION_MESSAGE } from "@/lib/account-result";
 import { SessionContext, type ServerSession } from "@/lib/server-session-state";
 
 export function ServerSessionProvider({ children }: { children: ReactNode }) {
@@ -18,6 +19,8 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
   const configured = !demo;
   const [mode, setMode] = useState<ServerSession["mode"]>(demo ? "demo" : "pending");
   const [user, setUserState] = useState<AccountUser | null>(null);
+  const [mfa, setMfa] = useState<ServerSession["mfa"]>("ok");
+  const [mfaEnrolled, setMfaEnrolled] = useState(false);
   function setUser(next: AccountUser | null) {
     focusBrowserVault(next?.id ?? null);
     setUserState(next);
@@ -39,12 +42,14 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
         const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
         const body = await response.json().catch(() => null);
         const session = parseSessionBody(response.status, body);
+        const phase = parseMfaPhase(body);
         if (cancelled) return;
         // Pending never reaches this branch. A 503 is not a known sign-out.
-        const absent = response.status === 401 || (response.status === 200 && !session);
-        if (absent) await forgetBrowserVault();
+        if (response.status === 401 || (response.status === 200 && !session)) await forgetBrowserVault();
         if (cancelled) return;
-        setUser(session);
+        setMfa(phase.mfa);
+        setMfaEnrolled(phase.mfaEnrolled);
+        setUser(phase.mfa === "challenge" ? null : session);
       }
       if (!cancelled) setMode(next);
     });
@@ -53,11 +58,24 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     };
   }, [demo]);
 
+  const applyPhase = (phase: { mfa: ServerSession["mfa"]; mfaEnrolled: boolean }, session: AccountUser | null) => {
+    setMfa(phase.mfa);
+    setMfaEnrolled(phase.mfaEnrolled);
+    setUser(phase.mfa === "challenge" ? null : session);
+  };
+
   const recheck = async () => {
     if (demo) return;
     const next = await probeApiMode(apiBaseUrl(), fetch, 2500, false);
-    if (next === "live") setUser(await readServerSession());
-    else setUser(null);
+    if (next === "live") {
+      const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+      const body = await response.json().catch(() => null);
+      applyPhase(parseMfaPhase(body), parseSessionBody(response.status, body));
+    } else {
+      setUser(null);
+      setMfa("ok");
+      setMfaEnrolled(false);
+    }
     setMode(next);
   };
 
@@ -65,15 +83,43 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     configured,
     mode,
     user,
+    mfa,
+    mfaEnrolled,
     signUp: async (input) => {
       const result = await signUpWithInvite(input);
-      if (result.ok) setUser(await readServerSession());
+      if (!result.ok) return result;
+      const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+      const body = await response.json().catch(() => null);
+      const session = parseSessionBody(response.status, body);
+      applyPhase(parseMfaPhase(body), session);
+      // The account exists and the code is spent, but no session came back.
+      // Say so, rather than leaving the person on a silent form.
+      if (!session)
+        return { ok: false, message: SIGNED_UP_NO_SESSION_MESSAGE, code: SIGNED_UP_NO_SESSION };
       return result;
     },
     signIn: async (input) => {
       const result = await signInWithPassword(input);
-      if (result.ok) setUser(await readServerSession());
+      if (result.ok && result.mfa === "challenge") {
+        setMfa("challenge");
+        setMfaEnrolled(true);
+        setUser(null);
+        return result;
+      }
+      if (result.ok) {
+        const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+        const body = await response.json().catch(() => null);
+        applyPhase(parseMfaPhase(body), parseSessionBody(response.status, body));
+      }
       return result;
+    },
+    finishMfa: async (code) => {
+      const result = await submitMfaChallenge(code);
+      if (!result.ok) return { ok: false, message: result.message };
+      const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+      const body = await response.json().catch(() => null);
+      applyPhase(parseMfaPhase(body), parseSessionBody(response.status, body));
+      return { ok: true };
     },
     signOut: async () => {
       try {
@@ -83,6 +129,8 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
           await signOutServer();
         } finally {
           setUser(null);
+          setMfa("ok");
+          setMfaEnrolled(false);
         }
       }
     },

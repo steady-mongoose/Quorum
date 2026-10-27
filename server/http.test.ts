@@ -177,14 +177,22 @@ test("signup requires an invite, then a member can read who invited whom", async
         headers: { "x-user-id": seated.value.userId },
       }),
     );
-    assert.equal(log.status, 200);
-    const body = (await log.json()) as {
-      entries: Array<{ invitedName: string; invitedByName: string }>;
-    };
+    // Josh is an admin, so the network-wide log waits on his authenticator.
+    assert.equal(log.status, 403);
+    assert.equal(((await log.json()) as { error?: string }).error, "mfa_required");
+    const redeemed = await db.query<{ invited_name: string; invited_by_name: string }>(
+      `select invited_name, invited_by_name from invite_redemption`,
+    );
     assert.deepEqual(
-      body.entries.map((entry) => `${entry.invitedByName}->${entry.invitedName}`),
+      redeemed.map((row) => `${row.invited_by_name}->${row.invited_name}`),
       ["Josh->Maria"],
     );
+    const maria = ((await signed.json()) as { user: { id: string } }).user.id;
+    const own = await handler(
+      new Request("http://127.0.0.1:8787/api/invite-log", { headers: { "x-user-id": maria } }),
+    );
+    assert.equal(own.status, 200);
+    assert.deepEqual(((await own.json()) as { entries: unknown[] }).entries, []);
     const anonymous = await handler(
       new Request("http://127.0.0.1:8787/api/invites", { method: "POST" }),
     );

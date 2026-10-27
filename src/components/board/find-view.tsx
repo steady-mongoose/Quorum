@@ -30,6 +30,7 @@ import {
   type CardKind,
   type MeetingCard,
   type RoomId,
+  forViewer,
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
@@ -38,7 +39,13 @@ import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);
   const me = useBoard((state) => authorName(state.me));
@@ -337,6 +344,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
+  const admin = useBoard((state) => state.admin);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
@@ -382,8 +390,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             title={went ? "happened" : "missed"}
           />
         ))}
-        <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span>
-        {card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
+        {admin ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
+        {admin && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -467,7 +475,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {card.going.length > 0 ? (
+              {admin && card.going.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {card.going.map((name) => (
