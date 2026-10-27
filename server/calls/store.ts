@@ -158,12 +158,17 @@ export function createCallStore() {
   }
 
   return {
-    join(roomId: string, user: { id: string; name: string }, at: number): JoinResult {
+    join(
+      roomId: string,
+      user: { id: string; name: string },
+      at: number,
+      cap: number = MAX_PEERS,
+    ): JoinResult {
       const room = roomFor(roomId);
       sweep(roomId, room, at);
       const current = rooms.get(roomId) ?? roomFor(roomId);
       const existing = current.peers.get(user.id);
-      if (!existing && current.peers.size >= MAX_PEERS) {
+      if (!existing && current.peers.size >= Math.min(cap, MAX_PEERS)) {
         return { ok: false, status: 409, error: "That call is full." };
       }
       const cursor = current.nextId - 1;
@@ -181,6 +186,11 @@ export function createCallStore() {
         attempts: existing?.attempts.filter((stamp) => at - stamp < SIGNAL_WINDOW_MS) ?? [],
       });
       return { ok: true, peers: others(current, user.id), cursor };
+    },
+
+    /** The member's join generation in that call, or 0 when not in it. */
+    generationOf(roomId: string, userId: string): number {
+      return rooms.get(roomId)?.peers.get(userId)?.generation ?? 0;
     },
 
     leave(roomId: string, userId: string): void {
