@@ -5,7 +5,8 @@ import test from "node:test";
 import { REVIEW_CHECKLIST } from "../../src/lib/board/council.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import { createPost, listBoard } from "./store.ts";
+import { listBoard } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 import {
   correctZip,
   decideRoom,

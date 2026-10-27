@@ -567,11 +567,44 @@ async function pagePosts(
   };
 }
 
-/** A post or a reply records that this member stood in that one room. A read does not. */
-async function standInRoom(db: Db, userId: string, roomId: string): Promise<void> {
-  await db.query(
-    `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
+/**
+ * Posting needs the member to be in the room: a saved room (room_join) or a
+ * room_member row. Stewards of the room and admins are exempt. Someone who left
+ * has neither row, so they are refused instead of being put back in.
+ */
+async function postsInRoom(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  roomId: string,
+): Promise<boolean> {
+  if (stewardsRoom(actor, roomId)) return true;
+  const rows = await db.query<{ user_id: string }>(
+    `select user_id from room_member where room_id = $1 and user_id = $2
+     union all
+     select user_id from room_join where room_id = $1 and user_id = $2
+     limit 1`,
     [roomId, userId],
+  );
+  return Boolean(rows[0]);
+}
+
+const JOIN_TO_POST = "Join this room to post.";
+
+/**
+ * A post or a reply records that this member stood in that one room, but only
+ * when they are already in it (saved it or stood there). It never re-adds a
+ * member who left. Stewards and admins are recorded as before.
+ */
+async function standInRoom(db: Db, userId: string, roomId: string, exempt = false): Promise<void> {
+  await db.query(
+    `insert into room_member (room_id, user_id)
+     select $1, $2
+     where $3::boolean
+        or exists (select 1 from room_join where room_id = $1 and user_id = $2)
+        or exists (select 1 from room_member where room_id = $1 and user_id = $2)
+     on conflict do nothing`,
+    [roomId, userId, exempt],
   );
 }
 
@@ -990,6 +1023,7 @@ export async function createPost(
   if (!room || !canReadRoom(room.status, actor)) return fail(404, "That room is not here.");
   const ban = await openBan(db, input.userId, input.now, room.id);
   if (ban) return fail(403, "This account cannot post right now.");
+  if (!(await postsInRoom(db, actor, input.userId, room.id))) return fail(403, JOIN_TO_POST);
   const blocked = await audienceBlock(db, {
     userId: input.userId,
     roomId: room.id,
@@ -1046,7 +1080,7 @@ export async function createPost(
   const author = input.name.trim() || "Member";
   try {
     const row = await db.transaction(async (tx) => {
-      await standInRoom(tx, input.userId, room.id);
+      await standInRoom(tx, input.userId, room.id, stewardsRoom(actor, room.id));
       const reserved = await tx.query<{ room_id: string; author_user_id: string }>(
         `select room_id, author_user_id from room_post where id = $1`,
         [id],
@@ -1149,6 +1183,7 @@ export async function replyToPost(
   if (!room || !canReadRoom(room.status, actor)) return fail(404, "That post is not here.");
   if (await openBan(db, input.userId, input.now, room.id))
     return fail(403, "This account cannot post right now.");
+  if (!(await postsInRoom(db, actor, input.userId, room.id))) return fail(403, JOIN_TO_POST);
   const blocked = await audienceBlock(db, {
     userId: input.userId,
     roomId: room.id,
@@ -1187,7 +1222,7 @@ export async function replyToPost(
   );
   const row = inserted[0];
   if (!row) return fail(500, "The reply was not filed.");
-  await standInRoom(db, input.userId, parent.room_id);
+  await standInRoom(db, input.userId, parent.room_id, stewardsRoom(actor, room.id));
   return { ok: true, value: await withCouncil(db, toPost(row)) };
 }
 
@@ -1865,7 +1900,11 @@ export async function checkedCategoryIds(
   return slugs;
 }
 
-export async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
+export async function replaceRoomCategories(
+  db: Db,
+  roomId: string,
+  categoryIds: string[],
+): Promise<void> {
   await db.query(
     `delete from room_categories where room_id = $1 and not (category_id = any($2::text[]))`,
     [roomId, categoryIds],

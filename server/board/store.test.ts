@@ -12,7 +12,6 @@ import { ruleId } from "./rule.ts";
 import {
   banMember,
   closeAsked,
-  createPost,
   createRoom,
   decideAppeal,
   fileAppeal,
@@ -20,10 +19,10 @@ import {
   listOwnAppeals,
   markPost,
   removePost,
-  replyToPost,
   revisePost,
   setSteward,
 } from "./store.ts";
+import { createPost, replyToPost } from "./test-posting.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 
