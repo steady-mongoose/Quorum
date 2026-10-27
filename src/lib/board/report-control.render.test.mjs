@@ -41,6 +41,7 @@ const { ReportControl } = await import("../../components/board/report-control.ts
 const WIDTHS = [390, 768, 1440];
 
 test("Report is a 44px control with a reason picker at 390, 768, and 1440", () => {
+  /** @type {any[]} */
   const sent = [];
   for (const width of WIDTHS) {
     window.happyDOM.setViewport({ width, height: 900 });
@@ -112,23 +113,30 @@ test("Report moves focus to the form, back to the button, and confirms a send", 
     );
   });
   try {
-    const trigger = () => host.querySelector('button[aria-label="Report this message"]');
-    assert.ok(trigger());
+    /** @param {string} selector */
+    const el = (selector) => {
+      const found = host.querySelector(selector);
+      assert.ok(found instanceof HTMLElement, selector);
+      return found;
+    };
+    const trigger = () => el('button[aria-label="Report this message"]');
     act(() => trigger().click());
-    const legend = host.querySelector("legend");
-    assert.equal(legend?.getAttribute("tabindex"), "-1");
+    const legend = el("legend");
+    assert.equal(legend.getAttribute("tabindex"), "-1");
     assert.equal(document.activeElement, legend);
     assert.match(host.textContent ?? "", /Sharing someone's private details/);
     assert.equal(host.textContent?.includes("Doxxing"), false);
     const cancel = [...host.querySelectorAll("button")].find((b) => b.textContent === "Cancel");
+    assert.ok(cancel);
     act(() => cancel.click());
     assert.equal(document.activeElement, trigger());
     assert.equal(host.querySelector('[role="status"]'), null);
     act(() => trigger().click());
-    const threat = host.querySelector('input[value="threat"]');
-    act(() => threat.click());
+    act(() => el('input[value="threat"]').click());
+    const form = host.querySelector("form");
+    assert.ok(form);
     await act(async () => {
-      host.querySelector("form").requestSubmit();
+      form.requestSubmit();
     });
     assert.equal(host.querySelector("form"), null);
     assert.equal(document.activeElement, trigger());
