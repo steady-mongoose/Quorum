@@ -27,7 +27,7 @@ test("About's invite code has a labelled 44px Copy button with a fallback", () =
   assert.match(source, /id=\{INVITE_HASH\}/);
 
   assert.match(source, /<h2 ref=\{heading\} tabIndex=\{-1\}/);
-  assert.match(source, /heading\.current\?\.focus\(\)[\s\S]*watchInviteHash\(window, land\)/);
+  assert.match(source, /landOnInvite\(window, heading\.current\)[\s\S]*watchInviteHash\(window, land\)/);
   assert.match(source, /role="status"/);
   assert.match(source, /navigator\.clipboard/);
   assert.match(source, /selectNodeContents/);
@@ -60,4 +60,31 @@ test("arriving on #invite at first load opens About", () => {
   let opened = 0;
   watchInviteHash(win as never, () => (opened += 1))();
   assert.equal(opened, 1);
+});
+
+import { landOnInvite } from "./invite-hash.ts";
+
+test("after landing, the hash is cleared and a back/forward without it does not move focus", () => {
+  const location = { pathname: "/", search: "?x=1", hash: "#invite" };
+  const calls: string[] = [];
+  const win = Object.assign(new EventTarget(), {
+    location,
+    history: {
+      state: { key: "k" },
+      replaceState(state: unknown, _title: string, url: string) {
+        calls.push(`replace ${url} ${JSON.stringify(state)}`);
+        location.hash = "";
+      },
+    },
+  });
+  let focused = 0;
+  const heading = { focus: () => (focused += 1), scrollIntoView: () => {} };
+  const stop = watchInviteHash(win, () => landOnInvite(win, heading));
+  assert.equal(focused, 1);
+  assert.deepEqual(calls, ['replace /?x=1 {"key":"k"}']);
+  assert.equal(location.hash, "");
+  win.dispatchEvent(new Event("popstate"));
+  win.dispatchEvent(new Event("hashchange"));
+  assert.equal(focused, 1);
+  stop();
 });

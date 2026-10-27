@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { INVITE_HASH, watchInviteHash } from "@/lib/board/invite-hash";
+import { INVITE_HASH, landOnInvite, watchInviteHash } from "@/lib/board/invite-hash";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const COPIED = "Code copied.";
@@ -33,10 +33,7 @@ export function ServerInvite() {
   // Arriving at /about#invite (from Find) lands focus on this section's heading.
   useEffect(() => {
     if (!live || typeof window === "undefined") return;
-    const land = () => {
-      heading.current?.focus();
-      heading.current?.scrollIntoView({ block: "start" });
-    };
+    const land = () => landOnInvite(window, heading.current);
     // The router sets the hash with pushState, which fires no hashchange; look again next tick.
     let stop = watchInviteHash(window, land);
     const later = window.setTimeout(() => {

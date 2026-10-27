@@ -21,3 +21,22 @@ export function watchInviteHash(win: HashWindow, onInvite: () => void): () => vo
     win.removeEventListener("popstate", check);
   };
 }
+
+type LandWindow = {
+  location: { pathname: string; search: string; hash: string };
+  history: Pick<History, "state" | "replaceState">;
+};
+
+/**
+ * Focus and scroll to the invite heading, then clear #invite from the URL so
+ * a later back/forward without the hash does not move focus again.
+ */
+export function landOnInvite(
+  win: LandWindow,
+  heading: { focus: () => void; scrollIntoView: (arg?: ScrollIntoViewOptions) => void } | null,
+): void {
+  heading?.focus();
+  heading?.scrollIntoView({ block: "start" });
+  const { pathname, search } = win.location;
+  win.history.replaceState(win.history.state, "", pathname + search);
+}
