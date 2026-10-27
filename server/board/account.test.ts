@@ -332,18 +332,11 @@ test("an open report blocks the author delete until it is closed", async () => {
     const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
     assert.equal(posted.ok, true);
     if (!posted.ok) return;
-    // Without the report queue (0029) the delete is not blocked by it.
-    // Here a minimal queue stands in for 0029.
+    // An open report from the 0029 queue blocks the author's delete.
     await db.query(
-      `create table member_report (
-         id text primary key, room_id text not null, subject_kind text not null,
-         subject_id text not null, status text not null default 'open'
-       )`,
-    );
-    await db.query(
-      `insert into member_report (id, room_id, subject_kind, subject_id, status)
-       values ('r1', 'shop', 'post', $1, 'open')`,
-      [posted.value.id],
+      `insert into member_report (id, room_id, subject_kind, subject_id, reporter_user_id, reason, status, created_at)
+       values ('r1', 'shop', 'post', $1, $2, 'threat', 'open', $3)`,
+      [posted.value.id, maria, now],
     );
     const blocked = await deleteOwnPost(db, { userId: maria, postId: posted.value.id, now });
     assert.deepEqual(blocked, { ok: false, status: 409, error: REPORTED_POST_ERROR });
