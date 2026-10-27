@@ -82,7 +82,7 @@ export function groupRooms(
   ];
 }
 
-/** Plain sentence for the move confirmation. */
+/** Plain sentence for the categories confirmation. */
 export function moveSummary(
   room: { name: string },
   from: readonly string[],
@@ -93,7 +93,13 @@ export function moveSummary(
     list.length === 0
       ? NOT_YET_SORTED
       : list.map((slug) => categoryLabel(slug, categories)).join(", ");
-  return `${room.name} moves from ${names(from)} to ${names(to)}. Members see it in the new place right away. The change is logged with your name.`;
+  return `${room.name} will be listed under: ${names(to)}. It was under: ${names(from)}. Members see the change right away, and it's logged with your name.`;
+}
+
+/** The polite search status line. */
+export function searchSummary(count: number): string {
+  if (count === 0) return "No room matches that search.";
+  return count === 1 ? "1 room matches." : `${count} rooms match.`;
 }
 
 async function readJson(response: Response): Promise<unknown> {
