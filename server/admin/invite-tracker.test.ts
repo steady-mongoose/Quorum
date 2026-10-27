@@ -103,3 +103,22 @@ test("a member is refused, the route is GET-only and needs a session", async () 
     await close();
   }
 });
+
+test("a banned admin cannot see the invite tracker", async () => {
+  const { db, close } = await seed();
+  try {
+    assert.equal((await listInviteTracker(db, "admin", now)).ok, true);
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id, created_at)
+       values ($1, 'admin', 'admin', 'threat', null, 'owner', 1, $2, '', $3)`,
+      [randomUUID(), new Date(now.getTime() + 86_400_000), now],
+    );
+    assert.deepEqual(await listInviteTracker(db, "admin", now), {
+      ok: false,
+      status: 403,
+      error: "This account is banned and cannot act as an admin right now.",
+    });
+  } finally {
+    await close();
+  }
+});

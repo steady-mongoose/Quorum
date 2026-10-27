@@ -1,5 +1,8 @@
 import type { Db } from "../db.ts";
 import { actorRole } from "../board/access.ts";
+import { openBan } from "../board/store.ts";
+
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
 
 /**
  * Read-only. Never selects code_hash. One row per invite, plus one per redemption.
@@ -40,9 +43,11 @@ function ms(value: Date | string | null | undefined): number | null {
 export async function listInviteTracker(
   db: Db,
   userId: string,
+  now: Date = new Date(),
 ): Promise<{ ok: true; value: InviteTrackerRow[] } | { ok: false; status: number; error: string }> {
   const actor = await actorRole(db, userId);
   if (!actor.admin) return { ok: false, status: 403, error: "Only an admin can see the invite tracker." };
+  if (await openBan(db, userId, now)) return { ok: false, status: 403, error: BANNED_ADMIN };
   const rows = await db.query<{
     id: string;
     note: string;
