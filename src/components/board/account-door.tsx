@@ -7,6 +7,7 @@ import {
   INVITE_CODE_ERROR_ID,
   inviteCodeError,
 } from "@/lib/board/invite-entry";
+import { MfaChallenge } from "@/components/board/mfa-ui";
 import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
 import { useServerSession } from "@/lib/server-session-state";
 
@@ -28,6 +29,14 @@ export function AccountDoor() {
     setCode(entry.code);
     setMode("sign-up");
   }, []);
+
+  if (server.mfa === "challenge") {
+    return (
+      <div id="sign-in" className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6">
+        <MfaChallenge onSubmit={(code) => server.finishMfa(code)} />
+      </div>
+    );
+  }
 
   return (
     <form

@@ -6,6 +6,23 @@ import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { CATEGORY_LIST, ROOM_CATEGORY } from "../../src/lib/board/categories.ts";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
+
+/**
+ * These tests check category roles, not the second step, so each user acts
+ * through a session that has already passed MFA (admin pages need it).
+ */
+const trusted = new WeakMap<Db, Map<string, Promise<string>>>();
+function trustedSession(db: Db, userId: string): Promise<string> {
+  const sessions = trusted.get(db) ?? new Map<string, Promise<string>>();
+  trusted.set(db, sessions);
+  let session = sessions.get(userId);
+  if (!session) {
+    session = trustAuthenticator(db, userId);
+    sessions.set(userId, session);
+  }
+  return session;
+}
 
 const now = new Date("2026-10-19T12:00:00Z");
 
@@ -23,6 +40,7 @@ function app(db: Db) {
         id,
         name: headers.get("x-user-name") ?? "Josh",
         email: headers.get("x-user-email") ?? "josh@example.com",
+        sessionId: await trustedSession(db, id),
       };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
