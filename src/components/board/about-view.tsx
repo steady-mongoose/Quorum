@@ -8,7 +8,7 @@ import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
-import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
+import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -215,12 +215,6 @@ export function AboutView() {
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
       {remote && admin ? <MfaResetQueue /> : null}
-
-      {remote && admin ? (
-        <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
-          <MemberGenderForm />
-        </section>
-      ) : null}
 
       {remote && admin ? (
         <AdminTools
