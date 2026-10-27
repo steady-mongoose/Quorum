@@ -5,7 +5,24 @@ import test from "node:test";
 import pg from "pg";
 import { isNoTransaction, isSkipEmbedded, sqlStatements } from "../../scripts/migration-plan.mjs";
 import { createApp, type AppDeps } from "../http.ts";
-import { pgDb } from "../db.ts";
+import { pgDb, type Db } from "../db.ts";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
+
+/**
+ * These tests check category roles, not the second step, so each user acts
+ * through a session that has already passed MFA (admin pages need it).
+ */
+const trusted = new WeakMap<Db, Map<string, Promise<string>>>();
+function trustedSession(db: Db, userId: string): Promise<string> {
+  const sessions = trusted.get(db) ?? new Map<string, Promise<string>>();
+  trusted.set(db, sessions);
+  let session = sessions.get(userId);
+  if (!session) {
+    session = trustAuthenticator(db, userId);
+    sessions.set(userId, session);
+  }
+  return session;
+}
 
 const url = process.env.CATEGORY_POSTGRES_URL ?? "";
 const now = new Date("2026-10-19T12:00:00Z");
@@ -123,7 +140,7 @@ test("room category links on Postgres", async (t) => {
       readSession: async (headers) => {
         const id = headers.get("x-user-id");
         if (!id) return null;
-        return { id, name: "Tom", email: "tom@example.com" };
+        return { id, name: "Tom", email: "tom@example.com", sessionId: await trustedSession(db, id) };
       },
       forwardAuth: async () => new Response(null, { status: 500 }),
     } satisfies AppDeps);

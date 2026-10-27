@@ -55,31 +55,52 @@ test("both removal dialogs are danger-toned, and a removal moves focus and is an
 });
 
 test("chat Report and Remove are 44px and named for the message's author", () => {
-  const chat = readFileSync(new URL("../../components/board/room-chat.tsx", import.meta.url), "utf8");
-  const report = readFileSync(new URL("../../components/board/report-control.tsx", import.meta.url), "utf8");
+  const chat = readFileSync(
+    new URL("../../components/board/room-chat.tsx", import.meta.url),
+    "utf8",
+  );
+  const report = readFileSync(
+    new URL("../../components/board/report-control.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(report, /cn\(btnQuiet, "self-start min-h-\[44px\] px-3"\)/);
-  assert.match(chat, /label=\{itemActionName\("Report", "message", message\.author, whenText\(message\.at\)\)\}/);
+  assert.match(
+    chat,
+    /label=\{itemActionName\("Report", "message", message\.author, message\.at, message\.text\)\}/,
+  );
   assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\] min-w-\[44px\] px-0"\)/);
-  assert.match(chat, /aria-label=\{itemActionName\("Remove", "message", message\.author, whenText\(message\.at\)\)\}/);
+  assert.match(
+    chat,
+    /aria-label=\{itemActionName\("Remove", "message", message\.author, message\.at, message\.text\)\}/,
+  );
   assert.match(chat, /cn\(btnGhost, "min-h-\[44px\]"\)[\s\S]*Remove: \{RULE_LABEL\[rule\]\}/);
   assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\]"\)\} onClick=\{\(\) => setRemoving\(null\)\}/);
 });
 
 test("two messages or posts from the same author get distinct accessible names", async () => {
-  const { itemActionName, formatWhen } = await import("./model.ts");
-  const now = Date.UTC(2026, 9, 27, 17, 0);
-  const a = itemActionName("Report", "message", "Mark", formatWhen(now - 2 * 60_000, now));
-  const b = itemActionName("Report", "message", "Mark", formatWhen(now - 9 * 60_000, now));
-  assert.equal(a, "Report message from Mark, 2m ago");
-  assert.notEqual(a, b);
-  const r1 = itemActionName("Remove", "message", "Mark", formatWhen(now - 2 * 60_000, now));
-  const r2 = itemActionName("Remove", "message", "Mark", formatWhen(now - 3 * 3_600_000, now));
-  assert.equal(r2, "Remove message from Mark, 3h ago");
-  assert.notEqual(r1, r2);
-  const p1 = itemActionName("Report", "post", "Mark", formatWhen(now - 5 * 60_000, now));
-  const p2 = itemActionName("Report", "post", "Mark", formatWhen(now - 2 * 3_600_000, now));
-  assert.equal(p1, "Report post from Mark, 5m ago");
+  const { itemActionName } = await import("./model.ts");
+  // Both older than a day, same author, same calendar day: the rounded
+  // display time would read "Mon, Oct 26" for both.
+  const morning = new Date(2026, 9, 26, 9, 15, 4).getTime();
+  const evening = new Date(2026, 9, 26, 18, 40, 51).getTime();
+  const a = itemActionName("Report", "message", "Mark", morning, "See you at the bench");
+  const b = itemActionName("Report", "message", "Mark", evening, "See you at the bench");
+  assert.match(a, /^Report message from Mark, Oct 26, 9:15:04\sAM: "See you at the bench"$/);
+  assert.notEqual(a, b, "same day, same text: the exact time still differs");
+  const sameSecond = itemActionName("Report", "message", "Mark", morning, "Bring the saw");
+  assert.notEqual(a, sameSecond, "same second: the excerpt differs");
+  assert.doesNotMatch(a, /ago|Mon,/);
+  const long = itemActionName("Remove", "message", "Mark", morning, "word ".repeat(30));
+  assert.ok(long.length < 120 && long.endsWith('…"'), "long text is cut to a short excerpt");
+  const p1 = itemActionName("Report", "post", "Mark", morning, "Fixing the porch Saturday");
+  const p2 = itemActionName("Report", "post", "Mark", evening, "Fixing the porch Saturday");
   assert.notEqual(p1, p2);
-  const view = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
-  assert.match(view, /label=\{itemActionName\("Report", "post", post\.author, postWhen\)\}/);
+  const view = readFileSync(
+    new URL("../../components/board/room-view.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    view,
+    /label=\{itemActionName\("Report", "post", post\.author, post\.at, post\.claim\)\}/,
+  );
 });

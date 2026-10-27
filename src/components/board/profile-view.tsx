@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
+import { AccountRemoval } from "@/components/board/account-removal";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { MfaSettings } from "@/components/board/mfa-ui";
+import { useServerSession } from "@/lib/server-session-state";
 
 /**
  * Household, church, trade, plus who you have met, what you host, and
@@ -53,6 +56,7 @@ export function ProfileView() {
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
+  const server = useServerSession();
   const name = viewing?.trim() || me;
   const mine = name === me;
 
@@ -187,6 +191,13 @@ export function ProfileView() {
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
         <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
       </section>
+
+      {mine && server.mode === "live" ? <MfaSettings /> : null}
+      {mine ? (
+        <div className="border-t border-line pt-6">
+          <AccountRemoval live={server.mode === "live" && Boolean(server.user)} />
+        </div>
+      ) : null}
     </div>
   );
 }

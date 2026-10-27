@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
@@ -39,6 +40,15 @@ async function grant(db: Db, userId: string, name: string, role: "member" | "ste
   );
 }
 
+async function scopeToTown(db: Db, roomId: string, name: string) {
+  const townId = name.toLowerCase();
+  await db.query(`insert into town (id, name, state) values ($1, $2, 'FL') on conflict (id) do nothing`, [
+    townId,
+    name,
+  ]);
+  await db.query(`update room set scope_kind = 'town', town_id = $2 where id = $1`, [roomId, townId]);
+}
+
 function app(db: Db) {
   return createApp({
     db,
@@ -52,7 +62,12 @@ function app(db: Db) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
-      return { id, name: "Dale", email: "dale@example.com" };
+      return {
+        id,
+        name: "Dale",
+        email: "dale@example.com",
+        sessionId: headers.get("x-session-id") ?? undefined,
+      };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
   } satisfies AppDeps);
@@ -147,6 +162,8 @@ test("the public page is the live stored gathering, and sharing loads from the s
     await grant(db, maria, "Maria", "member");
     await grant(db, ruth, "Ruth", "member");
     await grant(db, ruth, "Ruth", "steward", "shop");
+    await scopeToTown(db, "shop", "Riverview");
+    const ruthSession = await trustAuthenticator(db, ruth);
     const handler = app(db);
     const created = await save(handler, dale, {
       id: DALE_ID,
@@ -161,7 +178,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const stewardOn = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -249,7 +266,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const stewardAgain = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -259,7 +276,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const steward = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: false, title: "Free prize claim now" }),
       }),
     );
@@ -302,6 +319,8 @@ test("a free-text time is stored for the host and omitted from the public page",
     await grant(db, dale, "Dale", "member");
     await grant(db, ruth, "Ruth", "member");
     await grant(db, ruth, "Ruth", "steward", "shop");
+    await scopeToTown(db, "shop", "Riverview");
+    const ruthSession = await trustAuthenticator(db, ruth);
     const handler = app(db);
     const sentence = "Meet behind the old mill on Route 9";
     const created = await save(handler, dale, {
@@ -316,7 +335,7 @@ test("a free-text time is stored for the host and omitted from the public page",
     const turnedOn = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -351,7 +370,7 @@ test("a free-text time is stored for the host and omitted from the public page",
     const off = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: false }),
       }),
     );
@@ -435,6 +454,41 @@ test("share and view are rate limited", async () => {
       }),
     );
     assert.equal(posted.status, 429);
+  } finally {
+    await close();
+  }
+});
+
+test("the public town is the room's structured town, never the place line", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const dale = await user(db, "Dale");
+    await grant(db, dale, "Dale", "member");
+    const handler = app(db);
+    const saved = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts",
+      date: "2026-10-24",
+      time: "07:00",
+      place: "Dale's garage, 1010 E Brandon Blvd, Riverview Street",
+    });
+    assert.equal(saved.status, 200);
+    const row = await db.query<{ town: string }>(`select town from public_gathering where id = $1`, [DALE_ID]);
+    assert.equal(row[0]?.town, "");
+
+    await scopeToTown(db, "shop", "Riverview");
+    const again = await save(handler, dale, {
+      id: DALE_ID,
+      roomId: "shop",
+      title: "Saturday lifts",
+      date: "2026-10-24",
+      time: "07:00",
+      place: "Dale's garage, 1010 E Brandon Blvd, Brandon",
+    });
+    assert.equal(again.status, 200);
+    const scoped = await db.query<{ town: string }>(`select town from public_gathering where id = $1`, [DALE_ID]);
+    assert.equal(scoped[0]?.town, "Riverview");
   } finally {
     await close();
   }

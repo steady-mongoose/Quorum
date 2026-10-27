@@ -44,9 +44,11 @@ export function gatheringShare(card: {
   place: string;
   time: string;
   next: string;
+  /** The room's structured town. The place line is never read for a town. */
+  town?: string;
 }): GatheringShare {
   const date = card.next ? formatDate(card.next) : "";
-  const town = townOf(card.place);
+  const town = (card.town ?? "").trim();
   const when = [date, card.time, town].filter(Boolean).join(", ");
   return {
     title: card.name,

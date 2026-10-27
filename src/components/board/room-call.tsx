@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   CAMERA_DENIED,
-  CAMERA_UNAVAILABLE_LABEL,
   MIC_DENIED,
   liveLine,
   openMedia,
@@ -66,7 +65,7 @@ export function RoomCall({ roomId }: { roomId: string }) {
       basePath={`/api/calls/rooms/${roomId}`}
       selfId={selfId}
       label="Room call"
-      note="This call is not recorded. Only people who have stood in this room can join."
+      note="This call is not recorded. Only this room's members and stewards can join."
       joinLabel="Join the call"
       joinId={ROOM_CALL_JOIN_ID}
       extra={<RingMembers roomId={roomId} />}
@@ -209,6 +208,7 @@ export function CallPanel({
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [notice, setNotice] = useState("");
+  const soundOnlyId = useId();
   const muteRef = useRef<HTMLButtonElement | null>(null);
   const joinRef = useRef<HTMLButtonElement | null>(null);
   const focusJoin = useRef(false);
@@ -339,6 +339,7 @@ export function CallPanel({
 
   const toggle = (kind: "audio" | "video") => {
     const tracks = localStream?.getTracks().filter((track) => track.kind === kind) ?? [];
+    if (kind === "video" && cameraDenied) return;
     const next = kind === "audio" ? !micOn : !cameraOn;
     for (const track of tracks) track.enabled = next;
     if (kind === "audio") setMicOn(next);
@@ -358,7 +359,16 @@ export function CallPanel({
             ? "Joining the call."
             : ""}
       </p>
-      {notice ? <p className="text-sm text-fg">{notice}</p> : null}
+      {notice ? (
+        <p id={notice === CAMERA_DENIED ? soundOnlyId : undefined} className="text-sm text-fg">
+          {notice}
+        </p>
+      ) : null}
+      {cameraDenied && notice !== CAMERA_DENIED ? (
+        <span id={soundOnlyId} className="sr-only">
+          {CAMERA_DENIED}
+        </span>
+      ) : null}
       {error ? (
         <p className="text-sm text-danger" role="alert">
           {error}
@@ -416,7 +426,8 @@ export function CallPanel({
               type="button"
               className={cn(btnGhost, "min-h-[44px]")}
               aria-pressed={!cameraOn}
-              disabled={cameraDenied}
+              aria-disabled={cameraDenied || undefined}
+              aria-describedby={cameraDenied ? soundOnlyId : undefined}
               onClick={() => toggle("video")}
             >
               {cameraOn ? (
@@ -424,7 +435,7 @@ export function CallPanel({
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              {cameraDenied ? CAMERA_UNAVAILABLE_LABEL : "Turn camera off"}
+              Camera off
             </button>
             <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />
