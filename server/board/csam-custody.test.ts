@@ -214,3 +214,27 @@ test("a hold set again after a release is released again only through a new lawy
     await close();
   }
 });
+
+test("0034 upgrades a database that ran the earlier draft without 'hold_released', and reruns cleanly", async () => {
+  const { db, pg, close } = await openTestDb();
+  try {
+    // Recreate the earlier draft's check, which lacked 'hold_released'.
+    await pg.exec(`alter table csam_access_log drop constraint csam_access_log_action_check;
+      alter table csam_access_log add constraint csam_access_log_action_check check (
+        action in ('list', 'file_report', 'legal_hold_on', 'legal_hold_off', 'purge',
+                   'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged'))`);
+    const insert = () =>
+      db.query(`insert into csam_access_log (id, hold_id, action) values ($1, 'h', 'hold_released')`, [randomUUID()]);
+    await assert.rejects(insert);
+    const { readFile } = await import("node:fs/promises");
+    const sql = await readFile(new URL("../../migrations/0034_csam_custody.sql", import.meta.url), "utf8");
+    await pg.exec(sql);
+    await pg.exec(sql);
+    await insert();
+    await assert.rejects(() =>
+      db.query(`insert into csam_access_log (id, hold_id, action) values ($1, 'h', 'bogus')`, [randomUUID()]),
+    );
+  } finally {
+    await close();
+  }
+});
