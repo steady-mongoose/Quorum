@@ -558,6 +558,45 @@ function RoleTools({
   );
 }
 
+function StewardFields({
+  stewardEmail,
+  inviterEmail,
+  onSteward,
+  onInviter,
+  stewardLabel = "Steward email",
+}: {
+  stewardEmail: string;
+  inviterEmail: string;
+  onSteward: (value: string) => void;
+  onInviter: (value: string) => void;
+  stewardLabel?: string;
+}) {
+  return (
+    <>
+      <label className="flex flex-col gap-2 text-sm text-muted">
+        {stewardLabel}
+        <input
+          aria-label={stewardLabel}
+          className={cn(fieldClass, "min-h-[44px]")}
+          type="email"
+          value={stewardEmail}
+          onChange={(event) => onSteward(event.target.value)}
+        />
+      </label>
+      <label className="flex flex-col gap-2 text-sm text-muted">
+        Email of the member who vouches for them
+        <input
+          aria-label="Email of the member who vouches for them"
+          className={cn(fieldClass, "min-h-[44px]")}
+          type="email"
+          value={inviterEmail}
+          onChange={(event) => onInviter(event.target.value)}
+        />
+      </label>
+    </>
+  );
+}
+
 function EmailField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
@@ -686,6 +725,8 @@ function RevokeRole({
   const [email, setEmail] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
+  const [replacementEmail, setReplacementEmail] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<null | "revoke">(null);
@@ -694,7 +735,7 @@ function RevokeRole({
   const send = () => {
     setError("");
     setNotice("");
-    void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+    void changeAccess({ action: "revoke", email, role, roomId, replacementEmail, inviterEmail }).then((result) => {
       if (!result.ok) {
         setError(result.error ?? "That role was not changed.");
         return;
@@ -728,6 +769,17 @@ function RevokeRole({
             <option value="admin">Admin</option>
           </select>
         </label>
+        <p className="max-w-prose text-sm text-muted">
+          A room always has a steward. If this person is the only steward of the room, name the new
+          steward here.
+        </p>
+        <StewardFields
+          stewardEmail={replacementEmail}
+          inviterEmail={inviterEmail}
+          onSteward={setReplacementEmail}
+          onInviter={setInviterEmail}
+          stewardLabel="New steward email, if needed"
+        />
         <button type="submit" className={cn(btnQuiet, "self-start text-danger")}>
           Revoke
         </button>
@@ -768,6 +820,8 @@ function AdminTools({
     name: string;
     what: string;
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -776,6 +830,8 @@ function AdminTools({
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
+  const [stewardEmail, setStewardEmail] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -818,6 +874,15 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <StewardFields
+          stewardEmail={stewardEmail}
+          inviterEmail={inviterEmail}
+          onSteward={setStewardEmail}
+          onInviter={setInviterEmail}
+        />
+        <p className="text-sm text-muted sm:col-span-2">
+          A room needs a steward from the start. You approve; another member vouches.
+        </p>
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
@@ -832,13 +897,15 @@ function AdminTools({
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what, audience }).then((result) => {
+          void createRoom({ id, name, what, audience, stewardEmail, inviterEmail }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
               setAudience("all");
+              setStewardEmail("");
+              setInviterEmail("");
             }
           });
         }}

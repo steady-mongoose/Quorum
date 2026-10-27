@@ -132,7 +132,9 @@ function fromResult(status: number, result: Result<unknown>): Response {
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
       ...(result.code ? { code: result.code } : {}),
-      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
+      ...(result.audience === "men" || result.audience === "women"
+        ? { audience: result.audience }
+        : {}),
     });
   }
   return json(status, result.value);
@@ -359,6 +361,8 @@ export async function handleBoard(
         name: stringField(body, "name"),
         what: stringField(body, "what"),
         audience: body.audience,
+        stewardEmail: stringField(body, "stewardEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
         now,
       });
       return fromResult(201, created);
@@ -457,6 +461,8 @@ export async function handleBoard(
           requestId: decide[1] ?? "",
           decision: stringField(body, "decision"),
           note: stringField(body, "note"),
+          stewardEmail: stringField(body, "stewardEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
           now,
         }),
       );
@@ -484,6 +490,8 @@ export async function handleBoard(
           roomId: roomJoin[1] ?? "",
           now,
           leave: roomJoin[2] === "leave",
+          replacementEmail: stringField(body, "replacementEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
         }),
       );
     }
@@ -497,6 +505,7 @@ export async function handleBoard(
         inviterEmail: stringField(body, "inviterEmail"),
         stewardEmail: stringField(body, "stewardEmail"),
         role: stringField(body, "role"),
+        replacementEmail: stringField(body, "replacementEmail"),
         now,
       });
       return fromResult(200, changed);
@@ -509,6 +518,8 @@ export async function handleBoard(
         email: stringField(body, "email"),
         reason: stringField(body, "reason"),
         roomId: stringField(body, "roomId"),
+        replacementEmail: stringField(body, "replacementEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
         now,
       });
       return fromResult(201, banned);

@@ -15,8 +15,6 @@ export type LogRow = {
 
 export const STEWARD_NOTE = "Steward, inviter plus a steward of that room.";
 export const FIRST_STEWARD_NOTE = "First steward of that room, inviter plus the council chair.";
-export const OWNER_BOOTSTRAP_NOTE =
-  "First steward of that room, appointed by the owner alone, because the owner invited everyone and no second person could vouch.";
 export const ADMIN_NOTE = "Admin, steward approval plus the role owner.";
 export const REVOKE_NOTE = "Revoked.";
 
@@ -124,8 +122,6 @@ export function planStewardGrant(
     approverId: string;
     approverIsAdmin: boolean;
     approverIsChair: boolean;
-    /** The founding seat, the site's owner. */
-    approverIsOwner?: boolean;
     inviterId: string;
     targetId: string;
     roomId: string;
@@ -133,19 +129,7 @@ export function planStewardGrant(
 ): { ok: true; plan: GrantPlan } | { ok: false; error: string } {
   const roomId = input.roomId.trim();
   if (!roomId) return { ok: false, error: "Name the person, the room, and the inviter." };
-  // Owner bootstrap: a room with no steward yet, and the owner (the founding
-  // admin, or the admin who is council chair) both invited the candidate and approves them. Without
-  // this, a solo owner who invited everyone can never seat a first steward.
-  // The access_log row records it with OWNER_BOOTSTRAP_NOTE.
-  const bootstrap =
-    input.approverId === input.inviterId &&
-    input.approverIsAdmin &&
-    (input.approverIsChair || input.approverIsOwner === true) &&
-    !roomHasSteward(rows, roomId);
-  const people = bootstrap
-    ? [input.approverId, input.targetId]
-    : [input.approverId, input.inviterId, input.targetId];
-  if (!distinct(people)) {
+  if (!distinct([input.approverId, input.inviterId, input.targetId])) {
     return {
       ok: false,
       error: "The inviter and the approver are two people, and neither is the candidate.",
@@ -165,7 +149,7 @@ export function planStewardGrant(
     if (!isRoomSteward(rows, input.approverId, roomId)) {
       return { ok: false, error: "An existing steward of that room approves the next one." };
     }
-  } else if (!bootstrap && (!input.approverIsChair || !input.approverIsAdmin)) {
+  } else if (!input.approverIsChair || !input.approverIsAdmin) {
     return { ok: false, error: "The first steward of a room is approved by the council chair." };
   }
   return {
@@ -177,7 +161,7 @@ export function planStewardGrant(
       targetId: input.targetId,
       vouchedByUserId: input.inviterId,
       approvedByUserId: input.approverId,
-      note: hasSteward ? STEWARD_NOTE : bootstrap ? OWNER_BOOTSTRAP_NOTE : FIRST_STEWARD_NOTE,
+      note: hasSteward ? STEWARD_NOTE : FIRST_STEWARD_NOTE,
     },
   };
 }
@@ -258,4 +242,50 @@ export function planRevoke(
       note: REVOKE_NOTE,
     },
   };
+}
+
+// A room always has a steward. Charter decision, Oct 27, 2026: "A room can't
+// exist unless a steward manages it." The steward is named when the room is
+// made, and the last steward cannot be removed, barred, demoted, or leave
+// unless a new steward is named in the same step.
+
+export const NO_STEWARD_ERROR =
+  "A room needs a steward. Name the steward and the member who vouches for them.";
+export const LAST_STEWARD_ERROR =
+  "This is the only steward of that room. Name a new steward in the same step, so the room is never left without one.";
+
+export function liveStewards(rows: readonly LogRow[], roomId: string): string[] {
+  if (!roomId) return [];
+  const people = new Set<string>();
+  for (const row of rows) {
+    if (row.role === "steward" && row.roomId === roomId) people.add(row.userId);
+  }
+  return [...people].filter((userId) => isRoomSteward(rows, userId, roomId)).sort();
+}
+
+/** Rooms where this person is the only live steward. */
+export function soleStewardRooms(rows: readonly LogRow[], userId: string): string[] {
+  const rooms = new Set<string>();
+  for (const row of rows) {
+    if (row.userId === userId && row.role === "steward" && row.roomId) rooms.add(row.roomId);
+  }
+  return [...rooms]
+    .filter((roomId) => {
+      const live = liveStewards(rows, roomId);
+      return live.length === 1 && live[0] === userId;
+    })
+    .sort();
+}
+
+/** The log as it would read once this person's steward seat in the room is closed. */
+export function withoutSteward(
+  rows: readonly LogRow[],
+  userId: string,
+  roomId: string,
+  at: number,
+): LogRow[] {
+  return [
+    ...rows,
+    { id: `pending-${userId}-${roomId}`, userId, role: "steward", roomId, action: "revoke", at },
+  ];
 }

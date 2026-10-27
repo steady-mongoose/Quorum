@@ -9,9 +9,13 @@ import {
   planMemberGrant,
   planRevoke,
   planStewardGrant,
+  soleStewardRooms,
+  withoutSteward,
+  LAST_STEWARD_ERROR,
+  NO_STEWARD_ERROR,
+  REVOKE_NOTE,
   type AccessRole,
   type LogRow,
-  OWNER_BOOTSTRAP_NOTE,
 } from "../../src/lib/board/access-rules.ts";
 import {
   planCouncilApproval,
@@ -115,6 +119,10 @@ async function personByEmail(db: Db, email: string): Promise<Person | null> {
 async function personById(db: Db, id: string): Promise<Person | null> {
   const rows = await db.query<Person>(`select id, name from "user" where id = $1`, [id]);
   return rows[0] ?? null;
+}
+
+export async function readAccessLog(db: Db): Promise<LogRow[]> {
+  return readLog(db);
 }
 
 async function readLog(db: Db): Promise<LogRow[]> {
@@ -222,6 +230,90 @@ async function writeGrant(
   );
 }
 
+/**
+ * Seat a steward of a room under the two-person rule: the inviter vouches,
+ * and the actor approves (a steward of the room, or for a room with no
+ * steward, the admin who is council chair).
+ */
+export async function seatSteward(
+  db: Db,
+  input: {
+    actorId: string;
+    roomId: string;
+    stewardEmail: string;
+    inviterEmail: string;
+    rows: readonly LogRow[];
+    now: Date;
+  },
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (!input.stewardEmail.trim() || !input.inviterEmail.trim()) return fail(400, NO_STEWARD_ERROR);
+  const actor = await actorRole(db, input.actorId);
+  const actorPerson = await personById(db, input.actorId);
+  if (!actorPerson) return fail(403, "Only a member can change access.");
+  const target = await personByEmail(db, input.stewardEmail);
+  if (!target) return fail(404, "No member has the new steward's email.");
+  const inviter = await personByEmail(db, input.inviterEmail);
+  if (!inviter) return fail(404, "No member has that inviter email.");
+  const flags = await councilFlags(db, input.actorId);
+  const planned = planStewardGrant(input.rows, {
+    approverId: input.actorId,
+    approverIsAdmin: actor.admin,
+    approverIsChair: flags.chair,
+    inviterId: inviter.id,
+    targetId: target.id,
+    roomId: input.roomId,
+  });
+  if (!planned.ok) return fail(400, planned.error);
+  await writeGrant(db, { plan: planned.plan, actorName: actorPerson.name, now: input.now });
+  return { ok: true };
+}
+
+/**
+ * Before a steward loses their seat in some rooms (revoked, barred, or
+ * leaving), each room they alone steward needs a new steward named in the
+ * same step. Returns a failure, or null when the change may go ahead.
+ * `selfLeaving` means the outgoing steward is the approver, so the normal
+ * "a steward of that room approves the next one" rule applies.
+ */
+export async function keepStewarded(
+  db: Db,
+  input: {
+    actorId: string;
+    outgoingId: string;
+    rooms: "all" | string[];
+    replacementEmail: string;
+    inviterEmail: string;
+    selfLeaving?: boolean;
+    now: Date;
+  },
+): Promise<{ ok: false; status: number; error: string } | null> {
+  const log = await readLog(db);
+  const sole = soleStewardRooms(log, input.outgoingId).filter(
+    (roomId) => input.rooms === "all" || input.rooms.includes(roomId),
+  );
+  if (sole.length === 0) return null;
+  if (sole.length > 1) {
+    return fail(
+      409,
+      `This is the only steward of more than one room (${sole.join(", ")}). Name a new steward for each of those rooms first.`,
+    );
+  }
+  const roomId = sole[0]!;
+  if (!input.replacementEmail.trim()) return fail(409, LAST_STEWARD_ERROR);
+  const rows = input.selfLeaving
+    ? log
+    : withoutSteward(log, input.outgoingId, roomId, input.now.getTime());
+  const seated = await seatSteward(db, {
+    actorId: input.actorId,
+    roomId,
+    stewardEmail: input.replacementEmail,
+    inviterEmail: input.inviterEmail,
+    rows,
+    now: input.now,
+  });
+  return seated.ok ? null : seated;
+}
+
 export async function grantAccess(
   db: Db,
   input: {
@@ -232,6 +324,7 @@ export async function grantAccess(
     inviterEmail: string;
     stewardEmail: string;
     role: string;
+    replacementEmail?: string;
     now: Date;
   },
 ): Promise<PlaceResult<{ action: "grant" | "revoke"; role: AccessRole }>> {
@@ -268,23 +361,12 @@ export async function grantAccess(
           approverId: input.userId,
           approverIsAdmin: actor.admin,
           approverIsChair: flags.chair,
-          approverIsOwner: actor.admin && (await isFounder(tx, input.userId)),
           inviterId: inviter.id,
           targetId: target.id,
           roomId: input.roomId,
         });
         if (!planned.ok) return fail(400, planned.error);
         await writeGrant(tx, { plan: planned.plan, actorName: actorPerson.name, now: input.now });
-        if (planned.plan.note === OWNER_BOOTSTRAP_NOTE) {
-          console.log(
-            JSON.stringify({
-              event: "steward-owner-bootstrap",
-              ownerId: input.userId,
-              userId: target.id,
-              roomId: planned.plan.roomId,
-            }),
-          );
-        }
         return { ok: true as const, value: { action: "grant" as const, role: "steward" as const } };
       }
       if (action === "grant-admin") {
@@ -315,6 +397,17 @@ export async function grantAccess(
           roomId: input.roomId,
         });
         if (!planned.ok) return fail(400, planned.error);
+        if (role !== "admin") {
+          const kept = await keepStewarded(tx, {
+            actorId: input.userId,
+            outgoingId: target.id,
+            rooms: role === "steward" ? [planned.plan.roomId] : "all",
+            replacementEmail: input.replacementEmail ?? "",
+            inviterEmail: input.inviterEmail,
+            now: input.now,
+          });
+          if (kept) return kept;
+        }
         await writeGrant(tx, { plan: planned.plan, actorName: actorPerson.name, now: input.now });
         return { ok: true as const, value: { action: "revoke" as const, role } };
       }
@@ -652,7 +745,14 @@ export async function savePlace(
 
 export async function joinRoom(
   db: Db,
-  input: { userId: string; roomId: string; now: Date; leave?: boolean },
+  input: {
+    userId: string;
+    roomId: string;
+    now: Date;
+    leave?: boolean;
+    replacementEmail?: string;
+    inviterEmail?: string;
+  },
 ): Promise<PlaceResult<{ roomId: string; joined: boolean }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can join a room.");
@@ -684,6 +784,38 @@ export async function joinRoom(
     }
   }
   if (input.leave) {
+    const log = await readLog(db);
+    if (soleStewardRooms(log, input.userId).includes(input.roomId)) {
+      // The last steward hands the room on, then leaves it and its seat.
+      const left = await db.transaction(async (tx) => {
+        const kept = await keepStewarded(tx, {
+          actorId: input.userId,
+          outgoingId: input.userId,
+          rooms: [input.roomId],
+          replacementEmail: input.replacementEmail ?? "",
+          inviterEmail: input.inviterEmail ?? "",
+          selfLeaving: true,
+          now: input.now,
+        });
+        if (kept) return kept;
+        const me = await personById(tx, input.userId);
+        await writeGrant(tx, {
+          plan: {
+            action: "revoke",
+            role: "steward",
+            roomId: input.roomId,
+            targetId: input.userId,
+            vouchedByUserId: "",
+            approvedByUserId: input.userId,
+            note: REVOKE_NOTE,
+          },
+          actorName: me?.name ?? "",
+          now: input.now,
+        });
+        return null;
+      });
+      if (left) return left;
+    }
     await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
       input.userId,
       input.roomId,
@@ -785,9 +917,26 @@ function roomShape(kind: "town" | "congregation" | "region", name: string, state
   };
 }
 
+/** Rolls back a room insert when its first steward cannot be seated. */
+export class StewardStop extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export async function decideRoom(
   db: Db,
-  input: { userId: string; requestId: string; decision: string; note: string; now: Date },
+  input: {
+    userId: string;
+    requestId: string;
+    decision: string;
+    note: string;
+    stewardEmail?: string;
+    inviterEmail?: string;
+    now: Date;
+  },
 ): Promise<PlaceResult<{ status: "approved" | "refused"; roomId: string | null }>> {
   const actor = await actorRole(db, input.userId);
   if (await openBan(db, input.userId, input.now)) return fail(403, "banned");
@@ -892,8 +1041,18 @@ export async function decideRoom(
         [request.id, who.id, who.name, input.now, planned.note, roomId],
       );
       if (!updated[0]) throw new Error("request-closed");
+      const seated = await seatSteward(tx, {
+        actorId: input.userId,
+        roomId,
+        stewardEmail: input.stewardEmail ?? "",
+        inviterEmail: input.inviterEmail ?? "",
+        rows: await readLog(tx),
+        now: input.now,
+      });
+      if (!seated.ok) throw new StewardStop(seated.status, seated.error);
     });
   } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
     if (error instanceof Error && error.message === "request-closed") {
       return fail(409, "That request is not open.");
     }

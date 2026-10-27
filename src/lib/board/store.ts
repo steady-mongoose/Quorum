@@ -158,6 +158,8 @@ type BoardState = {
     name: string;
     what: string;
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   setRoomAudience: (
     roomId: string,

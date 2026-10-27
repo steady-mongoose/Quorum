@@ -10,7 +10,10 @@ import {
   planMemberGrant,
   planRevoke,
   planStewardGrant,
-  OWNER_BOOTSTRAP_NOTE,
+  liveStewards,
+  roomHasSteward,
+  soleStewardRooms,
+  withoutSteward,
   type LogRow,
 } from "./access-rules.ts";
 
@@ -37,9 +40,7 @@ test("a steward is the inviter plus the room's steward, and the first one is the
     targetId: "tom",
     roomId: "shop",
   });
-  // The owner bootstrap: no steward yet, and the owner invited everyone.
-  assert.equal(self.ok, true);
-  if (self.ok) assert.equal(self.plan.note, OWNER_BOOTSTRAP_NOTE);
+  assert.equal(self.ok, false);
 
   const stranger = planStewardGrant(log, {
     approverId: "maria",
@@ -209,53 +210,21 @@ test("revoking one room does not revoke another", () => {
   assert.equal(isRoomSteward(after, "tom", "county"), true);
 });
 
-test("the owner bootstrap is only for a room with no steward, and only for the owner", () => {
-  const log = [member("m-josh", "josh", 1), member("m-tom", "tom", 2), member("m-ann", "ann", 3)];
-  const base = { approverId: "josh", inviterId: "josh", targetId: "tom", roomId: "shop" };
-  const founder = planStewardGrant(log, {
-    ...base,
-    approverIsAdmin: true,
-    approverIsChair: false,
-    approverIsOwner: true,
+test("the only steward of a room is found, and a second steward clears it", () => {
+  const steward = (id: string, userId: string, roomId: string, at: number): LogRow => ({
+    id,
+    userId,
+    role: "steward",
+    roomId,
+    action: "grant",
+    at,
   });
-  assert.equal(founder.ok, true);
-  if (founder.ok) {
-    assert.equal(founder.plan.note, OWNER_BOOTSTRAP_NOTE);
-    assert.equal(founder.plan.vouchedByUserId, "josh");
-    assert.equal(founder.plan.approvedByUserId, "josh");
-  }
-  const notOwner = planStewardGrant(log, {
-    ...base,
-    approverIsAdmin: true,
-    approverIsChair: false,
-    approverIsOwner: false,
-  });
-  assert.equal(notOwner.ok, false);
-  const memberOnly = planStewardGrant(log, {
-    ...base,
-    approverIsAdmin: false,
-    approverIsChair: false,
-    approverIsOwner: true,
-  });
-  assert.equal(memberOnly.ok, false);
-  const selfSeat = planStewardGrant(log, {
-    ...base,
-    targetId: "josh",
-    approverIsAdmin: true,
-    approverIsChair: true,
-    approverIsOwner: true,
-  });
-  assert.equal(selfSeat.ok, false, "the owner cannot seat themself");
-  const seated: LogRow[] = [
-    ...log,
-    { id: "s-tom", userId: "tom", role: "steward", roomId: "shop", action: "grant", at: 4 },
-  ];
-  const second = planStewardGrant(seated, {
-    ...base,
-    targetId: "ann",
-    approverIsAdmin: true,
-    approverIsChair: true,
-    approverIsOwner: true,
-  });
-  assert.equal(second.ok, false, "once a room has a steward, the two-person rule holds");
+  const log: LogRow[] = [steward("s1", "tom", "shop", 1), steward("s2", "tom", "choir", 2)];
+  assert.deepEqual(soleStewardRooms(log, "tom"), ["choir", "shop"]);
+  const two = [...log, steward("s3", "ann", "shop", 3)];
+  assert.deepEqual(soleStewardRooms(two, "tom"), ["choir"]);
+  assert.deepEqual(liveStewards(two, "shop"), ["ann", "tom"]);
+  const after = withoutSteward(log, "tom", "shop", 9);
+  assert.equal(roomHasSteward(after, "shop"), false);
+  assert.equal(roomHasSteward(after, "choir"), true);
 });
