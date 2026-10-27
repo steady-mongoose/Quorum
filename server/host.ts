@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { startSecurityLogPurge } from "./security-log-purge.ts";
 import { createCredentialAccount, createSignIn, readSessionUser } from "./accounts.ts";
 import { createClosedAuth } from "./auth.ts";
 import { readHostConfig, type HostConfig } from "./config.ts";
@@ -127,6 +128,7 @@ export function startHost(): void {
   );
   sweep.unref();
   startNightlyStats(boardDb, config.activityRetentionDays, now);
+  startSecurityLogPurge(boardDb);
   const server = createServer(async (req, res) => {
     try {
       await send(res, await app(await toRequest(req, config)));
