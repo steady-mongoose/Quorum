@@ -154,3 +154,10 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.18em;
   color: var(--color-muted);
 }
+
+/* Buttons marked aria-disabled look the same as disabled ones. */
+button[aria-disabled="true"],
+[role="button"][aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
