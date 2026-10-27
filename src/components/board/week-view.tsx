@@ -53,7 +53,6 @@ export function WeekView() {
 
   return (
     <div className="flex flex-col gap-10">
-      <HomePanel />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
         <div className="flex min-w-0 flex-col gap-8">
           <section className="plate plate--hero flex flex-col gap-2">
@@ -119,6 +118,7 @@ export function WeekView() {
           ) : null}
         </aside>
       </div>
+      <HomePanel />
     </div>
   );
 }

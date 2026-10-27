@@ -673,10 +673,13 @@ export async function joinRoom(
     }
   }
   if (input.leave) {
-    await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
-      input.userId,
-      input.roomId,
-    ]);
+    // Leaving ends chat access: drop the join and the room_member row together.
+    // Past messages stay; they are not tied to room_member.
+    await db.query(
+      `with gone as (delete from room_join where user_id = $1 and room_id = $2)
+       delete from room_member where user_id = $1 and room_id = $2`,
+      [input.userId, input.roomId],
+    );
     return { ok: true, value: { roomId: input.roomId, joined: false } };
   }
   await db.query(
