@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { DeletePostControl, dropOwnPost } from "@/components/board/delete-post";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
 import { RoomChat } from "@/components/board/room-chat";
@@ -883,6 +884,8 @@ const PostCard = memo(function PostCard({
   canMessage: boolean;
   steward: boolean;
 }) {
+  const remote = useBoard((state) => state.remote);
+  const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
@@ -1067,6 +1070,15 @@ const PostCard = memo(function PostCard({
         ) : null}
         {mine && post.mark && appealOpen ? (
           <span className="self-center text-sm text-muted">Appeal filed with the stewards.</span>
+        ) : null}
+        {mine && !post.removed ? (
+          <DeletePostControl
+            held={
+              !remote &&
+              removals.some((row) => row.postId === post.id && row.reason === "csam" && !row.roomChat)
+            }
+            onDelete={() => dropOwnPost(post.id, remote)}
+          />
         ) : null}
       </div>
 

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { InviteTracker } from "./invite-tracker";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
@@ -219,6 +220,14 @@ export function AboutView() {
       {remote && admin ? <MfaResetQueue /> : null}
 
       {remote && admin ? (
+        <p>
+          <a className={btnGhost} href="/admin/stats">
+            Stats
+          </a>
+        </p>
+      ) : null}
+
+      {remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}
@@ -226,6 +235,7 @@ export function AboutView() {
         />
       ) : null}
 
+      {remote && admin ? <DeletionRequestQueue /> : null}
       {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}

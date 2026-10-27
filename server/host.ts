@@ -14,6 +14,7 @@ import { storeFromConfig } from "./media/s3.ts";
 import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
 import { warnMissingMfaKey } from "./mfa/secret.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
+import { startNightlyStats } from "./stats/schedule.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name];
@@ -128,6 +129,7 @@ export function startHost(): void {
     60 * 60 * 1000,
   );
   sweep.unref();
+  startNightlyStats(boardDb, config.activityRetentionDays, now);
   startSecurityLogPurge(boardDb);
   const server = createServer(async (req, res) => {
     try {
