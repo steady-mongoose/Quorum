@@ -12,6 +12,7 @@ import {
   type ProfileOptions,
   type VisibilityChoice,
 } from "@/lib/profile-client";
+import { linkText } from "@/lib/profile-links";
 
 const VISIBILITY: { id: VisibilityChoice; label: string }[] = [
   { id: "members", label: "All members" },
@@ -31,6 +32,7 @@ const FIELDS: { id: string; label: string }[] = [
 ];
 
 const inputClass = cn(fieldClass, "min-h-[44px]");
+
 
 function genderLabel(gender: "man" | "woman" | null | undefined): string {
   if (gender === "man") return "Man";
@@ -480,8 +482,10 @@ function PublicCard({ profile }: { profile: MemberProfileBody }) {
               <a
                 className="inline-flex min-h-[44px] items-center text-fg underline"
                 href={link.url}
+                target="_blank"
+                rel="ugc nofollow noopener noreferrer"
               >
-                {link.label || link.url}
+                {linkText(link)}
               </a>
             </li>
           ))}

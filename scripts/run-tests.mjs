@@ -99,6 +99,7 @@ const appTests = [
   "server/profile/http.test.ts",
   "server/profile/photo.test.ts",
   "server/profile/gate.test.ts",
+  "src/lib/board/profile-ui.test.ts",
   "server/board/groups-http.test.ts",
   "server/chat/store.test.ts",
   "server/chat/http.test.ts",
