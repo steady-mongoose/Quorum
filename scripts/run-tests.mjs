@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 const appTests = [
   "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
+  "src/lib/board/ux-copy-nav.test.ts",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
   "src/lib/account-api.test.ts",
@@ -136,6 +137,7 @@ const appTests = [
   "server/profile/http.test.ts",
   "server/board/groups-http.test.ts",
   "server/chat/store.test.ts",
+  "server/chat/join-chat.test.ts",
   "server/chat/http.test.ts",
 ];
 

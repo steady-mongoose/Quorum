@@ -291,6 +291,7 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
                 <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
                   Type {APP_NAME} or CLEAR
                   <input
+                    aria-label={`Type ${APP_NAME} or CLEAR`}
                     className={cn(fieldClass, "min-h-[44px]")}
                     value={clearPhrase}
                     autoComplete="off"
@@ -617,7 +618,7 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
 function RoomField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
-      Room id
+      Room
       <input
         className={fieldClass}
         value={value}
@@ -894,7 +895,7 @@ function AdminTools({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Room id
+          Room
           <input
             className={fieldClass}
             value={id}
