@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { firstSteward } from "./test-stewards.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -174,7 +175,7 @@ test("a restricted room is enforced on every path, and a steward override is log
     }
     await grant(db, josh, "Josh", "admin");
     await grant(db, ida, "Ida", "admin");
-    await grant(db, helen, "Helen", "steward", "bench");
+    // Helen is seated as the bench steward when the room is made.
 
     for (const [id, gender] of [
       [josh, "man"],
@@ -189,6 +190,9 @@ test("a restricted room is enforced on every path, and a steward override is log
     }
 
     const created = await createRoom(db, {
+      ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
+      stewardEmail: "helen@example.com",
+      inviterEmail: "adam@example.com",
       userId: josh,
       id: "bench",
       name: "The bench",
@@ -600,6 +604,7 @@ test("an inviter can set a gender, and confirmation is required only when the po
       [randomUUID(), invitee, inviter],
     );
     const room = await createRoom(db, {
+      ...(await firstSteward(db, inviter, new Date("2026-10-01T00:00:00Z"))),
       userId: inviter,
       id: "brothers",
       name: "Brothers",
@@ -820,6 +825,7 @@ test("a group follows its room live, and a group with no source room can be set 
     assert.equal(opened.code, undefined);
 
     const room = await createRoom(db, {
+      ...(await firstSteward(db, admin, new Date("2026-10-01T00:00:00Z"))),
       userId: admin,
       id: "brothers",
       name: "Brothers",
@@ -883,6 +889,7 @@ test("a gathering in a restricted room is not created, read, shared, or attended
       true,
     );
     const room = await createRoom(db, {
+      ...(await firstSteward(db, man, new Date("2026-10-01T00:00:00Z"))),
       userId: man,
       id: "sisters",
       name: "Sisters",

@@ -1,9 +1,11 @@
-import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { DeletePostControl, dropOwnPost } from "@/components/board/delete-post";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
+import { ModerationQueue } from "@/components/board/moderation-queue";
+import { ReportControl } from "@/components/board/report-control";
 import { RoomChat } from "@/components/board/room-chat";
 import {
   Check as CheckIcon,
@@ -21,6 +23,7 @@ import {
   fieldClass,
   Kicker,
   pill,
+  useNow,
   When,
 } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -40,6 +43,7 @@ import {
   draftHasWriting,
   formatDate,
   formatWhen,
+  itemActionName,
   needsFor,
   postButtonLabel,
   readingLine,
@@ -62,6 +66,7 @@ import {
   forViewer,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
@@ -265,6 +270,7 @@ export function RoomView() {
         ) : null}
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
+        <ModerationQueue roomId={room} />
       </section>
 
       <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
@@ -884,6 +890,8 @@ const PostCard = memo(function PostCard({
   canMessage: boolean;
   steward: boolean;
 }) {
+  const now = useNow();
+  const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
@@ -910,6 +918,14 @@ const PostCard = memo(function PostCard({
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
+  const [appealSent, setAppealSent] = useState(false);
+  const appealId = useId();
+  const appealInput = useRef<HTMLInputElement | null>(null);
+  const appealOpener = useRef<HTMLButtonElement | null>(null);
+  const appealDone = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (appealSent) appealDone.current?.focus();
+  }, [appealSent]);
   const appealOpen = appeals.some(
     (row) => row.postId === post.id && row.kind === "mark" && row.decision === null,
   );
@@ -1058,18 +1074,49 @@ const PostCard = memo(function PostCard({
             Answered
           </button>
         ) : null}
+        {!mine ? (
+          <ReportControl
+            label={itemActionName("Report", "post", post.author, postWhen, post.claim)}
+            onSubmit={(input) => {
+              if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
+              return sendReport({
+                roomId: post.room,
+                subjectKind: "post",
+                subjectId: post.id,
+                reason: input.reason,
+                note: input.note,
+              });
+            }}
+          />
+        ) : null}
         {mine && post.mark ? (
           <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setEditing(true)}>
             Revise
           </button>
         ) : null}
-        {mine && post.mark && !appealOpen ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setAppealing(true)}>
+        {mine && post.mark && !appealOpen && !appealSent ? (
+          <button
+            ref={appealOpener}
+            type="button"
+            className={cn(btnQuiet, "min-h-[44px] px-0")}
+            aria-expanded={appealing}
+            onClick={() => {
+              setAppealing(true);
+              window.setTimeout(() => appealInput.current?.focus(), 0);
+            }}
+          >
             Appeal this mark
           </button>
         ) : null}
-        {mine && post.mark && appealOpen ? (
-          <span className="self-center text-sm text-muted">Appeal filed with the stewards.</span>
+        {mine && post.mark && (appealOpen || appealSent) ? (
+          <span
+            ref={appealDone}
+            tabIndex={-1}
+            role="status"
+            className="self-center text-sm text-muted"
+          >
+            Appeal filed with the stewards. They will read it and decide.
+          </span>
         ) : null}
         {mine && !post.removed ? (
           <DeletePostControl
@@ -1168,45 +1215,6 @@ const PostCard = memo(function PostCard({
               {removeError}
             </p>
           ) : null}
-          {appealing ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              One sentence to the stewards
-              <input
-                className={fieldClass}
-                value={appealDraft}
-                placeholder="The mark names the side, not the missing reason."
-                onChange={(event) => {
-                  setAppealDraft(event.target.value);
-                  setAppealError("");
-                }}
-              />
-              {appealError ? (
-                <span className="text-danger" role="alert">
-                  {appealError}
-                </span>
-              ) : null}
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className={btnSignal}
-                  onClick={() => {
-                    void appeal(post.id, "mark", appealDraft).then((result) => {
-                      if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
-                      else {
-                        setAppealing(false);
-                        setAppealDraft("");
-                      }
-                    });
-                  }}
-                >
-                  File appeal
-                </button>
-                <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
-                  Cancel
-                </button>
-              </span>
-            </label>
-          ) : null}
           {removing ? (
             <p className="text-sm text-muted">
               Removing a post bars the account. The reason stays in the log. A mark never hides a
@@ -1229,6 +1237,58 @@ const PostCard = memo(function PostCard({
               }}
             />
           ) : null}
+        </div>
+      ) : null}
+      {mine && appealing ? (
+        <div className="mt-3 flex flex-col gap-2 text-sm text-muted">
+          <label htmlFor={appealId}>One sentence to the stewards</label>
+          <input
+            id={appealId}
+            ref={appealInput}
+            className={cn(fieldClass, "min-h-[44px]")}
+            value={appealDraft}
+            placeholder="For example: I was quoting the rule, not breaking it."
+            onChange={(event) => {
+              setAppealDraft(event.target.value);
+              setAppealError("");
+            }}
+          />
+          {appealError ? (
+            <p className="text-danger" role="alert">
+              {appealError}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={cn(btnSignal, "min-h-[44px]")}
+              onClick={() => {
+                void appeal(post.id, "mark", appealDraft).then((result) => {
+                  if (!result.ok) {
+                    setAppealError(result.error ?? "That appeal was not filed.");
+                    appealInput.current?.focus();
+                  } else {
+                    setAppealing(false);
+                    setAppealDraft("");
+                    setAppealSent(true);
+                  }
+                });
+              }}
+            >
+              File appeal
+            </button>
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px]")}
+              onClick={() => {
+                setAppealing(false);
+                setAppealError("");
+                window.setTimeout(() => appealOpener.current?.focus(), 0);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       ) : null}
     </article>

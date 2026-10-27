@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   ADMIN_NOTE,
   FIRST_STEWARD_NOTE,
@@ -10,6 +11,13 @@ import {
   planMemberGrant,
   planRevoke,
   planStewardGrant,
+  liveStewards,
+  roomHasSteward,
+  soleStewardRooms,
+  withoutSteward,
+  isReplacementError,
+  replacementBarredError,
+  replacementNotMemberError,
   type LogRow,
 } from "./access-rules.ts";
 
@@ -23,7 +31,11 @@ const member = (id: string, userId: string, at: number): LogRow => ({
 });
 
 test("a steward is the inviter plus the room's steward, and the first one is the chair", () => {
-  const log = [member("m-josh", "josh", 1), member("m-maria", "maria", 2), member("m-tom", "tom", 3)];
+  const log = [
+    member("m-josh", "josh", 1),
+    member("m-maria", "maria", 2),
+    member("m-tom", "tom", 3),
+  ];
   const self = planStewardGrant(log, {
     approverId: "josh",
     approverIsAdmin: true,
@@ -82,7 +94,14 @@ test("a steward is the inviter plus the room's steward, and the first one is the
   assert.equal(second.ok, true);
   if (!second.ok) return;
   assert.equal(second.plan.note, STEWARD_NOTE);
-  assert.equal(isRoomSteward([...withTom, { ...second.plan, id: "s-maria", userId: "maria", action: "grant", at: 5 }], "maria", "shop"), true);
+  assert.equal(
+    isRoomSteward(
+      [...withTom, { ...second.plan, id: "s-maria", userId: "maria", action: "grant", at: 5 }],
+      "maria",
+      "shop",
+    ),
+    true,
+  );
 });
 
 test("an admin is a steward plus the role owner's sign-off", () => {
@@ -165,7 +184,10 @@ test("a member grant is one inviter and is refused twice", () => {
   if (!maria.ok) return;
   assert.equal(maria.plan.approvedByUserId, "");
   const next = [member("m-josh", "josh", 1), member("m-maria", "maria", 2)];
-  assert.equal(planMemberGrant(next, { inviterId: "josh", targetId: "maria", roomId: "county" }).ok, false);
+  assert.equal(
+    planMemberGrant(next, { inviterId: "josh", targetId: "maria", roomId: "county" }).ok,
+    false,
+  );
 });
 
 test("revoking one room does not revoke another", () => {
@@ -190,4 +212,50 @@ test("revoking one room does not revoke another", () => {
   ];
   assert.equal(isRoomSteward(after, "tom", "shop"), false);
   assert.equal(isRoomSteward(after, "tom", "county"), true);
+});
+
+test("the only steward of a room is found, and a second steward clears it", () => {
+  const steward = (id: string, userId: string, roomId: string, at: number): LogRow => ({
+    id,
+    userId,
+    role: "steward",
+    roomId,
+    action: "grant",
+    at,
+  });
+  const log: LogRow[] = [steward("s1", "tom", "shop", 1), steward("s2", "tom", "choir", 2)];
+  assert.deepEqual(soleStewardRooms(log, "tom"), ["choir", "shop"]);
+  const two = [...log, steward("s3", "ann", "shop", 3)];
+  assert.deepEqual(soleStewardRooms(two, "tom"), ["choir"]);
+  assert.deepEqual(liveStewards(two, "shop"), ["ann", "tom"]);
+  const after = withoutSteward(log, "tom", "shop", 9);
+  assert.equal(roomHasSteward(after, "shop"), false);
+  assert.equal(roomHasSteward(after, "choir"), true);
+});
+
+test("steward-replacement refusals use the exact copy and are recognised for focus", () => {
+  assert.equal(
+    replacementNotMemberError("Sam"),
+    "Sam isn't a member of this room. Name a current member as the new steward.",
+  );
+  assert.equal(
+    replacementBarredError("Sam"),
+    "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+  );
+  assert.equal(isReplacementError(replacementNotMemberError("Ann Lee")), true);
+  assert.equal(isReplacementError(replacementBarredError("Ann Lee")), true);
+  assert.equal(isReplacementError("That role was not changed."), false);
+});
+
+test("a steward-replacement error focuses and marks the new steward field, as the door does", () => {
+  const about = readFileSync(
+    new URL("../../components/board/about-view.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(about, /isReplacementError\(message\)/);
+  assert.match(about, /replacementRef\.current\?\.focus\(\)/);
+  assert.match(about, /stewardRef=\{replacementRef\}/);
+  assert.match(about, /aria-invalid=\{stewardInvalid \? true : undefined\}/);
+  assert.match(about, /aria-describedby=\{stewardInvalid \? stewardErrorId : undefined\}/);
+  assert.match(about, /stewardLabel="New steward email, if needed"/);
 });
