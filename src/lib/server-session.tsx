@@ -11,6 +11,7 @@ import {
 } from "@/lib/account-api";
 import { probeApiMode, readDemoFlag } from "@/lib/api-mode";
 import { focusBrowserVault, forgetBrowserVault } from "@/lib/e2ee/browser";
+import { SIGNED_UP_NO_SESSION, SIGNED_UP_NO_SESSION_MESSAGE } from "@/lib/account-result";
 import { SessionContext, type ServerSession } from "@/lib/server-session-state";
 
 export function ServerSessionProvider({ children }: { children: ReactNode }) {
@@ -67,7 +68,13 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     user,
     signUp: async (input) => {
       const result = await signUpWithInvite(input);
-      if (result.ok) setUser(await readServerSession());
+      if (!result.ok) return result;
+      const session = await readServerSession();
+      setUser(session);
+      // The account exists and the code is spent, but no session came back.
+      // Say so, rather than leaving the person on a silent form.
+      if (!session)
+        return { ok: false, message: SIGNED_UP_NO_SESSION_MESSAGE, code: SIGNED_UP_NO_SESSION };
       return result;
     },
     signIn: async (input) => {
