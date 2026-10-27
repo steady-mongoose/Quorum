@@ -5,7 +5,7 @@ import { sendChat } from "../chat/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { mediaIsBlocked } from "./csam-flag.ts";
-import { fileReport } from "./reports.ts";
+import { closeReport, fileReport } from "./reports.ts";
 import { createPost } from "./store.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
@@ -79,7 +79,7 @@ test("a CSAM report on a post flags it for the custodian and blocks its media; o
   }
 });
 
-test("a CSAM report on a chat line stays a report and does not flag", async () => {
+test("a CSAM report on a chat line flags it for the custodian too", async () => {
   const { db, close } = await openTestDb();
   try {
     const maria = randomUUID();
@@ -102,7 +102,47 @@ test("a CSAM report on a chat line stays a report and does not flag", async () =
       now,
     });
     assert.equal(filed.ok, true);
-    assert.equal((await db.query(`select id from csam_flag`)).length, 0);
+    if (!filed.ok) return;
+    const flags = await db.query<{ chat_message_id: string; post_id: string; reason: string }>(
+      `select chat_message_id, post_id, reason from csam_flag`,
+    );
+    assert.deepEqual(flags, [{ chat_message_id: line, post_id: "", reason: `Member report ${filed.value.id}` }]);
+    assert.equal((await db.query(`select 1 from csam_access_log where action = 'flag'`)).length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("a CSAM report cannot be dismissed while its flag is open", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ruth = randomUUID();
+    const sam = randomUUID();
+    await member(db, maria, "Maria");
+    await member(db, ruth, "Ruth");
+    await member(db, sam, "Sam");
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Sam', 'admin', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $3)`,
+      [randomUUID(), sam, now],
+    );
+    const bad = await post(db, maria, "A post with a file.");
+    const filed = await fileReport(db, {
+      userId: ruth, name: "Ruth", roomId: "shop", subjectKind: "post", subjectId: bad, reason: "csam", note: "", now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+    const dismissed = await closeReport(db, { userId: sam, reportId: filed.value.id, resolution: "dismissed", note: "", now });
+    assert.deepEqual(dismissed, {
+      ok: false,
+      status: 409,
+      error: "A custodian has to close the CSAM flag before this report can be dismissed.",
+    });
+    await db.query(`update csam_flag set resolved_at = $1`, [now]);
+    const later = await closeReport(db, { userId: sam, reportId: filed.value.id, resolution: "dismissed", note: "", now });
+    assert.equal(later.ok, true);
   } finally {
     await close();
   }

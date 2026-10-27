@@ -6,6 +6,7 @@ import { actorRole, stewardsRoom, type BoardActor } from "./access.ts";
 import { guardRoomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import { flagCsam } from "./csam-flag.ts";
+import { logHoldAccess } from "./csam-custody.ts";
 
 export type ReportSubject = "post" | "chat";
 
@@ -89,7 +90,16 @@ export async function fileReport(
       );
       // A CSAM report on a post also flags it for the custodian. The flag hides the
       // post's media from everyone at once, and the custodian decides what happens.
-      // A chat line has no media, so it stays a report only.
+      // A chat line has no media to hide, but it is flagged for the custodian too.
+      if (input.reason === "csam" && input.subjectKind === "chat") {
+        const flagId = randomUUID();
+        await tx.query(
+          `insert into csam_flag (id, chat_message_id, source, reporter_user_id, reporter_name, reason, created_at)
+           values ($1, $2, 'report', $3, $4, $5, $6)`,
+          [flagId, input.subjectId, input.userId, input.name.trim().slice(0, 120), `Member report ${id}`, input.now],
+        );
+        await logHoldAccess(tx, { actorUserId: input.userId, action: "flag", detail: flagId, now: input.now });
+      }
       if (input.reason === "csam" && input.subjectKind === "post") {
         const flagged = await flagCsam(tx, {
           userId: input.userId,
@@ -253,8 +263,8 @@ export async function closeReport(
   const resolution: ReportResolution = input.resolution;
   const note = input.note.trim();
   if (note.length > NOTE_MAX) return fail(400, "Keep the note under 500 characters.");
-  const rows = await db.query<{ room_id: string; status: string }>(
-    `select room_id, status from member_report where id = $1`,
+  const rows = await db.query<{ room_id: string; status: string; reason: string }>(
+    `select room_id, status, reason from member_report where id = $1`,
     [input.reportId],
   );
   const report = rows[0];
@@ -266,6 +276,13 @@ export async function closeReport(
   const stopped = await moderatorStop(db, actor, input.userId, report.room_id, input.now);
   if (stopped) return stopped;
   if (report.status !== "open") return fail(409, "That report is already closed.");
+  if (resolution === "dismissed" && report.reason === "csam") {
+    const open = await db.query<{ id: string }>(
+      `select id from csam_flag where reason = $1 and resolved_at is null limit 1`,
+      [`Member report ${input.reportId}`],
+    );
+    if (open[0]) return fail(409, "A custodian has to close the CSAM flag before this report can be dismissed.");
+  }
   const closed = await db.transaction(async (tx) => {
     const updated = await tx.query<{ id: string }>(
       `update member_report
