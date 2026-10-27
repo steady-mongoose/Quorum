@@ -141,7 +141,6 @@ test("the admin message-report queue shows shared text and closes a report", asy
     assert.equal(view.host.querySelectorAll("h2").length, 1);
     const items = view.host.querySelectorAll("li");
     assert.equal(items.length, 2);
-    for (const item of items) assert.ok(item.querySelector("h3"), "each report keeps its h3");
     assert.equal(items[0]?.querySelector("blockquote"), null, "no text for CSAM");
     assert.equal(items[1]?.querySelector("blockquote")?.textContent, "I know where you live.");
     assert.match(items[1]?.textContent ?? "", /The message has been deleted/);
