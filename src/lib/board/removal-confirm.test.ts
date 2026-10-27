@@ -53,3 +53,14 @@ test("both removal dialogs are danger-toned, and a removal moves focus and is an
     assert.match(source, /\.focus\(\)/, file);
   }
 });
+
+test("chat Report and Remove are 44px and named for the message's author", () => {
+  const chat = readFileSync(new URL("../../components/board/room-chat.tsx", import.meta.url), "utf8");
+  const report = readFileSync(new URL("../../components/board/report-control.tsx", import.meta.url), "utf8");
+  assert.match(report, /cn\(btnQuiet, "self-start min-h-\[44px\] px-3"\)/);
+  assert.match(chat, /label=\{`Report message from \$\{message\.author\}`\}/);
+  assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\] min-w-\[44px\] px-0"\)/);
+  assert.match(chat, /aria-label=\{`Remove message from \$\{message\.author\}`\}/);
+  assert.match(chat, /cn\(btnGhost, "min-h-\[44px\]"\)[\s\S]*Remove: \{RULE_LABEL\[rule\]\}/);
+  assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\]"\)\} onClick=\{\(\) => setRemoving\(null\)\}/);
+});

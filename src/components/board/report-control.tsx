@@ -45,7 +45,7 @@ export function ReportControl({
         <button
           ref={triggerRef}
           type="button"
-          className={cn(btnQuiet, "self-start px-3")}
+          className={cn(btnQuiet, "self-start min-h-[44px] px-3")}
           aria-label={label}
           onClick={() => {
             setSent(false);

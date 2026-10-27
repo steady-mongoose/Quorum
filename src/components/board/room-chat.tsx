@@ -230,7 +230,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
             {message.author !== me ? (
               <div className="mt-2">
                 <ReportControl
-                  label="Report this message"
+                  label={`Report message from ${message.author}`}
                   onSubmit={(input) =>
                     sendReport({
                       roomId,
@@ -251,20 +251,21 @@ export function RoomChat({ roomId }: { roomId: string }) {
                       <button
                         key={rule}
                         type="button"
-                        className={btnGhost}
+                        className={cn(btnGhost, "min-h-[44px]")}
                         onClick={() => setConfirm({ id: message.id, rule })}
                       >
                         Remove: {RULE_LABEL[rule]}
                       </button>
                     ))}
-                    <button type="button" className={btnQuiet} onClick={() => setRemoving(null)}>
+                    <button type="button" className={cn(btnQuiet, "min-h-[44px]")} onClick={() => setRemoving(null)}>
                       Cancel
                     </button>
                   </>
                 ) : (
                   <button
                     type="button"
-                    className={cn(btnQuiet, "px-0")}
+                    className={cn(btnQuiet, "min-h-[44px] min-w-[44px] px-0")}
+                    aria-label={`Remove message from ${message.author}`}
                     onClick={() => setRemoving(message.id)}
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
