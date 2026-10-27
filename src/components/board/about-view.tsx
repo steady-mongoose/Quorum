@@ -227,7 +227,7 @@ export function AboutView() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             Your name, as it appears on your posts
-            <input
+            <input aria-label="Your name, as it appears on your posts"
               className={fieldClass}
               value={me}
               placeholder="Your name"
@@ -281,6 +281,7 @@ export function AboutView() {
               <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
                 Type {APP_NAME} or CLEAR
                 <input
+                  aria-label={`Type ${APP_NAME} or CLEAR`}
                   className={cn(fieldClass, "min-h-[44px]")}
                   value={clearPhrase}
                   autoComplete="off"
@@ -413,7 +414,7 @@ function RemovalAppeal({
   return (
     <label className="mt-2 flex flex-col gap-2">
       One sentence to the stewards
-      <input
+      <input aria-label="One sentence to the stewards"
         className={fieldClass}
         value={reason}
         onChange={(event) => {
@@ -516,7 +517,7 @@ function RoleTools({
             <RoomField value={fields.roomId} onChange={fields.setRoomId} />
             <label className="flex flex-col gap-2 text-sm text-muted">
               Inviter email
-              <input
+              <input aria-label="Inviter email"
                 className={fieldClass}
                 value={fields.inviterEmail}
                 onChange={(event) => fields.setInviterEmail(event.target.value)}
@@ -543,7 +544,7 @@ function RoleTools({
               <EmailField value={fields.email} onChange={fields.setEmail} />
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Steward email
-                <input
+                <input aria-label="Steward email"
                   className={fieldClass}
                   value={fields.stewardEmail}
                   onChange={(event) => fields.setStewardEmail(event.target.value)}
@@ -562,7 +563,7 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input aria-label="Member email" className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -571,7 +572,7 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input aria-label="Room id" className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -718,7 +719,7 @@ function RevokeRole({
         <RoomField value={roomId} onChange={setRoomId} />
         <label className="flex flex-col gap-2 text-sm text-muted">
           Role to revoke
-          <select
+          <select aria-label="Role to revoke"
             className={cn(fieldClass, "min-h-[44px]")}
             value={role}
             onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
@@ -794,7 +795,7 @@ function AdminTools({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           Room id
-          <input
+          <input aria-label="Room id"
             className={fieldClass}
             value={id}
             placeholder="woodshop"
@@ -803,7 +804,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Name
-          <input
+          <input aria-label="Name"
             className={fieldClass}
             value={name}
             placeholder="Woodshop"
@@ -812,7 +813,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
           What it is for
-          <input
+          <input aria-label="What it is for"
             className={fieldClass}
             value={what}
             onChange={(event) => setWhat(event.target.value)}
@@ -853,7 +854,7 @@ function AdminTools({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           ZIP to correct
-          <input
+          <input aria-label="ZIP to correct"
             className={fieldClass}
             value={zip}
             onChange={(event) => setZip(event.target.value)}
@@ -861,7 +862,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Town
-          <input
+          <input aria-label="Town"
             className={fieldClass}
             value={town}
             onChange={(event) => setTown(event.target.value)}
@@ -869,7 +870,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           State
-          <input
+          <input aria-label="State"
             className={fieldClass}
             value={stateCode}
             placeholder="FL"

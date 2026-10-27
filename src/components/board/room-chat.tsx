@@ -15,12 +15,12 @@ import { useBoard } from "@/lib/board/store";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+export const NOT_IN_ROOM = "You are not in this room.";
+
 /** A membership refusal closes the transcript. A steward refusal leaves it up. */
 function lostRoom(error: string): boolean {
   return (
-    error === "banned" ||
-    error === "You are not in this room." ||
-    error === "Only a member can read this room."
+    error === "banned" || error === NOT_IN_ROOM || error === "Only a member can read this room."
   );
 }
 
@@ -52,6 +52,9 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [joinTick, setJoinTick] = useState(0);
+  const [joining, setJoining] = useState(false);
+  const joinRoom = useBoard((state) => state.joinRoom);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLLIElement | null>(null);
@@ -96,7 +99,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [remote, roomId]);
+  }, [remote, roomId, joinTick]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "nearest" });
@@ -122,7 +125,31 @@ export function RoomChat({ roomId }: { roomId: string }) {
       <p className="max-w-prose text-sm text-muted">
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
-      {note ? <p className="text-sm text-danger">{note}</p> : null}
+      {note ? (
+        <p className="text-sm text-danger" role="status">
+          {note}
+        </p>
+      ) : null}
+      {note === NOT_IN_ROOM ? (
+        <button
+          type="button"
+          className={cn(btnSignal, "self-start")}
+          disabled={joining}
+          onClick={() => {
+            setJoining(true);
+            void joinRoom(roomId).then((result) => {
+              setJoining(false);
+              if (!result.ok) {
+                setNote(result.error ?? "That was not saved.");
+                return;
+              }
+              setJoinTick((tick) => tick + 1);
+            });
+          }}
+        >
+          {joining ? "Joining…" : "Join this room"}
+        </button>
+      ) : null}
       {older ? (
         <button
           type="button"

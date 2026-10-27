@@ -89,8 +89,8 @@ export function FindView() {
             <strong className="font-semibold text-fg">I'll be there</strong> for next time, or{" "}
             <strong className="font-semibold text-fg">I went</strong> after you have been. A meeting
             shows in the main list once two people have been to it, and drops off after it is missed
-            twice. If you host something, this is where you write it up afterwards and get invite
-            codes to hand out.
+            twice. If you host something, this is where you write it up afterwards, and its card
+            has an Invite someone button. The general invite code is under More, on About.
           </p>
         </section>
 
