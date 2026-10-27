@@ -16,6 +16,7 @@ import { useBoard } from "@/lib/board/store";
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export const NOT_IN_ROOM = "You are not in this room.";
+export const JOINED_MESSAGE = "You joined this room.";
 
 /** A membership refusal closes the transcript. A steward refusal leaves it up. */
 function lostRoom(error: string): boolean {
@@ -54,6 +55,13 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [blocked, setBlocked] = useState(false);
   const [joinTick, setJoinTick] = useState(0);
   const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState("");
+  const [joinedNote, setJoinedNote] = useState("");
+  const composer = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    // After a join, the composer appears once the next poll lets the reader in.
+    if (joinedNote && !blocked && !note) composer.current?.focus();
+  }, [joinedNote, blocked, note]);
   const joinRoom = useBoard((state) => state.joinRoom);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,16 +141,19 @@ export function RoomChat({ roomId }: { roomId: string }) {
       {note === NOT_IN_ROOM ? (
         <button
           type="button"
-          className={cn(btnSignal, "self-start")}
-          disabled={joining}
+          className={cn(btnSignal, "min-h-[44px] self-start")}
+          aria-disabled={joining}
           onClick={() => {
+            if (joining) return;
             setJoining(true);
+            setJoinError("");
             void joinRoom(roomId).then((result) => {
               setJoining(false);
               if (!result.ok) {
-                setNote(result.error ?? "That was not saved.");
+                setJoinError(result.error ?? "You were not added to this room. Try again.");
                 return;
               }
+              setJoinedNote(JOINED_MESSAGE);
               setJoinTick((tick) => tick + 1);
             });
           }}
@@ -150,6 +161,14 @@ export function RoomChat({ roomId }: { roomId: string }) {
           {joining ? "Joining…" : "Join this room"}
         </button>
       ) : null}
+      {joinError ? (
+        <p className="text-sm text-danger" role="alert">
+          {joinError}
+        </p>
+      ) : null}
+      <p className="sr-only" role="status" aria-live="polite">
+        {joinedNote}
+      </p>
       {older ? (
         <button
           type="button"
@@ -307,6 +326,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
           }}
         >
           <input
+            ref={composer}
             className={fieldClass}
             value={text}
             placeholder="Write to the room"

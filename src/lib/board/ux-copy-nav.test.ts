@@ -35,4 +35,10 @@ test("a room you are not in offers a Join button", () => {
   assert.match(source, /note === NOT_IN_ROOM/);
   assert.match(source, /Join this room/);
   assert.match(source, /joinRoom\(roomId\)/);
+  assert.match(source, /aria-disabled=\{joining\}/);
+  assert.doesNotMatch(source, /[^-]disabled=\{joining\}/);
+  assert.match(source, /You joined this room\./);
+  assert.match(source, /composer\.current\?\.focus\(\)/);
+  assert.match(source, /\{joinError\}/);
+  assert.match(source, /role="alert"/);
 });
