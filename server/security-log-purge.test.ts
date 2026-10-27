@@ -46,7 +46,7 @@ test("mfa_audit rows older than 90 days are deleted when that table exists", asy
   const { db, close } = await openTestDb();
   try {
     await db.query(`create table if not exists mfa_audit (id text primary key, at timestamptz not null)`);
-    await db.query(`insert into mfa_audit values ($1, $2), ($3, $4)`, [randomUUID(), days(100), "keep", days(10)]);
+    await db.query(`insert into mfa_audit (id, at, action) values ($1, $2, 'enroll'), ($3, $4, 'enroll')`, [randomUUID(), days(100), "keep", days(10)]);
     const counts = await purgeSecurityLogs(db, now);
     assert.equal(counts.mfaAudit, 1);
     const rows = await db.query<{ id: string }>(`select id from mfa_audit`);
