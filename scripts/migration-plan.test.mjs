@@ -86,6 +86,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0017_csam_hold_key.sql",
       "0018_public_gathering.sql",
       "0019_room_audience.sql",
+      "0020_unclaimed_rooms.sql",
       "0022_stats.sql",
     ],
   );
@@ -156,6 +157,17 @@ test("migration 0011 is the places file and is not a ranking table", () => {
   assert.equal(sql.includes("like_count"), false);
   assert.equal(/\bscore\s+(integer|int|numeric|real|double|float)\b/i.test(sql), false);
   assert.equal(/create table[^;]*\brank\b/i.test(sql), false);
+});
+
+test("migration 0020 adds unclaimed rooms and does not replace anonymize_board_user", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0020_unclaimed_rooms.sql"), "utf8");
+  assert.match(sql, /Numbered 0020/);
+  assert.match(sql, /0019 stays reserved/);
+  assert.match(sql, /create table if not exists claim_request/i);
+  assert.match(sql, /create or replace function anonymize_claim_user/);
+  assert.equal(/create or replace function anonymize_board_user/.test(sql), false);
+  assert.equal(/create or replace function anonymize_dm_user/.test(sql), false);
+  assert.equal(sql.includes("like_count"), false);
 });
 
 test("0014 adds the room bar column and leaves anonymize functions alone", () => {
