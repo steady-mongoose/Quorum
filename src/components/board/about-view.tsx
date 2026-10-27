@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { useCategories } from "@/components/board/use-categories";
+import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
@@ -448,6 +450,7 @@ function RemovalAppeal({
         id={fieldId}
         ref={input}
         className={`${fieldClass} min-h-[44px]`}
+        placeholder="For example: I was quoting the rule, not breaking it."
         value={reason}
         onChange={(event) => {
           setReason(event.target.value);
@@ -608,7 +611,11 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -617,7 +624,11 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -719,7 +730,16 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+  return {
+    email,
+    setEmail,
+    roomId,
+    setRoomId,
+    inviterEmail,
+    setInviterEmail,
+    stewardEmail,
+    setStewardEmail,
+  };
 }
 
 function RevokeRole({
@@ -813,6 +833,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
+    categoryIds: string[];
     audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
@@ -821,6 +842,8 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const categories = browseCategories(useCategories(), false);
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
@@ -864,6 +887,32 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <fieldset className="flex flex-col gap-1 sm:col-span-2">
+          <legend className="text-sm text-muted">Categories</legend>
+          {categories.map((category) => {
+            const checked = categoryIds.includes(category.slug);
+            return (
+              <label
+                key={category.slug}
+                className="inline-flex min-h-[44px] items-center gap-2 text-sm text-fg"
+              >
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  checked={checked}
+                  onChange={() => {
+                    setCategoryIds(
+                      checked
+                        ? categoryIds.filter((slug) => slug !== category.slug)
+                        : [...categoryIds, category.slug],
+                    );
+                  }}
+                />
+                {category.name}
+              </label>
+            );
+          })}
+        </fieldset>
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
@@ -878,12 +927,17 @@ function AdminTools({
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what, audience }).then((result) => {
+          if (categoryIds.length === 0) {
+            setRoomError("Choose a category.");
+            return;
+          }
+          void createRoom({ id, name, what, categoryIds, audience }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
+              setCategoryIds([]);
               setAudience("all");
             }
           });
