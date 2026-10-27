@@ -109,12 +109,13 @@ before(async () => {
   try {
     const beforeMfa = names.filter((name) => name < "0023_mfa.sql");
     await applyFiles(sideClient, beforeMfa);
+    // Stand-ins for 0020-0022 tables. Real ones already applied above are kept.
     await sideClient.query(`
-      create table claim_request (id text primary key);
-      create table categories (id text primary key);
-      create table room_categories (room_id text, category_id text);
-      create table member_active_days (user_id text, day date);
-      create table stats_daily (day date primary key);
+      create table if not exists claim_request (id text primary key);
+      create table if not exists categories (id text primary key);
+      create table if not exists room_categories (room_id text, category_id text);
+      create table if not exists member_active_days (user_id text, day date);
+      create table if not exists stats_daily (day date primary key);
     `);
     await applyFiles(
       sideClient,
