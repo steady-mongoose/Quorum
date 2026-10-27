@@ -4,6 +4,7 @@ import test from "node:test";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
+import { markOnboarded } from "./gate.ts";
 
 const now = new Date("2026-10-19T15:00:00Z");
 
@@ -226,6 +227,7 @@ test("a birthdate locks after onboarding, and only an approved correction change
     await member(db, "ann", "Ann Vale");
     await member(db, "ada", "Ada Glen");
     await db.query(`insert into member_role (user_id, is_admin) values ('ada', true)`);
+    await markOnboarded(db, "ada", "Ada Glen");
     const handler = app(db);
     const early = await send(handler, "ann", "/api/profile", "PATCH", { birthdate: "1991-01-01" });
     assert.equal(early.status, 200, await early.clone().text());
@@ -363,7 +365,9 @@ test("an admin cannot approve their own correction, and a refusal needs a reason
       value: "man",
       reason: "Wrong.",
     });
-    assert.equal(early.status, 409, "not onboarded yet: edit directly");
+    assert.equal(early.status, 403, "not onboarded yet: the onboarding gate answers first");
+    assert.match(await early.text(), /profile-required/);
+    await markOnboarded(db, "bo", "Bo Reed");
     const own = await send(handler, "ada", "/api/profile/corrections", "POST", {
       field: "gender",
       value: "man",

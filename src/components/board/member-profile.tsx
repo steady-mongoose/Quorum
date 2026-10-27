@@ -4,7 +4,12 @@ import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/api-base";
 import { uploadProfilePhoto } from "@/lib/media/upload";
 import {
+  askCorrection,
   attachProfilePhoto,
+  decideCorrection,
+  listCorrections,
+  removeOwnPhoto,
+  type CorrectionRow,
   loadMemberProfile,
   loadOwnProfile,
   saveProfile,
@@ -31,7 +36,11 @@ const FIELDS: { id: string; label: string }[] = [
   { id: "links", label: "Links" },
 ];
 
-const inputClass = cn(fieldClass, "min-h-[44px]");
+const FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c9a45c]";
+const choiceFocus =
+  "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#c9a45c]";
+const inputClass = cn(fieldClass, "min-h-[44px]", FOCUS);
 
 
 function genderLabel(gender: "man" | "woman" | null | undefined): string {
@@ -167,8 +176,24 @@ export function OnboardingWizard({
   const askBirth = !profile?.birthdateSet;
   const towns = options?.towns.filter((item) => item.county === county) ?? [];
 
+  const addOptional = (payload: Record<string, unknown>) => {
+    if (bio.trim()) payload.bio = bio.trim();
+    if (town === "elsewhere") payload.location = { county: "", town: "elsewhere" };
+    else if (county && town) payload.location = { county, town };
+    if (church.trim()) payload.church = church.trim();
+    if (picked.length) payload.interests = picked;
+    const filled = links.filter((link) => link.url.trim());
+    if (filled.length) {
+      payload.links = filled.map((link) => ({ url: link.url.trim(), label: link.label.trim() }));
+    }
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    submitWith(false);
+  };
+
+  const submitWith = (requiredOnly: boolean) => {
     if (!profile) return;
     if (askName && !displayName.trim()) {
       setError("Enter a display name.");
@@ -186,15 +211,7 @@ export function OnboardingWizard({
     if (askName) payload.displayName = displayName.trim();
     if (askGender) payload.gender = gender;
     if (askBirth) payload.birthdate = birthdate;
-    if (bio.trim()) payload.bio = bio.trim();
-    if (town === "elsewhere") payload.location = { county: "", town: "elsewhere" };
-    else if (county && town) payload.location = { county, town };
-    if (church.trim()) payload.church = church.trim();
-    if (picked.length) payload.interests = picked;
-    const filled = links.filter((link) => link.url.trim());
-    if (filled.length) {
-      payload.links = filled.map((link) => ({ url: link.url.trim(), label: link.label.trim() }));
-    }
+    if (!requiredOnly) addOptional(payload);
     setBusy(true);
     setError("");
     void saveProfile("/api/profile/onboard", "POST", payload).then((result) => {
@@ -212,8 +229,9 @@ export function OnboardingWizard({
       <Kicker>Your profile</Kicker>
       <h1 className="mt-2 font-display text-4xl text-fg">Finish your profile</h1>
       <p className="mt-3 max-w-2xl text-base text-muted">
-        Members can see this. Finish it before you post, invite someone, or send a message. A photo
-        can wait until after.
+        Only your name, gender and birthdate are needed now. Everything else is optional, and you
+        can add it later from your profile. Finish this before you post, invite someone, or send a
+        message.
       </p>
       <form className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={submit}>
         {askName ? (
@@ -238,7 +256,10 @@ export function OnboardingWizard({
         {askGender ? (
           <fieldset className="flex min-w-0 flex-col gap-2 md:col-span-2">
             <legend className="font-semibold text-fg">Gender</legend>
-            <p className="text-muted">Members can see this.</p>
+            <p className="text-muted">
+              We ask so men's and women's rooms work. Members can see it. After this step it changes
+              only if an admin approves a correction.
+            </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               {(
                 [
@@ -248,7 +269,7 @@ export function OnboardingWizard({
               ).map(([value, label]) => (
                 <label
                   key={value}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-4 text-base text-fg"
+                  className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-4 text-base text-fg", choiceFocus)}
                 >
                   <input
                     type="radio"
@@ -266,7 +287,7 @@ export function OnboardingWizard({
         {askBirth ? (
           <Field
             label="Birthdate"
-            hint={`Members see your age, not this date. You need to be ${options?.minAge ?? 18}.`}
+            hint={`Members see your age, never this date. You need to be ${options?.minAge ?? 18}. After this step it changes only if an admin approves a correction.`}
           >
             <input
               className={inputClass}
@@ -305,7 +326,7 @@ export function OnboardingWizard({
             ))}
           </select>
         </Field>
-        <Field label="Town">
+        <Field label="Town" hint="Optional.">
           <select
             className={inputClass}
             value={town}
@@ -322,7 +343,7 @@ export function OnboardingWizard({
         </Field>
         <Field
           label="Church or affiliation"
-          hint="Optional. Rooms already on the board are suggested."
+          hint="Optional. It helps suggest rooms. It is religious information, so you can choose who sees it from your profile, and you can clear it any time."
         >
           <input
             className={inputClass}
@@ -346,7 +367,7 @@ export function OnboardingWizard({
               return (
                 <label
                   key={item.id}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-3 text-base text-fg"
+                  className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-3 text-base text-fg", choiceFocus)}
                 >
                   <input
                     type="checkbox"
@@ -412,13 +433,24 @@ export function OnboardingWizard({
           >
             {busy ? "Saving" : "Finish your profile"}
           </button>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex min-h-[44px] w-full items-center justify-center rounded-md border border-line px-4 text-base text-fg md:w-auto",
+              FOCUS,
+            )}
+            disabled={busy || !profile}
+            onClick={() => submitWith(true)}
+          >
+            Skip optional fields for now
+          </button>
         </div>
       </form>
     </div>
   );
 }
 
-function PhotoView({ photo }: { photo: MemberProfileBody["photo"] }) {
+function PhotoView({ photo, name }: { photo: MemberProfileBody["photo"]; name: string }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     if (!photo?.id || photo.status !== "ready") {
@@ -446,7 +478,7 @@ function PhotoView({ photo }: { photo: MemberProfileBody["photo"] }) {
   return (
     <img
       src={url}
-      alt=""
+      alt={`Profile photo of ${name}`}
       width={128}
       height={128}
       className="size-32 rounded-md border border-line bg-raised object-cover"
@@ -462,7 +494,7 @@ function PublicCard({ profile }: { profile: MemberProfileBody }) {
     : "";
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
-      <PhotoView photo={profile.photo} />
+      <PhotoView photo={profile.photo} name={profile.displayName} />
       <h2 className="font-display text-3xl text-fg">{profile.displayName}</h2>
       {profile.vouchedName ? (
         <p className="text-muted">Vouched name, visible to admins: {profile.vouchedName}</p>
@@ -511,6 +543,9 @@ export function MemberProfile() {
     Array.from({ length: 5 }, () => ({ url: "", label: "" })),
   );
   const [lookupId, setLookupId] = useState("");
+  const [lookupError, setLookupError] = useState("");
+  const [photoError, setPhotoError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [looked, setLooked] = useState<MemberProfileBody | null>(null);
 
   const apply = (next: MemberProfileBody) => {
@@ -586,18 +621,40 @@ export function MemberProfile() {
     });
   };
 
+  const removePhoto = () => {
+    setPhotoError("");
+    setUploading(true);
+    void removeOwnPhoto().then((result) => {
+      setUploading(false);
+      if (!result.ok) {
+        setPhotoError(result.error);
+        return;
+      }
+      apply(result.profile);
+      setSaved("Photo removed");
+    });
+  };
+
   const onPhoto = (file: File | undefined) => {
     if (!file) return;
-    setBusy(true);
-    setError("");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setPhotoError("Choose a JPEG, PNG, or WebP picture.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoError("That picture is over 5 MB. Choose a smaller one.");
+      return;
+    }
+    setUploading(true);
+    setPhotoError("");
     void file.arrayBuffer().then(async (buffer) => {
       const uploaded = await uploadProfilePhoto({
         bytes: new Uint8Array(buffer),
         contentType: file.type || "application/octet-stream",
       });
       if (!uploaded.ok) {
-        setBusy(false);
-        setError(uploaded.error);
+        setUploading(false);
+        setPhotoError(uploaded.error);
         return;
       }
       let ready = false;
@@ -619,14 +676,14 @@ export function MemberProfile() {
         await new Promise((resolve) => window.setTimeout(resolve, 400));
       }
       if (!ready) {
-        setBusy(false);
-        setError(waitError);
+        setUploading(false);
+        setPhotoError(waitError);
         return;
       }
       const attached = await attachProfilePhoto(uploaded.id);
-      setBusy(false);
+      setUploading(false);
       if (!attached.ok) {
-        setError(attached.error);
+        setPhotoError(attached.error);
         return;
       }
       apply(attached.profile);
@@ -638,11 +695,11 @@ export function MemberProfile() {
     event.preventDefault();
     const id = lookupId.trim();
     if (!id) return;
-    setError("");
+    setLookupError("");
     setLooked(null);
     void loadMemberProfile(id).then((result) => {
       if (!result.ok) {
-        setError(result.error);
+        setLookupError(result.error);
         return;
       }
       setLooked(result.profile);
@@ -668,19 +725,52 @@ export function MemberProfile() {
             Admins still see the vouched name: {profile.vouchedName}
           </p>
         ) : null}
-        <PhotoView photo={profile.photo} />
-        <label className="inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center rounded-md bg-signal px-4 text-sm font-semibold text-signal-ink md:w-auto">
-          Add a photo
-          <input
-            className="sr-only"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(event) => onPhoto(event.target.files?.[0])}
-          />
-        </label>
+        <PhotoView photo={profile.photo} name={profile.displayName} />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <label
+            aria-disabled={uploading || undefined}
+            className={cn(
+              "inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center self-start rounded-md bg-signal px-4 text-sm font-semibold text-signal-ink md:w-auto",
+              choiceFocus,
+              uploading && "pointer-events-none opacity-60",
+            )}
+          >
+            {profile.photo ? "Replace photo" : "Add a photo"}
+            <input
+              className="sr-only"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={uploading}
+              onChange={(event) => onPhoto(event.target.files?.[0])}
+            />
+          </label>
+          {profile.photo ? (
+            <button
+              type="button"
+              className={cn(
+                "inline-flex min-h-[44px] items-center justify-center self-start rounded-md border border-line px-4 text-sm text-fg",
+                FOCUS,
+              )}
+              disabled={uploading}
+              onClick={removePhoto}
+            >
+              Remove photo
+            </button>
+          ) : null}
+        </div>
         <p className="max-w-2xl text-muted">
           Optional. A JPEG, PNG, or WebP up to 5 MB. It does not have to show your face.
         </p>
+        {uploading ? (
+          <p role="status" className="text-muted">
+            Uploading your photo…
+          </p>
+        ) : null}
+        {photoError ? (
+          <p role="alert" className="text-danger">
+            {photoError}
+          </p>
+        ) : null}
       </section>
       <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={save}>
         <Field label="Display name" hint="This can differ from the name you were vouched under.">
@@ -694,13 +784,13 @@ export function MemberProfile() {
           />
         </Field>
         <p className="text-base text-fg">
-          Gender: {genderLabel(profile.gender)}. You cannot change this yourself.
+          Gender: {genderLabel(profile.gender)}. To fix an entry mistake, ask for a correction below.
         </p>
         <p className="text-base text-fg">
           {typeof profile.age === "number" ? `Age: ${profile.age}` : "Age is not set."} Members see
           the age, not the date.
         </p>
-        <Field label="Bio">
+        <Field label="Bio" hint="Optional.">
           <textarea
             className={cn(inputClass, "min-h-28")}
             value={bio}
@@ -708,7 +798,7 @@ export function MemberProfile() {
             onChange={(event) => setBio(event.target.value)}
           />
         </Field>
-        <Field label="County">
+        <Field label="County" hint="Optional.">
           <select
             className={inputClass}
             value={county}
@@ -725,7 +815,7 @@ export function MemberProfile() {
             ))}
           </select>
         </Field>
-        <Field label="Town">
+        <Field label="Town" hint="Optional.">
           <select
             className={inputClass}
             value={town}
@@ -740,7 +830,7 @@ export function MemberProfile() {
             ))}
           </select>
         </Field>
-        <Field label="Church or affiliation">
+        <Field label="Church or affiliation" hint="Optional.">
           <input
             className={inputClass}
             value={church}
@@ -762,7 +852,7 @@ export function MemberProfile() {
               return (
                 <label
                   key={item.id}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-3"
+                  className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-md border border-line bg-surface px-3", choiceFocus)}
                 >
                   <input
                     type="checkbox"
@@ -784,7 +874,7 @@ export function MemberProfile() {
         </fieldset>
         <fieldset className="flex flex-col gap-3 md:col-span-2">
           <legend className="font-semibold text-fg">Links</legend>
-          <p className="text-muted">Up to five. Each one has to be https. Nothing is previewed.</p>
+          <p className="text-muted">Optional. Up to five. Each one has to be https. Nothing is previewed.</p>
           {links.map((link, index) => (
             <div key={index} className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <input
@@ -834,36 +924,47 @@ export function MemberProfile() {
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-2xl text-fg">Who can see each field</h2>
         <p className="max-w-2xl text-muted">
-          The default is every member. A shared room is a room or a theme group, not a direct
-          message. {options.adminsOnly} {options.anonymous}
+          All members means anyone signed in to Avouch. People in a room with you means members who
+          share a room or theme group with you; a direct message does not count. Only you means no
+          other member. Every field starts at All members, and you can change any of them here.{" "}
+          {options.adminsOnly} {options.anonymous}
         </p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {FIELDS.map((field) => (
-            <label key={field.id} className="flex min-w-0 flex-col gap-2 text-base text-fg">
-              <span className="font-semibold">{field.label}</span>
-              <select
-                className={inputClass}
-                value={profile.visibility?.[field.id] ?? "members"}
-                onChange={(event) => setVisibility(field.id, event.target.value)}
-              >
-                {profile.visibility?.[field.id] === "admins" ? (
-                  <option value="admins">Admins only</option>
-                ) : null}
+          {FIELDS.map((field) => {
+            const current = profile.visibility?.[field.id] ?? "members";
+            return (
+              <fieldset key={field.id} className="flex min-w-0 flex-col gap-1">
+                <legend className="font-semibold text-fg">{field.label}</legend>
+                {current === "admins" ? <p className="text-muted">Now: admins only</p> : null}
                 {VISIBILITY.map((choice) => (
-                  <option key={choice.id} value={choice.id}>
+                  <label
+                    key={choice.id}
+                    className={cn(
+                      "inline-flex min-h-[44px] items-center gap-2 text-base text-fg",
+                      choiceFocus,
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name={`visibility-${field.id}`}
+                      value={choice.id}
+                      checked={current === choice.id}
+                      onChange={() => setVisibility(field.id, choice.id)}
+                    />
                     {choice.label}
-                  </option>
+                  </label>
                 ))}
-              </select>
-            </label>
-          ))}
+              </fieldset>
+            );
+          })}
         </div>
       </section>
+      <Corrections />
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-2xl text-fg">Look up a member</h2>
         <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]" onSubmit={lookup}>
           <label className="flex min-w-0 flex-col gap-2">
-            <span className="font-semibold">Member id</span>
+            <span className="font-semibold">Member id (from their profile link)</span>
             <input
               className={inputClass}
               value={lookupId}
@@ -875,8 +976,180 @@ export function MemberProfile() {
             Look up
           </button>
         </form>
+        {lookupError ? (
+          <p role="alert" className="text-danger">
+            {lookupError}
+          </p>
+        ) : null}
         {looked ? <PublicCard profile={looked} /> : null}
       </section>
     </div>
+  );
+}
+
+function Corrections() {
+  const [own, setOwn] = useState<CorrectionRow[]>([]);
+  const [queue, setQueue] = useState<CorrectionRow[] | null>(null);
+  const [field, setField] = useState<"gender" | "birthdate">("gender");
+  const [value, setValue] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  const refresh = () => {
+    void listCorrections("own").then((result) => {
+      if (result.ok) setOwn(result.corrections);
+    });
+    void listCorrections("queue").then((result) => {
+      setQueue(result.ok ? result.corrections : null);
+    });
+  };
+  useEffect(refresh, []);
+
+  const send = (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setDone("");
+    void askCorrection({ field, value, reason: reason.trim() }).then((result) => {
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setValue("");
+      setReason("");
+      setDone("Sent. A different admin will look at it.");
+      refresh();
+    });
+  };
+
+  const decide = (id: string, decision: "approve" | "refuse") => {
+    setError("");
+    void decideCorrection(id, decision, (notes[id] ?? "").trim()).then((result) => {
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      refresh();
+    });
+  };
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="font-display text-2xl text-fg">Fix a gender or birthdate mistake</h2>
+      <p className="max-w-2xl text-muted">
+        These are set when you finish your profile. If you entered one by mistake, ask for a
+        correction. An admin other than you decides, and every step is logged.
+      </p>
+      <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={send}>
+        <Field label="What to fix">
+          <select
+            className={inputClass}
+            value={field}
+            onChange={(event) => {
+              setField(event.target.value === "birthdate" ? "birthdate" : "gender");
+              setValue("");
+            }}
+          >
+            <option value="gender">Gender</option>
+            <option value="birthdate">Birthdate</option>
+          </select>
+        </Field>
+        {field === "gender" ? (
+          <Field label="Correct gender">
+            <select
+              className={inputClass}
+              value={value}
+              required
+              onChange={(event) => setValue(event.target.value)}
+            >
+              <option value="">Choose</option>
+              <option value="man">Man</option>
+              <option value="woman">Woman</option>
+            </select>
+          </Field>
+        ) : (
+          <Field label="Correct birthdate" hint="Members still see only your age.">
+            <input
+              className={inputClass}
+              type="date"
+              value={value}
+              required
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </Field>
+        )}
+        <Field label="What was entered by mistake">
+          <input
+            className={inputClass}
+            value={reason}
+            maxLength={300}
+            required
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+        <div className="flex flex-col gap-2 md:col-span-2">
+          <Notice>{error}</Notice>
+          {done ? (
+            <p role="status" className="text-muted">
+              {done}
+            </p>
+          ) : null}
+          <button type="submit" className={cn(btnSignal, "w-full md:w-auto", FOCUS)}>
+            Ask for a correction
+          </button>
+        </div>
+      </form>
+      {own.length ? (
+        <ul className="flex flex-col gap-1 text-muted">
+          {own.map((row) => (
+            <li key={row.id}>
+              {row.field === "gender" ? "Gender" : "Birthdate"}: {row.status}
+              {row.decidedNote ? `. ${row.decidedNote}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {queue ? (
+        <div className="flex flex-col gap-3">
+          <h3 className="font-semibold text-fg">Correction requests to decide</h3>
+          {queue.length === 0 ? <p className="text-muted">Nothing waiting.</p> : null}
+          {queue.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-line p-3">
+              <p className="text-fg">
+                {row.name} asks to set {row.field} to {row.requestedValue}. Reason: {row.reason}
+              </p>
+              <Field label="Note (needed to refuse)">
+                <input
+                  className={inputClass}
+                  value={notes[row.id] ?? ""}
+                  maxLength={300}
+                  onChange={(event) => setNotes({ ...notes, [row.id]: event.target.value })}
+                />
+              </Field>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={cn(btnSignal, FOCUS)}
+                  onClick={() => decide(row.id, "approve")}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex min-h-[44px] items-center rounded-md border border-line px-4 text-fg",
+                    FOCUS,
+                  )}
+                  onClick={() => decide(row.id, "refuse")}
+                >
+                  Refuse
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }

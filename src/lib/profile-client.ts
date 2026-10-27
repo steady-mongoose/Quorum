@@ -141,3 +141,71 @@ export async function attachProfilePhoto(
   }
   return { ok: true, profile: body.profile };
 }
+
+/** The member takes their own photo down. */
+export async function removeOwnPhoto(): Promise<
+  { ok: true; profile: MemberProfileBody } | { ok: false; error: string }
+> {
+  const response = await apiFetch("/api/profile/photo", { method: "DELETE", credentials: "include" });
+  const body = (await readBody(response)) as { error?: unknown; profile?: MemberProfileBody } | null;
+  if (!response.ok || !body?.profile) {
+    return { ok: false, error: errorMessage(body, "The photo was not removed.") };
+  }
+  return { ok: true, profile: body.profile };
+}
+
+export type CorrectionRow = {
+  id: string;
+  userId: string;
+  name: string;
+  field: "gender" | "birthdate";
+  requestedValue: string;
+  reason: string;
+  status: string;
+  decidedNote: string;
+  createdAt: string;
+  decidedAt: string | null;
+};
+
+export async function listCorrections(
+  scope: "own" | "queue",
+): Promise<{ ok: true; corrections: CorrectionRow[] } | { ok: false; status: number; error: string }> {
+  const response = await apiFetch(`/api/profile/corrections?scope=${scope}`, { credentials: "include" });
+  const body = (await readBody(response)) as { error?: unknown; corrections?: CorrectionRow[] } | null;
+  if (!response.ok || !Array.isArray(body?.corrections)) {
+    return { ok: false, status: response.status, error: errorMessage(body, "Requests could not be loaded.") };
+  }
+  return { ok: true, corrections: body.corrections };
+}
+
+export async function askCorrection(input: {
+  field: "gender" | "birthdate";
+  value: string;
+  reason: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await apiFetch("/api/profile/corrections", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await readBody(response);
+  if (!response.ok) return { ok: false, error: errorMessage(body, "The request was not sent.") };
+  return { ok: true };
+}
+
+export async function decideCorrection(
+  id: string,
+  decision: "approve" | "refuse",
+  note: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await apiFetch(`/api/profile/corrections/${encodeURIComponent(id)}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, note }),
+  });
+  const body = await readBody(response);
+  if (!response.ok) return { ok: false, error: errorMessage(body, "That was not saved.") };
+  return { ok: true };
+}
