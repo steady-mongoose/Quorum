@@ -876,22 +876,26 @@ test("one person's wrong codes do not block another person on the same address",
   const clock = { now: new Date("2026-10-29T20:00:00Z") };
   const app = handler(clock);
   const shared = "198.51.100.200";
-  const noisy = await user({ name: "Noisy", email: "noisy.nat@example.com" });
   const quiet = await user({ name: "Quiet", email: "quiet.nat@example.com" });
-  await enroll(app, noisy, clock, "198.51.100.201");
   const quietMfa = await enroll(app, quiet, clock, "198.51.100.202");
   await database.query(`delete from "rateLimit" where "key" = $1`, [`mfa:ip:${shared}`]);
-  const noisyHalf = await secondSession(noisy);
-  for (let n = 0; n < 11; n += 1) {
-    await database.query(`delete from mfa_lock where user_id = $1`, [noisy.id]);
-    const bad = await app(
-      new Request("http://127.0.0.1:8787/api/mfa/challenge", {
-        method: "POST",
-        headers: headers(noisyHalf, shared),
-        body: JSON.stringify({ code: "111111" }),
-      }),
-    );
-    await bad.text();
+  // Three people behind one address each use up their own tries
+  // (enrollment spent one of the ten).
+  for (let p = 0; p < 3; p += 1) {
+    const noisy = await user({ name: `Noisy ${p}`, email: `noisy${p}.nat@example.com` });
+    await enroll(app, noisy, clock, `198.51.100.${210 + p}`);
+    const noisyHalf = await secondSession(noisy);
+    for (let n = 0; n < 9; n += 1) {
+      await database.query(`delete from mfa_lock where user_id = $1`, [noisy.id]);
+      const bad = await app(
+        new Request("http://127.0.0.1:8787/api/mfa/challenge", {
+          method: "POST",
+          headers: headers(noisyHalf, shared),
+          body: JSON.stringify({ code: "111111" }),
+        }),
+      );
+      assert.equal(bad.status, 422, `person ${p} try ${n}: ${await bad.clone().text()}`);
+    }
   }
   clock.now = new Date(clock.now.getTime() + 30_000);
   const quietHalf = await secondSession(quiet);
