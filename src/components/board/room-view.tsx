@@ -26,6 +26,7 @@ import {
   MARK_LABEL,
   POST_TYPES,
   RULE_LABEL,
+  removalConfirm,
   RULE_SENTENCE,
   authorName,
   activeBan,
@@ -152,7 +153,9 @@ export function RoomView() {
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
-              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
+                {title}
+              </h1>
               <RoomAudienceMark audience={audience} />
             </>
           )}
@@ -839,6 +842,7 @@ const PostCard = memo(function PostCard({
     error: string;
   } | null>(null);
   const [removeError, setRemoveError] = useState("");
+  const [confirmRule, setConfirmRule] = useState<HardRule | null>(null);
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
@@ -1031,12 +1035,7 @@ const PostCard = memo(function PostCard({
                     key={rule}
                     type="button"
                     className={btnGhost}
-                    onClick={() => {
-                      void remove(post.id, rule).then((result) => {
-                        if (!result.ok)
-                          setRemoveError(result.error ?? "That post was not removed.");
-                      });
-                    }}
+                    onClick={() => setConfirmRule(rule)}
                   >
                     Remove: {RULE_LABEL[rule]}
                   </button>
@@ -1140,6 +1139,20 @@ const PostCard = memo(function PostCard({
               Removing a post bars the account. The reason stays in the log. A mark never hides a
               post. {RULE_SENTENCE.doxxing} {RULE_SENTENCE.blasphemy}
             </p>
+          ) : null}
+          {confirmRule ? (
+            <ConfirmDialog
+              open
+              {...removalConfirm(confirmRule, "post")}
+              onCancel={() => setConfirmRule(null)}
+              onConfirm={() => {
+                const rule = confirmRule;
+                setConfirmRule(null);
+                void remove(post.id, rule).then((result) => {
+                  if (!result.ok) setRemoveError(result.error ?? "That post was not removed.");
+                });
+              }}
+            />
           ) : null}
         </div>
       ) : null}
