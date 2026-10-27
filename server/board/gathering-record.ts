@@ -3,7 +3,6 @@ import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibil
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
-import { townOf } from "../../src/lib/board/gathering.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   acceptPublicGathering,
@@ -107,21 +106,36 @@ async function loadRow(db: Db, id: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * The public town comes only from structured data: the town a town room is
+ * scoped to. A free-text place line never reaches the public page, so a
+ * street name can't leak. Any other room shows no town.
+ */
+async function structuredTown(db: Db, roomId: string): Promise<string> {
+  const rows = await db.query<{ name: string }>(
+    `select t.name from room r join town t on t.id = r.town_id
+     where r.id = $1 and r.scope_kind = 'town'`,
+    [roomId],
+  );
+  return rows[0]?.name?.trim() ?? "";
+}
+
 function fieldsOf(input: {
   title: unknown;
   date: unknown;
   time: unknown;
   place: unknown;
+  town: string;
 }): { ok: true; gathering: PublicGathering; place: string } | Fail {
   const place = typeof input.place === "string" ? input.place.trim() : "";
   if (!place || place.length > 240 || !isEnglish(place)) {
-    return fail(400, "Say where it meets. The public page will keep only the town.");
+    return fail(400, "Say where it meets. The public page shows only the room's town, never the place line.");
   }
   const accepted = acceptPublicGathering({
     title: input.title,
     date: input.date,
     time: input.time,
-    town: townOf(place),
+    town: input.town,
   });
   if (!accepted.ok) return fail(400, accepted.error);
   return { ok: true, gathering: accepted.gathering, place };
@@ -159,7 +173,7 @@ export async function saveGathering(
     return fail(400, "That room is not on the board.");
   }
   if (await openBan(db, input.userId, input.now, roomId)) return fail(404, "Not found.");
-  const fields = fieldsOf(input);
+  const fields = fieldsOf({ ...input, town: await structuredTown(db, roomId) });
   if (!fields.ok) return fields;
 
   const existing = await loadRow(db, id);
