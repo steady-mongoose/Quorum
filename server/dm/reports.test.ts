@@ -1,3 +1,4 @@
+import { trustAuthenticator } from "../mfa/test-trust.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -194,7 +195,8 @@ test("the routes file, list, and close DM reports", async () => {
       signIn: async () => ({ ok: false, status: 500, error: "no" }) as never,
       readSession: async (headers) => {
         const userId = headers.get("x-user-id");
-        return userId ? { id: userId, name: "", email: "" } : null;
+        // Admin routes need a session that passed the second step (#64).
+        return userId ? { id: userId, name: "", email: "", sessionId: await trustAuthenticator(db, userId) } : null;
       },
       forwardAuth: async () => new Response("no", { status: 500 }),
     });

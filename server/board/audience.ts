@@ -412,6 +412,10 @@ async function subjectIsMember(db: Db, userId: string): Promise<boolean> {
   return actor.member;
 }
 
+/**
+ * Records a member's first stated gender. It never changes one that is set:
+ * that goes through an admin-reviewed correction request.
+ */
 export async function setMemberGender(
   db: Db,
   input: {
@@ -472,7 +476,7 @@ export async function setMemberGender(
     await writeGenderAudit(tx, {
       actorUserId: input.actorUserId,
       subjectUserId: input.subjectUserId,
-      action: decision.kind === "change" ? "change-gender" : "set-gender",
+      action: "set-gender",
       detail: current.stated ? `${current.stated} -> ${next}` : next,
       now: input.now,
     });

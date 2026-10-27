@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveApiUrl, softenApiResponse } from "./api-base.ts";
+import { addUnauthorizedHandler, noteUnauthorized, resolveApiUrl, softenApiResponse } from "./api-base.ts";
 
 test("empty API base keeps a same-origin path", () => {
   assert.equal(resolveApiUrl("/api/auth/get-session", ""), "/api/auth/get-session");
@@ -42,4 +42,18 @@ test("a JSON response passes through", () => {
     headers: { "content-type": "application/json" },
   });
   assert.equal(softenApiResponse(json), json);
+});
+
+test("a wrong authenticator code (422) does not sign out or wipe the vault", () => {
+  let fired = 0;
+  const stop = addUnauthorizedHandler(() => {
+    fired += 1;
+  });
+  for (const error of ["mfa_invalid", "mfa_replay"]) {
+    noteUnauthorized(new Response(JSON.stringify({ error }), { status: 422 }));
+  }
+  assert.equal(fired, 0);
+  noteUnauthorized(new Response("{}", { status: 401 }));
+  assert.equal(fired, 1);
+  stop();
 });

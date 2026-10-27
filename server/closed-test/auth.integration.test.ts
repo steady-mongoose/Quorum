@@ -112,12 +112,14 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
     const log = await app(
       new Request(`${baseURL}/api/invite-log`, { headers: { origin, cookie: joshCookie } }),
     );
-    assert.equal(log.status, 200);
-    const entries = (
-      (await log.json()) as { entries: Array<{ invitedByName: string; invitedName: string }> }
-    ).entries;
+    // Josh is the founding admin; the network-wide log waits on his authenticator.
+    assert.equal(log.status, 403);
+    assert.equal(((await log.json()) as { error?: string }).error, "mfa_required");
+    const logRows = await db.query<{ invited_name: string; invited_by_name: string }>(
+      `select invited_name, invited_by_name from invite_redemption`,
+    );
     assert.deepEqual(
-      entries.map((entry) => `${entry.invitedByName}->${entry.invitedName}`),
+      logRows.map((row) => `${row.invited_by_name}->${row.invited_name}`),
       ["Josh->Maria"],
     );
 
