@@ -212,7 +212,7 @@ test("the week, the door, and the fields use the review's markup", () => {
   assert.match(model, /shiftLocalDate\(iso, days\)/);
   assert.match(model, /meetingDates\(card\.time, card\.next, today/);
   const formAt = door.indexOf("<AccountDoor");
-  const pitchAt = door.indexOf("Someone brought you here");
+  const pitchAt = door.indexOf("{APP_NAME} is invite-only.");
   assert.ok(formAt > 0 && formAt < pitchAt);
   assert.match(door, /lg:order-last/);
   assert.equal(door.includes("order-first"), false);

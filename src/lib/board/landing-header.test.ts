@@ -60,7 +60,7 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
   assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);
-  assert.match(app, /\{signingIn \? "Sign in" : "Open the door"\}/);
+  assert.match(app, /\{signingIn \? "Sign in" : "Enter invite code"\}/);
   assert.match(app, /onClick=\{focusDoorField\}/);
   assert.match(app, /querySelector<HTMLElement>\("input, textarea, select, button"\)/);
   assert.match(app, /field\?\.focus\(\)/);
@@ -124,7 +124,7 @@ test("the door column starts with the invite line", () => {
   assert.equal(door.includes("lg:min-h-[70vh]"), false);
   const formAt = door.indexOf('id="open-the-door"');
   const noteAt = door.indexOf("{demoNote}", formAt);
-  const headingAt = door.indexOf(">Open the door</h2>");
+  const headingAt = door.indexOf(">Enter your invite code</h2>");
   const liveAt = door.indexOf("{live ?");
   const liveBranch = door.slice(liveAt, formAt);
   assert.ok(formAt > 0 && noteAt > formAt && headingAt > noteAt);
@@ -160,4 +160,23 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
   assert.match(bg, /body::after\{content:"";position:absolute;inset:12px/);
   assert.match(bg, /body\{position:relative;min-height:100dvh\}/);
   assert.match(desk, /\.plate-ground\{[^}]*position:absolute[^}]*mask-image:linear-gradient\(#000 70%,transparent\)/);
+});
+
+test("the hero says plainly that Avouch is invite-only and rooms are joined by invite", () => {
+  const door = source("../../components/board/door.tsx");
+  assert.match(door, /\{APP_NAME\} is invite-only\./);
+  assert.match(door, /only if an existing member invites you/);
+  assert.match(door, /you join each room by an invite\s+from inside the app|you join each room by an invite from inside the app/);
+  assert.equal(door.includes("Someone brought you here"), false);
+  assert.equal(door.includes("Open the door"), false);
+});
+
+test("God's name is capitalized in site copy", () => {
+  for (const file of [
+    "../../components/board/about-view.tsx",
+    "../../components/board/door.tsx",
+  ]) {
+    const text = source(file);
+    assert.equal(/[^/(|?:]\b(god|christ|holy spirit)\b(?![^/]*\/i)/.test(text.replace(/\/.*\/i;?/g, "")), false, file);
+  }
 });

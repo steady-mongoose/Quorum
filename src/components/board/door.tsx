@@ -93,7 +93,7 @@ export function Door() {
             }}
           >
             {demoNote}
-            <h2 className="text-2xl text-fg">Open the door</h2>
+            <h2 className="text-2xl text-fg">Enter your invite code</h2>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Your name, as people know you
               <input
@@ -115,7 +115,7 @@ export function Door() {
               />
             </label>
             <button type="submit" className={cn(btnSignal, "self-start")}>
-              Open the door
+              Join
             </button>
             {outcome ? <p className="text-sm text-muted">{outcome}</p> : null}
           </form>
@@ -127,22 +127,22 @@ export function Door() {
         <section className="door-hero card flex flex-col gap-3 p-6">
           <Kicker>Invite only</Kicker>
           <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
-            Someone brought you here for one thing.
+            {APP_NAME} is invite-only.
           </h1>
           <p className="max-w-prose text-base text-muted lg:text-lg">
             {live ? (
               <>
-                {APP_NAME} is invite only. Have an account? Sign in. New here? A host gives you a
-                code for one meeting: a shop night, a book table, a meal after church. Membership is
+                You can join only if an existing member invites you. Have an account? Sign in. Once
+                you are in, you join each room by an invite from inside the app. Membership is
                 by invitation only.
               </>
             ) : apiDown ? (
               <>Invite codes can't be checked right now. Try again in a moment.</>
             ) : (
               <>
-                {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a
-                book table, a meal after church. Enter your name and the code, and you are in and
-                on the list for that meeting. There is no sign-up form and nothing to browse until
+                You can join only if an existing member invites you. They give you a code. Enter
+                your name and the code to get in. Once you are in, you join each room by an invite
+                from inside the app. There is no sign-up form and nothing to browse until
                 then.
               </>
             )}
