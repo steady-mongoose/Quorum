@@ -328,6 +328,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
+  const admin = useBoard((state) => state.admin);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
@@ -373,8 +374,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             title={went ? "happened" : "missed"}
           />
         ))}
-        <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span>
-        {card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
+        {admin ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
+        {admin && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -458,7 +459,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {card.going.length > 0 ? (
+              {admin && card.going.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {card.going.map((name) => (

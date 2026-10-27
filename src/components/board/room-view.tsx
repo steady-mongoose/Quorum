@@ -91,6 +91,7 @@ export function RoomView() {
     (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
   );
   const loadOlder = useBoard((state) => state.loadOlder);
+  const admin = useBoard((state) => state.admin);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
   const meta = roomById(room, rooms);
@@ -142,7 +143,7 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {card.going.length > 0 ? (
+          {admin && card.going.length > 0 ? (
             <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
           ) : null}
         </article>
@@ -382,6 +383,7 @@ function CardSelect({
 }
 
 function Composer({ me, steward }: { me: string; steward: boolean }) {
+  const admin = useBoard((state) => state.admin);
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
@@ -670,7 +672,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               <>
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
-                  {closing && closing.going.length > 0 ? (
+                  {admin && closing && closing.going.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {closing.going.map((name) => (
                         <label
@@ -688,7 +690,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                       ))}
                     </div>
                   ) : (
-                    <span>Nobody said they would come. Say how it went and set the next date.</span>
+                    <span>
+                      {admin
+                        ? "Nobody said they would come. Say how it went and set the next date."
+                        : "Only admins see who said they would come. Say how it went and set the next date."}
+                    </span>
                   )}
                 </fieldset>
                 {current.came.length > 0 ? (

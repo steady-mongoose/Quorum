@@ -119,6 +119,7 @@ export function WeekView() {
 function DayCard({ card, me }: { card: MeetingCard; me: string }) {
   const rsvp = useBoard((state) => state.rsvp);
   const setRoom = useBoard((state) => state.setRoom);
+  const admin = useBoard((state) => state.admin);
   const going = card.going.includes(me);
   return (
     <article className="card rounded-lg border border-line bg-surface p-4">
@@ -146,7 +147,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
       <h3 className="mt-2 text-2xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
       {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-      {card.going.length > 0 ? (
+      {admin && card.going.length > 0 ? (
         <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
