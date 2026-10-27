@@ -73,21 +73,18 @@ test("the seeded rooms match the board, and a member sees another member's post"
     const rooms = await db.query<{ id: string; name: string; takes: string[] | string }>(
       `select id, name, takes from room order by sort_order asc`,
     );
-    assert.deepEqual(
-      rooms.map((room) => room.id).slice(0, 10),
-      [
-        "county",
-        "question",
-        "shop",
-        "shelf",
-        "coop",
-        "baptist",
-        "presbyterian",
-        "latin",
-        "orthodox",
-        "dispatch",
-      ],
-    );
+    assert.deepEqual(rooms.map((room) => room.id).slice(0, 10), [
+      "county",
+      "question",
+      "shop",
+      "shelf",
+      "coop",
+      "baptist",
+      "presbyterian",
+      "latin",
+      "orthodox",
+      "dispatch",
+    ]);
     assert.equal(rooms[0]?.name, "The County");
     assert.equal(rooms[9]?.name, "Dispatch");
     assert.equal(
@@ -318,6 +315,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
       id: "woodshop",
       name: "Woodshop",
       what: "A second bench night for people who already come to the shop.",
+      categoryIds: ["business-trades"],
       now,
     });
     assert.equal(denied.ok, false);
@@ -329,6 +327,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
       id: "woodshop",
       name: "Woodshop",
       what: "A second bench night for people who already come to the shop.",
+      categoryIds: ["business-trades"],
       now,
     });
     assert.equal(created.ok, true);
@@ -654,7 +653,9 @@ test("seeds do not overwrite a named room, and deleting a member keeps the log",
        values ('dispatch', 'Dispatch', 'Notices from the stewards.', array[]::text[], array['saw'], array[]::text[], 'Meeting', false, false, 9)
        on conflict (id) do update set name = excluded.name where room.name = ''`,
     );
-    const dispatch = await db.query<{ name: string }>(`select name from room where id = 'dispatch'`);
+    const dispatch = await db.query<{ name: string }>(
+      `select name from room where id = 'dispatch'`,
+    );
     assert.equal(dispatch[0]?.name, "Dispatch");
 
     const indexes = await db.query<{ indexname: string }>(
@@ -757,7 +758,10 @@ test("room pages walk backward from the newest post", async () => {
       first.value.posts.map((post) => post.claim),
       ["Third chisel.", "Second chisel."],
     );
-    assert.equal(first.value.posts.some((post) => post.room === "county"), false);
+    assert.equal(
+      first.value.posts.some((post) => post.room === "county"),
+      false,
+    );
     const next = first.value.pages.find((page) => page.room === "shop")?.next;
     assert.equal(typeof next, "string");
     if (!next) return;
@@ -1071,7 +1075,10 @@ test("a steward of one room cannot mark, remove, or bar in another", async () =>
     });
     assert.equal(barred.ok, false);
     if (barred.ok) return;
-    assert.equal(barred.error, "A steward can bar a member only for a post in a room they steward.");
+    assert.equal(
+      barred.error,
+      "A steward can bar a member only for a post in a room they steward.",
+    );
 
     const shopMark = await markPost(db, {
       userId: tom,
@@ -1679,7 +1686,10 @@ test("a successful appeal lifts only that room's ban", async () => {
     if (!lifted.ok) return;
     const ownAfter = await listOwnAppeals(db, maria);
     assert.equal(ownAfter[0]?.decision, "lift");
-    assert.equal(lifted.value.posts.some((post) => post.id === shop.value.id && !post.removed), true);
+    assert.equal(
+      lifted.value.posts.some((post) => post.id === shop.value.id && !post.removed),
+      true,
+    );
     const later = new Date(now.getTime() + 1000);
     const shopAgain = await createPost(db, {
       userId: maria,

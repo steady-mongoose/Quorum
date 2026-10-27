@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
+import { categoryForRoom, categorySlugOk } from "../../src/lib/board/categories.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
 import { NO_STEWARD_ERROR } from "../../src/lib/board/access-rules.ts";
@@ -98,10 +99,13 @@ export type BoardRoom = {
   cardNoun: "Meeting" | "Service" | "Reading" | "Debate";
   requiresNextDate: boolean;
   parish: boolean;
+  categoryIds: string[];
   scopeKind: "topic" | "town" | "congregation" | "region";
   townId: string;
   congregationId: string;
   regionId: string;
+  pinOrder?: number | null;
+  joined?: boolean;
   status: "draft" | "unclaimed" | "active";
   town: string;
   county: string;
@@ -273,10 +277,13 @@ type RoomRow = {
   card_noun: string;
   requires_next_date: boolean;
   parish: boolean;
+  category_ids?: unknown;
   scope_kind?: string;
   town_id?: string;
   congregation_id?: string;
   region_id?: string;
+  pin_order?: number | null;
+  joined?: boolean;
   status?: string;
   town_name?: string;
   county?: string;
@@ -290,6 +297,23 @@ function scopeKind(value: string | undefined): BoardRoom["scopeKind"] {
   return "topic";
 }
 
+function categoryIdsFrom(value: unknown, roomId: string): string[] {
+  const listed = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+    : textList(value);
+  return listed.length > 0 ? listed : [categoryForRoom(roomId)];
+}
+
+const ROOM_CATEGORY_IDS = `coalesce((
+  select array_agg(s.slug order by s.sort_order, s.slug)
+  from (
+    select c.slug, c.sort_order
+    from room_categories rc
+    join categories c on c.slug = rc.category_id
+    where rc.room_id = room.id
+  ) s
+), array[]::text[]) as category_ids`;
+
 function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoom {
   const audience = row.audience === "men" || row.audience === "women" ? row.audience : "all";
   return {
@@ -302,10 +326,13 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     cardNoun: noun(row.card_noun),
     requiresNextDate: Boolean(row.requires_next_date),
     parish: Boolean(row.parish),
+    categoryIds: categoryIdsFrom(row.category_ids, row.id),
     scopeKind: scopeKind(row.scope_kind),
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
     regionId: row.region_id ?? "",
+    pinOrder: row.pin_order == null ? null : Number(row.pin_order),
+    joined: Boolean(row.joined),
     status: row.status === "draft" || row.status === "unclaimed" ? row.status : "active",
     town: row.town_name ?? "",
     county: row.county ?? "",
@@ -379,23 +406,30 @@ async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
 }
 
 const ROOM_COLUMNS = `id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            scope_kind, town_id, congregation_id, region_id, audience, created_by`;
+            ${ROOM_CATEGORY_IDS}, scope_kind, town_id, congregation_id, region_id, pin_order,
+            audience, created_by`;
 const LISTING_COLUMNS = `, status, town_name, county, source_url`;
 
 async function roomById(
   db: Db,
   id: string,
-  viewer?: { id: string; admin: boolean },
+  viewer: string | { id: string; admin: boolean } = "",
 ): Promise<BoardRoom | null> {
   if (!ROOM_ID.test(id)) return null;
+  const who = typeof viewer === "string" ? { id: viewer, admin: false } : viewer;
   const ready = await listingColumnsReady(db);
   const rows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""} from room where id = $1`,
-    [id],
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""},
+            exists (
+              select 1 from room_join j
+              where j.room_id = room.id and j.user_id = $2
+            ) as joined
+     from room where id = $1`,
+    [id, who.id],
   );
   const row = rows[0];
   if (!row || !row.name) return null;
-  return toRoom(row, viewer);
+  return toRoom(row, who);
 }
 
 /** A draft or unclaimed room is missing for a member. Stewards and admins can read it. */
@@ -576,10 +610,14 @@ export async function listBoard(
     if (concealed[0]) return fail(404, "That room is not here.");
   }
   const roomRows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}
-     from room where name <> '' and ${visibleRoomClause(ready, "1")}
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""},
+            exists (
+              select 1 from room_join j
+              where j.room_id = room.id and j.user_id = $1
+            ) as joined
+     from room where name <> '' and ${visibleRoomClause(ready, "2")}
      order by sort_order asc, name asc`,
-    ready ? [seeHidden] : [],
+    ready ? [userId, seeHidden] : [userId],
   );
   const openRooms: BoardRoom[] = [];
   for (const room of roomRows.map((row) => toRoom(row, { id: userId, admin: actor.admin }))) {
@@ -1810,6 +1848,46 @@ export async function decideAppeal(
   }
 }
 
+async function knownCategory(db: Db, slug: string): Promise<boolean> {
+  if (!categorySlugOk(slug)) return false;
+  const rows = await db.query<{ slug: string }>(`select slug from categories where slug = $1`, [
+    slug,
+  ]);
+  return Boolean(rows[0]);
+}
+
+async function checkedCategoryIds(
+  db: Db,
+  categoryIds: readonly string[],
+): Promise<string[] | { ok: false; status: number; error: string }> {
+  const seen = new Set<string>();
+  const slugs: string[] = [];
+  for (const value of categoryIds) {
+    const slug = value.trim().toLowerCase();
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    slugs.push(slug);
+  }
+  if (slugs.length === 0) return fail(400, "Choose a category.");
+  for (const slug of slugs) {
+    if (!(await knownCategory(db, slug))) return fail(400, "That category is not listed.");
+  }
+  return slugs;
+}
+
+async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
+  await db.query(
+    `delete from room_categories where room_id = $1 and not (category_id = any($2::text[]))`,
+    [roomId, categoryIds],
+  );
+  await db.query(
+    `insert into room_categories (room_id, category_id)
+     select $1, slug from unnest($2::text[]) as slug
+     on conflict do nothing`,
+    [roomId, categoryIds],
+  );
+}
+
 export async function createRoom(
   db: Db,
   input: {
@@ -1817,6 +1895,7 @@ export async function createRoom(
     id: string;
     name: string;
     what: string;
+    categoryIds: string[];
     now: Date;
     audience?: unknown;
     stewardEmail?: string;
@@ -1835,6 +1914,8 @@ export async function createRoom(
   if (!name || name.length > 80 || !isEnglish(name)) return fail(400, "Name the room in English.");
   if (!what || what.length > 600 || !isEnglish(what))
     return fail(400, "Say what the room is for, in English.");
+  const categoryIds = await checkedCategoryIds(db, input.categoryIds);
+  if (!Array.isArray(categoryIds)) return categoryIds;
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
@@ -1842,10 +1923,13 @@ export async function createRoom(
     return fail(400, NO_STEWARD_ERROR);
   }
   try {
-    await db.transaction(async (db) => {
-      await db.query(
-        `insert into room (id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish, sort_order, created_by, created_at, audience)
-       values ($1, $2, $3, $4, $5, $6, 'Meeting', false, false, $7, $8, $9, $10)`,
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `insert into room (
+           id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
+           sort_order, created_by, created_at, audience
+         )
+         values ($1, $2, $3, $4, $5, $6, 'Meeting', false, false, $7, $8, $9, $10)`,
         [
           id,
           name,
@@ -1859,8 +1943,9 @@ export async function createRoom(
           audience,
         ],
       );
+      await replaceRoomCategories(tx, id, categoryIds);
       if (audience !== "all") {
-        await writeGenderAudit(db, {
+        await writeGenderAudit(tx, {
           actorUserId: input.userId,
           roomId: id,
           action: "set-audience",
@@ -1868,12 +1953,12 @@ export async function createRoom(
           now: input.now,
         });
       }
-      const seated = await seatSteward(db, {
+      const seated = await seatSteward(tx, {
         actorId: input.userId,
         roomId: id,
         stewardEmail: input.stewardEmail ?? "",
         inviterEmail: input.inviterEmail ?? "",
-        rows: await readAccessLog(db),
+        rows: await readAccessLog(tx),
         now: input.now,
       });
       if (!seated.ok) throw new StewardStop(seated.status, seated.error);
@@ -1885,6 +1970,69 @@ export async function createRoom(
   }
   const room = await roomById(db, id, { id: input.userId, admin: true });
   if (!room) return fail(500, "The room was not added.");
+  return { ok: true, value: room };
+}
+
+export async function updateRoom(
+  db: Db,
+  input: {
+    userId: string;
+    id: string;
+    categoryIds?: string[];
+    name?: string;
+    what?: string;
+    pinOrder?: number | null;
+    now: Date;
+  },
+): Promise<Result<BoardRoom>> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.member) return fail(403, "Only a member can edit a room.");
+  const ban = await openBan(db, input.userId, input.now);
+  if (ban) return { ok: false, status: 403, error: "banned", ban };
+  const id = input.id.trim().toLowerCase();
+  const current = await roomById(db, id, { id: input.userId, admin: actor.admin });
+  if (!current || !stewardsRoom(actor, id)) return fail(404, "That room is not here.");
+  const roomBan = await openBan(db, input.userId, input.now, current.id);
+  if (roomBan) return { ok: false, status: 403, error: "banned", ban: roomBan };
+  let categoryIds: string[] | undefined;
+  if (input.categoryIds !== undefined) {
+    const checked = await checkedCategoryIds(db, input.categoryIds);
+    if (!Array.isArray(checked)) return checked;
+    categoryIds = checked;
+  }
+  const name = input.name?.trim() ?? "";
+  const what = input.what?.trim() ?? "";
+  const renaming = (name !== "" && name !== current.name) || (what !== "" && what !== current.what);
+  if (renaming && !actor.admin) return fail(403, "Only an admin can rename a room.");
+  let pinOrder = current.pinOrder ?? null;
+  if (input.pinOrder !== undefined) {
+    if (
+      input.pinOrder !== null &&
+      (!Number.isInteger(input.pinOrder) || input.pinOrder < 0 || input.pinOrder > 10000)
+    ) {
+      return fail(400, "Give the pin a place in the list.");
+    }
+    pinOrder = input.pinOrder;
+  }
+  const nextName = name || current.name;
+  const nextWhat = what || current.what;
+  if (renaming) {
+    if (!nextName || nextName.length > 80 || !isEnglish(nextName))
+      return fail(400, "Name the room in English.");
+    if (!nextWhat || nextWhat.length > 600 || !isEnglish(nextWhat))
+      return fail(400, "Say what the room is for, in English.");
+  }
+  await db.transaction(async (tx) => {
+    await tx.query(`update room set name = $2, what = $3, pin_order = $4 where id = $1`, [
+      id,
+      nextName,
+      nextWhat,
+      pinOrder,
+    ]);
+    if (categoryIds) await replaceRoomCategories(tx, id, categoryIds);
+  });
+  const room = await roomById(db, id, { id: input.userId, admin: actor.admin });
+  if (!room) return fail(500, "The room was not saved.");
   return { ok: true, value: room };
 }
 

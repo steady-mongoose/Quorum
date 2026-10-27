@@ -320,7 +320,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             Steward email
             <input
               aria-label="Steward email"
-              className={fieldClass}
+              className={`${fieldClass} min-h-[44px]`}
               type="email"
               value={stewardEmail}
               onChange={(event) => setStewardEmail(event.target.value)}
@@ -330,7 +330,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             Email of the member who vouches for them
             <input
               aria-label="Email of the member who vouches for them"
-              className={fieldClass}
+              className={`${fieldClass} min-h-[44px]`}
               type="email"
               value={inviterEmail}
               onChange={(event) => setInviterEmail(event.target.value)}

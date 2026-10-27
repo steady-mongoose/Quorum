@@ -66,6 +66,7 @@ test("a room is made with its steward, or not at all", async () => {
   try {
     const bare = await createRoom(db, {
       userId: josh.id,
+      categoryIds: ["men"],
       id: "bench",
       name: "The bench",
       what: "Saturday bench work.",
@@ -76,6 +77,7 @@ test("a room is made with its steward, or not at all", async () => {
 
     const self = await createRoom(db, {
       userId: josh.id,
+      categoryIds: ["men"],
       id: "bench",
       name: "The bench",
       what: "Saturday bench work.",
@@ -89,6 +91,7 @@ test("a room is made with its steward, or not at all", async () => {
 
     const made = await createRoom(db, {
       userId: josh.id,
+      categoryIds: ["men"],
       id: "bench",
       name: "The bench",
       what: "Saturday bench work.",
@@ -108,6 +111,7 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
   try {
     const made = await createRoom(db, {
       userId: josh.id,
+      categoryIds: ["men"],
       id: "bench",
       name: "The bench",
       what: "Saturday bench work.",

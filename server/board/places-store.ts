@@ -3,6 +3,7 @@ import { isUniqueViolation, type Db } from "../db.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
+import { categoryForScope } from "../../src/lib/board/categories.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   planAdminGrant,
@@ -1031,6 +1032,10 @@ export async function decideRoom(
           kind === "congregation" ? request.congregation_id : "",
           kind === "region" ? request.region_id : "",
         ],
+      );
+      await tx.query(
+        `insert into room_categories (room_id, category_id) values ($1, $2) on conflict do nothing`,
+        [roomId, categoryForScope(kind)],
       );
       const updated = await tx.query<{ id: string }>(
         `update room_request
