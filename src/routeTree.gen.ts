@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AdminStatsRouteImport } from './routes/admin/stats'
 import { Route as EIdRouteImport } from './routes/e/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
@@ -18,6 +21,21 @@ import { Route as RoomsSlugRouteImport } from './routes/rooms/$slug'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStatsRoute = AdminStatsRouteImport.update({
@@ -43,6 +61,9 @@ const RoomsSlugRoute = RoomsSlugRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
@@ -50,6 +71,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
@@ -58,6 +82,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
@@ -65,14 +92,42 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms/'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/privacy'
+    | '/terms'
+    | '/admin/stats'
+    | '/e/$id'
+    | '/rooms/$slug'
+    | '/rooms/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms'
-  id: '__root__' | '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms/'
+  to:
+    | '/'
+    | '/about'
+    | '/privacy'
+    | '/terms'
+    | '/admin/stats'
+    | '/e/$id'
+    | '/rooms/$slug'
+    | '/rooms'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/privacy'
+    | '/terms'
+    | '/admin/stats'
+    | '/e/$id'
+    | '/rooms/$slug'
+    | '/rooms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
   AdminStatsRoute: typeof AdminStatsRoute
   EIdRoute: typeof EIdRoute
   RoomsSlugRoute: typeof RoomsSlugRoute
@@ -86,6 +141,27 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stats': {
@@ -121,6 +197,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
   AdminStatsRoute: AdminStatsRoute,
   EIdRoute: EIdRoute,
   RoomsSlugRoute: RoomsSlugRoute,
@@ -129,12 +208,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
