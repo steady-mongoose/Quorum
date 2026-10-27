@@ -1179,6 +1179,7 @@ test("deleting an account clears that name from the group tables", async () => {
       functions.map((row) => row.proname),
       [
         "anonymize_board_user",
+        "anonymize_claim_user",
         "anonymize_dm_user",
         "anonymize_gender_user",
         "anonymize_moderation_user",
@@ -1188,6 +1189,10 @@ test("deleting an account clears that name from the group tables", async () => {
       ],
     );
     const boardFn = functions.find((row) => row.proname === "anonymize_board_user");
+    const claimFn = functions.find((row) => row.proname === "anonymize_claim_user");
+    assert.match(claimFn?.prosrc ?? "", /claim_request/);
+    assert.equal(claimFn?.prosrc.includes("board_post"), false);
+    assert.equal(boardFn?.prosrc.includes("claim_request"), false);
     const dmFn = functions.find((row) => row.proname === "anonymize_dm_user");
     const groupFn = functions.find((row) => row.proname === "anonymize_theme_group_user");
     const moderationFn = functions.find((row) => row.proname === "anonymize_moderation_user");
