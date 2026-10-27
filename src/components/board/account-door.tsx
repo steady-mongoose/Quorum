@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
@@ -11,6 +11,13 @@ import { MfaChallenge } from "@/components/board/mfa-ui";
 import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
 import { useServerSession } from "@/lib/server-session-state";
 
+type FieldKey = "name" | "email" | "password";
+const FIELD_ERRORS: Record<FieldKey, string> = {
+  name: "Please enter your name.",
+  email: "Please enter your email.",
+  password: "Please enter your password.",
+};
+
 /** Account door. Shown only when the dedicated-box API answered. */
 export function AccountDoor() {
   const server = useServerSession();
@@ -22,6 +29,25 @@ export function AccountDoor() {
   const [outcome, setOutcome] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const refs = {
+    name: useRef<HTMLInputElement | null>(null),
+    email: useRef<HTMLInputElement | null>(null),
+    password: useRef<HTMLInputElement | null>(null),
+  };
+  const fieldProps = (key: FieldKey) => ({
+    ref: refs[key],
+    "aria-invalid": fieldErrors[key] ? true : undefined,
+    "aria-describedby": fieldErrors[key] ? `door-${key}-error` : undefined,
+  });
+  const fieldError = (key: FieldKey) =>
+    fieldErrors[key] ? (
+      <p id={`door-${key}-error`} role="alert" className="text-sm text-danger">
+        {fieldErrors[key]}
+      </p>
+    ) : null;
+  const clearError = (key: FieldKey) =>
+    setFieldErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
 
   useEffect(() => {
     const entry = entryFromSearch(window.location.search);
@@ -32,7 +58,10 @@ export function AccountDoor() {
 
   if (server.mfa === "challenge") {
     return (
-      <div id="sign-in" className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6">
+      <div
+        id="sign-in"
+        className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
+      >
         <MfaChallenge onSubmit={(code) => server.finishMfa(code)} />
       </div>
     );
@@ -45,6 +74,16 @@ export function AccountDoor() {
       onSubmit={(event) => {
         event.preventDefault();
         setOutcome(null);
+        const order: FieldKey[] =
+          mode === "sign-up" ? ["name", "email", "password"] : ["email", "password"];
+        const values: Record<FieldKey, string> = { name, email, password };
+        const empty = order.filter((key) => !values[key].trim());
+        if (empty.length > 0) {
+          setFieldErrors(Object.fromEntries(empty.map((key) => [key, FIELD_ERRORS[key]])));
+          refs[empty[0]].current?.focus();
+          return;
+        }
+        setFieldErrors({});
         if (mode === "sign-up" && !code.trim()) {
           setCodeError(INVITE_CODE_ERROR);
           return;
@@ -77,15 +116,22 @@ export function AccountDoor() {
         created.
       </p>
       {mode === "sign-up" ? (
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Your name, as people know you
-          <input
-            className={fieldClass}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="name"
-          />
-        </label>
+        <>
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Your name, as people know you
+            <input
+              className={fieldClass}
+              value={name}
+              {...fieldProps("name")}
+              onChange={(event) => {
+                setName(event.target.value);
+                clearError("name");
+              }}
+              autoComplete="name"
+            />
+          </label>
+          {fieldError("name")}
+        </>
       ) : null}
       <label className="flex flex-col gap-2 text-sm text-muted">
         Email
@@ -93,20 +139,30 @@ export function AccountDoor() {
           className={fieldClass}
           type="email"
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          {...fieldProps("email")}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            clearError("email");
+          }}
           autoComplete="email"
         />
       </label>
+      {fieldError("email")}
       <label className="flex flex-col gap-2 text-sm text-muted">
         Password
         <input
           className={fieldClass}
           type="password"
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          {...fieldProps("password")}
+          onChange={(event) => {
+            setPassword(event.target.value);
+            clearError("password");
+          }}
           autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
         />
       </label>
+      {fieldError("password")}
       {mode === "sign-up" ? (
         <>
           <label className="flex flex-col gap-2 text-sm text-muted">
@@ -140,6 +196,7 @@ export function AccountDoor() {
         onClick={() => {
           setMode(mode === "sign-in" ? "sign-up" : "sign-in");
           setOutcome(null);
+          setFieldErrors({});
           setCodeError(null);
         }}
       >

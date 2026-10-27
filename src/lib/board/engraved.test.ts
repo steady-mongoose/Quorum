@@ -136,12 +136,17 @@ test("ink and bone text clears WCAG AA on the card, including evening", () => {
   assert.match(css, /prefers-reduced-motion:reduce\)\{\[data-section\]\{background-attachment:scroll\}/);
   assert.equal(css.includes("background-attachment:fixed"), false);
   assert.equal(css.includes("filter:blur"), false);
-  assert.ok(contrast("#8f6f2f", "#f0e7d3") >= 3, "focus ring on the bone button");
-  assert.ok(contrast("#8f6f2f", "#ece2cc") >= 3, "parchment focus ring");
-  assert.ok(contrast("#8f6f2f", "#fffaf0") >= 3, "parchment focus ring on the raised card");
-  assert.ok(contrast("#8f6f2f", "#14100c") >= 3, "focus ring on the ink ground");
-  assert.match(css, /--focus:#8f6f2f/);
-  assert.match(css, /:focus-visible\{outline:2px solid var\(--focus\)/);
+  // UX pass: bone ring on ink surfaces, ink ring on parchment, offset 2px off the control.
+  for (const bg of ["#14100c", "#1f1914", "#241d16", "#2d251c"]) {
+    assert.ok(contrast("#f0e7d3", bg) >= 7, `bone focus ring on ${bg}`);
+  }
+  for (const bg of ["#ece2cc", "#f3ecdc", "#f8f3e7", "#fffaf0"]) {
+    assert.ok(contrast("#1f1912", bg) >= 7, `ink focus ring on ${bg}`);
+  }
+  assert.match(css, /--gold:#c9a45c; --focus:#f0e7d3;/);
+  assert.match(css, /--gold:#8f6f2f; --focus:#1f1912;/);
+  assert.equal(css.includes("--focus:#8f6f2f"), false);
+  assert.match(css, /:focus-visible\{outline:2px solid var\(--focus\);outline-offset:2px;/);
   assert.match(css, /@media \(max-width:1023px\)\{[^]*dore-band-A-900\.webp/);
   assert.equal([...css.matchAll(/var\(--accent\)/g)].length, 1);
   const adjust = readFileSync(new URL("../../../public/engraved-adjust.css", import.meta.url), "utf8");

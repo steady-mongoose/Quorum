@@ -12,6 +12,7 @@ const appTests = [
   "scripts/externalize-inline-scripts.test.mjs",
   "src/lib/board/appeal-a11y.test.ts",
   "src/lib/board/ux-copy-nav.test.ts",
+  "src/lib/board/ux-pass-highs.test.ts",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
   "src/lib/account-api.test.ts",

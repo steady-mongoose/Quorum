@@ -57,7 +57,54 @@ export function Door() {
 
   return (
     <div className="door-columns grid gap-10 py-6 lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-start lg:gap-16 lg:py-10">
-      <div className="door-side flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
+      <div className="door-main flex max-w-3xl flex-col gap-8">
+        <section className="door-hero card flex flex-col gap-3 p-6">
+          <Kicker>Invite-only</Kicker>
+          <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
+            {APP_NAME} is invite-only.
+          </h1>
+          <p className="max-w-prose text-base text-muted lg:text-lg">
+            {live ? (
+              <>
+                You can join only if an existing member invites you. Have an account? Sign in. Once
+                you are in, you join each room by an invite from inside the app.
+              </>
+            ) : apiDown ? (
+              <>Invite codes can't be checked right now. Try again in a moment.</>
+            ) : (
+              <>
+                You can join only if an existing member invites you. They give you an invite code. Enter
+                your name and the invite code to get in. Once you are in, you join each room by an invite
+                from inside the app. There is no sign-up form and nothing to browse until
+                then.
+              </>
+            )}
+          </p>
+        </section>
+
+        <section className="door-week card flex flex-col gap-3 p-6">
+          <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
+            {WEEK.map((row) => (
+              <div key={row.day} className="contents">
+                <dt className="font-semibold text-fg">{row.day}</dt>
+                <dd className="text-muted">{row.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section className="door-rooms card flex flex-col gap-2 p-6">
+          <h2 className="text-base font-semibold text-fg">The rooms</h2>
+          <p className="max-w-prose text-sm text-muted">
+            {rooms
+              .filter((room) => room.id !== "dispatch")
+              .map((room) => room.name)
+              .join(" · ")}
+          </p>
+        </section>
+      </div>
+      <div className="door-side order-first flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
         {apiDown ? (
           <section id="sign-in" className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-6">
             <h2 className="text-2xl text-fg">Sign in</h2>
@@ -120,55 +167,6 @@ export function Door() {
             {outcome ? <p className="text-sm text-muted">{outcome}</p> : null}
           </form>
         )}
-
-      </div>
-
-      <div className="door-main flex max-w-3xl flex-col gap-8">
-        <section className="door-hero card flex flex-col gap-3 p-6">
-          <Kicker>Invite-only</Kicker>
-          <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
-            {APP_NAME} is invite-only.
-          </h1>
-          <p className="max-w-prose text-base text-muted lg:text-lg">
-            {live ? (
-              <>
-                You can join only if an existing member invites you. Have an account? Sign in. Once
-                you are in, you join each room by an invite from inside the app.
-              </>
-            ) : apiDown ? (
-              <>Invite codes can't be checked right now. Try again in a moment.</>
-            ) : (
-              <>
-                You can join only if an existing member invites you. They give you an invite code. Enter
-                your name and the invite code to get in. Once you are in, you join each room by an invite
-                from inside the app. There is no sign-up form and nothing to browse until
-                then.
-              </>
-            )}
-          </p>
-        </section>
-
-        <section className="door-week card flex flex-col gap-3 p-6">
-          <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
-          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
-            {WEEK.map((row) => (
-              <div key={row.day} className="contents">
-                <dt className="font-semibold text-fg">{row.day}</dt>
-                <dd className="text-muted">{row.what}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-
-        <section className="door-rooms card flex flex-col gap-2 p-6">
-          <h2 className="text-base font-semibold text-fg">The rooms</h2>
-          <p className="max-w-prose text-sm text-muted">
-            {rooms
-              .filter((room) => room.id !== "dispatch")
-              .map((room) => room.name)
-              .join(" · ")}
-          </p>
-        </section>
       </div>
     </div>
   );

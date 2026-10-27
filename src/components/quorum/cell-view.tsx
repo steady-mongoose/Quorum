@@ -118,7 +118,7 @@ export function CellView() {
           <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
             Which desk
             <select
-              className="min-h-[44px] rounded-md border border-line bg-raised px-3 text-base text-fg"
+              className="min-h-[44px] rounded-md border border-line-strong bg-raised px-3 text-base text-fg"
               value={campaign.id}
               onChange={(event) => setDeskId(event.target.value)}
             >
