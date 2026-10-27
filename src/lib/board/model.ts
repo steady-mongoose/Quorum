@@ -263,7 +263,7 @@ export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
   porn: "Pornography",
   csam: "Child sexual abuse material",
-  doxxing: "Doxxing",
+  doxxing: "Sharing someone's private details",
   blasphemy: "Mocking God or Christ",
 };
 /**
@@ -610,6 +610,35 @@ export function formatWhen(at: number, now: number): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
+}
+
+/** A short excerpt for an accessible name: first words, up to about 40 characters. */
+export function itemExcerpt(text: string, max = 40): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/**
+ * Accessible name for a per-item action: the visible time (formatWhen, the
+ * same text the row shows) and a short excerpt, so two same-day items from one
+ * person still differ through their words:
+ * "Report message from Mark, 5m ago: \"See you at the bench\"".
+ */
+export function itemActionName(
+  action: "Report" | "Remove",
+  kind: "message" | "post",
+  author: string,
+  when: string,
+  text: string,
+): string {
+  const parts = [`${action} ${kind} from ${author}`];
+  if (when) parts.push(when);
+  const excerpt = itemExcerpt(text);
+  const head = parts.join(", ");
+  return excerpt ? `${head}: "${excerpt}"` : head;
 }
 
 export function newPost(
@@ -1160,7 +1189,10 @@ export function otherIn(thread: DmThread, me: string): string {
  * on this device today (the server never sends them), so this runs where the
  * views assemble their board data.
  */
-export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+export function forViewer(
+  card: MeetingCard,
+  viewer: { admin: boolean; name: string },
+): MeetingCard {
   if (viewer.admin) return card;
   return {
     ...card,
