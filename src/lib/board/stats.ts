@@ -27,6 +27,9 @@ export const STATS_CATEGORIES = [
   { id: "county", label: "County" },
 ] as const;
 
+/** Rooms not yet given a category. Always listed last, under a plain label. */
+export const UNSORTED_CATEGORY = { id: "uncategorized", label: "Not yet sorted" } as const;
+
 export type CategoryCount = { id: string; label: string; count: ShownCount };
 
 export type FunnelStep = {
@@ -120,46 +123,63 @@ export function roundToFive(count: number): number {
  * down to one hidden cell, round the total to the nearest 5, and hide it
  * entirely if one cell would still be the only possible value.
  */
-export function protectBreakdown(parts: number[]): { parts: ShownCount[]; total: ShownCount } {
+/**
+ * Small-cell rules. By default every count under 5 is a small cell, zero
+ * included. With `emptyShown`, an empty bucket (0) names no one: it is shown
+ * as 0 and left out of suppression, so a "<5" cell is known to hold 1 to 4 and
+ * the leak checks reason over that range. Category breakdowns use it, so an
+ * empty no-category bucket does not hide a full total.
+ */
+export type BreakdownRule = { emptyShown?: boolean };
+
+function isSmallCell(part: number, rule: BreakdownRule = {}): boolean {
+  return part < SMALL_COUNT && !(rule.emptyShown && part <= 0);
+}
+
+export function protectBreakdown(
+  parts: number[],
+  rule: BreakdownRule = {},
+): { parts: ShownCount[]; total: ShownCount } {
   const total = parts.reduce((sum, part) => sum + part, 0);
-  const shownParts = parts.map(showCount);
-  if (!parts.some((part) => part < SMALL_COUNT)) {
+  const shownParts = parts.map((part) => (rule.emptyShown && part === 0 ? 0 : showCount(part)));
+  if (!parts.some((part) => isSmallCell(part, rule))) {
     return { parts: shownParts, total: showCount(total) };
   }
   const rounded = roundToFive(total);
-  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded)) {
+  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded, rule)) {
     return { parts: shownParts, total: "<5" };
   }
   return { parts: shownParts, total: rounded };
 }
 
-/** True when the rounded total leaves exactly one possible value for the single hidden cell. */
-export function hiddenCellLeaks(parts: number[], publishedTotal: number): boolean {
-  const hidden = parts.filter((part) => part < SMALL_COUNT).length;
-  if (hidden !== 1) return false;
-  const visible = parts.reduce((sum, part) => sum + (part >= SMALL_COUNT ? part : 0), 0);
-  const possible = new Set<number>();
-  for (let total = Math.max(0, publishedTotal - 2); total <= publishedTotal + 2; total += 1) {
-    if (roundToFive(total) !== publishedTotal) continue;
-    const rest = total - visible;
-    if (rest >= 0 && rest < SMALL_COUNT) possible.add(rest);
-  }
-  return possible.size <= 1;
+/** True when the rounded total leaves at most one possible value for the single hidden cell. */
+export function hiddenCellLeaks(
+  parts: number[],
+  publishedTotal: number,
+  rule: BreakdownRule = {},
+): boolean {
+  if (parts.filter((part) => isSmallCell(part, rule)).length !== 1) return false;
+  return recoverableHidden(parts, publishedTotal, rule).length <= 1;
 }
 
 /**
  * Values an attacker can still assign to the one hidden cell.
  * An empty set means the published total does not give that cell away.
  */
-export function recoverableHidden(parts: number[], publishedTotal: ShownCount): number[] {
-  const hidden = parts.filter((part) => part < SMALL_COUNT);
+export function recoverableHidden(
+  parts: number[],
+  publishedTotal: ShownCount,
+  rule: BreakdownRule = {},
+): number[] {
+  const hidden = parts.filter((part) => isSmallCell(part, rule));
   if (hidden.length !== 1 || typeof publishedTotal !== "number") return [];
-  const visible = parts.reduce((sum, part) => sum + (part >= SMALL_COUNT ? part : 0), 0);
+  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
   const possible: number[] = [];
+  const lowest = rule.emptyShown ? 1 : 0;
   for (let total = Math.max(0, publishedTotal - 2); total <= publishedTotal + 2; total += 1) {
     if (roundToFive(total) !== publishedTotal) continue;
     const rest = total - visible;
-    if (rest >= 0 && rest < SMALL_COUNT) possible.push(rest);
+    if (rest >= lowest && rest < SMALL_COUNT) possible.push(rest);
   }
   return possible;
 }

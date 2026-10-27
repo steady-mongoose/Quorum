@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   STATS_CATEGORIES,
+  UNSORTED_CATEGORY,
   STATS_DAYS,
   seriesSummary,
   type FunnelStep,
@@ -80,11 +81,19 @@ export function StatsView({
               onChange={(event) => onCategory(event.target.value)}
             >
               <option value="all">All</option>
-              {categories.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
+              {categories
+                .filter((item) => item.id !== UNSORTED_CATEGORY.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              {categories.some((item) => item.id === UNSORTED_CATEGORY.id) ? (
+                <>
+                  <hr />
+                  <option value={UNSORTED_CATEGORY.id}>{UNSORTED_CATEGORY.label}</option>
+                </>
+              ) : null}
             </select>
           </label>
           <button

@@ -66,6 +66,32 @@ test("a rounded total does not give a hidden cell back", () => {
   assert.deepEqual(recoverableHidden([7, 0], 5), [0]);
 });
 
+test("empty category buckets are not small cells, so full totals still show", () => {
+  const rule = { emptyShown: true };
+  // QA: every category has 5 or more rooms and the no-category bucket is empty.
+  const full = protectBreakdown([12, 9, 6, 5, 5, 5, 5, 0], rule);
+  assert.equal(full.total, 47);
+  assert.deepEqual(full.parts, [12, 9, 6, 5, 5, 5, 5, 0]);
+  // Day counts keep the old rule: a zero day is still "<5".
+  assert.equal(protectBreakdown([7, 0]).parts[1], "<5");
+
+  // A real small cell next to an empty one is still protected: the total never
+  // narrows the hidden cell (known to be 1 to 4) to one value.
+  for (const parts of [
+    [12, 9, 6, 5, 5, 5, 5, 0, 1],
+    [12, 9, 6, 5, 5, 5, 5, 0, 2],
+    [12, 9, 6, 5, 5, 5, 5, 0, 3],
+    [12, 9, 6, 5, 5, 5, 5, 0, 4],
+    [10, 0, 2],
+    [6, 0, 1],
+    [5, 0, 4],
+  ]) {
+    const shown = protectBreakdown(parts, rule);
+    assert.equal(shown.parts.at(-1), "<5");
+    assert.notEqual(recoverableHidden(parts, shown.total, rule).length, 1, String(parts));
+  }
+});
+
 test("counts under 5 are hidden and a percent needs five people on both sides", () => {
   assert.equal(showCount(0), "<5");
   assert.equal(showCount(4), "<5");
@@ -504,9 +530,11 @@ test("a room in two categories counts in each filter and once overall", async ()
     );
     assert.equal(all.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 18);
     assert.equal(civic.rooms.weeks.find((row) => row.week === "2026-10-19")?.posts, 10);
-    assert.equal(churches.tiles.find((tile) => tile.id === "gatherings")?.value, "<5");
+    // No gatherings in Churches: an empty category is shown as 0, not hidden.
+    assert.equal(churches.tiles.find((tile) => tile.id === "gatherings")?.value, 0);
     assert.equal(civic.tiles.find((tile) => tile.id === "gatherings")?.value, 6);
-    assert.equal(all.tiles.find((tile) => tile.id === "gatherings")?.value, 5);
+    // Every non-empty category has 5 or more, so the total is exact, not rounded.
+    assert.equal(all.tiles.find((tile) => tile.id === "gatherings")?.value, 6);
     assert.equal(all.tiles.find((tile) => tile.id === "members")?.value, churches.tiles[0]?.value);
   } finally {
     await close();
@@ -729,8 +757,9 @@ test("published totals do not let a hidden count be subtracted back", async () =
     const weekAll = await readStats(db, NOW, { days: 7, category: "all" });
     assert.equal(weekWindow.tiles[0]?.value, weekAll.tiles[0]?.value);
     assert.equal(weekWindow.tiles[1]?.value, weekAll.tiles[1]?.value);
-    // Migration 0021 seeds eight categories, Uncategorized included.
-    assert.equal(stats.roomsByCategory.length, 8);
+    // Migration 0021 seeds eight categories. Not yet sorted is hidden while no active room is in it.
+    assert.equal(stats.roomsByCategory.length, 7);
+    assert.equal(stats.categories?.at(-1)?.id, "uncategorized");
     assert.equal(weekWindow.roomsByCategory.length, 1);
     assert.equal(weekWindow.roomsByCategory[0]?.id, "churches");
     assert.deepEqual(parseStatsQuery(new URLSearchParams("days=3&category=nope")), {
@@ -876,3 +905,36 @@ function emptyStats(): StatsPayload {
     },
   };
 }
+
+test("rooms not yet sorted are listed last, labeled plainly, and hidden at zero", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-unsorted@example.com", "2026-09-01T15:00:00Z");
+    await db.query(
+      `insert into categories (slug, name, sort_order) values ('choir', 'Parish choir', 2000)
+       on conflict do nothing`,
+    );
+    await db.query(`insert into room (id, name) values ('loose-hall', 'Loose Hall')`);
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values ('2026-10-25'::date, 'dau', '', 6)`,
+    );
+    const before = await readStats(db, NOW, { days: 30, category: "all" });
+    assert.equal(before.categories?.at(-1)?.id, "uncategorized");
+    assert.equal(before.categories?.at(-1)?.label, "Not yet sorted");
+    assert.equal(before.categories?.some((row) => row.label === "Uncategorized"), false);
+    const unsortedBefore = before.roomsByCategory.find((row) => row.id === "uncategorized");
+    assert.equal(unsortedBefore, undefined, JSON.stringify(before.roomsByCategory));
+
+    await db.query(
+      `insert into room_categories (room_id, category_id) values ('loose-hall', 'uncategorized')
+       on conflict do nothing`,
+    );
+    await post(db, ada, "Ada Lovelace", "loose-hall", "2026-10-20T15:00:00Z");
+    const after = await readStats(db, NOW, { days: 30, category: "all" });
+    const last = after.roomsByCategory.at(-1);
+    assert.equal(last?.id, "uncategorized");
+    assert.equal(last?.label, "Not yet sorted");
+  } finally {
+    await close();
+  }
+});

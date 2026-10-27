@@ -1,5 +1,6 @@
 import type { Db } from "../db.ts";
 import {
+  UNSORTED_CATEGORY,
   RSVP_NOTE,
   SMALL_COUNT,
   STATS_CATEGORIES,
@@ -72,11 +73,13 @@ export async function readStats(
         membership,
         catalog,
       )
-    : catalog.map((item) => ({
-        id: item.id,
-        label: item.label,
-        count: "<5" as const,
-      }));
+    : catalog
+        .filter((item) => item.id !== UNSORTED_CATEGORY.id)
+        .map((item) => ({
+          id: item.id,
+          label: item.label,
+          count: "<5" as const,
+        }));
   const funnel = asOf
     ? await funnelOf(db, addUtcDays(asOf, -(filter.days - 1)), asOf)
     : emptyFunnel();
@@ -263,17 +266,20 @@ function publishedBreakdown(
   category: string,
   catalog: CategoryInfo[],
 ): ShownCount {
-  const protectedParts = protectBreakdown(snapshot.parts);
+  const protectedParts = protectBreakdown(snapshot.parts, CATEGORY_RULE);
   if (category === "all") return protectRoomTotal(snapshot.total, snapshot.parts);
   const index = catalog.findIndex((item) => item.id === category);
   if (index < 0) return "<5";
   return protectedParts.parts[index] ?? "<5";
 }
 
+/** Category buckets: an empty one (0) is not a small cell, so it cannot hide a full total. */
+const CATEGORY_RULE = { emptyShown: true } as const;
+
 function protectRoomTotal(total: number, parts: number[]): ShownCount {
-  if (!parts.some((part) => part < SMALL_COUNT)) return showCount(total);
+  if (!parts.some((part) => part > 0 && part < SMALL_COUNT)) return showCount(total);
   const rounded = roundToFive(total);
-  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded)) return "<5";
+  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded, CATEGORY_RULE)) return "<5";
   return rounded;
 }
 
@@ -617,13 +623,18 @@ async function categoriesOf(
   catalog: CategoryInfo[],
 ): Promise<CategoryCount[]> {
   const snapshot = await categorySnapshot(db, start, end, membership, catalog);
-  const parts = protectBreakdown(snapshot.parts);
+  const parts = protectBreakdown(snapshot.parts, CATEGORY_RULE);
   const bars = catalog.map((item, index) => ({
     id: item.id,
     label: item.label,
     count: parts.parts[index] ?? ("<5" as const),
   }));
-  if (category === "all") return bars;
+  // The not-yet-sorted row is shown only when some active room is in it.
+  if (category === "all") {
+    return bars.filter(
+      (bar, index) => bar.id !== UNSORTED_CATEGORY.id || (snapshot.parts[index] ?? 0) > 0,
+    );
+  }
   return bars.filter((bar) => bar.id === category);
 }
 
@@ -651,12 +662,17 @@ async function loadCatalog(db: Db, membership: Map<string, Set<string>>): Promis
   const extras = [...ids]
     .filter((id) => !STATS_CATEGORIES.some((category) => category.id === id))
     .sort();
+  const unsorted = extras.includes(UNSORTED_CATEGORY.id);
   return [
     ...STATS_CATEGORIES.map((category) => ({
       id: category.id,
       label: named.get(category.id) ?? category.label,
     })),
-    ...extras.map((id) => ({ id, label: named.get(id) ?? id })),
+    ...extras
+      .filter((id) => id !== UNSORTED_CATEGORY.id)
+      .map((id) => ({ id, label: named.get(id) ?? id })),
+    // Rooms not yet sorted always come last, under a plain label.
+    ...(unsorted ? [{ id: UNSORTED_CATEGORY.id, label: UNSORTED_CATEGORY.label }] : []),
   ];
 }
 

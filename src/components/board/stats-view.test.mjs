@@ -301,3 +301,37 @@ test("the category select truncates at phone width and the header link is a 44px
   assert.match(view, /title=\{selectedLabel\}/);
   assert.match(route, /<Link to="\/" className="inline-flex min-h-\[44px\] items-center text-sm text-muted">/);
 });
+
+test("the category filter lists Not yet sorted last, after a separator", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(StatsView, {
+        stats: {
+          ...stats,
+          categories: [
+            { id: "uncategorized", label: "Not yet sorted" },
+            { id: "churches", label: "Churches" },
+            { id: "choir", label: "Parish choir" },
+          ],
+        },
+        days: 30,
+        category: "all",
+        onDays: () => {},
+        onCategory: () => {},
+        onCsv: () => {},
+        csvError: "",
+      }),
+    );
+  });
+  const select = host.querySelector("select");
+  assert.ok(select);
+  const children = [...select.children].map((node) =>
+    node.tagName === "HR" ? "---" : (node.textContent ?? ""),
+  );
+  assert.deepEqual(children, ["All", "Churches", "Parish choir", "---", "Not yet sorted"]);
+  act(() => root.unmount());
+  host.remove();
+});
