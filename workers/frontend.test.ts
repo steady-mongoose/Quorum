@@ -53,6 +53,25 @@ test("every method on /api and /api/* returns JSON 503", async () => {
   }
 });
 
+test("the admin stats address is the app shell", async () => {
+  let fetched = "";
+  const env = {
+    ASSETS: {
+      fetch: (request: Request) => {
+        fetched = request.url;
+        return new Response("<!doctype html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      },
+    },
+  } as unknown as Env;
+  const response = await worker.fetch(new Request("https://avouchsocial.com/admin/stats"), env);
+  assert.equal(response.status, 200);
+  assert.match(fetched, /\/index\.html$/);
+  assert.match(response.headers.get("content-security-policy") ?? "", /script-src 'self'/);
+});
+
 test("an unknown /e id is not-found and a known id is the API page", async () => {
   const env = {
     ASSETS: {

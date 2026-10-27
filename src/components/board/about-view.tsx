@@ -218,6 +218,14 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       {!publicView && remote && admin ? <MfaResetQueue /> : null}
 
       {!publicView && remote && admin ? (
+        <p>
+          <a className={btnGhost} href="/admin/stats">
+            Stats
+          </a>
+        </p>
+      ) : null}
+
+      {!publicView && remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}
