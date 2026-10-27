@@ -1,8 +1,15 @@
 import { useState, type ReactNode } from "react";
+import { InviteTracker } from "./invite-tracker";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { useCategories } from "@/components/board/use-categories";
+import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
-import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
+import { MfaResetQueue } from "@/components/board/mfa-ui";
+import { useServerSession } from "@/lib/server-session-state";
+import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
+import { RoomsManager } from "@/components/board/rooms-manager";
+import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -26,9 +33,6 @@ import {
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
-const EXPORT_FILE_NOTE =
-  "The file includes the posts, messages, invites, bans, marks, removals, appeals, and reports saved in this browser.";
-
 function downloadBoardExport(json: string) {
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -48,7 +52,7 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on, where, and who is going. Press "I\'ll be there" on the ones you will attend.',
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. Only admins see the list. Press "I\'ll be there" on the ones you will attend.',
   },
   {
     title: "After a meeting",
@@ -98,6 +102,9 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
   const appeal = useBoard((state) => state.appeal);
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
+  const server = useServerSession();
+  const [exportCode, setExportCode] = useState("");
+  const [exportError, setExportError] = useState("");
   const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
@@ -208,12 +215,7 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       </section>
 
       {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
-
-      {!publicView && remote && admin ? (
-        <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
-          <MemberGenderForm />
-        </section>
-      ) : null}
+      {!publicView && remote && admin ? <MfaResetQueue /> : null}
 
       {!publicView && remote && admin ? (
         <AdminTools
@@ -223,7 +225,11 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         />
       ) : null}
 
+      {!publicView && remote && admin ? <RoomsManager /> : null}
+
       {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
+
+      {!publicView && remote && admin ? <InviteTracker /> : null}
 
       {publicView ? null : (
         <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -291,14 +297,49 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
                     onChange={(event) => setClearPhrase(event.target.value)}
                   />
                 </label>
-                <p className="mt-3 max-w-prose text-sm text-muted">{EXPORT_FILE_NOTE}</p>
+                <p className="mt-3 max-w-prose text-sm text-muted">
+                  The file includes the posts, messages, invites, bans, marks, removals, appeals, and
+                  reports saved in this browser.
+                </p>
+                <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
+                  Authenticator code, if yours is on
+                  <input
+                    className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+                    value={exportCode}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    onChange={(event) => setExportCode(event.target.value)}
+                  />
+                </label>
                 <button
                   type="button"
                   className={cn(btnGhost, "mt-3 min-h-[44px]")}
-                  onClick={() => downloadBoardExport(boardSnapshot())}
+                  onClick={() => {
+                    void (async () => {
+                      setExportError("");
+                      if (server.mode === "live" && (server.mfaEnrolled || server.mfa === "enroll")) {
+                        const stepped = await stepUpMfa("data-export", exportCode.trim());
+                        if (!stepped.ok) {
+                          setExportError(stepped.message);
+                          return;
+                        }
+                        const remote = await fetchAccountExport();
+                        if (!remote.ok) {
+                          setExportError(remote.message);
+                          return;
+                        }
+                      }
+                      downloadBoardExport(boardSnapshot());
+                    })();
+                  }}
                 >
                   Export first
                 </button>
+                {exportError ? (
+                  <p role="alert" className="mt-2 text-sm text-danger">
+                    {exportError}
+                  </p>
+                ) : null}
               </ConfirmDialog>
               {undoClear ? (
                 <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -564,7 +605,11 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -573,7 +618,11 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -597,19 +646,28 @@ function RoleForm({
   const fields = useRoleFields();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "grant-steward">(null);
   const room = roomTitle(rooms, fields.roomId);
   const who = fields.email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
-    void onSubmit(fields).then((result) => {
+    void (async () => {
+      if (mfaCode.trim()) {
+        const stepped = await stepUpMfa("role-grant", mfaCode.trim());
+        if (!stepped.ok) {
+          setError(stepped.message);
+          return;
+        }
+      }
+      const result = await onSubmit(fields);
       if (!result.ok) {
         setError(result.error ?? "That role was not changed.");
         return;
       }
       setNotice(done);
-    });
+    })();
   };
   return (
     <details className="rounded-md border border-line p-3">
@@ -626,7 +684,17 @@ function RoleForm({
         }}
       >
         {children(fields)}
-        <button type="submit" className={cn(btnSignal, "self-start")}>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Authenticator code
+          <input
+            className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+            value={mfaCode}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </label>
+        <button type="submit" className={cn(btnSignal, "self-start min-h-[44px]")}>
           {title}
         </button>
         {error ? (
@@ -675,7 +743,16 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+  return {
+    email,
+    setEmail,
+    roomId,
+    setRoomId,
+    inviterEmail,
+    setInviterEmail,
+    stewardEmail,
+    setStewardEmail,
+  };
 }
 
 function RevokeRole({
@@ -690,19 +767,28 @@ function RevokeRole({
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "revoke">(null);
   const room = roomTitle(rooms, roomId);
   const who = email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
-    void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+    void (async () => {
+      if (mfaCode.trim()) {
+        const stepped = await stepUpMfa("role-grant", mfaCode.trim());
+        if (!stepped.ok) {
+          setError(stepped.message);
+          return;
+        }
+      }
+      const result = await changeAccess({ action: "revoke", email, role, roomId });
       if (!result.ok) {
         setError(result.error ?? "That role was not changed.");
         return;
       }
       setNotice("Role revoked.");
-    });
+    })();
   };
   return (
     <details className="rounded-md border border-line p-3">
@@ -730,7 +816,17 @@ function RevokeRole({
             <option value="admin">Admin</option>
           </select>
         </label>
-        <button type="submit" className={cn(btnQuiet, "self-start text-danger")}>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Authenticator code
+          <input
+            className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+            value={mfaCode}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </label>
+        <button type="submit" className={cn(btnQuiet, "self-start min-h-[44px] text-danger")}>
           Revoke
         </button>
         {error ? (
@@ -769,6 +865,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
+    categoryIds: string[];
     audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
@@ -777,6 +874,8 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const categories = browseCategories(useCategories(), false);
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
@@ -820,6 +919,32 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <fieldset className="flex flex-col gap-1 sm:col-span-2">
+          <legend className="text-sm text-muted">Categories</legend>
+          {categories.map((category) => {
+            const checked = categoryIds.includes(category.slug);
+            return (
+              <label
+                key={category.slug}
+                className="inline-flex min-h-[44px] items-center gap-2 text-sm text-fg"
+              >
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  checked={checked}
+                  onChange={() => {
+                    setCategoryIds(
+                      checked
+                        ? categoryIds.filter((slug) => slug !== category.slug)
+                        : [...categoryIds, category.slug],
+                    );
+                  }}
+                />
+                {category.name}
+              </label>
+            );
+          })}
+        </fieldset>
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
@@ -834,12 +959,17 @@ function AdminTools({
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what, audience }).then((result) => {
+          if (categoryIds.length === 0) {
+            setRoomError("Choose a category.");
+            return;
+          }
+          void createRoom({ id, name, what, categoryIds, audience }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
+              setCategoryIds([]);
               setAudience("all");
             }
           });

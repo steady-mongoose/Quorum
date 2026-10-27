@@ -7,6 +7,8 @@ import {
   INVITE_CODE_ERROR_ID,
   inviteCodeError,
 } from "@/lib/board/invite-entry";
+import { MfaChallenge } from "@/components/board/mfa-ui";
+import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const SIGN_IN_EMPTY_ERROR = "Enter your email and password.";
@@ -57,6 +59,14 @@ export function AccountDoor() {
     setMode("sign-up");
   }, []);
 
+  if (server.mfa === "challenge") {
+    return (
+      <div id="sign-in" className="flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6">
+        <MfaChallenge onSubmit={(code) => server.finishMfa(code)} />
+      </div>
+    );
+  }
+
   return (
     <form
       id="sign-in"
@@ -100,6 +110,12 @@ export function AccountDoor() {
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
+            if (result.code === SIGNED_UP_NO_SESSION) {
+              setMode("sign-in");
+              setCode("");
+              setOutcome(result.message);
+              return;
+            }
             const aboutCode = mode === "sign-up" ? inviteCodeError(code, result) : null;
             if (aboutCode) {
               setCodeError(aboutCode);

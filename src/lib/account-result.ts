@@ -2,14 +2,29 @@ import { userFacingError } from "./user-facing-error.ts";
 
 export type AccountUser = { id: string; name: string; email: string };
 
+export type MfaPhase = "ok" | "challenge" | "enroll";
+
 export type AccountResult =
-  | { ok: true; user: AccountUser | null }
+  | { ok: true; user: AccountUser | null; mfa?: MfaPhase; mfaEnrolled?: boolean }
   | { ok: false; message: string; code?: string };
+
+export function parseMfaPhase(body: unknown): { mfa: MfaPhase; mfaEnrolled: boolean } {
+  if (!body || typeof body !== "object") return { mfa: "ok", mfaEnrolled: false };
+  const record = body as { mfa?: unknown; mfaEnrolled?: unknown };
+  const mfa = record.mfa === "challenge" || record.mfa === "enroll" ? record.mfa : "ok";
+  return { mfa, mfaEnrolled: record.mfaEnrolled === true };
+}
 
 export function parseAccountResult(status: number, body: unknown): AccountResult {
   if (status >= 200 && status < 300) {
     const user = body && typeof body === "object" ? (body as { user?: unknown }).user : undefined;
-    return { ok: true, user: parseUser(user) };
+    const phase = parseMfaPhase(body);
+    return {
+      ok: true,
+      user: parseUser(user),
+      ...(phase.mfa !== "ok" ? { mfa: phase.mfa } : {}),
+      ...(phase.mfaEnrolled ? { mfaEnrolled: true } : {}),
+    };
   }
   const record =
     body && typeof body === "object"
@@ -38,4 +53,18 @@ function parseUser(user: unknown): AccountUser | null {
     name: record.name,
     email: typeof record.email === "string" ? record.email : "",
   };
+}
+
+/** Signup worked and the code is spent, but no session came back. */
+export const SIGNED_UP_NO_SESSION = "signed_up_no_session";
+export const SIGNED_UP_NO_SESSION_MESSAGE =
+  "Your account was created and your code is used. Sign in below with the same email and password.";
+
+/** Shown when /api/invites answers 429. */
+export function inviteLimitMessage(retryAfterSeconds: number | null): string {
+  const wait =
+    retryAfterSeconds && retryAfterSeconds > 60
+      ? `Wait ${Math.ceil(retryAfterSeconds / 60)} minutes`
+      : "Wait a minute";
+  return `You can make five codes a minute. ${wait}, then try again. To invite a group, make one code and set how many people can use it, up to 20.`;
 }

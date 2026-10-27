@@ -17,7 +17,8 @@ export function ServerInvite() {
       <h2 className="text-2xl text-fg">Invite someone</h2>
       <p className="max-w-prose text-sm text-muted">
         Signed in as {server.user.name}. A code is single-use unless you set a higher limit, up to
-        20. The server records who invited whom. The code is shown once.
+        20. To invite a group, make one code and raise the number. You can make five codes a minute.
+        The server records who invited whom. The code is shown once.
       </p>
       <label className="flex max-w-xs flex-col gap-2 text-sm text-muted">
         How many people can use it
@@ -47,7 +48,11 @@ export function ServerInvite() {
         Make a code
       </button>
       {code ? <p className="font-mono text-lg tracking-widest text-fg">{code}</p> : null}
-      {outcome ? <p className="text-sm text-muted">{outcome}</p> : null}
+      {outcome ? (
+        <p className="text-sm text-fg" role="alert">
+          {outcome}
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -26,6 +27,7 @@ import {
   MARK_LABEL,
   POST_TYPES,
   RULE_LABEL,
+  removalConfirm,
   RULE_SENTENCE,
   authorName,
   activeBan,
@@ -56,8 +58,12 @@ import {
   type Mark,
   type MeetingCard,
   type Post,
+  forViewer,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
+import { useRoomsRoute } from "@/components/board/rooms-route";
+import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -68,12 +74,33 @@ import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+const ROOM_HEADING_ID = "room-heading";
+const REMOVAL_STATUS_ID = "removal-status";
+export const REMOVED_MESSAGE = "Removed. The author can appeal.";
+
+/** The removed card unmounts, so focus moves to the room heading and the status is read out. */
+function announceRemoval() {
+  const status = document.getElementById(REMOVAL_STATUS_ID);
+  if (status) status.textContent = REMOVED_MESSAGE;
+  window.setTimeout(() => document.getElementById(ROOM_HEADING_ID)?.focus(), 0);
+}
+
 export function RoomView() {
   const room = useBoard((state) => state.room);
+  const browsing = useBoard((state) => state.browsing);
   const armedRoom = useSyncExternalStore(subscribeArmedRoom, getArmedRoom, () => null);
   const setRoom = useBoard((state) => state.setRoom);
+  const setSection = useBoard((state) => state.setSection);
+  const roomsRoute = useRoomsRoute();
+  const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
   const appeals = useBoard((state) => state.appeals);
@@ -83,6 +110,7 @@ export function RoomView() {
     (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
   );
   const loadOlder = useBoard((state) => state.loadOlder);
+  const admin = useBoard((state) => state.admin);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
   const meta = roomById(room, rooms);
@@ -108,6 +136,9 @@ export function RoomView() {
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
+  const focusSlug = roomsRoute?.slug ?? null;
+
+  if (browsing) return <RoomBrowse focusSlug={focusSlug} />;
 
   const shelfBlock = (
     <>
@@ -131,7 +162,7 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {card.going.length > 0 ? (
+          {admin && card.going.length > 0 ? (
             <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
           ) : null}
         </article>
@@ -152,7 +183,13 @@ export function RoomView() {
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
-              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <h1
+                id={ROOM_HEADING_ID}
+                tabIndex={-1}
+                className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
+              >
+                {title}
+              </h1>
               <RoomAudienceMark audience={audience} />
             </>
           )}
@@ -183,13 +220,29 @@ export function RoomView() {
       <section className="plate plate--hero flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
+          id={ROOM_HEADING_ID}
+          tabIndex={-1}
           className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
           style={armedRoom === room ? { viewTransitionName: `card-${room}` } : undefined}
         >
           {meta.name}
         </h1>
+        <p id={REMOVAL_STATUS_ID} className="sr-only" role="status" aria-live="polite" />
+        <p id="room-call-status" role="status" className="sr-only" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
+          onClick={() => {
+            setSection("rooms");
+            void navigate({ to: "/rooms" });
+          }}
+        >
+          All rooms
+        </button>
+        <RoomCategoryFields room={meta} />
         {meta.status === "draft" || meta.status === "unclaimed" ? (
           <p className="max-w-prose text-sm text-muted">
             {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Only stewards can
@@ -359,9 +412,16 @@ function CardSelect({
 }
 
 function Composer({ me, steward }: { me: string; steward: boolean }) {
+  const admin = useBoard((state) => state.admin);
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
   const rooms = useBoard((state) => state.rooms);
@@ -647,7 +707,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
               <>
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
-                  {closing && closing.going.length > 0 ? (
+                  {admin && closing && closing.going.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {closing.going.map((name) => (
                         <label
@@ -665,7 +725,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                       ))}
                     </div>
                   ) : (
-                    <span>Nobody said they would come. Say how it went and set the next date.</span>
+                    <span>
+                      {admin
+                        ? "Nobody said they would come. Say how it went and set the next date."
+                        : "Say how it went, and set the next date."}
+                    </span>
                   )}
                 </fieldset>
                 {current.came.length > 0 ? (
@@ -839,6 +903,7 @@ const PostCard = memo(function PostCard({
     error: string;
   } | null>(null);
   const [removeError, setRemoveError] = useState("");
+  const [confirmRule, setConfirmRule] = useState<HardRule | null>(null);
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
@@ -1031,12 +1096,7 @@ const PostCard = memo(function PostCard({
                     key={rule}
                     type="button"
                     className={btnGhost}
-                    onClick={() => {
-                      void remove(post.id, rule).then((result) => {
-                        if (!result.ok)
-                          setRemoveError(result.error ?? "That post was not removed.");
-                      });
-                    }}
+                    onClick={() => setConfirmRule(rule)}
                   >
                     Remove: {RULE_LABEL[rule]}
                   </button>
@@ -1140,6 +1200,22 @@ const PostCard = memo(function PostCard({
               Removing a post bars the account. The reason stays in the log. A mark never hides a
               post. {RULE_SENTENCE.doxxing} {RULE_SENTENCE.blasphemy}
             </p>
+          ) : null}
+          {confirmRule ? (
+            <ConfirmDialog
+              open
+              {...removalConfirm(confirmRule, "post")}
+              tone="danger"
+              onCancel={() => setConfirmRule(null)}
+              onConfirm={() => {
+                const rule = confirmRule;
+                setConfirmRule(null);
+                void remove(post.id, rule).then((result) => {
+                  if (!result.ok) setRemoveError(result.error ?? "That post was not removed.");
+                  else announceRemoval();
+                });
+              }}
+            />
           ) : null}
         </div>
       ) : null}

@@ -87,6 +87,9 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0018_public_gathering.sql",
       "0019_room_audience.sql",
       "0020_unclaimed_rooms.sql",
+      "0021_categories.sql",
+      "0023_mfa.sql",
+      "0024_member_profile.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -117,6 +120,40 @@ test("migration 0015 widens group and chat rules and does not replace anonymize 
   assert.equal(sql.includes("like_count"), false);
 });
 
+test("migration 0021 adds categories and does not replace a function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0021_categories.sql"), "utf8");
+  assert.match(sql, /Numbered 0021/);
+  assert.match(sql, /0020 is reserved/);
+  assert.match(sql, /create table if not exists categories/i);
+  assert.match(sql, /category_id/);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+});
+
+test("migration 0024 adds the member profile and leaves 0023 for MFA", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0024_member_profile.sql"), "utf8");
+  assert.match(sql, /Numbered 0024/);
+  assert.match(sql, /0023 is reserved for MFA/);
+  assert.match(sql, /owner must approve/i);
+  assert.match(sql, /add column if not exists display_name text/);
+  assert.match(sql, /alter column display_name set not null/i);
+  assert.match(sql, /birthdate date/);
+  assert.match(sql, /create table if not exists member_link/i);
+  assert.match(sql, /create table if not exists profile_visibility/i);
+  assert.match(sql, /scope in \('room', 'dm', 'profile'\)/);
+  assert.match(sql, /profile_anonymous/);
+  assert.match(sql, /permissions 0025/i);
+  assert.equal(/create or replace function anonymize_/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+  assert.doesNotMatch(sql, /\blikes?\b/i);
+  assert.doesNotMatch(sql, /\bscore\b/i);
+  assert.doesNotMatch(sql, /\breshare\b/i);
+  assert.doesNotMatch(sql, /like_count/);
+  assert.match(sql, /No endpoint and no stats CSV selects/);
+  assert.match(sql, /change-birthdate/);
+  assert.match(sql, /set-birthdate/);
+});
+
 test("migration 0018 adds the public gathering and does not replace a function", () => {
   const sql = readFileSync(join(projectRoot(), "migrations/0018_public_gathering.sql"), "utf8");
   assert.match(sql, /Numbered 0018/);
@@ -130,6 +167,48 @@ test("migration 0018 adds the public gathering and does not replace a function",
   assert.match(sql, /0-9a-f/);
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/create trigger/i.test(sql), false);
+});
+
+test("migration 0023 is the authenticator file and sorts after 0019 and 0020-0022", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0023_mfa.sql"), "utf8");
+  assert.match(sql, /Numbered 0023/);
+  assert.match(sql, /The owner must approve this file/);
+  assert.match(sql, /passkey/);
+  assert.match(sql, /mfa_factor/);
+  assert.match(sql, /mfa_recovery_code/);
+  assert.match(sql, /mfa_reset_approval/);
+  assert.match(sql, /mfa_audit/);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/anonymize_/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+  for (const table of [
+    "claim_request",
+    "categories",
+    "room_categories",
+    "member_active_days",
+    "stats_daily",
+  ]) {
+    assert.equal(sql.includes(table), false, table);
+  }
+  const names = [
+    "0019_room_audience.sql",
+    "0020_unclaimed_rooms.sql",
+    "0021_categories.sql",
+    "0022_stats.sql",
+    "0023_mfa.sql",
+  ];
+  assert.deepEqual(
+    [...names].sort((a, b) => a.localeCompare(b)),
+    names,
+  );
+  const onDisk = readdirSync(join(projectRoot(), "migrations"))
+    .filter((name) => name.endsWith(".sql"))
+    .sort((a, b) => a.localeCompare(b));
+  assert.ok(onDisk.indexOf("0019_room_audience.sql") < onDisk.indexOf("0023_mfa.sql"));
+  // 0020-0022 may already be on disk; whichever are present sort before 0023.
+  for (const name of onDisk.filter((n) => /^002[0-2]_/.test(n))) {
+    assert.ok(onDisk.indexOf(name) < onDisk.indexOf("0023_mfa.sql"), name);
+  }
 });
 
 test("migration 0017 adds the hold key id and does not replace a function", () => {
