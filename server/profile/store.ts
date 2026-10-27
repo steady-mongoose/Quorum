@@ -200,7 +200,7 @@ async function applyGender(
   await writeGenderAudit(db, {
     actorUserId: userId,
     subjectUserId: userId,
-    action: decision.kind === "change" ? "change-gender" : "set-gender",
+    action: "set-gender",
     detail: current.stated ? `${current.stated} -> ${gender}` : gender,
     now,
   });
