@@ -2381,3 +2381,74 @@ test("an appeal of a second-strike (permanent) ban is decided by an admin, not a
     await close();
   }
 });
+
+test("clearing or re-closing a review touches only what that removal took down", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const joe = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-only@example.com");
+    await user(db, joe, "Joe", "joe-only@example.com");
+    await user(db, tom, "Tom", "tom-only@example.com");
+    await user(db, ada, "Ada", "ada-only@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, joe, "Joe", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    if (!posted.ok) throw new Error(JSON.stringify(posted));
+    const innocent = await replyToPost(db, { userId: joe, name: "Joe", postId: posted.value.id, claim: "I saw it too.", now });
+    const threat = await replyToPost(db, { userId: joe, name: "Joe", postId: posted.value.id, claim: "Another reply.", now });
+    if (!innocent.ok || !threat.ok) throw new Error(JSON.stringify([innocent, threat]));
+    const replyId = (r: unknown) => (r as { value: { id: string } }).value.id;
+    // Another member's reply already removed on its own (e.g. by an admin for a threat).
+    await db.query(`update board_post set removed = true where id = $1`, [replyId(threat)]);
+    const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
+    const state = async () => {
+      const rows = await db.query<{ id: string; removed: boolean }>(
+        `select id, removed from board_post where id = any($1::text[])`,
+        [[posted.value.id, replyId(innocent), replyId(threat)]],
+      );
+      return Object.fromEntries(rows.map((r) => [r.id, r.removed]));
+    };
+    const expect = (post: boolean, inn: boolean) => ({
+      [posted.value.id]: post,
+      [replyId(innocent)]: inn,
+      [replyId(threat)]: true,
+    });
+    assert.deepEqual(await state(), expect(true, true));
+    const t1 = new Date(now.getTime() + 60_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "cleared", now: t1 })).ok, true);
+    assert.deepEqual(await state(), expect(false, false), "the threat reply stays removed");
+    const t2 = new Date(now.getTime() + 120_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "closed", now: t2 })).ok, true);
+    assert.deepEqual(await state(), expect(true, true));
+    const t3 = new Date(now.getTime() + 180_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "cleared", now: t3 })).ok, true);
+    assert.deepEqual(await state(), expect(false, false), "cleared again: still only this removal's content");
+  } finally {
+    await close();
+  }
+});
+
+test("re-closing a cleared review does not take down a reply posted after the removal", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const c = await stewardPornCase(db, "later");
+    const t1 = new Date(now.getTime() + 60_000);
+    assert.equal((await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "cleared", now: t1 })).ok, true);
+    const later = await replyToPost(db, { userId: c.tom, name: "Tom", postId: c.postId, claim: "Back up now.", now: t1 });
+    if (!later.ok) throw new Error(JSON.stringify(later));
+    const t2 = new Date(now.getTime() + 120_000);
+    assert.equal((await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "closed", now: t2 })).ok, true);
+    const [row] = await db.query<{ removed: boolean }>(`select removed from board_post where id = $1`, [later.value.id]);
+    assert.equal(row!.removed, false, "an innocent later reply stays up");
+  } finally {
+    await close();
+  }
+});

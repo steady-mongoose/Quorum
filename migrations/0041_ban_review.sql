@@ -41,3 +41,7 @@ create table if not exists ban_review_event (
   at timestamptz not null default now()
 );
 create index if not exists ban_review_event_review_idx on ban_review_event (review_id, at);
+
+-- The posts each removal took down (the post and the replies that were still up). Clearing
+-- or re-closing a review touches only these, so a reply removed on its own stays removed.
+alter table board_removal add column if not exists post_ids text[];

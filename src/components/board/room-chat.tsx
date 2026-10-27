@@ -264,7 +264,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       {confirm ? (
         <ConfirmDialog
           open
-          {...removalConfirm(confirm.rule, "message", confirmAuthor)}
+          {...removalConfirm(confirm.rule, "message", confirmAuthor, admin)}
           tone="danger"
           onCancel={() => setConfirm(null)}
           onConfirm={() => {

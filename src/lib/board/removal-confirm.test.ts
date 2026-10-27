@@ -33,7 +33,7 @@ test("every hard rule has confirmation wording with a Cancel", () => {
 test("removal buttons open the dialog instead of removing on one click", () => {
   const room = source("../../components/board/room-view.tsx");
   assert.match(room, /onClick=\{\(\) => setConfirmRule\(rule\)\}/);
-  assert.match(room, /removalConfirm\(confirmRule, "post", post\.author\)/);
+  assert.match(room, /removalConfirm\(confirmRule, "post", post\.author, viewerIsAdmin\)/);
   const chat = source("../../components/board/room-chat.tsx");
   assert.match(chat, /onClick=\{\(\) => setConfirm\(\{ id: message\.id, rule \}\)\}/);
   assert.match(chat, /removalConfirm\(confirm\.rule, "message", /);
@@ -59,4 +59,11 @@ test("both removal dialogs are danger-toned, and a removal moves focus and is an
     assert.match(source, /tabIndex=\{-1\}/, file);
     assert.match(source, /\.focus\(\)/, file);
   }
+});
+
+test("an admin's removal says the account closes at once; a steward's says an admin reviews it", () => {
+  assert.match(removalConfirm("porn", "post", "Maria", true).description, /closes Maria's account everywhere on Avouch at once/);
+  assert.equal(/until an admin reviews it/.test(removalConfirm("porn", "post", "Maria", true).description), false);
+  assert.match(removalConfirm("porn", "post", "Maria").description, /until an admin reviews it/);
+  assert.match(removalConfirm("threat", "post", "Maria", true).description, /second removal, this also closes Maria's account/);
 });

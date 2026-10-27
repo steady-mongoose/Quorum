@@ -990,6 +990,18 @@ export async function ownSuspension(
  * because the member is cleared ("cleared"). Both are logged and reversible
  * only by a later admin action; a CSAM suspension cannot be cleared.
  */
+// The posts a removal took down. Rows written before post_ids existed fall back to the
+// removed post itself, never its replies, so a reply removed on its own is not restored.
+async function removedByThis(tx: Db, removalId: string): Promise<string[]> {
+  const rows = await tx.query<{ post_id: string; post_ids: string[] | null }>(
+    `select post_id, post_ids from board_removal where id = $1`,
+    [removalId],
+  );
+  const row = rows[0];
+  if (!row) return [];
+  return row.post_ids ?? [row.post_id];
+}
+
 export async function decideBanReview(
   db: Db,
   input: { userId: string; name?: string; reviewId: string; decision: string; now: Date },
@@ -1038,10 +1050,7 @@ export async function decideBanReview(
       `insert into ban_review_event (id, review_id, decision, previous, by_user_id, at) values ($1, $2, $3, $4, $5, $6)`,
       [randomUUID(), input.reviewId, decision, review.status, input.userId, input.now],
     );
-    const posts = review.removal_id
-      ? await tx.query<{ post_id: string }>(`select post_id from board_removal where id = $1`, [review.removal_id])
-      : [];
-    const postId = posts[0]?.post_id ?? null;
+    const postIds = review.removal_id ? await removedByThis(tx, review.removal_id) : [];
     if (decision === "closed") {
       if (review.ban_id) {
         await tx.query(
@@ -1052,7 +1061,7 @@ export async function decideBanReview(
       // A reversal of a clearing takes the content down again and counts the strike again.
       if (review.removal_id) {
         await tx.query(`update board_removal set cleared_at = null where id = $1`, [review.removal_id]);
-        if (postId) await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [postId]);
+        if (postIds.length) await tx.query(`update board_post set removed = true where id = any($1::text[])`, [postIds]);
       }
       if (review.chat_removal_id) {
         await tx.query(`update room_chat_removal set cleared_at = null where id = $1`, [review.chat_removal_id]);
@@ -1067,7 +1076,7 @@ export async function decideBanReview(
       // Cleared: the removed content comes back, and the strike no longer counts.
       if (review.removal_id) {
         await tx.query(`update board_removal set cleared_at = $2 where id = $1`, [review.removal_id, input.now]);
-        if (postId) await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [postId]);
+        if (postIds.length) await tx.query(`update board_post set removed = false where id = any($1::text[])`, [postIds]);
       }
       if (review.chat_removal_id) {
         await tx.query(`update room_chat_removal set cleared_at = $2 where id = $1`, [review.chat_removal_id, input.now]);
@@ -1689,12 +1698,15 @@ export async function removePost(
         publicKeys = relocated.files.map((item) => item.from);
         alert = relocated.alert;
       }
-      await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
-        post.id,
-      ]);
+      // Record exactly which posts this removal took down. Replies already removed on their
+      // own stay out of the list, so clearing or re-closing never touches them.
+      const taken = await tx.query<{ id: string }>(
+        `update board_post set removed = true where (id = $1 or parent_id = $1) and removed = false returning id`,
+        [post.id],
+      );
       await tx.query(
-        `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at, post_ids)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           removalId,
           post.id,
@@ -1704,6 +1716,7 @@ export async function removePost(
           by,
           reason,
           input.now,
+          taken.map((row) => row.id),
         ],
       );
       const siteWide = actor.admin || permanentOnFirst(reason);
@@ -2192,9 +2205,9 @@ export async function decideAppeal(
         if (removals[0]?.reason === "csam") {
           throw new Stop(400, "That removal stays. Child sexual abuse material is not put back.");
         }
-        await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [
-          appeal.post_id,
-        ]);
+        const lifted = await removedByThis(tx, appeal.target_id);
+        if (lifted.length)
+          await tx.query(`update board_post set removed = false where id = any($1::text[])`, [lifted]);
         await tx.query(
           `update board_ban set until_at = $2
            where removal_id = $1 and reason <> 'csam'

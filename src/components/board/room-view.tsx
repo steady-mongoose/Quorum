@@ -888,6 +888,7 @@ const PostCard = memo(function PostCard({
   const closeAsked = useBoard((state) => state.closeAsked);
   const mark = useBoard((state) => state.mark);
   const remove = useBoard((state) => state.remove);
+  const viewerIsAdmin = useBoard((state) => state.admin);
   const appeal = useBoard((state) => state.appeal);
   const appeals = useBoard((state) => state.appeals);
   const openDm = useBoard((state) => state.openDm);
@@ -1204,7 +1205,7 @@ const PostCard = memo(function PostCard({
           {confirmRule ? (
             <ConfirmDialog
               open
-              {...removalConfirm(confirmRule, "post", post.author)}
+              {...removalConfirm(confirmRule, "post", post.author, viewerIsAdmin)}
               tone="danger"
               onCancel={() => setConfirmRule(null)}
               onConfirm={() => {
