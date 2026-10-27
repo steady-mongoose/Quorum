@@ -5,6 +5,7 @@ import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { DmReportQueue } from "@/components/board/dm-report";
+import { RoomsManager } from "@/components/board/rooms-manager";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
@@ -222,6 +223,8 @@ export function AboutView() {
           accessLog={home?.accessLog ?? []}
         />
       ) : null}
+
+      {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
