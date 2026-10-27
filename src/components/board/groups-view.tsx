@@ -240,7 +240,7 @@ function RequestGroup({
             value={roomId}
             onChange={(event) => setRoomId(event.target.value)}
           >
-            {rooms.length === 0 ? <option value="">Ask a member of a room for an invite first</option> : null}
+            {rooms.length === 0 ? <option value="">No rooms yet. Ask a member of a room for an invite.</option> : null}
             {rooms.map((room) => (
               <option key={room.id} value={room.id}>
                 {room.name}

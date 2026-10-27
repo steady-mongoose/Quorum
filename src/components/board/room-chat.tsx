@@ -181,7 +181,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
       {note ? (
-        <p className="text-sm text-danger" role="status">
+        <p className={note === NOT_IN_ROOM ? "text-sm text-muted" : "text-sm text-danger"} role="status">
           {note === NOT_IN_ROOM ? MEMBERS_ONLY_INVITE : note}
         </p>
       ) : null}

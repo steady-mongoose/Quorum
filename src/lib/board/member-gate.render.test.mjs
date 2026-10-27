@@ -100,3 +100,11 @@ for (const [who, input] of allowedViewers) {
     }
   });
 }
+
+test("room chat shows the members-only line muted and the group picker uses the invite wording", async () => {
+  const { readFileSync } = await import("node:fs");
+  const chat = readFileSync(new URL("../../components/board/room-chat.tsx", import.meta.url), "utf8");
+  assert.match(chat, /note === NOT_IN_ROOM \? "text-sm text-muted" : "text-sm text-danger"/);
+  const groups = readFileSync(new URL("../../components/board/groups-view.tsx", import.meta.url), "utf8");
+  assert.ok(groups.includes("No rooms yet. Ask a member of a room for an invite."));
+});
