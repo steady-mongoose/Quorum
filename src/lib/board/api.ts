@@ -33,10 +33,23 @@ function categoryIdsFrom(row: Record<string, unknown>, roomId: string): string[]
 
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
-  const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
-  const raw = typeof record.error === "string" && record.error ? record.error : fallback;
+  const record = json as {
+    error?: unknown;
+    message?: unknown;
+    stops?: unknown;
+    code?: unknown;
+    audience?: unknown;
+  };
+  const codeText = typeof record.error === "string" ? record.error : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  const raw = codeText || fallback;
   // "banned" stays a code so the board can swap in the barred-account sentence.
-  const error = raw === "banned" ? raw : userFacingError(raw, fallback);
+  const error =
+    (codeText === "mfa_required" || codeText === "mfa_step_up" || codeText === "mfa_locked") && message
+      ? message
+      : raw === "banned"
+        ? raw
+        : userFacingError(raw, fallback);
   const stops = Array.isArray(record.stops)
     ? record.stops
         .filter((item): item is string => typeof item === "string")
