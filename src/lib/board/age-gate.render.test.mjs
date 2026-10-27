@@ -36,6 +36,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AccountDoor } = await import("../../components/board/account-door.tsx");
+const { CONSENT_ERROR, CONSENT_LABEL } = await import("./consent.ts");
 const { ServerInvite } = await import("../../components/board/server-invite.tsx");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { AGE_INVITE_ERROR, AGE_INVITE_LABEL, AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } = await import("./age.ts");
@@ -135,8 +136,32 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
       act(() => {
         form.requestSubmit();
       });
+      // The consent box is also required and starts unticked.
+      assert.equal(sent.length, 0, String(width));
+      const consent = view.host.querySelector("#consent");
+      assert.ok(consent instanceof HTMLInputElement, String(width));
+      assert.equal(consent.checked, false);
+      const consentLabel = view.host.querySelector('label[for="consent"]');
+      assert.equal(consentLabel?.textContent, CONSENT_LABEL);
+      const links = [...(consentLabel?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
+      assert.deepEqual(links, ["/terms", "/privacy"]);
+      assert.match(consent.parentElement?.className ?? "", /min-h-\[44px\]/);
+      const consentError = view.host.querySelector("#consent-error");
+      assert.equal(consentError?.getAttribute("role"), "alert");
+      assert.equal(consentError?.textContent, CONSENT_ERROR);
+      assert.equal(consent.getAttribute("aria-invalid"), "true");
+      assert.equal(consent.getAttribute("aria-describedby"), "consent-error");
+      assert.equal(document.activeElement, consent);
+      act(() => {
+        consent.click();
+      });
+      assert.equal(view.host.querySelector("#consent-error"), null);
+      act(() => {
+        form.requestSubmit();
+      });
       assert.equal(sent.length, 1, String(width));
       assert.equal(sent[0].adult, true);
+      assert.equal(sent[0].consent, true);
       assert.equal(window.innerWidth, width);
     } finally {
       view.cleanup();

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { AGE_INVITE_ERROR, AGE_SIGNUP_ERROR, confirmedAdult } from "../../src/lib/board/age.ts";
+import { CONSENT_ERROR, LEGAL_VERSION, confirmedConsent } from "../../src/lib/board/consent.ts";
 import {
   FOUNDING_ADMIN,
   FOUNDING_ADMIN_NOTE,
@@ -176,6 +177,8 @@ export async function redeemInvite(
     headers: Headers;
     /** The new member confirms they are 18 or older. Required. */
     adult?: unknown;
+    /** The new member agrees to the Terms and Privacy Notice. Required. */
+    consent?: unknown;
   },
   createAccount: CreateAccount,
   signIn: SignIn,
@@ -189,6 +192,7 @@ export async function redeemInvite(
   if (!validPassword(input.password)) return fail(400, "Use a password of 8 to 128 characters.");
   if (!code) return fail(400, "Enter the invite code.", INVITE_INVALID);
   if (!confirmedAdult(input.adult)) return fail(400, AGE_SIGNUP_ERROR);
+  if (!confirmedConsent(input.consent)) return fail(400, CONSENT_ERROR);
 
   let reservedId = "";
   let invitedBy = "";
@@ -211,6 +215,11 @@ export async function redeemInvite(
       const invitedByName = inviter[0]?.name ?? "unknown";
       const account = await createAccount(tx, { name, email, password: input.password });
       await tx.query(`update "user" set age_confirmed_at = $2 where id = $1`, [account.id, now]);
+      await tx.query(
+        `insert into member_consent (id, user_id, kind, version, accepted_at)
+         values ($1, $2, 'terms_privacy', $3, $4)`,
+        [randomUUID(), account.id, LEGAL_VERSION, now],
+      );
       await tx.query(
         `insert into invite_redemption
          (id, invite_id, invited_user_id, invited_by_user_id, invited_name, invited_by_name)

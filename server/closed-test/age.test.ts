@@ -140,6 +140,7 @@ test("minting and signup are refused without the 18+ confirmation, and the times
         password: "correct-horse",
         code: minted.value.code,
         adult: true,
+        consent: true,
         headers,
       },
       createAccount,

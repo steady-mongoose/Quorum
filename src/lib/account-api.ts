@@ -26,6 +26,7 @@ export async function signUpWithInvite(input: {
   password: string;
   inviteCode: string;
   adult: boolean;
+  consent: boolean;
 }): Promise<AccountResult> {
   const response = await postJson("/api/signup", input);
   return parseAccountResult(response.status, response.json);

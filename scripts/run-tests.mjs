@@ -47,6 +47,7 @@ const appTests = [
   "server/closed-test/schema.test.ts",
   "server/closed-test/auth.integration.test.ts",
   "server/closed-test/age.test.ts",
+  "server/closed-test/consent.test.ts",
   "src/lib/board/age-gate.render.test.mjs",
   "server/media/limits.test.ts",
   "server/media/config.test.ts",

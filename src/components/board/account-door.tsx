@@ -8,6 +8,16 @@ import {
   inviteCodeError,
 } from "@/lib/board/invite-entry";
 import { AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } from "@/lib/board/age";
+import {
+  CONSENT_AND,
+  CONSENT_ERROR,
+  CONSENT_PRIVACY,
+  CONSENT_TERMS,
+  CONSENT_TEXT_AFTER,
+  CONSENT_TEXT_BEFORE,
+  PRIVACY_PATH,
+  TERMS_PATH,
+} from "@/lib/board/consent";
 import { useServerSession } from "@/lib/server-session-state";
 
 /** Account door. Shown only when the dedicated-box API answered. */
@@ -23,6 +33,9 @@ export function AccountDoor() {
   const [adult, setAdult] = useState(false);
   const [ageError, setAgeError] = useState(false);
   const ageRef = useRef<HTMLInputElement>(null);
+  const [consent, setConsent] = useState(false);
+  const [consentError, setConsentError] = useState(false);
+  const consentRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -48,13 +61,19 @@ export function AccountDoor() {
           ageRef.current?.focus();
           return;
         }
-        setCodeError(null);
         setAgeError(false);
+        if (mode === "sign-up" && !consent) {
+          setConsentError(true);
+          consentRef.current?.focus();
+          return;
+        }
+        setCodeError(null);
+        setConsentError(false);
         setPending(true);
         const run =
           mode === "sign-in"
             ? server.signIn({ email, password })
-            : server.signUp({ name, email, password, inviteCode: code, adult: true });
+            : server.signUp({ name, email, password, inviteCode: code, adult: true, consent: true });
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
@@ -141,6 +160,37 @@ export function AccountDoor() {
           {ageError ? (
             <p id="age-error" role="alert" className="text-sm text-danger">
               {AGE_SIGNUP_ERROR}
+            </p>
+          ) : null}
+          <div className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
+            <input
+              id="consent"
+              type="checkbox"
+              className="size-5 shrink-0"
+              ref={consentRef}
+              checked={consent}
+              aria-invalid={consentError ? true : undefined}
+              aria-describedby="consent-error"
+              onChange={(event) => {
+                setConsent(event.target.checked);
+                if (event.target.checked) setConsentError(false);
+              }}
+            />
+            <label htmlFor="consent">
+              {CONSENT_TEXT_BEFORE}
+              <a href={TERMS_PATH} target="_blank" rel="noopener" className="underline">
+                {CONSENT_TERMS}
+              </a>
+              {CONSENT_AND}
+              <a href={PRIVACY_PATH} target="_blank" rel="noopener" className="underline">
+                {CONSENT_PRIVACY}
+              </a>
+              {CONSENT_TEXT_AFTER}
+            </label>
+          </div>
+          {consentError ? (
+            <p id="consent-error" role="alert" className="text-sm text-danger">
+              {CONSENT_ERROR}
             </p>
           ) : null}
         </>

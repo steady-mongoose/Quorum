@@ -335,6 +335,7 @@ async function route(
         code: stringField(body, "inviteCode"),
         headers: request.headers,
         adult: body.adult,
+        consent: body.consent,
       },
       deps.createAccount,
       deps.signIn,

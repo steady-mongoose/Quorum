@@ -130,6 +130,7 @@ test("signup requires an invite, then a member can read who invited whom", async
           password: "correct-horse",
           inviteCode: "NOT-A-CODE",
           adult: true,
+          consent: true,
         }),
       }),
     );
@@ -170,6 +171,7 @@ test("signup requires an invite, then a member can read who invited whom", async
           password: "correct-horse",
           inviteCode: minted.value.code,
           adult: true,
+          consent: true,
         }),
       }),
     );
@@ -417,6 +419,7 @@ test("signup errors do not say whether the email is registered", async () => {
           password: "correct-horse",
           inviteCode: minted.value.code,
           adult: true,
+          consent: true,
         }),
       }),
     );
