@@ -1,4 +1,5 @@
 import type { Db } from "./db.ts";
+import { handleInviteTracker } from "./admin/invite-tracker-routes.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
 import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
@@ -18,14 +19,16 @@ import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
+  isAdmin,
   listInviteLog,
   mintInvite,
   redeemInvite,
   type CreateAccount,
   type SignIn,
 } from "./closed-test/store.ts";
+import { annotateAuthBody, enforceMfa, exportAccount, guardAdminView, handleMfa } from "./mfa/routes.ts";
 
-export type SessionUser = { id: string; name: string; email: string };
+export type SessionUser = { id: string; name: string; email: string; sessionId?: string };
 
 export type AppDeps = {
   db: Db;
@@ -317,6 +320,12 @@ async function route(
     });
   }
 
+  // Deny by default: every route except the sign-in, sign-up, sign-out,
+  // session read and the /api/mfa steps waits on the second factor. This
+  // runs before the auth forward, DMs and invites so none of them skip it.
+  const mfaBlocked = await enforceMfa(deps, request, url);
+  if (mfaBlocked) return mfaBlocked;
+
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
     const text = await readBody(request);
     let email = "";
@@ -335,7 +344,13 @@ async function route(
     );
     if (blocked) return blocked;
     if (parseError) throw parseError;
-    return deps.forwardAuth(replay(request, text));
+    const forwarded = await deps.forwardAuth(replay(request, text));
+    return annotateAuthBody(deps, forwarded, "sign-in");
+  }
+
+  if (url.pathname === "/api/auth/get-session" && request.method === "GET") {
+    const forwarded = await deps.forwardAuth(request);
+    return annotateAuthBody(deps, forwarded, "session", request.headers);
   }
 
   if (url.pathname.startsWith("/api/auth/")) {
@@ -379,7 +394,7 @@ async function route(
         result.code ? { error: result.error, code: result.code } : { error: result.error },
       );
     }
-    if (result.value.user.response) return result.value.user.response;
+    if (result.value.user.response) return annotateAuthBody(deps, result.value.user.response, "sign-in");
     return json(200, {
       user: {
         id: result.value.user.id,
@@ -438,12 +453,25 @@ async function route(
     if (!session) return json(401, { error: "Sign in first." });
     const ban = await openBan(deps.db, session.id, deps.now());
     if (ban) return json(403, { error: "banned", ban });
+    if (await isAdmin(deps.db, session.id)) {
+      const blocked = await guardAdminView(deps, session);
+      if (blocked) return blocked;
+    }
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
   if (url.pathname.startsWith("/api/dm")) {
     const response = await handleDm(deps, request, url);
     if (response) return response;
+  }
+
+  if (url.pathname.startsWith("/api/mfa")) {
+    const mfaResponse = await handleMfa(deps, request, url);
+    if (mfaResponse) return mfaResponse;
+  }
+
+  if (url.pathname === "/api/admin/export" && request.method === "GET") {
+    return exportAccount(deps, request);
   }
 
   const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
@@ -487,6 +515,9 @@ async function route(
 
   const chat = await handleRoomChat(deps, request, url);
   if (chat) return chat;
+
+  const inviteTracker = await handleInviteTracker(deps, request, url);
+  if (inviteTracker) return inviteTracker;
 
   const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;

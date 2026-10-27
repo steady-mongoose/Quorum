@@ -255,8 +255,11 @@ test("members exchange one offer, and someone outside the room cannot read it", 
 
     const down = handler(
       {
-        query: async () => {
-          throw new Error("relation room_member does not exist");
+        query: async (sql, params) => {
+          if (String(sql).toLowerCase().includes("room_member")) {
+            throw new Error("relation room_member does not exist");
+          }
+          return db.query(sql, params);
         },
         transaction: async (fn) => fn(db),
       },

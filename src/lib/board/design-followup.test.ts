@@ -223,3 +223,11 @@ test("the composer announces one error and ignores a second click", () => {
   );
   assert.equal(fieldError.includes("role="), false);
 });
+
+test("the authenticator banner is not covered by the hero at 390px", () => {
+  const backgrounds = source("../../../public/backgrounds.css");
+  assert.match(backgrounds, /\.mfa-banner\{position:relative;z-index:2\}/);
+  assert.match(backgrounds, /\.mfa-banner ~ \* \.plate--hero\{margin-top:0\}/);
+  const app = source("../../components/board/app.tsx");
+  assert.match(app, /className="mfa-banner /);
+});
