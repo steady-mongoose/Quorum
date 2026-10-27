@@ -27,7 +27,7 @@ test("About's invite code has a labelled 44px Copy button with a fallback", () =
   assert.match(source, /id=\{INVITE_HASH\}/);
 
   assert.match(source, /<h2 ref=\{heading\} tabIndex=\{-1\}/);
-  assert.match(source, /landOnInvite\(window, heading\.current\)[\s\S]*watchInviteHash\(window, land\)/);
+  assert.match(source, /landOnInvite\(window, \(\) => heading\.current\)[\s\S]*watchInviteHash\(window, land\)/);
   assert.match(source, /role="status"/);
   assert.match(source, /navigator\.clipboard/);
   assert.match(source, /selectNodeContents/);
@@ -64,27 +64,62 @@ test("arriving on #invite at first load opens About", () => {
 
 import { landOnInvite } from "./invite-hash.ts";
 
-test("after landing, the hash is cleared and a back/forward without it does not move focus", () => {
-  const location = { pathname: "/", search: "?x=1", hash: "#invite" };
+function fakeWin(hash: string) {
+  const location = { pathname: "/", search: "?x=1", hash };
   const calls: string[] = [];
+  const frames: (() => void)[] = [];
+  const order: string[] = [];
   const win = Object.assign(new EventTarget(), {
     location,
+    requestAnimationFrame(cb: () => void) {
+      frames.push(cb);
+      return frames.length;
+    },
     history: {
       state: { key: "k" },
       replaceState(state: unknown, _title: string, url: string) {
         calls.push(`replace ${url} ${JSON.stringify(state)}`);
+        order.push("clear");
         location.hash = "";
       },
     },
   });
+  const flush = () => {
+    while (frames.length) frames.shift()!();
+  };
+  return { win, location, calls, order, flush };
+}
+
+test("fresh load on #invite: heading is focused before the hash is cleared", () => {
+  const { win, location, calls, order, flush } = fakeWin("#invite");
   let focused = 0;
-  const heading = { focus: () => (focused += 1), scrollIntoView: () => {} };
-  const stop = watchInviteHash(win, () => landOnInvite(win, heading));
+  const heading = { focus: () => (focused += 1, order.push("focus")), scrollIntoView: () => {} };
+  const stop = watchInviteHash(win, () => landOnInvite(win, () => heading));
+  assert.equal(location.hash, "#invite", "hash is not cleared before focus runs");
+  flush();
   assert.equal(focused, 1);
+  assert.deepEqual(order, ["focus", "clear"]);
   assert.deepEqual(calls, ['replace /?x=1 {"key":"k"}']);
-  assert.equal(location.hash, "");
   win.dispatchEvent(new Event("popstate"));
   win.dispatchEvent(new Event("hashchange"));
+  flush();
+  assert.equal(focused, 1, "back/forward without #invite does not move focus");
+  stop();
+});
+
+test("in-app link: waits for the heading to mount, focuses it, then clears the hash", () => {
+  const { win, location, order, flush } = fakeWin("");
+  let mounted: { focus: () => void; scrollIntoView: () => void } | null = null;
+  let focused = 0;
+  const stop = watchInviteHash(win, () => landOnInvite(win, () => mounted));
+  location.hash = "#invite";
+  win.dispatchEvent(new Event("hashchange"));
+  // First frames: heading not mounted yet, nothing cleared.
+  assert.equal(location.hash, "#invite");
+  mounted = { focus: () => (focused += 1, order.push("focus")), scrollIntoView: () => {} };
+  flush();
   assert.equal(focused, 1);
+  assert.deepEqual(order, ["focus", "clear"]);
+  assert.equal(location.hash, "");
   stop();
 });

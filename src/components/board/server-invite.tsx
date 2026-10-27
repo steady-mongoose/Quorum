@@ -33,7 +33,7 @@ export function ServerInvite() {
   // Arriving at /about#invite (from Find) lands focus on this section's heading.
   useEffect(() => {
     if (!live || typeof window === "undefined") return;
-    const land = () => landOnInvite(window, heading.current);
+    const land = () => landOnInvite(window, () => heading.current);
     // The router sets the hash with pushState, which fires no hashchange; look again next tick.
     let stop = watchInviteHash(window, land);
     const later = window.setTimeout(() => {
