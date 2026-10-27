@@ -1,8 +1,10 @@
 import { openBan } from "../board/store.ts";
+import { closeDmReport, fileDmReport, listDmReports } from "./reports.ts";
 import type { AppDeps } from "../http.ts";
 import {
   DM_BUNDLE_LIMIT,
   DM_BUNDLE_TARGET_LIMIT,
+  DM_REPORT_LIMIT,
   DM_SEND_LIMIT,
   consumeLimit,
 } from "../rate-limit.ts";
@@ -179,6 +181,8 @@ function backupOf(
   };
 }
 
+export const ADMIN_DM_REPORTS = "/api/admin/dm-reports";
+
 /**
  * Private-message routes. Returns null when the path is not under /api/dm,
  * so the rest of the API can keep going.
@@ -188,7 +192,7 @@ export async function handleDm(
   request: Request,
   url: URL,
 ): Promise<Response | null> {
-  if (!url.pathname.startsWith("/api/dm")) return null;
+  if (!url.pathname.startsWith("/api/dm") && !url.pathname.startsWith(ADMIN_DM_REPORTS)) return null;
   const session = await deps.readSession(request.headers);
   if (!session) return json(401, { error: "Sign in first." });
   const ban = await openBan(deps.db, session.id, deps.now());
@@ -214,6 +218,42 @@ async function dispatch(
 ): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
+
+  const reportOne = path.match(/^\/api\/dm\/messages\/([^/]+)\/report$/);
+  if (reportOne && method === "POST") {
+    const limit = await consumeLimit(deps.db, `dm-report:${userId}`, DM_REPORT_LIMIT, deps.now().getTime());
+    if (!limit.allowed) return tooMany(limit.retryAfter);
+    const body = await readJson(request);
+    const saved = await fileDmReport(deps.db, {
+      userId,
+      messageId: decodeURIComponent(reportOne[1]),
+      reason: body.reason,
+      note: body.note,
+      sharedText: body.sharedText,
+      now: deps.now(),
+    });
+    if (!saved.ok) return json(saved.status, { error: saved.error });
+    return json(201, saved.value);
+  }
+  // The admin queue lives under /api/admin so the member /api/dm wildcard in the
+  // MFA policy never covers it: an admin needs an authenticator to use it.
+  if (path === ADMIN_DM_REPORTS && method === "GET") {
+    const listed = await listDmReports(deps.db, { userId, now: deps.now() });
+    if (!listed.ok) return json(listed.status, { error: listed.error });
+    return json(200, { reports: listed.value });
+  }
+  const closeOne = path.match(/^\/api\/admin\/dm-reports\/([^/]+)\/close$/);
+  if (closeOne && method === "POST") {
+    const body = await readJson(request);
+    const closed = await closeDmReport(deps.db, {
+      userId,
+      reportId: decodeURIComponent(closeOne[1]),
+      resolution: body.resolution,
+      now: deps.now(),
+    });
+    if (!closed.ok) return json(closed.status, { error: closed.error });
+    return json(200, { ok: true });
+  }
 
   if (path === "/api/dm/devices" && method === "GET") {
     return json(200, { devices: await listOwnDevices(deps.db, userId) });

@@ -127,6 +127,10 @@ test("only a signed-in member can join, and an admin who has not stood there can
       error: "You have not stood in that room.",
       record: false,
     });
+    assert.equal(
+      seen.queries.some((sql) => sql.toLowerCase().includes("member_active_days")),
+      false,
+    );
 
     const logs: string[] = [];
     const original = console.log;
@@ -169,6 +173,7 @@ test("only a signed-in member can join, and an admin who has not stood there can
     const roomWrites = seen.queries.filter((sql) => {
       const lower = sql.toLowerCase();
       if (lower.includes("ratelimit")) return false;
+      if (lower.includes("member_active_days") || lower.includes("stats_daily")) return false;
       return !lower.trim().startsWith("select");
     });
     assert.deepEqual(roomWrites, []);
@@ -250,8 +255,11 @@ test("members exchange one offer, and someone outside the room cannot read it", 
 
     const down = handler(
       {
-        query: async () => {
-          throw new Error("relation room_member does not exist");
+        query: async (sql, params) => {
+          if (String(sql).toLowerCase().includes("room_member")) {
+            throw new Error("relation room_member does not exist");
+          }
+          return db.query(sql, params);
         },
         transaction: async (fn) => fn(db),
       },

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { firstSteward } from "./test-stewards.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -12,7 +13,7 @@ import {
 } from "../closed-test/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import type { GenderPolicy } from "../gender-policy.ts";
+import { GENDER_CORRECTION_ERROR, type GenderPolicy } from "../gender-policy.ts";
 import {
   confirmMemberGender,
   guardRoomAudience,
@@ -174,7 +175,7 @@ test("a restricted room is enforced on every path, and a steward override is log
     }
     await grant(db, josh, "Josh", "admin");
     await grant(db, ida, "Ida", "admin");
-    await grant(db, helen, "Helen", "steward", "bench");
+    // Helen is seated as the bench steward when the room is made.
 
     for (const [id, gender] of [
       [josh, "man"],
@@ -189,6 +190,9 @@ test("a restricted room is enforced on every path, and a steward override is log
     }
 
     const created = await createRoom(db, {
+      ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
+      stewardEmail: "helen@example.com",
+      inviterEmail: "adam@example.com",
       userId: josh,
       id: "bench",
       name: "The bench",
@@ -506,35 +510,32 @@ test("a restricted room is enforced on every path, and a steward override is log
 
     const second = refusal(await setMemberGender(db, { actorUserId: adam, subjectUserId: adam, gender: "woman", now }));
     assert.equal(second.status, 403);
-    assert.equal(second.error, "You cannot change this yourself.");
+    assert.equal(second.error, GENDER_CORRECTION_ERROR);
     const stewardChange = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: adam, gender: "woman", now }),
     );
     assert.equal(stewardChange.status, 403);
-    assert.equal(stewardChange.error, "An admin changes this after it is set.");
+    assert.equal(stewardChange.error, GENDER_CORRECTION_ERROR);
     const stewardSelf = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: helen, gender: "man", now }),
     );
     assert.equal(stewardSelf.status, 403);
-    assert.equal(stewardSelf.error, "You cannot change this yourself.");
+    assert.equal(stewardSelf.error, GENDER_CORRECTION_ERROR);
     const adminSelf = refusal(
       await setMemberGender(db, { actorUserId: josh, subjectUserId: josh, gender: "woman", now }),
     );
     assert.equal(adminSelf.status, 403);
-    assert.equal(adminSelf.error, "You cannot change this yourself.");
-    const changed = await setMemberGender(db, {
-      actorUserId: josh,
-      subjectUserId: adam,
-      gender: "woman",
-      now,
-    });
-    assert.equal(changed.ok, true);
-    const changeAudit = await db.query<{ action: string; detail: string; subject_user_id: string }>(
-      `select action, detail, subject_user_id from gender_audit where action = 'change-gender'`,
+    assert.equal(adminSelf.error, GENDER_CORRECTION_ERROR);
+    const adminEdit = refusal(
+      await setMemberGender(db, { actorUserId: josh, subjectUserId: adam, gender: "woman", now }),
     );
-    assert.equal(changeAudit.length, 1);
-    assert.equal(changeAudit[0]?.subject_user_id, adam);
-    assert.equal(changeAudit[0]?.detail, "man -> woman");
+    assert.equal(adminEdit.status, 403);
+    assert.equal(adminEdit.error, GENDER_CORRECTION_ERROR);
+    const changeAudit = await db.query(`select 1 from gender_audit where action = 'change-gender'`);
+    assert.equal(changeAudit.length, 0);
+    // The rest of this test needs Adam recorded as a woman. There is no app path for that now,
+    // so the row is written directly, as an operator correction would be.
+    await db.query(`update members set gender = 'woman' where user_id = $1`, [adam]);
     const revised = refusal(
       await revisePost(db, {
         userId: adam,
@@ -603,6 +604,7 @@ test("an inviter can set a gender, and confirmation is required only when the po
       [randomUUID(), invitee, inviter],
     );
     const room = await createRoom(db, {
+      ...(await firstSteward(db, inviter, new Date("2026-10-01T00:00:00Z"))),
       userId: inviter,
       id: "brothers",
       name: "Brothers",
@@ -762,10 +764,12 @@ test("naming an email is the same refusal when the caller cannot change a gender
     assert.equal(known.status, 403);
     assert.equal(unknown.status, 403);
     assert.deepEqual(await known.json(), await unknown.json());
-    const missing = await post(admin, "nobody@example.com");
-    assert.equal(missing.status, 404);
-    const body = (await missing.json()) as { error?: string };
-    assert.equal(body.error, "No member has that email.");
+    // An admin can no longer name another member's gender either.
+    const adminKnown = await post(admin, "other@example.com");
+    const adminMissing = await post(admin, "nobody@example.com");
+    assert.equal(adminKnown.status, 403);
+    assert.equal(adminMissing.status, 403);
+    assert.deepEqual(await adminKnown.json(), await adminMissing.json());
   } finally {
     await close();
   }
@@ -821,6 +825,7 @@ test("a group follows its room live, and a group with no source room can be set 
     assert.equal(opened.code, undefined);
 
     const room = await createRoom(db, {
+      ...(await firstSteward(db, admin, new Date("2026-10-01T00:00:00Z"))),
       userId: admin,
       id: "brothers",
       name: "Brothers",
@@ -884,6 +889,7 @@ test("a gathering in a restricted room is not created, read, shared, or attended
       true,
     );
     const room = await createRoom(db, {
+      ...(await firstSteward(db, man, new Date("2026-10-01T00:00:00Z"))),
       userId: man,
       id: "sisters",
       name: "Sisters",
@@ -976,7 +982,7 @@ test("deleting a member clears gender words from the audit", async () => {
       gender: "woman",
       now,
     });
-    assert.equal(changed.ok, true);
+    assert.equal(changed.ok, false);
     await db.query(`delete from "user" where id = $1`, [member]);
     const rows = await db.query<{ detail: string }>(
       `select detail from gender_audit where subject_user_id is null or actor_user_id = $1`,

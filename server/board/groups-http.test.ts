@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
@@ -27,6 +28,7 @@ function app(db: Db) {
           id,
           name: headers.get("x-user-name") ?? "Josh",
           email: headers.get("x-user-email") ?? "josh@example.com",
+          sessionId: headers.get("x-session-id") ?? undefined,
         };
       },
       forwardAuth: async () => new Response(null, { status: 500 }),
@@ -75,6 +77,7 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
       [randomUUID(), josh, stamp],
     );
     await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [maria]);
+    const joshSession = await trustAuthenticator(db, josh);
 
     const { handler, clock } = app(db);
     const ask = await handler(
@@ -105,7 +108,7 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
     const approved = await handler(
       new Request(`http://127.0.0.1:8787/api/group-requests/${asked.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh" },
+        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh", "x-session-id": joshSession },
         body: JSON.stringify({ decision: "approved", note: "Members asked for this group." }),
       }),
     );
@@ -131,7 +134,7 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
     await handler(
       new Request("http://127.0.0.1:8787/api/groups/beekeeping/join", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh" },
+        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh", "x-session-id": joshSession },
         body: "{}",
       }),
     );
@@ -139,7 +142,7 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
     const newer = await handler(
       new Request("http://127.0.0.1:8787/api/groups/beekeeping/posts", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh" },
+        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh", "x-session-id": joshSession },
         body: JSON.stringify({ body: "The Saturday pour is at the hall.", on: "" }),
       }),
     );
@@ -179,7 +182,7 @@ test("a group post is newest first over HTTP, with no likes or scores", async ()
     const refused = await handler(
       new Request("http://127.0.0.1:8787/api/groups/beekeeping/stewards", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh" },
+        headers: { "content-type": "application/json", "x-user-id": josh, "x-user-name": "Josh", "x-session-id": joshSession },
         body: JSON.stringify({ email: "maria@example.com", action: "grant" }),
       }),
     );

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "@tanstack/react-router";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import {
   btnGhost,
@@ -96,8 +97,8 @@ export function FindView() {
             <strong className="font-semibold text-fg">I'll be there</strong> for next time, or{" "}
             <strong className="font-semibold text-fg">I went</strong> after you have been. A meeting
             shows in the main list once two people have been to it, and drops off after it is missed
-            twice. If you host something, this is where you write it up afterwards and get invite
-            codes to hand out.
+            twice. If you host something, this is where you write it up afterwards. Invite codes are
+            made under More, on About.
           </p>
         </section>
 
@@ -197,7 +198,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
   if (!host || (!showError && !removal.removed)) return null;
   if (showError) {
     return createPortal(
-      <div className={cn(TOAST_CLASS, "border-danger text-danger")} role="alert" style={themeVars(themeById(OWNER_THEME))}>
+      <div
+        className={cn(TOAST_CLASS, "border-danger text-danger")}
+        role="alert"
+        style={themeVars(themeById(OWNER_THEME))}
+      >
         <p className="text-sm">{errorText}</p>
         <button
           type="button"
@@ -211,7 +216,8 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
             {appeals.map((row) => (
               <li key={row.id}>
                 Your {row.kind} appeal is{" "}
-                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}
+                .
               </li>
             ))}
           </ul>
@@ -221,7 +227,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
     );
   }
   return createPortal(
-    <div className={cn(TOAST_CLASS, "border-line text-muted")} role="status" style={themeVars(themeById(OWNER_THEME))}>
+    <div
+      className={cn(TOAST_CLASS, "border-line text-muted")}
+      role="status"
+      style={themeVars(themeById(OWNER_THEME))}
+    >
       <p className="text-sm">Removed {removal.removed.name}.</p>
       <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
         Undo
@@ -302,31 +312,25 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
 }
 
 /** A host's one-use code for one card. Shown once; the host hands it over however they like. */
-function InviteMaker({ cardId }: { cardId: string }) {
-  const createInvite = useBoard((state) => state.createInvite);
-  const [code, setCode] = useState<string | null>(null);
-  const { copied, failed, copy } = useCopy();
-  if (code) {
-    const label = copyStatus(copied, failed, code, "Copy code");
-    return (
-      <span className="inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm">
-        <span className="font-mono tracking-widest text-fg">{code}</span>
-        <button
-          type="button"
-          className={cn(btnQuiet, "px-1")}
-          onClick={() => copy(code, code)}
-          aria-label={label}
-        >
-          {label === "Copied" ? <CheckIcon className="size-4" /> : <Copy className="size-4" />}
-          {label === "Couldn't copy" ? label : null}
-        </button>
-      </span>
-    );
-  }
+/**
+ * Invite codes come from the server, under About ("Make a code"). This used to
+ * mint a code in the browser only, which the signup door rejected.
+ */
+function InviteNote() {
+  const setSection = useBoard((state) => state.setSection);
   return (
-    <button type="button" className={btnQuiet} onClick={() => setCode(createInvite(cardId))}>
-      Invite someone
-    </button>
+    <span className="text-sm text-muted">
+      To invite someone,{" "}
+      <Link
+        to="/"
+        hash="invite"
+        className="text-signal underline"
+        onClick={() => setSection("about")}
+      >
+        make a code on the About page
+      </Link>
+      .
+    </span>
   );
 }
 
@@ -393,7 +397,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
           {went ? "You've been" : "I went"}
         </button>
         <MessageHost card={card} {...rest} />
-        {isHost ? <InviteMaker cardId={card.id} /> : null}
+        {isHost ? <InviteNote /> : null}
         {(isHost || rest.steward) && shown ? (
           <button
             type="button"
@@ -610,9 +614,9 @@ function AddCard({ me }: { me: string }) {
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">List a card</h2>
       <p className="mt-1 text-sm text-muted">
-        You count as the first visit. It lists after a second person marks "I went." A trade lists
-        after two members name its work. A parish need is posted by whoever is organizing it, with
-        the family's say-so.
+        You count as the first visit. It shows to the room's members as soon as you save it, so they
+        can say they'll be there. A trade lists after two members name its work. A parish need is
+        posted by whoever is organizing it, with the family's say-so.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">

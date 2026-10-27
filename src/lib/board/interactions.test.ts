@@ -10,6 +10,7 @@ test("a shared gathering is the title, the date, the time, and the town", () => 
     name: "Saturday lifts, garage gym",
     place: "Dale's garage, Riverview",
     time: "Saturdays 7 a.m.",
+    town: "Riverview",
     next: "2026-10-24",
   });
   assert.equal(payload.title, "Saturday lifts, garage gym");
@@ -33,8 +34,18 @@ test("a street and the word address never become the town", () => {
     time: "Sunday school 9:00, worship 10:30",
     next: "2026-10-25",
   });
-  assert.equal(/1010|Blvd|Brandon Blvd/.test(street.text), false);
-  assert.match(street.text, /Brandon/);
+  assert.equal(/1010|Blvd/.test(street.text), false);
+  assert.match(street.text, /Sun, Oct 25, Sunday school 9:00, worship 10:30$/);
+  const scoped = gatheringShare({
+    id: "s-baptist",
+    name: "Grace Bible Church",
+    place: "1010 E Brandon Blvd, Brandon",
+    time: "10:30",
+    next: "2026-10-25",
+    town: "Brandon",
+  });
+  assert.equal(/1010|Blvd/.test(scoped.text), false);
+  assert.match(scoped.text, /Brandon$/);
   assert.equal(JSON.stringify(street).includes("INVITE"), false);
 });
 

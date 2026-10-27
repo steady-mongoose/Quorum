@@ -286,11 +286,13 @@ function RoomJoinRow({
 function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }) {
   const decideRoom = useBoard((state) => state.decideRoom);
   const [note, setNote] = useState("");
+  const [stewardEmail, setStewardEmail] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
   const [error, setError] = useState("");
 
   const decide = (decision: "approved" | "refused") => {
     setError("");
-    void decideRoom(request.id, { decision, note }).then((result) => {
+    void decideRoom(request.id, { decision, note, stewardEmail, inviterEmail }).then((result) => {
       if (!result.ok) setError(result.error ?? "That decision was not saved.");
     });
   };
@@ -313,11 +315,32 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
               onChange={(event) => setNote(event.target.value)}
             />
           </label>
+          <p className="text-sm text-muted">
+            To approve, name the room's first steward and the member who vouches for them.
+          </p>
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Steward email
+            <input
+              className={`${fieldClass} min-h-[44px]`}
+              type="email"
+              value={stewardEmail}
+              onChange={(event) => setStewardEmail(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm text-muted">
+            Email of the member who vouches for them
+            <input
+              className={`${fieldClass} min-h-[44px]`}
+              type="email"
+              value={inviterEmail}
+              onChange={(event) => setInviterEmail(event.target.value)}
+            />
+          </label>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={btnSignal} onClick={() => decide("approved")}>
+            <button type="button" className={`${btnSignal} min-h-[44px]`} onClick={() => decide("approved")}>
               Approve
             </button>
-            <button type="button" className={btnGhost} onClick={() => decide("refused")}>
+            <button type="button" className={`${btnGhost} min-h-[44px]`} onClick={() => decide("refused")}>
               Refuse
             </button>
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useNow, When } from "@/components/quorum/bits";
+import { ReportControl } from "@/components/board/report-control";
 import { cn } from "@/lib/cn";
 import {
   CHAT_POLL_MS,
@@ -10,20 +11,22 @@ import {
   sendRoomChat,
   type RoomChatMessage,
 } from "@/lib/board/chat";
+import { sendReport } from "@/lib/board/report-api";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
-import { RULE_LABEL, formatWhen, removalConfirm, type HardRule } from "@/lib/board/model";
+import { RULE_LABEL, formatWhen, itemActionName, removalConfirm, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
 const REMOVED_MESSAGE = "Removed. The author can appeal.";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+export const NOT_IN_ROOM = "You are not in this room.";
+export const JOINED_MESSAGE = "You joined this room.";
+
 /** A membership refusal closes the transcript. A steward refusal leaves it up. */
 function lostRoom(error: string): boolean {
   return (
-    error === "banned" ||
-    error === "You are not in this room." ||
-    error === "Only a member can read this room."
+    error === "banned" || error === NOT_IN_ROOM || error === "Only a member can read this room."
   );
 }
 
@@ -45,6 +48,8 @@ function mergeChat(
 
 /** One transcript per room. The server checks membership on every poll and every send. */
 export function RoomChat({ roomId }: { roomId: string }) {
+  const now = useNow();
+  const whenText = (at: number) => (now ? formatWhen(at, now.getTime()) : "");
   const remote = useBoard((state) => state.remote);
   const admin = useBoard((state) => state.admin);
   const stewardRooms = useBoard((state) => state.stewardRooms);
@@ -55,6 +60,16 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [joinTick, setJoinTick] = useState(0);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState("");
+  const [joinedNote, setJoinedNote] = useState("");
+  const composer = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    // After a join, the composer appears once the next poll lets the reader in.
+    if (joinedNote && !blocked && !note) composer.current?.focus();
+  }, [joinedNote, blocked, note]);
+  const joinRoom = useBoard((state) => state.joinRoom);
   const [removedNote, setRemovedNote] = useState("");
   const chatHeading = useRef<HTMLHeadingElement | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -102,7 +117,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [remote, roomId]);
+  }, [remote, roomId, joinTick]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "nearest" });
@@ -178,7 +193,42 @@ export function RoomChat({ roomId }: { roomId: string }) {
       <p className="max-w-prose text-sm text-muted">
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
-      {note ? <p className="text-sm text-danger">{note}</p> : null}
+      {note ? (
+        <p className="text-sm text-danger" role="status">
+          {note}
+        </p>
+      ) : null}
+      {note === NOT_IN_ROOM ? (
+        <button
+          type="button"
+          className={cn(btnSignal, "min-h-[44px] self-start")}
+          aria-disabled={joining}
+          onClick={() => {
+            if (joining) return;
+            setJoining(true);
+            setJoinError("");
+            void joinRoom(roomId).then((result) => {
+              setJoining(false);
+              if (!result.ok) {
+                setJoinError(result.error ?? "You were not added to this room. Try again.");
+                return;
+              }
+              setJoinedNote(JOINED_MESSAGE);
+              setJoinTick((tick) => tick + 1);
+            });
+          }}
+        >
+          {joining ? "Joining…" : "Join this room"}
+        </button>
+      ) : null}
+      {joinError ? (
+        <p className="text-sm text-danger" role="alert">
+          {joinError}
+        </p>
+      ) : null}
+      <p className="sr-only" role="status" aria-live="polite">
+        {joinedNote}
+      </p>
       {older ? (
         <button
           type="button"
@@ -225,6 +275,22 @@ export function RoomChat({ roomId }: { roomId: string }) {
             <p className="mt-1 text-xs text-muted">
               {message.author} · <When at={message.at} format={formatWhen} />
             </p>
+            {message.author !== me ? (
+              <div className="mt-2">
+                <ReportControl
+                  label={itemActionName("Report", "message", message.author, whenText(message.at), message.text)}
+                  onSubmit={(input) =>
+                    sendReport({
+                      roomId,
+                      subjectKind: "chat",
+                      subjectId: message.id,
+                      reason: input.reason,
+                      note: input.note,
+                    })
+                  }
+                />
+              </div>
+            ) : null}
             {canRemove ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {removing === message.id ? (
@@ -233,20 +299,21 @@ export function RoomChat({ roomId }: { roomId: string }) {
                       <button
                         key={rule}
                         type="button"
-                        className={btnGhost}
+                        className={cn(btnGhost, "min-h-[44px]")}
                         onClick={() => setConfirm({ id: message.id, rule })}
                       >
                         Remove: {RULE_LABEL[rule]}
                       </button>
                     ))}
-                    <button type="button" className={btnQuiet} onClick={() => setRemoving(null)}>
+                    <button type="button" className={cn(btnQuiet, "min-h-[44px]")} onClick={() => setRemoving(null)}>
                       Cancel
                     </button>
                   </>
                 ) : (
                   <button
                     type="button"
-                    className={cn(btnQuiet, "px-0")}
+                    className={cn(btnQuiet, "min-h-[44px] min-w-[44px] px-0")}
+                    aria-label={itemActionName("Remove", "message", message.author, whenText(message.at), message.text)}
                     onClick={() => setRemoving(message.id)}
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
@@ -302,6 +369,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
           }}
         >
           <input
+            ref={composer}
             className={fieldClass}
             value={text}
             placeholder="Write to the room"
