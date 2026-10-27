@@ -66,7 +66,7 @@ export function HomePanel() {
         <h3 className="text-lg text-fg sm:col-span-2">Your place</h3>
         <label className="flex flex-col gap-2 text-sm text-muted">
           ZIP
-          <input aria-label="ZIP"
+          <input
             className={fieldClass}
             inputMode="numeric"
             value={zip}
@@ -78,7 +78,7 @@ export function HomePanel() {
         </p>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Congregation
-          <select aria-label="Congregation"
+          <select
             className={fieldClass}
             value={congregationId}
             onChange={(event) => setCongregationId(event.target.value)}
@@ -126,7 +126,7 @@ export function HomePanel() {
           </p>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Kind
-            <select aria-label="Kind"
+            <select
               className={fieldClass}
               value={kind}
               onChange={(event) => setKind(event.target.value as typeof kind)}
@@ -138,7 +138,7 @@ export function HomePanel() {
           </label>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Name
-            <input aria-label="Name"
+            <input
               className={fieldClass}
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -146,7 +146,7 @@ export function HomePanel() {
           </label>
           <label className="flex flex-col gap-2 text-sm text-muted">
             State
-            <input aria-label="State"
+            <input
               className={fieldClass}
               value={stateCode}
               onChange={(event) => setStateCode(event.target.value)}
@@ -305,7 +305,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
         <div className="mt-3 flex flex-col gap-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             One sentence
-            <input aria-label="One sentence"
+            <input
               className={fieldClass}
               value={note}
               onChange={(event) => setNote(event.target.value)}

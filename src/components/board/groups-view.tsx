@@ -223,11 +223,11 @@ function RequestGroup({
         </p>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Name
-          <input aria-label="Name" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} />
+          <input className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           What it is
-          <textarea aria-label="What it is"
+          <textarea
             className={cn(fieldClass, "min-h-24")}
             value={about}
             onChange={(event) => setAbout(event.target.value)}
@@ -235,7 +235,7 @@ function RequestGroup({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Room
-          <select aria-label="Room"
+          <select
             className={fieldClass}
             value={roomId}
             onChange={(event) => setRoomId(event.target.value)}
@@ -320,7 +320,7 @@ function RequestRow({
         >
           <label className="flex flex-col gap-2 text-sm text-muted">
             Decision note
-            <input aria-label="Decision note" className={fieldClass} value={note} onChange={(event) => setNote(event.target.value)} />
+            <input className={fieldClass} value={note} onChange={(event) => setNote(event.target.value)} />
           </label>
           <FormAlert message={error} />
           <div className="flex flex-wrap gap-2">
@@ -447,7 +447,7 @@ function GroupDetailView({
             <form className="flex max-w-xl flex-col gap-3" onSubmit={(event) => void publish(event)}>
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Post
-                <textarea aria-label="Post"
+                <textarea
                   className={cn(fieldClass, "min-h-24")}
                   value={body}
                   onChange={(event) => setBody(event.target.value)}
@@ -455,7 +455,7 @@ function GroupDetailView({
               </label>
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Date, if there is one
-                <input aria-label="Date, if there is one"
+                <input
                   type="date"
                   className={cn(fieldClass, "max-w-xs")}
                   value={on}
@@ -571,7 +571,7 @@ function PostRow({
         <form className="flex flex-col gap-2" onSubmit={(event) => void sendAppeal(event)}>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Why this should be lifted
-            <textarea aria-label="Why this should be lifted"
+            <textarea
               className={cn(fieldClass, "min-h-20")}
               value={appeal}
               onChange={(event) => setAppeal(event.target.value)}
@@ -593,7 +593,7 @@ function PostRow({
           >
             <label className="flex flex-col gap-2 text-sm text-muted">
               Why this mark
-              <input aria-label="Why this mark"
+              <input
                 className={fieldClass}
                 value={sentence}
                 onChange={(event) => setSentence(event.target.value)}
@@ -704,7 +704,7 @@ function RemovalRow({ removal, onChanged }: { removal: GroupRemovalRow; onChange
       >
         <label className="flex flex-col gap-2 text-sm text-muted">
           Why this should be lifted
-          <textarea aria-label="Why this should be lifted"
+          <textarea
             className={cn(fieldClass, "min-h-20")}
             value={appeal}
             onChange={(event) => setAppeal(event.target.value)}

@@ -11,10 +11,16 @@ test("every text field on Home, Groups, and About has an accessible name", () =>
     "src/components/board/about-view.tsx",
   ]) {
     const source = read(path);
-    const controls = source.match(/<(input|select|textarea)\b[\s\S]*?(\/>|\n\s*>)/g) ?? [];
-    for (const control of controls) {
+    for (const found of source.matchAll(/<(input|select|textarea)\b[\s\S]*?(\/>|\n\s*>)/g)) {
+      const control = found[0];
       if (/type="(checkbox|radio|hidden)"/.test(control)) continue;
-      assert.match(control, /aria-label|aria-labelledby|\bid=/, `${path}: ${control.slice(0, 80)}`);
+      const before = source.slice(0, found.index);
+      const insideLabel = before.lastIndexOf("<label") > before.lastIndexOf("</label>");
+      assert.ok(
+        insideLabel || /aria-label|aria-labelledby|\bid=/.test(control),
+        `${path}: ${control.slice(0, 80)}`,
+      );
+      if (insideLabel) assert.doesNotMatch(control, /aria-label="/, `duplicate name: ${control.slice(0, 80)}`);
     }
   }
 });
@@ -41,4 +47,8 @@ test("a room you are not in offers a Join button", () => {
   assert.match(source, /composer\.current\?\.focus\(\)/);
   assert.match(source, /\{joinError\}/);
   assert.match(source, /role="alert"/);
+});
+
+test("the room field is labeled Room", () => {
+  assert.doesNotMatch(read("src/components/board/about-view.tsx"), /Room id/);
 });

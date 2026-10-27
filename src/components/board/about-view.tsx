@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { useCategories } from "@/components/board/use-categories";
+import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
@@ -227,7 +229,7 @@ export function AboutView() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             Your name, as it appears on your posts
-            <input aria-label="Your name, as it appears on your posts"
+            <input
               className={fieldClass}
               value={me}
               placeholder="Your name"
@@ -414,7 +416,7 @@ function RemovalAppeal({
   return (
     <label className="mt-2 flex flex-col gap-2">
       One sentence to the stewards
-      <input aria-label="One sentence to the stewards"
+      <input
         className={fieldClass}
         value={reason}
         onChange={(event) => {
@@ -517,7 +519,7 @@ function RoleTools({
             <RoomField value={fields.roomId} onChange={fields.setRoomId} />
             <label className="flex flex-col gap-2 text-sm text-muted">
               Inviter email
-              <input aria-label="Inviter email"
+              <input
                 className={fieldClass}
                 value={fields.inviterEmail}
                 onChange={(event) => fields.setInviterEmail(event.target.value)}
@@ -544,7 +546,7 @@ function RoleTools({
               <EmailField value={fields.email} onChange={fields.setEmail} />
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Steward email
-                <input aria-label="Steward email"
+                <input
                   className={fieldClass}
                   value={fields.stewardEmail}
                   onChange={(event) => fields.setStewardEmail(event.target.value)}
@@ -563,7 +565,11 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input aria-label="Member email" className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -571,8 +577,12 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
 function RoomField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
-      Room id
-      <input aria-label="Room id" className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      Room
+      <input
+        className={fieldClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
@@ -674,7 +684,16 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
+  return {
+    email,
+    setEmail,
+    roomId,
+    setRoomId,
+    inviterEmail,
+    setInviterEmail,
+    stewardEmail,
+    setStewardEmail,
+  };
 }
 
 function RevokeRole({
@@ -719,7 +738,7 @@ function RevokeRole({
         <RoomField value={roomId} onChange={setRoomId} />
         <label className="flex flex-col gap-2 text-sm text-muted">
           Role to revoke
-          <select aria-label="Role to revoke"
+          <select
             className={cn(fieldClass, "min-h-[44px]")}
             value={role}
             onChange={(event) => setRole(event.target.value as NonNullable<AccessInput["role"]>)}
@@ -768,6 +787,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
+    categoryIds: string[];
     audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
@@ -776,6 +796,8 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const categories = browseCategories(useCategories(), false);
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
@@ -794,8 +816,8 @@ function AdminTools({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Room id
-          <input aria-label="Room id"
+          Room
+          <input
             className={fieldClass}
             value={id}
             placeholder="woodshop"
@@ -804,7 +826,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Name
-          <input aria-label="Name"
+          <input
             className={fieldClass}
             value={name}
             placeholder="Woodshop"
@@ -813,12 +835,38 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
           What it is for
-          <input aria-label="What it is for"
+          <input
             className={fieldClass}
             value={what}
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <fieldset className="flex flex-col gap-1 sm:col-span-2">
+          <legend className="text-sm text-muted">Categories</legend>
+          {categories.map((category) => {
+            const checked = categoryIds.includes(category.slug);
+            return (
+              <label
+                key={category.slug}
+                className="inline-flex min-h-[44px] items-center gap-2 text-sm text-fg"
+              >
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  checked={checked}
+                  onChange={() => {
+                    setCategoryIds(
+                      checked
+                        ? categoryIds.filter((slug) => slug !== category.slug)
+                        : [...categoryIds, category.slug],
+                    );
+                  }}
+                />
+                {category.name}
+              </label>
+            );
+          })}
+        </fieldset>
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
@@ -833,12 +881,17 @@ function AdminTools({
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what, audience }).then((result) => {
+          if (categoryIds.length === 0) {
+            setRoomError("Choose a category.");
+            return;
+          }
+          void createRoom({ id, name, what, categoryIds, audience }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
+              setCategoryIds([]);
               setAudience("all");
             }
           });
@@ -854,7 +907,7 @@ function AdminTools({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           ZIP to correct
-          <input aria-label="ZIP to correct"
+          <input
             className={fieldClass}
             value={zip}
             onChange={(event) => setZip(event.target.value)}
@@ -862,7 +915,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Town
-          <input aria-label="Town"
+          <input
             className={fieldClass}
             value={town}
             onChange={(event) => setTown(event.target.value)}
@@ -870,7 +923,7 @@ function AdminTools({
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
           State
-          <input aria-label="State"
+          <input
             className={fieldClass}
             value={stateCode}
             placeholder="FL"
