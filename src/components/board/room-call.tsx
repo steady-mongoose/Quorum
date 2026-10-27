@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { CAMERA_DENIED, MIC_DENIED, liveLine, openMedia } from "@/lib/calls/media";
 import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { userFacingError } from "@/lib/user-facing-error";
@@ -168,18 +169,6 @@ function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
   node.srcObject = stream;
 }
 
-async function openMicAndCamera(): Promise<MediaStream> {
-  const audio = { echoCancellation: true, noiseSuppression: true };
-  try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio,
-      video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } },
-    });
-  } catch {
-    return navigator.mediaDevices.getUserMedia({ audio, video: false });
-  }
-}
-
 export type CallPanelProps = {
   callKey: string;
   basePath: string;
@@ -188,6 +177,8 @@ export type CallPanelProps = {
   note: string;
   joinLabel: string;
   extra?: ReactNode;
+  /** Shown before joining, e.g. Close on the DM panel. */
+  onClose?: () => void;
 };
 
 export function CallPanel({
@@ -198,11 +189,17 @@ export function CallPanel({
   note,
   joinLabel,
   extra,
+  onClose,
 }: CallPanelProps) {
   const [phase, setPhase] = useState<"idle" | "joining" | "live">("idle");
   const [error, setError] = useState("");
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [notice, setNotice] = useState("");
+  const muteRef = useRef<HTMLButtonElement | null>(null);
+  const joinRef = useRef<HTMLButtonElement | null>(null);
+  const focusJoin = useRef(false);
   const [remotes, setRemotes] = useState<RemotePeer[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const sessionRef = useRef<RoomCallSession | null>(null);
@@ -225,7 +222,16 @@ export function CallPanel({
     };
   }, [callKey]);
 
+  useEffect(() => {
+    if (phase === "live") muteRef.current?.focus();
+    if (phase === "idle" && focusJoin.current) {
+      focusJoin.current = false;
+      joinRef.current?.focus();
+    }
+  }, [phase]);
+
   const leave = () => {
+    focusJoin.current = true;
     sessionRef.current?.close();
     sessionRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -234,19 +240,24 @@ export function CallPanel({
     setPhase("idle");
     setMicOn(true);
     setCameraOn(true);
+    setCameraDenied(false);
+    setNotice("");
   };
 
   const join = async () => {
     setError("");
+    setNotice("");
     setPhase("joining");
-    let stream: MediaStream;
-    try {
-      stream = await openMicAndCamera();
-    } catch {
+    const opened = await openMedia((c) => navigator.mediaDevices.getUserMedia(c));
+    if (!opened) {
       setPhase("idle");
-      setError("The browser did not get permission to use the microphone.");
+      setError(MIC_DENIED);
       return;
     }
+    const stream = opened.stream;
+    setCameraDenied(opened.cameraDenied);
+    setCameraOn(!opened.cameraDenied);
+    if (opened.cameraDenied) setNotice(CAMERA_DENIED);
     remember(stream);
     if (!alive.current) {
       stream.getTracks().forEach((track) => track.stop());
@@ -286,6 +297,7 @@ export function CallPanel({
       localStream: stream,
       onPeers: (peers) => setRemotes(peers),
       onStopped: (message) => {
+        focusJoin.current = true;
         stream.getTracks().forEach((track) => track.stop());
         remember(null);
         sessionRef.current = null;
@@ -327,9 +339,14 @@ export function CallPanel({
       aria-label={label}
     >
       <p className="text-sm text-muted">{note}</p>
-      <p className="sr-only" role="status">
-        {phase === "live" ? "You're in the call." : phase === "joining" ? "Joining the call." : ""}
+      <p className="text-sm text-muted" role="status" aria-live="polite">
+        {phase === "live"
+          ? liveLine(micOn, cameraOn)
+          : phase === "joining"
+            ? "Joining the call."
+            : ""}
       </p>
+      {notice ? <p className="text-sm text-fg">{notice}</p> : null}
       {error ? (
         <p className="text-sm text-danger" role="alert">
           {error}
@@ -337,23 +354,25 @@ export function CallPanel({
       ) : null}
       {phase === "live" ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <figure className="flex flex-col gap-2">
-            <video
-              ref={(node) => bindStream(node, localStream)}
-              autoPlay
-              playsInline
-              muted
-              className="aspect-video w-full rounded-md bg-fg/10 object-cover"
-            />
-            <figcaption className="text-sm text-muted">You</figcaption>
-          </figure>
+          {cameraOn ? (
+            <figure className="flex flex-col gap-2">
+              <video
+                ref={(node) => bindStream(node, localStream)}
+                autoPlay
+                playsInline
+                muted
+                className="aspect-video w-full -scale-x-100 rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
+              />
+              <figcaption className="text-sm text-muted">You</figcaption>
+            </figure>
+          ) : null}
           {remotes.map((peer) => (
             <figure key={peer.id} className="flex flex-col gap-2">
               <video
                 ref={(node) => bindStream(node, peer.stream as MediaStream | null)}
                 autoPlay
                 playsInline
-                className="aspect-video w-full rounded-md bg-fg/10 object-cover"
+                className="aspect-video w-full rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
                 aria-label={peer.name}
               />
               <figcaption className="text-sm text-muted">
@@ -368,6 +387,7 @@ export function CallPanel({
         {phase === "live" ? (
           <>
             <button
+              ref={muteRef}
               type="button"
               className={cn(btnGhost, "min-h-[44px]")}
               aria-pressed={!micOn}
@@ -378,12 +398,13 @@ export function CallPanel({
               ) : (
                 <MicOff className="size-4" aria-hidden="true" />
               )}
-              {micOn ? "Mute" : "Unmute"}
+              Mute
             </button>
             <button
               type="button"
               className={cn(btnGhost, "min-h-[44px]")}
               aria-pressed={!cameraOn}
+              disabled={cameraDenied}
               onClick={() => toggle("video")}
             >
               {cameraOn ? (
@@ -391,7 +412,7 @@ export function CallPanel({
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              {cameraOn ? "Camera off" : "Camera on"}
+              Turn camera off
             </button>
             <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />
@@ -399,15 +420,23 @@ export function CallPanel({
             </button>
           </>
         ) : (
-          <button
-            type="button"
-            className={cn(btnSignal, "min-h-[44px]")}
-            onClick={() => void join()}
-            disabled={phase === "joining"}
-          >
-            <Video className="size-4" aria-hidden="true" />
-            {phase === "joining" ? "Joining" : joinLabel}
-          </button>
+          <>
+            <button
+              ref={joinRef}
+              type="button"
+              className={cn(btnSignal, "min-h-[44px]")}
+              onClick={() => void join()}
+              disabled={phase === "joining"}
+            >
+              <Video className="size-4" aria-hidden="true" />
+              {phase === "joining" ? "Joining" : joinLabel}
+            </button>
+            {onClose && phase === "idle" ? (
+              <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={onClose}>
+                Close
+              </button>
+            ) : null}
+          </>
         )}
       </div>
       {phase === "live" ? extra : null}

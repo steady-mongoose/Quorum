@@ -140,7 +140,36 @@ test("the larger id offers, the smaller id answers, and neither records", async 
     createConnection: () => new FakeConnection(),
   });
   await wary.pollOnce();
-  assert.match(stopped, /not recorded/);
+  assert.equal(
+    stopped,
+    "This call tried to start recording, so you left it. Avouch calls are never recorded.",
+  );
+  let stoppedOdd = "";
+  const odd = new RoomCallSession({
+    roomId: "shop",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onStopped: (message) => {
+      stoppedOdd = message;
+    },
+    request: async (path) => {
+      if (path.endsWith("/leave")) return { status: 200, body: { ok: true, record: false } };
+      return {
+        status: 200,
+        body: {
+          peers: [],
+          signals: [{ id: 1, from: "bob", kind: "offer", payload: { type: "offer", sdp } }],
+          cursor: 1,
+        },
+      };
+    },
+    createConnection: () => new FakeConnection(),
+  });
+  await odd.pollOnce();
+  assert.doesNotMatch(stoppedOdd, /recording/);
+  assert.match(stoppedOdd, /couldn't read/);
   ada.close();
   bob.close();
 });

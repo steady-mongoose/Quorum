@@ -1,8 +1,10 @@
 import { apiFetch } from "../api-base.ts";
+import { MALFORMED_LEFT, RECORDING_LEFT } from "./media.ts";
 import { ignoreRemoteOffer, isPolitePeer, needsRollback } from "./negotiate.ts";
 import {
   parseCallJoin,
   parseCallPoll,
+  claimsRecording,
   refusesRecording,
   type CallIceServer,
   type CallPeerRow,
@@ -429,7 +431,7 @@ export class RoomCallSession {
 
   private badRecording(body: unknown): boolean {
     if (!refusesRecording(body)) return false;
-    this.fail("This call is not recorded, so it was left.");
+    this.fail(claimsRecording(body) ? RECORDING_LEFT : MALFORMED_LEFT);
     return true;
   }
 

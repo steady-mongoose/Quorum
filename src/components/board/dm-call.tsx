@@ -35,6 +35,7 @@ export function DmCall({ threadId, otherName }: { threadId: string; otherName: s
       label={`Call with ${otherName}`}
       note={`Only you and ${otherName} can be in this call. It is not recorded. ${otherName} joins by opening this conversation and choosing Join the call.`}
       joinLabel="Join the call"
+      onClose={() => setOpen(false)}
     />
   );
 }
