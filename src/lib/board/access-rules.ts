@@ -14,8 +14,9 @@ export type LogRow = {
 };
 
 export const STEWARD_NOTE = "Steward, inviter plus a steward of that room.";
-export const FIRST_STEWARD_NOTE =
-  "First steward of that room, inviter plus the council chair.";
+export const FIRST_STEWARD_NOTE = "First steward of that room, inviter plus the council chair.";
+export const OWNER_BOOTSTRAP_NOTE =
+  "First steward of that room, appointed by the owner alone, because the owner invited everyone and no second person could vouch.";
 export const ADMIN_NOTE = "Admin, steward approval plus the role owner.";
 export const REVOKE_NOTE = "Revoked.";
 
@@ -50,10 +51,8 @@ export function isLiveAdminLog(rows: readonly LogRow[], userId: string): boolean
 export function isRoomSteward(rows: readonly LogRow[], userId: string, roomId: string): boolean {
   if (!roomId) return false;
   return (
-    newest(
-      rows,
-      (row) => row.userId === userId && row.role === "steward" && row.roomId === roomId,
-    )?.action === "grant"
+    newest(rows, (row) => row.userId === userId && row.role === "steward" && row.roomId === roomId)
+      ?.action === "grant"
   );
 }
 
@@ -125,6 +124,8 @@ export function planStewardGrant(
     approverId: string;
     approverIsAdmin: boolean;
     approverIsChair: boolean;
+    /** The founding seat, the site's owner. */
+    approverIsOwner?: boolean;
     inviterId: string;
     targetId: string;
     roomId: string;
@@ -132,8 +133,23 @@ export function planStewardGrant(
 ): { ok: true; plan: GrantPlan } | { ok: false; error: string } {
   const roomId = input.roomId.trim();
   if (!roomId) return { ok: false, error: "Name the person, the room, and the inviter." };
-  if (!distinct([input.approverId, input.inviterId, input.targetId])) {
-    return { ok: false, error: "The inviter and the approver are two people, and neither is the candidate." };
+  // Owner bootstrap: a room with no steward yet, and the owner (the founding
+  // admin, or the admin who is council chair) both invited the candidate and approves them. Without
+  // this, a solo owner who invited everyone can never seat a first steward.
+  // The access_log row records it with OWNER_BOOTSTRAP_NOTE.
+  const bootstrap =
+    input.approverId === input.inviterId &&
+    input.approverIsAdmin &&
+    (input.approverIsChair || input.approverIsOwner === true) &&
+    !roomHasSteward(rows, roomId);
+  const people = bootstrap
+    ? [input.approverId, input.targetId]
+    : [input.approverId, input.inviterId, input.targetId];
+  if (!distinct(people)) {
+    return {
+      ok: false,
+      error: "The inviter and the approver are two people, and neither is the candidate.",
+    };
   }
   if (!isLiveMember(rows, input.inviterId)) {
     return { ok: false, error: "The inviter has to be a member." };
@@ -149,7 +165,7 @@ export function planStewardGrant(
     if (!isRoomSteward(rows, input.approverId, roomId)) {
       return { ok: false, error: "An existing steward of that room approves the next one." };
     }
-  } else if (!input.approverIsChair || !input.approverIsAdmin) {
+  } else if (!bootstrap && (!input.approverIsChair || !input.approverIsAdmin)) {
     return { ok: false, error: "The first steward of a room is approved by the council chair." };
   }
   return {
@@ -161,7 +177,7 @@ export function planStewardGrant(
       targetId: input.targetId,
       vouchedByUserId: input.inviterId,
       approvedByUserId: input.approverId,
-      note: hasSteward ? STEWARD_NOTE : FIRST_STEWARD_NOTE,
+      note: hasSteward ? STEWARD_NOTE : bootstrap ? OWNER_BOOTSTRAP_NOTE : FIRST_STEWARD_NOTE,
     },
   };
 }

@@ -11,6 +11,7 @@ import {
   planStewardGrant,
   type AccessRole,
   type LogRow,
+  OWNER_BOOTSTRAP_NOTE,
 } from "../../src/lib/board/access-rules.ts";
 import {
   planCouncilApproval,
@@ -267,12 +268,23 @@ export async function grantAccess(
           approverId: input.userId,
           approverIsAdmin: actor.admin,
           approverIsChair: flags.chair,
+          approverIsOwner: actor.admin && (await isFounder(tx, input.userId)),
           inviterId: inviter.id,
           targetId: target.id,
           roomId: input.roomId,
         });
         if (!planned.ok) return fail(400, planned.error);
         await writeGrant(tx, { plan: planned.plan, actorName: actorPerson.name, now: input.now });
+        if (planned.plan.note === OWNER_BOOTSTRAP_NOTE) {
+          console.log(
+            JSON.stringify({
+              event: "steward-owner-bootstrap",
+              ownerId: input.userId,
+              userId: target.id,
+              roomId: planned.plan.roomId,
+            }),
+          );
+        }
         return { ok: true as const, value: { action: "grant" as const, role: "steward" as const } };
       }
       if (action === "grant-admin") {

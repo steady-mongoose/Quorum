@@ -10,6 +10,7 @@ import {
   planMemberGrant,
   planRevoke,
   planStewardGrant,
+  OWNER_BOOTSTRAP_NOTE,
   type LogRow,
 } from "./access-rules.ts";
 
@@ -23,7 +24,11 @@ const member = (id: string, userId: string, at: number): LogRow => ({
 });
 
 test("a steward is the inviter plus the room's steward, and the first one is the chair", () => {
-  const log = [member("m-josh", "josh", 1), member("m-maria", "maria", 2), member("m-tom", "tom", 3)];
+  const log = [
+    member("m-josh", "josh", 1),
+    member("m-maria", "maria", 2),
+    member("m-tom", "tom", 3),
+  ];
   const self = planStewardGrant(log, {
     approverId: "josh",
     approverIsAdmin: true,
@@ -32,7 +37,9 @@ test("a steward is the inviter plus the room's steward, and the first one is the
     targetId: "tom",
     roomId: "shop",
   });
-  assert.equal(self.ok, false);
+  // The owner bootstrap: no steward yet, and the owner invited everyone.
+  assert.equal(self.ok, true);
+  if (self.ok) assert.equal(self.plan.note, OWNER_BOOTSTRAP_NOTE);
 
   const stranger = planStewardGrant(log, {
     approverId: "maria",
@@ -82,7 +89,14 @@ test("a steward is the inviter plus the room's steward, and the first one is the
   assert.equal(second.ok, true);
   if (!second.ok) return;
   assert.equal(second.plan.note, STEWARD_NOTE);
-  assert.equal(isRoomSteward([...withTom, { ...second.plan, id: "s-maria", userId: "maria", action: "grant", at: 5 }], "maria", "shop"), true);
+  assert.equal(
+    isRoomSteward(
+      [...withTom, { ...second.plan, id: "s-maria", userId: "maria", action: "grant", at: 5 }],
+      "maria",
+      "shop",
+    ),
+    true,
+  );
 });
 
 test("an admin is a steward plus the role owner's sign-off", () => {
@@ -165,7 +179,10 @@ test("a member grant is one inviter and is refused twice", () => {
   if (!maria.ok) return;
   assert.equal(maria.plan.approvedByUserId, "");
   const next = [member("m-josh", "josh", 1), member("m-maria", "maria", 2)];
-  assert.equal(planMemberGrant(next, { inviterId: "josh", targetId: "maria", roomId: "county" }).ok, false);
+  assert.equal(
+    planMemberGrant(next, { inviterId: "josh", targetId: "maria", roomId: "county" }).ok,
+    false,
+  );
 });
 
 test("revoking one room does not revoke another", () => {
@@ -190,4 +207,55 @@ test("revoking one room does not revoke another", () => {
   ];
   assert.equal(isRoomSteward(after, "tom", "shop"), false);
   assert.equal(isRoomSteward(after, "tom", "county"), true);
+});
+
+test("the owner bootstrap is only for a room with no steward, and only for the owner", () => {
+  const log = [member("m-josh", "josh", 1), member("m-tom", "tom", 2), member("m-ann", "ann", 3)];
+  const base = { approverId: "josh", inviterId: "josh", targetId: "tom", roomId: "shop" };
+  const founder = planStewardGrant(log, {
+    ...base,
+    approverIsAdmin: true,
+    approverIsChair: false,
+    approverIsOwner: true,
+  });
+  assert.equal(founder.ok, true);
+  if (founder.ok) {
+    assert.equal(founder.plan.note, OWNER_BOOTSTRAP_NOTE);
+    assert.equal(founder.plan.vouchedByUserId, "josh");
+    assert.equal(founder.plan.approvedByUserId, "josh");
+  }
+  const notOwner = planStewardGrant(log, {
+    ...base,
+    approverIsAdmin: true,
+    approverIsChair: false,
+    approverIsOwner: false,
+  });
+  assert.equal(notOwner.ok, false);
+  const memberOnly = planStewardGrant(log, {
+    ...base,
+    approverIsAdmin: false,
+    approverIsChair: false,
+    approverIsOwner: true,
+  });
+  assert.equal(memberOnly.ok, false);
+  const selfSeat = planStewardGrant(log, {
+    ...base,
+    targetId: "josh",
+    approverIsAdmin: true,
+    approverIsChair: true,
+    approverIsOwner: true,
+  });
+  assert.equal(selfSeat.ok, false, "the owner cannot seat themself");
+  const seated: LogRow[] = [
+    ...log,
+    { id: "s-tom", userId: "tom", role: "steward", roomId: "shop", action: "grant", at: 4 },
+  ];
+  const second = planStewardGrant(seated, {
+    ...base,
+    targetId: "ann",
+    approverIsAdmin: true,
+    approverIsChair: true,
+    approverIsOwner: true,
+  });
+  assert.equal(second.ok, false, "once a room has a steward, the two-person rule holds");
 });
