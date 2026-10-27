@@ -908,3 +908,56 @@ test("one person's wrong codes do not block another person on the same address",
   );
   assert.equal(ok.status, 200, await ok.clone().text());
 });
+
+test("a reset more than 7 days old is cancelled instead of completed", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const database = db;
+  const clock = { now: new Date() };
+  const app = handler(clock);
+  const subject = await user({ name: "Old", email: "old.reset@example.com", admin: true });
+  const approver = await user({ name: "Ann", email: "ann.reset@example.com", admin: true });
+  await enroll(app, subject, clock, "198.51.100.120");
+  const approverMfa = await enroll(app, approver, clock, "198.51.100.121");
+  const asked = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/reset/request", {
+      method: "POST",
+      headers: headers(subject, "198.51.100.120"),
+      body: "{}",
+    }),
+  );
+  const resetId = ((await asked.json()) as { id: string }).id;
+  await database.query(`update mfa_reset set created_at = now() - interval '8 days' where id = $1`, [resetId]);
+  clock.now = new Date(clock.now.getTime() + 30_000);
+  const up = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/step-up", {
+      method: "POST",
+      headers: headers(approver, "198.51.100.121"),
+      body: JSON.stringify({ action: "mfa-reset", code: totpAt(approverMfa.plain, clock.now.getTime()) }),
+    }),
+  );
+  assert.equal(up.status, 200);
+  const late = await app(
+    new Request(`http://127.0.0.1:8787/api/mfa/reset/${resetId}/approve`, {
+      method: "POST",
+      headers: headers(approver, "198.51.100.121"),
+      body: "{}",
+    }),
+  );
+  assert.equal(late.status, 410);
+  assert.equal(((await late.json()) as { error?: string }).error, "mfa_reset_expired");
+  const row = await database.query<{ status: string }>(`select status from mfa_reset where id = $1`, [resetId]);
+  assert.equal(row[0]?.status, "cancelled");
+  const logged = await database.query(
+    `select 1 from mfa_audit where action = 'reset-expire' and detail = $1`,
+    [resetId],
+  );
+  assert.equal(logged.length, 1);
+  const queue = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/reset", { headers: headers(approver, "198.51.100.121") }),
+  );
+  const body = (await queue.json()) as { resets: { id: string }[] };
+  assert.equal(body.resets.some((item) => item.id === resetId), false);
+});

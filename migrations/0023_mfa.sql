@@ -127,7 +127,8 @@ alter table mfa_audit add constraint mfa_audit_action_check
     'recovery-use',
     'reset-request',
     'reset-approve',
-    'reset-complete'
+    'reset-complete',
+    'reset-expire'
   ));
 
 alter table mfa_audit drop constraint if exists mfa_audit_detail_len;

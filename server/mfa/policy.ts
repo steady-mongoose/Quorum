@@ -20,6 +20,9 @@ export const MFA_RATE = { windowMs: 60_000, max: 10 };
  * falls back to "local") gets a wider bucket. One person's wrong codes use up
  * their own account's bucket, not everyone's second step on that address.
  */
+/** A reset that has not reached two approvals in 7 days is cancelled. */
+export const MFA_RESET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const MFA_IP_RATE = { windowMs: 60_000, max: 60 };
 
 const CLAIM_DECIDE =

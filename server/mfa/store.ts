@@ -7,6 +7,7 @@ import {
   MFA_FAIL_LIMIT,
   MFA_LOCK_MS,
   MFA_IP_RATE,
+  MFA_RESET_TTL_MS,
   MFA_RATE,
   STEP_UP_MS,
   actorRequiresMfa,
@@ -580,6 +581,18 @@ export async function guardRequest(
   return null;
 }
 
+/** Pending resets older than MFA_RESET_TTL_MS are cancelled, with an audit row each. */
+async function expireResets(db: Db, now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - MFA_RESET_TTL_MS);
+  const rows = await db.query<{ id: string; user_id: string }>(
+    `update mfa_reset set status = 'cancelled', completed_at = $1
+     where status = 'pending' and created_at <= $2
+     returning id, user_id`,
+    [now, cutoff],
+  );
+  for (const row of rows) await audit(db, row.user_id, row.user_id, "reset-expire", row.id);
+}
+
 /** An admin with a site-wide bar in force does not act on resets. */
 async function barredAdmin(db: Db, actorId: string, now: Date): Promise<MfaFailure | null> {
   const ban = await openBanOrNone(db, actorId, now);
@@ -601,6 +614,7 @@ export async function requestReset(
     const barred = await barredAdmin(db, actor.id, new Date());
     if (barred) return { ok: false, failure: barred };
   }
+  await expireResets(db, new Date());
   const existing = await db.query<{ id: string }>(
     `select id from mfa_reset where user_id = $1 and status = 'pending' limit 1`,
     [subjectUserId],
@@ -635,10 +649,25 @@ export async function approveReset(
       user_id: string;
       requested_by: string;
       status: string;
-    }>(`select id, user_id, requested_by, status from mfa_reset where id = $1 for update`, [resetId]);
+      created_at: Date | string;
+    }>(
+      `select id, user_id, requested_by, status, created_at from mfa_reset where id = $1 for update`,
+      [resetId],
+    );
     const reset = rows[0];
     if (!reset || reset.status !== "pending") {
       return { ok: false, failure: fail(404, "mfa_reset", "That reset is not waiting.") };
+    }
+    if (now.getTime() - new Date(reset.created_at).getTime() >= MFA_RESET_TTL_MS) {
+      await tx.query(
+        `update mfa_reset set status = 'cancelled', completed_at = $2 where id = $1`,
+        [resetId, now],
+      );
+      await audit(tx, reset.user_id, reset.user_id, "reset-expire", resetId);
+      return {
+        ok: false,
+        failure: fail(410, "mfa_reset_expired", "That reset is more than 7 days old. Ask for a new one."),
+      };
     }
     if (actor.id === reset.user_id) {
       return {
@@ -712,6 +741,7 @@ export async function listResets(db: Db, actor: SessionRef): Promise<
   }
   const barred = await barredAdmin(db, actor.id, new Date());
   if (barred) return { ok: false, failure: barred };
+  await expireResets(db, new Date());
   const view = await mfaView(db, actor);
   if (view.mfa === "challenge") {
     return {
