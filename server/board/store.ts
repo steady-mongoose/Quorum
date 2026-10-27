@@ -2024,3 +2024,29 @@ export async function setSteward(
     "A steward needs the inviter and a steward of that room. An admin needs a steward and the role owner.",
   );
 }
+
+/**
+ * True when this member may read this post: the same room, ban and audience checks as
+ * reading it on the board. A removed post is not readable. Used before a member flag
+ * so nobody can flag (and block) a post they cannot see.
+ */
+export async function memberCanSeeBoardPost(
+  db: Db,
+  userId: string,
+  postId: string,
+  now: Date,
+): Promise<boolean> {
+  const actor = await actorRole(db, userId);
+  if (!actor.member) return false;
+  const rows = await db.query<{ room_id: string; removed: boolean }>(
+    `select room_id, removed from board_post where id = $1`,
+    [postId],
+  );
+  const post = rows[0];
+  if (!post || post.removed) return false;
+  const room = await roomById(db, post.room_id, { id: userId, admin: actor.admin });
+  if (!room || !canReadRoom(room.status, actor)) return false;
+  if (await openBan(db, userId, now, room.id)) return false;
+  const blocked = await audienceBlock(db, { userId, roomId: room.id, now, path: "read", actor });
+  return blocked === null;
+}

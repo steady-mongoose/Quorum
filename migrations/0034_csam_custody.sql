@@ -14,7 +14,8 @@ create table if not exists csam_access_log (
   actor_user_id text references "user" (id) on delete set null,
   action text not null check (
     action in ('list', 'file_report', 'legal_hold_on', 'legal_hold_off', 'purge',
-               'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged')
+               'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged',
+               'release_requested', 'release_confirmed')
   ),
   detail text not null default '' check (char_length(detail) <= 500),
   created_at timestamptz not null default now()
@@ -50,6 +51,19 @@ create table if not exists csam_flag (
   hold_id text not null default '',
   check (post_id <> '' or media_id <> '')
 );
+
+-- Release of a false flag. NEEDS JOSH'S POLICY OK. Nobody views the files to decide it:
+-- one custodian writes why the flag is false, and a second, different custodian confirms.
+-- Both steps are in csam_access_log.
+alter table csam_flag add column if not exists resolution text not null default ''
+  check (resolution in ('', 'removed', 'released'));
+alter table csam_flag add column if not exists release_requested_by_user_id text
+  references "user" (id) on delete set null;
+alter table csam_flag add column if not exists release_reason text not null default ''
+  check (char_length(release_reason) <= 500);
+alter table csam_flag add column if not exists release_requested_at timestamptz;
+alter table csam_flag add column if not exists released_by_user_id text
+  references "user" (id) on delete set null;
 
 create index if not exists csam_flag_post_idx on csam_flag (post_id) where resolved_at is null;
 create index if not exists csam_flag_media_idx on csam_flag (media_id) where resolved_at is null;

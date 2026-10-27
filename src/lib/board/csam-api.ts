@@ -30,6 +30,8 @@ export type CsamFlagView = {
   uploader: string;
   fileIds: string[];
   at: number;
+  releaseRequestedBy: string;
+  releaseReason: string;
 };
 
 export type CsamPersonView = { id: string; name: string; custodian: boolean };
@@ -50,6 +52,8 @@ export type CsamApi = {
   legalHold: (holdId: string, on: boolean, note: string) => Promise<CsamDone>;
   custodian: (userId: string, grant: boolean) => Promise<CsamDone>;
   removeFlagged: (flagId: string) => Promise<CsamDone>;
+  requestRelease: (flagId: string, reason: string) => Promise<CsamDone>;
+  confirmRelease: (flagId: string) => Promise<CsamDone>;
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -94,6 +98,8 @@ export function queueFrom(value: unknown): CsamQueueView {
       uploader: str(row.uploader),
       fileIds: strs(row.fileIds),
       at: num(row.at),
+      releaseRequestedBy: str(row.releaseRequestedBy),
+      releaseReason: str(row.releaseReason),
     })),
     admins: rows(body.admins).map((row) => ({
       id: str(row.id),
@@ -135,4 +141,7 @@ export const csamApi: CsamApi = {
     post(`/api/csam-holds/${encodeURIComponent(holdId)}/legal-hold`, { on, note }),
   custodian: (userId, grant) => post("/api/csam-custodians", { userId, grant }),
   removeFlagged: (flagId) => post(`/api/csam-flags/${encodeURIComponent(flagId)}/remove`, {}),
+  requestRelease: (flagId, reason) =>
+    post(`/api/csam-flags/${encodeURIComponent(flagId)}/release`, { reason }),
+  confirmRelease: (flagId) => post(`/api/csam-flags/${encodeURIComponent(flagId)}/release/confirm`, {}),
 };

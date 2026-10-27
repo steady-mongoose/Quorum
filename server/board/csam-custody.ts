@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { actorRole, type BoardActor } from "./access.ts";
+import { openBan } from "./store.ts";
 
 /** The owner plus at most this many named admins can reach a CSAM hold. */
 export const MAX_CUSTODIANS = 3;
@@ -15,12 +16,24 @@ export type CustodyAction =
   | "revoke_custodian"
   | "denied"
   | "flag"
-  | "remove_flagged";
+  | "remove_flagged"
+  | "release_requested"
+  | "release_confirmed";
 
 type Fail = { ok: false; status: number; error: string };
 
-/** The owner always. Otherwise an admin the owner has named. Members never. */
-export async function isCustodian(db: Db, userId: string, actor?: BoardActor): Promise<boolean> {
+/**
+ * The owner always. Otherwise an admin the owner has named. Members never.
+ * A site-wide ban in force removes custody from anyone, the owner included.
+ */
+export async function isCustodian(
+  db: Db,
+  userId: string,
+  actor?: BoardActor,
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (!userId) return false;
+  if (await openBan(db, userId, now)) return false;
   const role = actor ?? (await actorRole(db, userId));
   if (role.owner) return true;
   if (!role.admin) return false;

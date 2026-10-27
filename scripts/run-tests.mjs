@@ -96,6 +96,7 @@ const appTests = [
   "server/board/csam.test.ts",
   "server/board/csam-custody.test.ts",
   "server/board/csam-flag.test.ts",
+  "server/board/csam-release.test.ts",
   "server/media/csam-block.test.ts",
   "server/board/alert-mail.test.ts",
   "server/board/places-store.test.ts",
