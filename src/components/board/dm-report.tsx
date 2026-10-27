@@ -227,9 +227,9 @@ export function DmReportQueue({
   }, [load]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h3 ref={heading} tabIndex={-1} className="text-lg text-fg">
+      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
         Message reports
-      </h3>
+      </h2>
       <p role="status" className="text-sm text-muted">
         {announce}
       </p>

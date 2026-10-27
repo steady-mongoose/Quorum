@@ -134,8 +134,14 @@ test("the admin message-report queue shows shared text and closes a report", asy
   );
   try {
     await flush();
+    const top = view.host.querySelector("h2");
+    assert.equal(top?.textContent?.trim(), "Message reports", "the queue's top heading is an h2");
+    assert.equal(top?.className, "text-2xl text-fg");
+    assert.equal(top?.getAttribute("tabindex"), "-1");
+    assert.equal(view.host.querySelectorAll("h2").length, 1);
     const items = view.host.querySelectorAll("li");
     assert.equal(items.length, 2);
+    for (const item of items) assert.ok(item.querySelector("h3"), "each report keeps its h3");
     assert.equal(items[0]?.querySelector("blockquote"), null, "no text for CSAM");
     assert.equal(items[1]?.querySelector("blockquote")?.textContent, "I know where you live.");
     assert.match(items[1]?.textContent ?? "", /The message has been deleted/);
