@@ -263,7 +263,7 @@ It does not serve the static site. It does not run a feed, likes, reshares, or s
 
 ## Media host behind Cloudflare
 
-`media.avouchsocial.com` is proxied by Cloudflare. Caddy serves it with a Cloudflare Origin CA certificate, not Let's Encrypt, because an ACME challenge does not reliably reach Caddy through the proxy, and with no valid certificate Cloudflare's Full (strict) mode answers 525. The host serves only the existing media API (`/api/media/*`, proxied to `api:8787`). Every other path is 404. It never serves stored file bytes: members still get the two-minute signed storage link, and the storage host must still not be `avouchsocial.com` or a subdomain of it.
+`media.avouchsocial.com` is proxied by Cloudflare. Caddy serves it with a Cloudflare Origin CA certificate, not Let's Encrypt, because an ACME challenge does not reliably reach Caddy through the proxy, and with no valid certificate Cloudflare's Full (strict) mode answers 525. The host serves the media API (`/api/media/*`) and member files at `/m/:id/:variant/:exp/:sig`, both proxied to `api:8787`. Every other path is 404. The storage host itself must still not be `avouchsocial.com` or a subdomain of it; the API reads the bytes from storage and the media host serves them.
 
 Manual steps. This repository does not do them, and nothing here changes DNS or Cloudflare:
 
@@ -275,7 +275,22 @@ Manual steps. This repository does not do them, and nothing here changes DNS or 
 6. Reload: `docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d caddy`. Caddy refuses to start if the two files are missing, so place them before this step.
 7. Check: `curl -sS https://media.avouchsocial.com/api/media/status` answers JSON, and `curl -sS -o /dev/null -w '%{http_code}' https://media.avouchsocial.com/` is `404`.
 
-Not changed: the web app still calls `api.avouchsocial.com` for media. The session cookie is set for the API host, so a signed-in read through `media.avouchsocial.com` is answered 401 until the cookie scope or the client base URL is decided.
+### Signed media links
+
+The web app still asks `api.avouchsocial.com` for a file, with the session cookie, and the API still checks membership, bans and the CSAM block. When `MEDIA_PUBLIC_ORIGIN` and `MEDIA_URL_SECRET` are both set, the answer's `url` and `thumbUrl` point at `https://media.avouchsocial.com/m/...` instead of the storage host. The link carries an HMAC-SHA256 over the file id, the variant and an expiry. The expiry is rounded up to a ten-minute window, so every member reading a file in that window gets the same URL and Cloudflare can cache one copy (`Cache-Control: public, max-age` at most the time left, never more than 600 seconds).
+
+Why signed links, not a wider cookie: the session cookie is host-only on `api.avouchsocial.com`. Widening it to `Domain=avouchsocial.com` would send the session to every subdomain, including the static site, and a response that depends on a cookie cannot be shared from the edge cache, which is the point of this host. The media host never reads or sets a cookie.
+
+Held or flagged files: the media host runs the CSAM check on every request that reaches it, so a fresh link for a held or flagged file is refused for everyone, the owner and admins included. A copy already in Cloudflare's cache can live until its link expires (at most ten minutes). Purging it sooner needs a Cloudflare cache purge, which this repository does not do.
+
+Settings in `deploy/.env` (not done here):
+
+- `MEDIA_PUBLIC_ORIGIN=https://media.avouchsocial.com`
+- `MEDIA_URL_SECRET=` at least 32 random characters, for example `openssl rand -base64 48`. Rotating it invalidates every link in flight; members fetch a new one.
+
+With either unset, the API keeps the old behaviour: a two-minute presigned storage link.
+
+To turn on the scanner: Cloudflare dashboard → Caching → Configuration → CSAM Scanning Tool, for the `avouchsocial.com` zone. Owner action; not done here.
 
 ## Real client address behind Cloudflare
 
