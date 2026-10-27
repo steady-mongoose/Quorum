@@ -495,6 +495,11 @@ export async function listHome(
            from board_post p
            join room r on r.id = p.room_id
            where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})
+             and p.author_deleted_at is null
+             and not exists (
+               select 1 from "user" u
+               where u.id = p.author_user_id and u.deactivated_at is not null
+             )
              and ${visibleRoomClause(postsReady, String(liveIds.length + 1), "r.status")}`,
           postParams,
         );

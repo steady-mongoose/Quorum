@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { InviteTracker } from "./invite-tracker";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
@@ -233,6 +234,7 @@ export function AboutView() {
         />
       ) : null}
 
+      {remote && admin ? <DeletionRequestQueue /> : null}
       {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
