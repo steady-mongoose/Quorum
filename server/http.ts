@@ -10,7 +10,7 @@ import { handlePublicGathering } from "./board/public-gathering.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
-import { handleMedia, type MediaRuntime } from "./media/routes.ts";
+import { handleMedia, handleSignedMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
@@ -209,6 +209,9 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
     const url = new URL(request.url);
     try {
       const response = await route(deps, media, calls, request, url);
+      // Media-host files carry their own uncredentialed CORS header so one cached
+      // copy serves every origin. Never add credentials or Vary: Origin to them.
+      if (url.pathname.startsWith("/m/")) return response;
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -462,6 +465,10 @@ async function route(
     const session =
       openStatus || !calls.config.enabled ? null : await deps.readSession(request.headers);
     return handleCalls(calls, deps.db, request, url, session);
+  }
+
+  if (url.pathname.startsWith("/m/")) {
+    return (await handleSignedMedia(media, deps.db, request, url)) ?? json(404, { error: "Not found." });
   }
 
   if (url.pathname.startsWith("/api/media/")) {

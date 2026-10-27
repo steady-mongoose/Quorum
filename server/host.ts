@@ -9,6 +9,7 @@ import { readCallsConfig } from "./calls/config.ts";
 import { bindCallEviction } from "./calls/evict.ts";
 import { createCallStore } from "./calls/store.ts";
 import { readMediaConfig } from "./media/config.ts";
+import { createSigner, readMediaHostConfig } from "./media/signed-url.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
@@ -75,6 +76,11 @@ export function startHost(): void {
   const now = () => new Date();
   const mediaConfig = readMediaConfig();
   const mediaStore = storeFromConfig(mediaConfig);
+  const mediaHost = readMediaHostConfig();
+  const mediaSigner = mediaHost.enabled ? createSigner(mediaHost) : null;
+  if (!mediaHost.enabled && mediaHost.reason !== "unset") {
+    console.error(JSON.stringify({ event: "media-host-off", reason: mediaHost.reason }));
+  }
   warnMissingHoldKey();
   const boardDb = pgDb(pool);
   void reencryptPendingHolds(boardDb, mediaStore).catch((error) => {
@@ -113,7 +119,7 @@ export function startHost(): void {
     signIn: createSignIn(auth, config.baseURL),
     readSession: (headers) => readSessionUser(auth, headers),
     forwardAuth: (request) => auth.handler(request),
-    media: { config: mediaConfig, store: mediaStore, now },
+    media: { config: mediaConfig, store: mediaStore, now, signer: mediaSigner },
     calls: { config: callsConfig, store: callStore, now },
   });
   const sweep = setInterval(

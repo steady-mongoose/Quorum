@@ -22,6 +22,12 @@ test("the shell is served with a strict content security policy", async () => {
   assert.equal(policy.includes("unsafe-inline"), false);
   assert.match(policy, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
   assert.match(policy, /connect-src [^;]*https:\/\/cloudflareinsights\.com/);
+  assert.match(policy, /img-src [^;]*https:\/\/media\.avouchsocial\.com/);
+  assert.match(policy, /media-src [^;]*https:\/\/media\.avouchsocial\.com/);
+  assert.match(policy, /connect-src [^;]*https:\/\/media\.avouchsocial\.com/);
+  assert.match(policy, /img-src [^;]*https:\/\/media\.avouchsocial\.com/);
+  assert.match(policy, /media-src [^;]*https:\/\/media\.avouchsocial\.com/);
+  assert.match(policy, /connect-src [^;]*https:\/\/media\.avouchsocial\.com/);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
 });
 

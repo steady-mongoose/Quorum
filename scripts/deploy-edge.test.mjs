@@ -60,6 +60,7 @@ test("media host uses a Cloudflare Origin CA certificate and serves only the med
   assert.ok(block.length > 40);
   assert.match(block, /tls \/etc\/caddy\/origin\/media-origin\.pem \/etc\/caddy\/origin\/media-origin\.key/);
   assert.match(block, /@media path \/api\/media \/api\/media\/\*/);
+  assert.match(block, /@media path [^\n]*\/m\/\*/);
   assert.match(block, /reverse_proxy api:8787/);
   assert.match(block, /respond `\{"error":"Not found\."\}` 404/);
   assert.match(block, /X-Content-Type-Options nosniff/);

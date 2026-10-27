@@ -54,6 +54,7 @@ const appTests = [
   "server/media/output.test.ts",
   "server/media/schema.test.ts",
   "server/media/service.test.ts",
+  "server/media/signed-url.test.ts",
   "server/media/worker.test.ts",
   "server/media/http.test.ts",
   "server/media/ip.test.ts",

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { postIsHeld } from "../board/csam.ts";
 import type { Db } from "../db.ts";
 import {
   IMAGE_BYTES,
@@ -20,6 +19,8 @@ import {
   userExists,
 } from "./db.ts";
 import { attachmentName, type ObjectStore } from "./s3.ts";
+import { mediaIsBlocked } from "./serve-block.ts";
+import type { MediaUrlSigner } from "./signed-url.ts";
 
 export type MediaResult<T> =
   | { ok: true; status: number; body: T }
@@ -35,6 +36,8 @@ export type MediaServiceDeps = {
   store: ObjectStore;
   now: () => Date;
   videoEnabled: boolean;
+  /** When set, read links point at the media host instead of the storage host. */
+  signer?: MediaUrlSigner | null;
 };
 
 function uploadKey(scope: UploadPlan["scope"], id: string): string {
@@ -160,7 +163,7 @@ export async function readForMember(
 > {
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
-  if (row.post_id && (await postIsHeld(deps.db, row.post_id))) {
+  if (await mediaIsBlocked(deps.db, row)) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {
@@ -208,16 +211,23 @@ export async function readForMember(
       },
     };
   }
+  // Check again right before signing. A hold or flag can land during the member check
+  // above, and a signed link must never be minted for a blocked file.
+  if (await mediaIsBlocked(deps.db, row)) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
   const now = deps.now();
   const servedType =
     row.encryption === "client-e2e" ? "application/octet-stream" : row.content_type;
-  const url = deps.store.presignGet({
-    key: row.file_key,
-    expiresIn: READ_SECONDS,
-    now,
-    contentType: servedType,
-    filename: attachmentName(servedType),
-  });
+  const url = deps.signer
+    ? deps.signer.url(id, "file", now, READ_SECONDS)
+    : deps.store.presignGet({
+        key: row.file_key,
+        expiresIn: READ_SECONDS,
+        now,
+        contentType: servedType,
+        filename: attachmentName(servedType),
+      });
   const body: {
     id: string;
     status: string;
@@ -238,14 +248,51 @@ export async function readForMember(
     expiresIn: READ_SECONDS,
   };
   if (row.thumb_key) {
-    body.thumbUrl = deps.store.presignGet({
-      key: row.thumb_key,
-      expiresIn: READ_SECONDS,
-      now,
-      contentType: "image/jpeg",
-      filename: "thumb.jpg",
-    });
+    body.thumbUrl = deps.signer
+      ? deps.signer.url(id, "thumb", now, READ_SECONDS)
+      : deps.store.presignGet({
+          key: row.thumb_key,
+          expiresIn: READ_SECONDS,
+          now,
+          contentType: "image/jpeg",
+          filename: "thumb.jpg",
+        });
   }
   if (row.encryption === "client-e2e") body.keyEnvelope = row.key_envelope;
   return { ok: true, status: 200, body };
+}
+
+/**
+ * The media host. No cookie and no session: the signed URL is the permission, minted
+ * by `readForMember` after the member check. The CSAM block runs again on every
+ * request, so a file held or flagged after its link was minted is refused at once.
+ */
+export async function serveSigned(
+  deps: MediaServiceDeps,
+  input: { id: string; variant: "file" | "thumb"; expiresAt: number },
+): Promise<
+  | { ok: true; bytes: Uint8Array; contentType: string; filename: string; maxAge: number }
+  | { ok: false; status: number }
+> {
+  const row = await readMedia(deps.db, input.id);
+  if (!row || row.deleted_at || row.status !== "ready") return { ok: false, status: 404 };
+  if (await mediaIsBlocked(deps.db, row)) return { ok: false, status: 404 };
+  const key = input.variant === "thumb" ? row.thumb_key : row.file_key;
+  if (!key || key.startsWith("csam-hold/") || key.startsWith("csam-held:")) return { ok: false, status: 404 };
+  const bytes = await deps.store.get(key);
+  if (!bytes) return { ok: false, status: 404 };
+  const contentType =
+    input.variant === "thumb"
+      ? "image/jpeg"
+      : row.encryption === "client-e2e"
+        ? "application/octet-stream"
+        : row.content_type;
+  const left = Math.floor(input.expiresAt - deps.now().getTime() / 1000);
+  return {
+    ok: true,
+    bytes,
+    contentType,
+    filename: input.variant === "thumb" ? "thumb.jpg" : attachmentName(contentType),
+    maxAge: Math.max(0, Math.min(left, 600)),
+  };
 }
