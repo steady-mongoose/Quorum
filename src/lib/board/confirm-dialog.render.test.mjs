@@ -93,3 +93,27 @@ test("sibling plates sit flat and the hero plate still pulls up", () => {
   assert.match(hero.marginTop, /-0\.42/);
   host.remove();
 });
+
+test("Cancel comes before the confirm button and has focus", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(ConfirmDialog, {
+        open: true,
+        title: "Remove?",
+        description: "This can't be undone.",
+        confirmLabel: "Remove",
+        cancelLabel: "Cancel",
+        onConfirm() {},
+        onCancel() {},
+      }),
+    );
+  });
+  const labels = [...host.querySelectorAll("dialog button")].map((b) => b.textContent);
+  assert.deepEqual(labels, ["Cancel", "Remove"]);
+  assert.equal(document.activeElement?.textContent, "Cancel");
+  act(() => root.unmount());
+  host.remove();
+});
