@@ -32,7 +32,7 @@ export function AccountRemovalPanel({
   onRequest: () => void;
 }) {
   return (
-    <section className="mt-4 flex flex-col gap-3">
+    <section className="flex flex-col gap-3">
       <h2 className="text-2xl text-fg">Account</h2>
       <p className="max-w-prose text-sm text-muted">
         Deactivation hides your profile and posts. You can turn it back on.
@@ -41,11 +41,11 @@ export function AccountRemovalPanel({
         <p className="text-sm text-fg">Your profile and posts are hidden.</p>
       ) : null}
       {deactivated ? (
-        <button type="button" className={cn(btnGhost, "self-start")} disabled={pending} onClick={onReactivate}>
+        <button type="button" className={cn(btnGhost, "self-start")} aria-disabled={pending || undefined} onClick={() => !pending && onReactivate()}>
           Reactivate account
         </button>
       ) : (
-        <button type="button" className={cn(btnGhost, "self-start")} disabled={pending} onClick={onDeactivate}>
+        <button type="button" className={cn(btnGhost, "self-start")} aria-disabled={pending || undefined} onClick={() => !pending && onDeactivate()}>
           Deactivate account
         </button>
       )}
@@ -65,8 +65,8 @@ export function AccountRemovalPanel({
       <button
         type="button"
         className={cn(btnGhost, "self-start")}
-        disabled={pending || deletionRequested}
-        onClick={onRequest}
+        aria-disabled={pending || deletionRequested || undefined}
+        onClick={() => !(pending || deletionRequested) && onRequest()}
       >
         Request account deletion
       </button>

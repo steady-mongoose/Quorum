@@ -148,7 +148,6 @@ export function ProfileView() {
             </label>
           </section>
         ) : null}
-        {mine ? <AccountRemoval live={server.mode === "live" && Boolean(server.user)} /> : null}
         {!mine ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>
             <MessageSquare className="size-4" aria-hidden="true" />
@@ -175,8 +174,6 @@ export function ProfileView() {
         </section>
       ) : null}
 
-      {mine && server.mode === "live" ? <MfaSettings /> : null}
-
       {hosts.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h2 className="text-2xl text-fg">{mine ? "Meetings you host" : `Meetings ${name} hosts`}</h2>
@@ -194,6 +191,13 @@ export function ProfileView() {
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
         <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
       </section>
+
+      {mine && server.mode === "live" ? <MfaSettings /> : null}
+      {mine ? (
+        <div className="border-t border-line pt-6">
+          <AccountRemoval live={server.mode === "live" && Boolean(server.user)} />
+        </div>
+      ) : null}
     </div>
   );
 }
