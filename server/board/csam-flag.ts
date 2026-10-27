@@ -205,12 +205,11 @@ export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
     file_ids: unknown;
     chat_message_id: string;
     chat_room_id: string | null;
-    chat_author_name: string | null;
     chat_created_at: Date | string | null;
   }>(
     `select f.id, f.post_id, f.media_id, f.source, f.reporter_name, f.reason, f.created_at,
             p.author_name, f.chat_message_id,
-            c.room_id as chat_room_id, c.author_name as chat_author_name, c.created_at as chat_created_at,
+            c.room_id as chat_room_id, c.created_at as chat_created_at,
             coalesce((select array_agg(m.id order by m.id) from media_object m
                       where m.post_id = f.post_id and f.post_id <> ''), '{}') as file_ids
      from csam_flag f
@@ -231,7 +230,8 @@ export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
       source: row.source === "scanner" ? "scanner" : "report",
       reporter: row.reporter_name,
       reason: row.reason,
-      uploader: row.author_name ?? row.chat_author_name ?? "",
+      // A chat flag shows metadata only (id, room, time), never who sent it.
+      uploader: row.chat_message_id ? "" : (row.author_name ?? ""),
       fileIds: row.media_id && !files.includes(row.media_id) ? [row.media_id, ...files] : files,
       at: atMs(row.created_at),
       chatMessageId: row.chat_message_id ?? "",

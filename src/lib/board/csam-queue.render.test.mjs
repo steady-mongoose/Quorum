@@ -234,6 +234,8 @@ test("a chat flag shows the line's id, room and time, never its text", async () 
   assert.match(text, /chat line c42/);
   assert.match(text, /Room shop/);
   assert.match(text, /sent /);
+  assert.equal(/\bbo\b/.test(text), false, "never names who sent the line");
+  assert.equal(/sent by|uploaded by/.test(text), false);
   assert.equal(/post\s*$/.test(text), false);
   const remove = /** @type {HTMLButtonElement} */ (host.querySelector('[aria-label="Preserve and remove chat line c42"]'));
   assert.ok(remove.className.includes("min-h-[44px]"));

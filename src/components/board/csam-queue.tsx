@@ -265,7 +265,8 @@ function FlagRow({
     <li className="rounded-md border border-line px-3 py-2 text-sm text-muted">
       <p>
         {flag.source === "scanner" ? "Scanner flag" : `Reported by ${flag.reporter || "a member"}`} ·{" "}
-        {when(flag.at)} · {flag.chatMessageId ? "sent" : "uploaded"} by {flag.uploader || "unknown"} ·{" "}
+        {when(flag.at)} ·{" "}
+        {flag.chatMessageId ? null : <>uploaded by {flag.uploader || "unknown"} ·{" "}</>}
         {flag.chatMessageId ? `chat line ${flag.chatMessageId}` : `post ${flag.postId}`}
       </p>
       {flag.chatMessageId ? (

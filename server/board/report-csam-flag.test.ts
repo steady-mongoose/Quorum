@@ -186,6 +186,8 @@ test("a chat flag shows the line by id, room and time only, and Preserve and rem
     assert.equal(flags[0]?.chatMessageId, line);
     assert.equal(flags[0]?.chatRoomId, "shop");
     assert.equal(flags[0]?.chatAt, now.getTime());
+    assert.equal(flags[0]?.uploader, "", "a chat flag never names the sender");
+    assert.equal(JSON.stringify(flags).includes("Maria"), false);
     assert.equal(JSON.stringify(flags).includes(secret), false, "metadata only, never the text");
 
     const removed = await withHoldKey("test-hold-key-value", () =>

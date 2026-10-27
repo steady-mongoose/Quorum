@@ -280,10 +280,17 @@ export async function closeReport(
   const stopped = await moderatorStop(db, actor, input.userId, report.room_id, input.now);
   if (stopped) return stopped;
   if (report.status !== "open") return fail(409, "That report is already closed.");
-  if (await openCsamFlagFor(db, { id: input.reportId, subjectKind: report.subject_kind, subjectId: report.subject_id })) {
-    return fail(409, CSAM_FLAG_OPEN);
-  }
-  const closed = await db.transaction(async (tx) => {
+  const closed = await db.transaction(async (tx): Promise<boolean | "flagged"> => {
+    // Lock the report first, then check for an open CSAM flag in the same
+    // transaction, so a flag filed while this closes cannot slip past.
+    const locked = await tx.query<{ id: string }>(
+      `select id from member_report where id = $1 and status = 'open' for update`,
+      [input.reportId],
+    );
+    if (!locked[0]) return false;
+    if (await openCsamFlagFor(tx, { id: input.reportId, subjectKind: report.subject_kind, subjectId: report.subject_id })) {
+      return "flagged";
+    }
     const updated = await tx.query<{ id: string }>(
       `update member_report
        set status = 'closed', closed_at = $2, closed_by_user_id = $3, resolution = $4
@@ -299,6 +306,7 @@ export async function closeReport(
     );
     return true;
   });
+  if (closed === "flagged") return fail(409, CSAM_FLAG_OPEN);
   if (!closed) return fail(409, "That report is already closed.");
   return { ok: true, value: { id: input.reportId, resolution } };
 }
