@@ -106,20 +106,33 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   );
 }
 
+export const ROOM_CALL_STATUS_ID = "room-call-status";
+export const CALL_STARTING_TEXT = "The call is starting. Join will appear here.";
+
 /**
  * After "Go to the call" lands on /rooms: focus the call's Join button.
- * The button appears once /api/calls/status answers, so wait up to about a
- * second for it, then fall back to the room heading.
+ * The button appears once /api/calls/status answers, so check every 50 ms
+ * (setTimeout, so the deadline holds in a background tab) for up to about a
+ * second, then fall back to the room heading and say why. If the user has
+ * moved focus in the meantime, leave them where they are.
  */
-export function focusRoomCall(waitMs = 1000, startedAt = Date.now()): void {
+export function focusRoomCall(
+  waitMs = 1000,
+  startedAt = Date.now(),
+  from: Element | null = document.activeElement,
+): void {
+  const now = document.activeElement;
+  if (now !== from && now !== document.body) return;
   const join = document.getElementById("room-call-join");
   if (join) {
     join.focus();
     return;
   }
   if (Date.now() - startedAt >= waitMs) {
+    const status = document.getElementById(ROOM_CALL_STATUS_ID);
+    if (status) status.textContent = CALL_STARTING_TEXT;
     document.getElementById("room-heading")?.focus();
     return;
   }
-  requestAnimationFrame(() => focusRoomCall(waitMs, startedAt));
+  setTimeout(() => focusRoomCall(waitMs, startedAt, from), 50);
 }

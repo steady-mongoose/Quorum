@@ -207,6 +207,7 @@ export function RoomView() {
         >
           {meta.name}
         </h1>
+        <p id="room-call-status" role="status" className="sr-only" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>

@@ -56,7 +56,8 @@ globalThis.fetch = async (input, init) => {
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
-const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
+const { CallRings, focusRoomCall, CALL_STARTING_TEXT } =
+  await import("../../components/board/call-rings.tsx");
 
 const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
@@ -217,9 +218,30 @@ test("focusRoomCall falls back to the room heading", async () => {
   const heading = document.createElement("h1");
   heading.id = "room-heading";
   heading.tabIndex = -1;
-  document.body.append(heading);
+  const status = document.createElement("p");
+  status.id = "room-call-status";
+  status.setAttribute("role", "status");
+  document.body.append(heading, status);
+  document.body.focus();
   focusRoomCall(20);
   await waitFor(() => document.activeElement === heading);
   assert.equal(document.activeElement, heading);
+  assert.equal(status.textContent, CALL_STARTING_TEXT);
   heading.remove();
+  status.remove();
+});
+
+test("focusRoomCall leaves a user who has already moved focus", async () => {
+  const heading = document.createElement("h1");
+  heading.id = "room-heading";
+  heading.tabIndex = -1;
+  const elsewhere = document.createElement("button");
+  document.body.append(heading, elsewhere);
+  document.body.focus();
+  focusRoomCall();
+  setTimeout(() => elsewhere.focus(), 10);
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.equal(document.activeElement, elsewhere);
+  heading.remove();
+  elsewhere.remove();
 });
