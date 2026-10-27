@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ClaimsPanel } from "@/components/board/claims-queue";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
@@ -137,7 +138,11 @@ export function HomePanel() {
           </label>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Name
-            <input className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} />
+            <input
+              className={fieldClass}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </label>
           <label className="flex flex-col gap-2 text-sm text-muted">
             State
@@ -157,6 +162,8 @@ export function HomePanel() {
           ) : null}
         </form>
       </details>
+
+      <ClaimsPanel />
 
       {home.requests.length > 0 ? (
         <details className="rounded-lg border border-line bg-surface p-4" open>
@@ -190,7 +197,9 @@ function HomeSectionBlock({
         ? section.posts.map((post) => (
             <article key={post.id} className="rounded-lg border border-line bg-surface p-4">
               <div className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
-                <span className="rounded-sm border border-signal px-2 py-1 text-signal">{post.label}</span>
+                <span className="rounded-sm border border-signal px-2 py-1 text-signal">
+                  {post.label}
+                </span>
                 <button
                   type="button"
                   className="inline-flex min-h-[44px] items-center text-signal underline"
@@ -296,7 +305,11 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
         <div className="mt-3 flex flex-col gap-2">
           <label className="flex flex-col gap-2 text-sm text-muted">
             One sentence
-            <input className={fieldClass} value={note} onChange={(event) => setNote(event.target.value)} />
+            <input
+              className={fieldClass}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
           </label>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={btnSignal} onClick={() => decide("approved")}>

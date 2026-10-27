@@ -8,6 +8,12 @@ import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
 import {
+  canReadRoom,
+  canSeeHiddenRooms,
+  listingColumnsReady,
+  visibleRoomClause,
+} from "./room-visibility.ts";
+import {
   filterAudience,
   guardRoomAudience,
   includeInCatalog,
@@ -82,6 +88,11 @@ export type BoardRoom = {
   townId: string;
   congregationId: string;
   regionId: string;
+  status: "draft" | "unclaimed" | "active";
+  town: string;
+  county: string;
+  category: string;
+  sourceUrl: string;
   audience: "all" | "men" | "women";
   /** The signed-in member may set the audience. */
   host: boolean;
@@ -252,6 +263,10 @@ type RoomRow = {
   town_id?: string;
   congregation_id?: string;
   region_id?: string;
+  status?: string;
+  town_name?: string;
+  county?: string;
+  source_url?: string;
   audience?: string | null;
   created_by?: string | null;
 };
@@ -277,6 +292,11 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
     regionId: row.region_id ?? "",
+    status: row.status === "draft" || row.status === "unclaimed" ? row.status : "active",
+    town: row.town_name ?? "",
+    county: row.county ?? "",
+    category: "",
+    sourceUrl: row.source_url ?? "",
     audience,
     host: isRoomHost({
       createdBy: row.created_by ?? "",
@@ -344,21 +364,36 @@ async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
   return council ? { ...post, council } : post;
 }
 
+const ROOM_COLUMNS = `id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
+            scope_kind, town_id, congregation_id, region_id, audience, created_by`;
+const LISTING_COLUMNS = `, status, town_name, county, source_url`;
+
 async function roomById(
   db: Db,
   id: string,
   viewer?: { id: string; admin: boolean },
 ): Promise<BoardRoom | null> {
   if (!ROOM_ID.test(id)) return null;
+  const ready = await listingColumnsReady(db);
   const rows = await db.query<RoomRow>(
-    `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            scope_kind, town_id, congregation_id, region_id, audience, created_by
-     from room where id = $1`,
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""} from room where id = $1`,
     [id],
   );
   const row = rows[0];
   if (!row || !row.name) return null;
   return toRoom(row, viewer);
+}
+
+/** A draft or unclaimed room is missing for a member. Stewards and admins can read it. */
+async function concealedFrom(
+  db: Db,
+  actor: { admin: boolean; steward: boolean },
+  roomId: string,
+): Promise<boolean> {
+  if (canSeeHiddenRooms(actor)) return false;
+  const room = await roomById(db, roomId);
+  if (!room) return false;
+  return !canReadRoom(room.status, actor);
 }
 
 export type OpenBan = { until: number; strikes: number; reason: BanEntry["reason"] };
@@ -512,10 +547,25 @@ export async function listBoard(
     Math.max(1, Math.floor(query.limit ?? PAGE_DEFAULT) || PAGE_DEFAULT),
   );
   const flags = await councilFlags(db, userId);
+  const ready = await listingColumnsReady(db);
+  const seeHidden = !ready || canSeeHiddenRooms(actor);
+  const hiddenIds = new Set<string>();
+  if (ready && !seeHidden) {
+    const hidden = await db.query<{ id: string }>(`select id from room where status <> 'active'`);
+    for (const row of hidden) hiddenIds.add(row.id);
+  }
+  if (ready && query.room && !seeHidden) {
+    const concealed = await db.query<{ id: string }>(
+      `select id from room where id = $1 and name <> '' and status <> 'active'`,
+      [query.room],
+    );
+    if (concealed[0]) return fail(404, "That room is not here.");
+  }
   const roomRows = await db.query<RoomRow>(
-    `select id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
-            scope_kind, town_id, congregation_id, region_id, audience, created_by
-     from room where name <> '' order by sort_order asc, name asc`,
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}
+     from room where name <> '' and ${visibleRoomClause(ready, "1")}
+     order by sort_order asc, name asc`,
+    ready ? [seeHidden] : [],
   );
   const openRooms: BoardRoom[] = [];
   for (const room of roomRows.map((row) => toRoom(row, { id: userId, admin: actor.admin }))) {
@@ -703,7 +753,8 @@ export async function listBoard(
     actor.admin || (roomId !== null && roomId !== "" && actor.stewardRooms.includes(roomId));
   const visibleAppeals = appealRows.filter(
     (row) =>
-      actor.admin || row.author_user_id === userId || actor.stewardRooms.includes(row.room_id),
+      !hiddenIds.has(row.room_id) &&
+      (actor.admin || row.author_user_id === userId || actor.stewardRooms.includes(row.room_id)),
   );
   return {
     ok: true,
@@ -874,7 +925,7 @@ export async function createPost(
   if (!actor.member) return fail(403, "Only a member can post.");
   if (!ROOM_ID.test(input.roomId)) return fail(400, "Choose a room.");
   const room = await roomById(db, input.roomId);
-  if (!room) return fail(404, "That room is not here.");
+  if (!room || !canReadRoom(room.status, actor)) return fail(404, "That room is not here.");
   const ban = await openBan(db, input.userId, input.now, room.id);
   if (ban) return fail(403, "This account cannot post right now.");
   const blocked = await audienceBlock(db, {
@@ -1033,7 +1084,7 @@ export async function replyToPost(
   const parent = parents[0];
   if (!parent || parent.removed || parent.parent_id) return fail(404, "That post is not here.");
   const room = await roomById(db, parent.room_id);
-  if (!room) return fail(404, "That post is not here.");
+  if (!room || !canReadRoom(room.status, actor)) return fail(404, "That post is not here.");
   if (await openBan(db, input.userId, input.now, room.id))
     return fail(403, "This account cannot post right now.");
   const blocked = await audienceBlock(db, {
@@ -1096,7 +1147,7 @@ export async function revisePost(
     return fail(403, "This account cannot post right now.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can revise a post.");
   const room = await roomById(db, post.room_id);
-  if (!room) return fail(404, "That post is not here.");
+  if (!room || !canReadRoom(room.status, actor)) return fail(404, "That post is not here.");
   const blocked = await audienceBlock(db, {
     userId: input.userId,
     roomId: room.id,
@@ -1141,16 +1192,17 @@ export async function closeAsked(
     `select room_id from board_post where id = $1`,
     [input.postId],
   );
-  const closeRoom = found[0]?.room_id ?? "";
-  if (closeRoom) {
-    const blocked = await audienceBlock(db, {
-      userId: input.userId,
-      roomId: closeRoom,
-      now: input.now,
-      path: "post",
-    });
-    if (blocked) return blocked;
+  if (!found[0] || (await concealedFrom(db, actor, found[0].room_id))) {
+    return fail(404, "That question is not here.");
   }
+  const closeRoom = found[0].room_id;
+  const blocked = await audienceBlock(db, {
+    userId: input.userId,
+    roomId: closeRoom,
+    now: input.now,
+    path: "post",
+  });
+  if (blocked) return blocked;
   if (await openBan(db, input.userId, input.now, closeRoom))
     return fail(403, "This account cannot post right now.");
   const updated = await db.query<PostRow>(
@@ -1183,7 +1235,8 @@ export async function markPost(
     [input.postId],
   );
   const post = existing[0];
-  if (!post) return fail(404, "That post is not here.");
+  if (!post || (await concealedFrom(db, actor, post.room_id)))
+    return fail(404, "That post is not here.");
   if (!stewardsRoom(actor, post.room_id)) {
     return fail(
       403,
@@ -1282,7 +1335,9 @@ export async function removePost(
     input.postId,
   ]);
   const post = existing[0];
-  if (!post || post.removed) return fail(404, "That post is not here.");
+  if (!post || post.removed || (await concealedFrom(db, actor, post.room_id))) {
+    return fail(404, "That post is not here.");
+  }
   if (!stewardsRoom(actor, post.room_id)) {
     return fail(
       403,
@@ -1524,7 +1579,12 @@ export async function listOwnAppeals(db: Db, userId: string): Promise<AppealEntr
     `${APPEAL_SELECT} where a.author_user_id = $1 order by a.created_at desc limit 50`,
     [userId],
   );
-  return rows.map(appealFrom);
+  const visible = [];
+  for (const row of rows) {
+    if (await concealedFrom(db, actor, row.room_id)) continue;
+    visible.push(appealFrom(row));
+  }
+  return visible;
 }
 
 export async function fileAppeal(
@@ -1549,7 +1609,8 @@ export async function fileAppeal(
     [input.postId],
   );
   const post = posts[0];
-  if (!post) return fail(404, "That post is not here.");
+  if (!post || (await concealedFrom(db, actor, post.room_id)))
+    return fail(404, "That post is not here.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can appeal.");
   let targetId = "";
   if (input.kind === "mark") {
