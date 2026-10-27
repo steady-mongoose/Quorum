@@ -209,12 +209,38 @@ test("the routes file, list, and close DM reports", async () => {
     const filed = await call(ann, `/api/dm/messages/${id}/report`, "POST", { reason: "porn", sharedText: "x" });
     assert.equal(filed.status, 201);
     const { id: reportId } = (await filed.json()) as { id: string };
-    assert.equal((await call(ann, "/api/dm/reports", "GET")).status, 403);
-    const listed = await call(josh, "/api/dm/reports", "GET");
+    assert.equal((await call(ann, "/api/admin/dm-reports", "GET")).status, 403);
+    const listed = await call(josh, "/api/admin/dm-reports", "GET");
     assert.equal(listed.status, 200);
     assert.equal(((await listed.json()) as { reports: unknown[] }).reports.length, 1);
-    const closed = await call(josh, `/api/dm/reports/${reportId}/close`, "POST", { resolution: "resolved" });
+    const closed = await call(josh, `/api/admin/dm-reports/${reportId}/close`, "POST", { resolution: "resolved" });
     assert.equal(closed.status, 200);
+    assert.notEqual((await call(josh, "/api/dm/reports", "GET")).status, 200, "the old member-path queue is gone");
+    // #64's member wildcards are /^\/api\/dm(\/.*)?$/ for GET, POST and DELETE.
+    // The admin queue sits outside them, so the MFA policy treats it as privileged.
+    const memberDm = /^\/api\/dm(\/.*)?$/;
+    assert.equal(memberDm.test("/api/admin/dm-reports"), false);
+    assert.equal(memberDm.test(`/api/admin/dm-reports/${reportId}/close`), false);
+  } finally {
+    await close();
+  }
+});
+
+test("a banned admin cannot read or close message reports", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await user(db, "josh", "Josh", "admin");
+    assert.equal((await listDmReports(db, { userId: "josh", now })).ok, true);
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id, created_at)
+       values ($1, 'josh', 'Josh', 'threat', null, 'owner', 1, $2, '', $3)`,
+      [randomUUID(), new Date(now.getTime() + 86_400_000), now],
+    );
+    const listed = await listDmReports(db, { userId: "josh", now });
+    assert.deepEqual(listed, { ok: false, status: 403, error: "This account is banned and cannot act as an admin right now." });
+    const closed = await closeDmReport(db, { userId: "josh", reportId: "r1", resolution: "resolved", now });
+    assert.equal(closed.ok, false);
+    if (!closed.ok) assert.equal(closed.status, 403);
   } finally {
     await close();
   }

@@ -92,13 +92,16 @@ export async function fileDmReport(
   return { ok: true, value: { id } };
 }
 
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
+
 /** Open DM reports, for admins only. Highest severity first, then oldest. */
 export async function listDmReports(
   db: Db,
-  input: { userId: string },
+  input: { userId: string; now?: Date },
 ): Promise<Ok<DmReport[]> | Err> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin reads message reports.");
+  if (await openBan(db, input.userId, input.now ?? new Date())) return fail(403, BANNED_ADMIN);
   const rows = await db.query<{
     id: string;
     reason: HardRuleValue;
@@ -137,6 +140,7 @@ export async function closeDmReport(
 ): Promise<Ok<null> | Err> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin closes message reports.");
+  if (await openBan(db, input.userId, input.now)) return fail(403, BANNED_ADMIN);
   if (input.resolution !== "resolved" && input.resolution !== "dismissed") {
     return fail(400, "Choose resolved or dismissed.");
   }

@@ -41,10 +41,10 @@ export function reportDmMessage(
 }
 
 export async function listDmReports(): Promise<Outcome<DmReportRow[]>> {
-  const result = await call<{ reports: DmReportRow[] }>("/api/dm/reports", "GET");
+  const result = await call<{ reports: DmReportRow[] }>("/api/admin/dm-reports", "GET");
   return result.ok ? { ok: true, value: result.value.reports } : result;
 }
 
 export function closeDmReport(id: string, resolution: "resolved" | "dismissed"): Promise<Outcome<{ ok: true }>> {
-  return call(`/api/dm/reports/${encodeURIComponent(id)}/close`, "POST", { resolution });
+  return call(`/api/admin/dm-reports/${encodeURIComponent(id)}/close`, "POST", { resolution });
 }
