@@ -319,7 +319,6 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
           <label className="flex flex-col gap-2 text-sm text-muted">
             Steward email
             <input
-              aria-label="Steward email"
               className={`${fieldClass} min-h-[44px]`}
               type="email"
               value={stewardEmail}
@@ -329,7 +328,6 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
           <label className="flex flex-col gap-2 text-sm text-muted">
             Email of the member who vouches for them
             <input
-              aria-label="Email of the member who vouches for them"
               className={`${fieldClass} min-h-[44px]`}
               type="email"
               value={inviterEmail}

@@ -618,7 +618,6 @@ function StewardFields({
       <label className="flex flex-col gap-2 text-sm text-muted">
         {stewardLabel}
         <input
-          aria-label={stewardLabel}
           className={cn(fieldClass, "min-h-[44px]")}
           type="email"
           value={stewardEmail}
@@ -628,7 +627,6 @@ function StewardFields({
       <label className="flex flex-col gap-2 text-sm text-muted">
         Email of the member who vouches for them
         <input
-          aria-label="Email of the member who vouches for them"
           className={cn(fieldClass, "min-h-[44px]")}
           type="email"
           value={inviterEmail}
