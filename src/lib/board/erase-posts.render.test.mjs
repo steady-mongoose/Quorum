@@ -56,7 +56,7 @@ test("the member copy says plainly that posts are erased, with the exceptions", 
     const text = view.host.textContent ?? "";
     assert.ok(text.includes(copy.DELETION_REQUEST_COPY));
     assert.match(copy.DELETION_REQUEST_COPY, /your posts are erased/);
-    assert.match(copy.DELETION_REQUEST_COPY, /under a hold or an open report are kept/);
+    assert.match(copy.DELETION_REQUEST_COPY, /under a hold, an open report, or a pending appeal are kept/);
     assert.equal(text.includes("It does not delete"), false);
   } finally {
     view.cleanup();
@@ -75,7 +75,7 @@ test("an admin completes a request through a confirm dialog with Cancel first an
     const open = /** @type {HTMLButtonElement} */ ([...view.host.querySelectorAll("button")].find((b) => b.textContent === "Complete"));
     assert.equal(open.getAttribute("aria-label"), "Complete Maria's deletion request");
     assert.match(open.className, /min-h-\[44px\]/);
-    assert.ok((view.host.textContent ?? "").includes("A member asked for their account to be deleted. Completing a request erases that member's posts and closes the account. Posts under a hold or an open report are kept until that is finished."));
+    assert.ok((view.host.textContent ?? "").includes("A member asked for their account to be deleted. Completing a request erases that member's posts, with their photos and videos, and closes the account. Posts under a hold, an open report, or a pending appeal are kept, with their files, until that is finished."));
     act(() => open.click());
     await flush();
     const dialog = /** @type {HTMLElement} */ (view.host.querySelector("dialog"));
@@ -89,7 +89,7 @@ test("an admin completes a request through a confirm dialog with Cancel first an
     await flush();
     await flush();
     assert.deepEqual(completed, ["d1"]);
-    assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Done. 3 posts erased, 1 kept for a hold or open report.");
+    assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Done. 3 posts erased, 1 kept for a hold, report, or appeal.");
     assert.equal(document.activeElement?.textContent?.trim(), "Account deletion requests");
   } finally {
     view.cleanup();

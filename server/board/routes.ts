@@ -261,13 +261,14 @@ export async function handleBoard(
         adminUserId: session.id,
         requestId: decodeURIComponent(completing[1]),
         now,
+        store: deps.store ?? null,
       });
       if (!completed.ok) return json(completed.status, { error: completed.error });
       return json(200, completed.value);
     }
 
     if (url.pathname === "/api/account/deletion-requests" && request.method === "GET") {
-      const listed = await listDeletionRequests(deps.db, session.id);
+      const listed = await listDeletionRequests(deps.db, session.id, now);
       if (!listed.ok) return json(listed.status, { error: listed.error });
       return json(200, { requests: listed.value });
     }

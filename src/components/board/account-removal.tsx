@@ -221,7 +221,7 @@ export function DeletionRequestQueue({
         Account deletion requests
       </h2>
       <p className="max-w-prose text-sm text-muted">
-        A member asked for their account to be deleted. Completing a request erases that member's posts and closes the account. Posts under a hold or an open report are kept until that is finished.
+        A member asked for their account to be deleted. Completing a request erases that member's posts, with their photos and videos, and closes the account. Posts under a hold, an open report, or a pending appeal are kept, with their files, until that is finished.
       </p>
       <p role="status" className="text-sm text-muted">
         {done}
