@@ -24,6 +24,17 @@ create table if not exists csam_access_log (
   created_at timestamptz not null default now()
 );
 
+-- Upgrade step: an earlier draft of this migration created csam_access_log without
+-- 'hold_released' in the action check. "create table if not exists" leaves that old check
+-- in place, so every hold release would fail its log insert. Replace the check by name.
+-- Idempotent, and a no-op change on a fresh database.
+alter table csam_access_log drop constraint if exists csam_access_log_action_check;
+alter table csam_access_log add constraint csam_access_log_action_check check (
+  action in ('list', 'file_report', 'legal_hold_on', 'legal_hold_off', 'purge',
+             'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged',
+             'hold_released')
+);
+
 create index if not exists csam_access_log_hold_idx on csam_access_log (hold_id, created_at);
 
 alter table board_csam_hold add column if not exists legal_hold boolean not null default false;
