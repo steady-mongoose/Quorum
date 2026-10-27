@@ -3,6 +3,9 @@ import { actorRole } from "../board/access.ts";
 
 export const RING_TTL_MS = 60_000;
 export const MAX_RINGS_PER_TARGET = 5;
+/** One host or steward can ring at most this many times in RINGER_WINDOW_MS. */
+export const MAX_RINGS_PER_RINGER = 10;
+export const RINGER_WINDOW_MS = 10 * 60_000;
 
 export type Ring = {
   id: string;
@@ -19,13 +22,22 @@ export type Ring = {
  */
 export function createRingStore() {
   const rings = new Map<string, Ring>();
+  const sent = new Map<string, number[]>();
   let next = 1;
   const sweep = (at: number) => {
     for (const [id, ring] of rings) if (at - ring.at > RING_TTL_MS) rings.delete(id);
   };
   return {
-    ring(input: Omit<Ring, "id" | "at">, at: number): Ring {
+    /** Null when the ringer is over the per-ringer cap. */
+    ring(input: Omit<Ring, "id" | "at">, at: number): Ring | null {
       sweep(at);
+      const recent = (sent.get(input.from) ?? []).filter((stamp) => at - stamp < RINGER_WINDOW_MS);
+      if (recent.length >= MAX_RINGS_PER_RINGER) {
+        sent.set(input.from, recent);
+        return null;
+      }
+      recent.push(at);
+      sent.set(input.from, recent);
       for (const [id, ring] of rings) {
         if (ring.to === input.to && ring.roomId === input.roomId) rings.delete(id);
       }
