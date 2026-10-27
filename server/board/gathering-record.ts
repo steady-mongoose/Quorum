@@ -3,7 +3,6 @@ import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibil
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
-import { townOf } from "../../src/lib/board/gathering.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   acceptPublicGathering,
@@ -59,7 +58,12 @@ function toRecord(row: Row, userId: string): GatheringRecord {
 }
 
 /** Participation. A steward who does not match is refused, the same as any member. */
-async function gatheringAudience(db: Db, userId: string, roomId: string, now: Date): Promise<Fail | null> {
+async function gatheringAudience(
+  db: Db,
+  userId: string,
+  roomId: string,
+  now: Date,
+): Promise<Fail | null> {
   const gate = await guardRoomAudience(db, {
     userId,
     roomId,
@@ -102,21 +106,36 @@ async function loadRow(db: Db, id: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * The public town comes only from structured data: the town a town room is
+ * scoped to. A free-text place line never reaches the public page, so a
+ * street name can't leak. Any other room shows no town.
+ */
+async function structuredTown(db: Db, roomId: string): Promise<string> {
+  const rows = await db.query<{ name: string }>(
+    `select t.name from room r join town t on t.id = r.town_id
+     where r.id = $1 and r.scope_kind = 'town'`,
+    [roomId],
+  );
+  return rows[0]?.name?.trim() ?? "";
+}
+
 function fieldsOf(input: {
   title: unknown;
   date: unknown;
   time: unknown;
   place: unknown;
+  town: string;
 }): { ok: true; gathering: PublicGathering; place: string } | Fail {
   const place = typeof input.place === "string" ? input.place.trim() : "";
   if (!place || place.length > 240 || !isEnglish(place)) {
-    return fail(400, "Say where it meets. The public page will keep only the town.");
+    return fail(400, "Say where it meets. The public page shows only the room's town, never the place line.");
   }
   const accepted = acceptPublicGathering({
     title: input.title,
     date: input.date,
     time: input.time,
-    town: townOf(place),
+    town: input.town,
   });
   if (!accepted.ok) return fail(400, accepted.error);
   return { ok: true, gathering: accepted.gathering, place };
@@ -154,7 +173,7 @@ export async function saveGathering(
     return fail(400, "That room is not on the board.");
   }
   if (await openBan(db, input.userId, input.now, roomId)) return fail(404, "Not found.");
-  const fields = fieldsOf(input);
+  const fields = fieldsOf({ ...input, town: await structuredTown(db, roomId) });
   if (!fields.ok) return fields;
 
   const existing = await loadRow(db, id);
@@ -288,13 +307,16 @@ export async function listGatheringsFor(
   input: { userId: string; now: Date },
 ): Promise<GatheringRecord[]> {
   const actor = await actorRole(db, input.userId);
-  const rooms = actor.admin ? [] : actor.stewardRooms;
+  if (!actor.member && !actor.steward) return [];
+  // A gathering is for its room's audience, not only its host. Every member
+  // who can read the room sees it, so they can RSVP, mark "I went", and meet
+  // the host. A member barred from the room does not.
   const rows = await db.query<Row>(
     `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id
      from public_gathering
-     where removed = false and (host_user_id = $1 or $2::boolean or room_id = any($3::text[]))
-     order by updated_at desc`,
-    [input.userId, actor.admin, rooms],
+     where removed = false
+     order by updated_at desc
+     limit 500`,
   );
   const visible: GatheringRecord[] = [];
   for (const row of rows) {
@@ -302,6 +324,11 @@ export async function listGatheringsFor(
     const listed = await readRoomListing(db, row.room_id);
     if (!listed || !canReadRoom(listed.status, actor)) continue;
     if (await gatheringAudience(db, input.userId, row.room_id, input.now)) continue;
+    if (
+      row.host_user_id !== input.userId &&
+      (await openBan(db, input.userId, input.now, row.room_id))
+    )
+      continue;
     visible.push(toRecord(row, input.userId));
   }
   return visible;

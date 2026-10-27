@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import { loadGathering, saveGathering, setGatheringShare } from "@/lib/board/gathering-public";
-import { PUBLIC_TIME_NOTE, publicClock } from "@/lib/board/public-gathering";
+import { gatheringPublicUrl, PUBLIC_TIME_NOTE, publicClock } from "@/lib/board/public-gathering";
 import { authorName } from "@/lib/board/model";
 import type { MeetingCard } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { btnGhost } from "@/components/quorum/bits";
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The organizer's switch. Off until they turn it on. The flag is read from
@@ -17,6 +27,8 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
   const stewardRooms = useBoard((state) => state.stewardRooms);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [wanted, setWanted] = useState<boolean | null>(null);
+  const [copied, setCopied] = useState("");
   const host = card.host === me;
   const moderator = admin || stewardRooms.includes(card.room);
   const shared = card.sharePublic === true;
@@ -37,6 +49,7 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
   }, [card.id, mayRead, remote, updateCard]);
 
   if (!allowed) return null;
+  const link = gatheringPublicUrl(card.id);
 
   const change = (next: boolean) => {
     if (!remote) {
@@ -48,6 +61,8 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
       return;
     }
     setPending(true);
+    setWanted(next);
+    setCopied("");
     void saveGathering({
       id: card.id,
       roomId: card.room,
@@ -58,11 +73,13 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
     }).then((saved) => {
       if (!saved.ok) {
         setPending(false);
+        setWanted(null);
         setError(saved.error);
         return;
       }
       return setGatheringShare({ id: card.id, shared: next }).then((result) => {
         setPending(false);
+        setWanted(null);
         if (!result.ok) {
           setError(result.error);
           return;
@@ -79,9 +96,13 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
         <input
           type="checkbox"
           className="size-5"
-          checked={shared}
-          disabled={pending}
-          onChange={(event) => change(event.target.checked)}
+          checked={wanted ?? shared}
+          aria-disabled={pending ? true : undefined}
+          aria-describedby={shared ? `share-link-${card.id}` : undefined}
+          onChange={(event) => {
+            if (pending) return;
+            change(event.target.checked);
+          }}
         />
         Share this gathering
       </label>
@@ -90,6 +111,33 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
           ? "Off until you turn it on. The public page shows the title, the date, the time, and the town."
           : "A steward can turn sharing off."}
       </p>
+      {shared && !pending ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            id={`share-link-${card.id}`}
+            className="font-mono text-sm break-all text-signal underline"
+            href={link}
+          >
+            {link}
+          </a>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => {
+              void copyText(link).then((ok) =>
+                setCopied(
+                  ok ? "The link is copied." : "Copy did not work. Select the link and copy it.",
+                ),
+              );
+            }}
+          >
+            Copy link
+          </button>
+          <span className="text-sm text-muted" role="status" aria-live="polite">
+            {copied}
+          </span>
+        </div>
+      ) : null}
       {host && card.time.trim() !== "" && !plainClock ? (
         <p className="max-w-prose text-sm text-muted">{PUBLIC_TIME_NOTE}</p>
       ) : null}
