@@ -55,7 +55,8 @@ function seqOf(value: unknown): number {
 
 /**
  * Session membership, checked on every read and every send.
- * This does not write room_member. A missing row, or an open ban, refuses.
+ * This does not write room_member. A join (room_join) or a room_member row lets
+ * the member in; neither row, or an open ban, refuses.
  */
 export async function requireRoomMember(
   db: Db,
@@ -73,8 +74,12 @@ export async function requireRoomMember(
   }
   const ban = await openBan(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
+  // Joining (room_join) lets a member in, as does having stood in the room (room_member).
   const members = await db.query<{ user_id: string }>(
-    `select user_id from room_member where room_id = $1 and user_id = $2`,
+    `select user_id from room_member where room_id = $1 and user_id = $2
+     union all
+     select user_id from room_join where room_id = $1 and user_id = $2
+     limit 1`,
     [roomId, userId],
   );
   if (!members[0]) return fail(403, "You are not in this room.");

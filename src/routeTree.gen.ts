@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminStatsRouteImport } from './routes/admin/stats'
 import { Route as EIdRouteImport } from './routes/e/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as RoomsSlugRouteImport } from './routes/rooms/$slug'
@@ -17,6 +18,11 @@ import { Route as RoomsSlugRouteImport } from './routes/rooms/$slug'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminStatsRoute = AdminStatsRouteImport.update({
+  id: '/admin/stats',
+  path: '/admin/stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EIdRoute = EIdRouteImport.update({
@@ -37,12 +43,14 @@ const RoomsSlugRoute = RoomsSlugRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
   '/rooms/': typeof RoomsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
   '/rooms': typeof RoomsIndexRoute
@@ -50,20 +58,22 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
   '/rooms/': typeof RoomsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/e/$id' | '/rooms/$slug' | '/rooms/'
+  fullPaths: '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/e/$id' | '/rooms/$slug' | '/rooms'
-  id: '__root__' | '/' | '/e/$id' | '/rooms/$slug' | '/rooms/'
+  to: '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms'
+  id: '__root__' | '/' | '/admin/stats' | '/e/$id' | '/rooms/$slug' | '/rooms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminStatsRoute: typeof AdminStatsRoute
   EIdRoute: typeof EIdRoute
   RoomsSlugRoute: typeof RoomsSlugRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
@@ -76,6 +86,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/stats': {
+      id: '/admin/stats'
+      path: '/admin/stats'
+      fullPath: '/admin/stats'
+      preLoaderRoute: typeof AdminStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/e/$id': {
@@ -104,6 +121,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminStatsRoute: AdminStatsRoute,
   EIdRoute: EIdRoute,
   RoomsSlugRoute: RoomsSlugRoute,
   RoomsIndexRoute: RoomsIndexRoute,
