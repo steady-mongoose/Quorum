@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   CAMERA_DENIED,
-  CAMERA_UNAVAILABLE_LABEL,
   MIC_DENIED,
   liveLine,
   openMedia,
@@ -66,7 +65,7 @@ export function RoomCall({ roomId }: { roomId: string }) {
       basePath={`/api/calls/rooms/${roomId}`}
       selfId={selfId}
       label="Room call"
-      note="This call is not recorded. Only people who have stood in, saved, or steward this room can join."
+      note="This call is not recorded. Only this room's members and stewards can join."
       joinLabel="Join the call"
       joinId={ROOM_CALL_JOIN_ID}
       extra={<RingMembers roomId={roomId} />}
@@ -339,6 +338,7 @@ export function CallPanel({
 
   const toggle = (kind: "audio" | "video") => {
     const tracks = localStream?.getTracks().filter((track) => track.kind === kind) ?? [];
+    if (kind === "video" && cameraDenied) return;
     const next = kind === "audio" ? !micOn : !cameraOn;
     for (const track of tracks) track.enabled = next;
     if (kind === "audio") setMicOn(next);
@@ -416,7 +416,7 @@ export function CallPanel({
               type="button"
               className={cn(btnGhost, "min-h-[44px]")}
               aria-pressed={!cameraOn}
-              disabled={cameraDenied}
+              aria-disabled={cameraDenied || undefined}
               onClick={() => toggle("video")}
             >
               {cameraOn ? (
@@ -424,11 +424,7 @@ export function CallPanel({
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              {cameraDenied
-                ? CAMERA_UNAVAILABLE_LABEL
-                : cameraOn
-                  ? "Turn camera off"
-                  : "Turn camera on"}
+              Camera off
             </button>
             <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />

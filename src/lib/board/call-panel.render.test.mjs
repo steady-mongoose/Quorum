@@ -97,17 +97,21 @@ function mount(extra = {}) {
   return { host, root, button };
 }
 
-test("camera denied: sound only, camera button disabled, Mute focused, Join focused after leave", async () => {
+test("camera denied: sound only, camera button aria-disabled, Mute focused, Join focused after leave", async () => {
   media = "camera-denied";
   const { host, root, button } = mount();
   await act(async () => button("Join the call").click());
   await flush();
   const mute = button("Mute");
-  const cam = button("Camera unavailable");
+  const cam = button("Camera off");
   assert.ok(mute && cam, "fixed labels");
   assert.equal(document.activeElement, mute, "Mute focused when live");
-  assert.equal(cam.disabled, true);
+  assert.equal(cam.disabled, false, "no disabled attribute; stays focusable");
+  assert.equal(cam.getAttribute("aria-disabled"), "true");
   assert.equal(cam.getAttribute("aria-pressed"), "true");
+  await act(async () => cam.click());
+  assert.equal(button("Camera off").getAttribute("aria-pressed"), "true", "click is a no-op");
+  assert.equal(host.querySelector("video"), null, "still no self-view");
   assert.match(host.textContent, /Your camera isn't available, so you joined with sound only\./);
   assert.equal(host.querySelector("video"), null, "no self-view with the camera off");
   const live = host.querySelector('[aria-live="polite"]');
@@ -150,7 +154,7 @@ test("the Join button takes the id a ring focuses", async () => {
   await act(async () => root.unmount());
 });
 
-test("the camera button names what it will do next", async () => {
+test("the camera button keeps a stable label and toggles aria-pressed", async () => {
   media = "camera-ok";
   // jsdom has no MediaStream; let the self-view take the fake stream.
   Object.defineProperty(window.HTMLMediaElement.prototype, "srcObject", {
@@ -166,16 +170,17 @@ test("the camera button names what it will do next", async () => {
   const { root, button } = mount();
   await act(async () => button("Join the call").click());
   await flush();
-  assert.ok(button("Turn camera off"), "camera on: offers Turn camera off");
-  await act(async () => button("Turn camera off").click());
+  const cam = button("Camera off");
+  assert.ok(cam, "stable label");
+  assert.equal(cam.getAttribute("aria-pressed"), "false", "camera on: not pressed");
+  assert.equal(cam.hasAttribute("aria-disabled"), false);
+  await act(async () => cam.click());
   await flush();
-  assert.equal(button("Turn camera off"), undefined, "no stale Turn camera off");
-  const on = button("Turn camera on");
-  assert.ok(on, "camera off: offers Turn camera on");
-  assert.equal(on.getAttribute("aria-pressed"), "true");
-  await act(async () => on.click());
+  assert.equal(button("Turn camera on"), undefined, "no changing label");
+  assert.equal(button("Camera off").getAttribute("aria-pressed"), "true", "camera off: pressed");
+  await act(async () => button("Camera off").click());
   await flush();
-  assert.ok(button("Turn camera off"));
+  assert.equal(button("Camera off").getAttribute("aria-pressed"), "false");
   await act(async () => button("Leave call").click());
   await flush();
   await act(async () => root.unmount());
