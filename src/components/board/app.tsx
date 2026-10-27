@@ -285,7 +285,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
                 href={signingIn ? "#sign-in" : "#open-the-door"}
                 onClick={focusDoorField}
               >
-                {signingIn ? "Sign in" : "Open the door"}
+                {signingIn ? "Sign in" : "Enter your invite code"}
               </a>
             )}
             {server.user ? (

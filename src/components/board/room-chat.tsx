@@ -11,9 +11,12 @@ import {
   sendRoomChat,
   type RoomChatMessage,
 } from "@/lib/board/chat";
-import { RULE_LABEL, formatWhen, type HardRule } from "@/lib/board/model";
 import { sendReport } from "@/lib/board/report-api";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { RULE_LABEL, formatWhen, removalConfirm, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+
+const REMOVED_MESSAGE = "Removed. The author can appeal.";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
@@ -54,7 +57,10 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [removedNote, setRemovedNote] = useState("");
+  const chatHeading = useRef<HTMLHeadingElement | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ id: string; rule: HardRule } | null>(null);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLLIElement | null>(null);
   const roomRef = useRef(roomId);
@@ -117,10 +123,60 @@ export function RoomChat({ roomId }: { roomId: string }) {
     );
   }
 
+  function removeMessage(messageId: string, rule: HardRule) {
+    void removeRoomChat(roomId, messageId, rule).then((result) => {
+      if (!result.ok) {
+        setNote(result.error === "banned" ? "This account is barred from the room." : result.error);
+        if (lostRoom(result.error)) {
+          setMessages([]);
+          setOlder(null);
+          setBlocked(true);
+        }
+        return;
+      }
+      setMessages((current) => current.filter((item) => item.id !== messageId));
+      setRemoving(null);
+      setRemovedNote(REMOVED_MESSAGE);
+      window.setTimeout(() => chatHeading.current?.focus(), 0);
+      const state = useBoard.getState();
+      useBoard.setState({
+        removals: [
+          {
+            id: result.removal.id,
+            postId: messageId,
+            author: result.removal.author,
+            reason: rule,
+            at: result.removal.at,
+            roomChat: true,
+          },
+          ...state.removals,
+        ],
+        bans: result.ban
+          ? [
+              {
+                id: result.removal.id,
+                author: result.removal.author,
+                reason: rule,
+                until: result.ban.until,
+                strikes: result.ban.strikes,
+                at: result.removal.at,
+              },
+              ...state.bans,
+            ]
+          : state.bans,
+      });
+    });
+  }
+
   return (
     <section className="flex flex-col gap-3 border-t border-line pt-4" data-room-chat={roomId}>
       <Kicker>Chat</Kicker>
-      <h2 className="text-2xl text-fg">Room chat</h2>
+      <h2 ref={chatHeading} tabIndex={-1} className="text-2xl text-fg">
+        Room chat
+      </h2>
+      <p className="sr-only" role="status" aria-live="polite">
+        {removedNote}
+      </p>
       <p className="max-w-prose text-sm text-muted">
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
@@ -196,54 +252,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
                         key={rule}
                         type="button"
                         className={btnGhost}
-                        onClick={() => {
-                          void removeRoomChat(roomId, message.id, rule).then((result) => {
-                            if (!result.ok) {
-                              setNote(
-                                result.error === "banned"
-                                  ? "This account is barred from the room."
-                                  : result.error,
-                              );
-                              if (lostRoom(result.error)) {
-                                setMessages([]);
-                                setOlder(null);
-                                setBlocked(true);
-                              }
-                              return;
-                            }
-                            setMessages((current) =>
-                              current.filter((item) => item.id !== message.id),
-                            );
-                            setRemoving(null);
-                            const state = useBoard.getState();
-                            useBoard.setState({
-                              removals: [
-                                {
-                                  id: result.removal.id,
-                                  postId: message.id,
-                                  author: result.removal.author,
-                                  reason: rule,
-                                  at: result.removal.at,
-                                  roomChat: true,
-                                },
-                                ...state.removals,
-                              ],
-                              bans: result.ban
-                                ? [
-                                    {
-                                      id: result.removal.id,
-                                      author: result.removal.author,
-                                      reason: rule,
-                                      until: result.ban.until,
-                                      strikes: result.ban.strikes,
-                                      at: result.removal.at,
-                                    },
-                                    ...state.bans,
-                                  ]
-                                : state.bans,
-                            });
-                          });
-                        }}
+                        onClick={() => setConfirm({ id: message.id, rule })}
                       >
                         Remove: {RULE_LABEL[rule]}
                       </button>
@@ -268,6 +277,19 @@ export function RoomChat({ roomId }: { roomId: string }) {
         ))}
         <li ref={bottom} />
       </ul>
+      {confirm ? (
+        <ConfirmDialog
+          open
+          {...removalConfirm(confirm.rule, "message")}
+          tone="danger"
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const target = confirm;
+            setConfirm(null);
+            removeMessage(target.id, target.rule);
+          }}
+        />
+      ) : null}
       {blocked ? null : (
         <form
           className="flex flex-col gap-2 sm:flex-row"
