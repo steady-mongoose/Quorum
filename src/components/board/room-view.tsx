@@ -69,6 +69,17 @@ import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
+const ROOM_HEADING_ID = "room-heading";
+const REMOVAL_STATUS_ID = "removal-status";
+export const REMOVED_MESSAGE = "Removed. The author can appeal.";
+
+/** The removed card unmounts, so focus moves to the room heading and the status is read out. */
+function announceRemoval() {
+  const status = document.getElementById(REMOVAL_STATUS_ID);
+  if (status) status.textContent = REMOVED_MESSAGE;
+  window.setTimeout(() => document.getElementById(ROOM_HEADING_ID)?.focus(), 0);
+}
+
 export function RoomView() {
   const room = useBoard((state) => state.room);
   const armedRoom = useSyncExternalStore(subscribeArmedRoom, getArmedRoom, () => null);
@@ -186,11 +197,14 @@ export function RoomView() {
       <section className="plate plate--hero flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
+          id={ROOM_HEADING_ID}
+          tabIndex={-1}
           className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
           style={armedRoom === room ? { viewTransitionName: `card-${room}` } : undefined}
         >
           {meta.name}
         </h1>
+        <p id={REMOVAL_STATUS_ID} className="sr-only" role="status" aria-live="polite" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
         {meta.status === "draft" || meta.status === "unclaimed" ? (
@@ -1144,12 +1158,14 @@ const PostCard = memo(function PostCard({
             <ConfirmDialog
               open
               {...removalConfirm(confirmRule, "post")}
+              tone="danger"
               onCancel={() => setConfirmRule(null)}
               onConfirm={() => {
                 const rule = confirmRule;
                 setConfirmRule(null);
                 void remove(post.id, rule).then((result) => {
                   if (!result.ok) setRemoveError(result.error ?? "That post was not removed.");
+                  else announceRemoval();
                 });
               }}
             />

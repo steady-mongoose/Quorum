@@ -14,6 +14,8 @@ import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { RULE_LABEL, formatWhen, removalConfirm, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
+const REMOVED_MESSAGE = "Removed. The author can appeal.";
+
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 /** A membership refusal closes the transcript. A steward refusal leaves it up. */
@@ -53,6 +55,8 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [removedNote, setRemovedNote] = useState("");
+  const chatHeading = useRef<HTMLHeadingElement | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ id: string; rule: HardRule } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -130,6 +134,8 @@ export function RoomChat({ roomId }: { roomId: string }) {
       }
       setMessages((current) => current.filter((item) => item.id !== messageId));
       setRemoving(null);
+      setRemovedNote(REMOVED_MESSAGE);
+      window.setTimeout(() => chatHeading.current?.focus(), 0);
       const state = useBoard.getState();
       useBoard.setState({
         removals: [
@@ -163,7 +169,12 @@ export function RoomChat({ roomId }: { roomId: string }) {
   return (
     <section className="flex flex-col gap-3 border-t border-line pt-4" data-room-chat={roomId}>
       <Kicker>Chat</Kicker>
-      <h2 className="text-2xl text-fg">Room chat</h2>
+      <h2 ref={chatHeading} tabIndex={-1} className="text-2xl text-fg">
+        Room chat
+      </h2>
+      <p className="sr-only" role="status" aria-live="polite">
+        {removedNote}
+      </p>
       <p className="max-w-prose text-sm text-muted">
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
@@ -252,6 +263,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
         <ConfirmDialog
           open
           {...removalConfirm(confirm.rule, "message")}
+          tone="danger"
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
             const target = confirm;

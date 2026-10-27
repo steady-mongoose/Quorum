@@ -39,3 +39,17 @@ test("the dialog focuses Cancel first", () => {
   const dialog = source("../../components/board/confirm-dialog.tsx");
   assert.match(dialog, /cancelRef\.current\?\.focus\(\)/);
 });
+
+test("both removal dialogs are danger-toned, and a removal moves focus and is announced", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (f: string) =>
+    readFileSync(new URL(`../../components/board/${f}`, import.meta.url), "utf8");
+  for (const file of ["room-view.tsx", "room-chat.tsx"]) {
+    const source = read(file);
+    assert.match(source, /removalConfirm\([^)]*\)\}\s*tone="danger"/, file);
+    assert.match(source, /Removed\. The author can appeal\./, file);
+    assert.match(source, /className="sr-only" role="status"/, file);
+    assert.match(source, /tabIndex=\{-1\}/, file);
+    assert.match(source, /\.focus\(\)/, file);
+  }
+});
