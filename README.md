@@ -78,6 +78,8 @@ Pictures and short video upload straight to S3-compatible storage with a presign
 
 A room can also hold a live group call. That is separate from stored video, and it stays hidden until `CALLS=on` on the API. The browsers talk to each other. The API only passes the offer, the answer, and the network candidates, and only to people who have stood in that room. The call is not recorded. The roster lives in that one API process. A TURN relay, if you run one, is the optional `calls` profile in `deploy/docker-compose.yml`. `docker compose up` does not start it. See `deploy/README.md`.
 
+With a Cloudflare TURN key, the record of which credentials were issued to whom is also in memory in that one API process. An API restart forgets it, so it can no longer revoke those sets on leave or ban; they still die at their 15-minute TTL. Running more than one API process would need that record shared.
+
 ---
 
 # Quorum

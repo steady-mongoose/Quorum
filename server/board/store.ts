@@ -777,7 +777,7 @@ export async function listBoard(
       legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
-    if (custodian) csamFlags = await listCsamFlags(db);
+    if (custodian) csamFlags = await listCsamFlags(db, userId);
     if (custodian && reportRows.length > 0) {
       await logHoldAccess(db, {
         actorUserId: userId,
@@ -1850,7 +1850,7 @@ async function knownCategory(db: Db, slug: string): Promise<boolean> {
   return Boolean(rows[0]);
 }
 
-async function checkedCategoryIds(
+export async function checkedCategoryIds(
   db: Db,
   categoryIds: readonly string[],
 ): Promise<string[] | { ok: false; status: number; error: string }> {
@@ -1869,7 +1869,7 @@ async function checkedCategoryIds(
   return slugs;
 }
 
-async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
+export async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
   await db.query(
     `delete from room_categories where room_id = $1 and not (category_id = any($2::text[]))`,
     [roomId, categoryIds],

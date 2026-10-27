@@ -24,6 +24,10 @@ export const REMOVE_FLAGGED_CONFIRM =
 export const RELEASE_REASON_LABEL = "Why this flag is false (a second custodian must confirm)";
 export const RELEASE_REASON_MIN = 20;
 export const RELEASE_REASON_ERROR = `Write why this flag is false, at least ${RELEASE_REASON_MIN} characters.`;
+export const RELEASE_REASON_HINT =
+  "At least 20 characters. Another custodian reads this before the flag is released.";
+export const RELEASE_REQUESTED = "Release requested. Another custodian must confirm.";
+export const RELEASE_MINE = "You asked to release this flag. Another custodian must confirm it.";
 export const RELEASE_CONFIRM =
   "Release this flag? Its files will be served again. You are confirming another custodian's written reason. Nobody opens the files.";
 export const recordConfirm = (id: string) =>
@@ -47,6 +51,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
   const [view, setView] = useState<CsamQueueView | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
+  const [announce, setAnnounce] = useState("");
   const [busy, setBusy] = useState(false);
   const [focusHeading, setFocusHeading] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -75,13 +80,17 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
   const run = async (
     action: () => Promise<{ ok: true } | { ok: false; error: string }>,
     moveFocus = false,
+    done = "",
   ) => {
     if (busy) return;
     setBusy(true);
     try {
       const result = await action();
       if (!result.ok) setError(result.error);
-      else await load();
+      else {
+        await load();
+        if (done) setAnnounce(done);
+      }
     } finally {
       setBusy(false);
       setPending(null);
@@ -121,6 +130,9 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
       <h2 id="csam-queue-heading" ref={headingRef} tabIndex={-1} className="text-2xl text-fg">
         CyberTipline queue
       </h2>
+      <p role="status" className="sr-only">
+        {announce}
+      </p>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}
@@ -146,7 +158,9 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
                   flag={flag}
                   busy={busy}
                   onRemove={() => setPending({ kind: "remove", flagId: flag.id })}
-                  onRequestRelease={(reason) => void run(() => api.requestRelease(flag.id, reason))}
+                  onRequestRelease={(reason) =>
+                    void run(() => api.requestRelease(flag.id, reason), true, RELEASE_REQUESTED)
+                  }
                   onConfirmRelease={() => setPending({ kind: "release", flagId: flag.id })}
                 />
               ))}
@@ -253,6 +267,7 @@ function FlagRow({
   const [reasonError, setReasonError] = useState("");
   const reasonId = `csam-release-${flag.id}`;
   const reasonErrorId = `csam-release-error-${flag.id}`;
+  const reasonHintId = `csam-release-hint-${flag.id}`;
   return (
     <li className="rounded-md border border-line px-3 py-2 text-sm text-muted">
       <p>
@@ -270,14 +285,16 @@ function FlagRow({
       >
         Preserve and remove
       </button>
-      {flag.releaseRequestedBy ? (
+      {flag.releaseRequestedByMe ? (
+        <p className="mt-2 text-fg">{RELEASE_MINE}</p>
+      ) : flag.releaseRequestedBy ? (
         <div className="mt-2 flex flex-col gap-2">
           <p className="text-fg">
             {flag.releaseRequestedBy} asked to release this flag: {flag.releaseReason}
           </p>
           <button
             type="button"
-            className={`${btnGhost} self-start`}
+            className={`${btnGhost} min-h-[44px] self-start`}
             aria-label={`Confirm release of flag on post ${flag.postId}`}
             aria-disabled={busy || undefined}
             onClick={() => !busy && onConfirmRelease()}
@@ -295,16 +312,19 @@ function FlagRow({
               value={reason}
               maxLength={500}
               aria-invalid={reasonError ? true : undefined}
-              aria-describedby={reasonError ? reasonErrorId : undefined}
+              aria-describedby={reasonError ? `${reasonHintId} ${reasonErrorId}` : reasonHintId}
               onChange={(event) => {
                 setReason(event.target.value);
                 setReasonError("");
               }}
             />
           </label>
+          <p id={reasonHintId} className="basis-full text-muted">
+            {RELEASE_REASON_HINT}
+          </p>
           <button
             type="button"
-            className={btnGhost}
+            className={`${btnGhost} min-h-[44px]`}
             aria-label={`Release flag on post ${flag.postId}`}
             aria-disabled={busy || undefined}
             onClick={() => {

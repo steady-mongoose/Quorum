@@ -32,6 +32,7 @@ export type CsamFlagView = {
   at: number;
   releaseRequestedBy: string;
   releaseReason: string;
+  releaseRequestedByMe: boolean;
 };
 
 export type CsamPersonView = { id: string; name: string; custodian: boolean };
@@ -100,6 +101,7 @@ export function queueFrom(value: unknown): CsamQueueView {
       at: num(row.at),
       releaseRequestedBy: str(row.releaseRequestedBy),
       releaseReason: str(row.releaseReason),
+      releaseRequestedByMe: row.releaseRequestedByMe === true,
     })),
     admins: rows(body.admins).map((row) => ({
       id: str(row.id),

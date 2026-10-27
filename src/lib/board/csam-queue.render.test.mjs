@@ -161,21 +161,29 @@ test("design review: file list wraps, buttons name the post, note error is tied,
   await flush();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
   assert.deepEqual(calls, [["remove", "f1"]]);
+  await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
   assert.equal(document.activeElement?.id, "csam-queue-heading");
   done();
 });
 
 test("Release flag needs a written reason, stays blind, and a pending release needs a confirm", async () => {
   const base = { id: "f1", postId: "p2", source: "report", reporter: "rae", reason: "A child.", uploader: "bo", fileIds: ["m2"], at: 0 };
-  const { api, calls } = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "", releaseReason: "" }], admins: [] });
+  const { api, calls } = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "", releaseReason: "", releaseRequestedByMe: false }], admins: [] });
   const { host, done } = await mount(api);
   assert.equal(host.querySelectorAll("img, video, picture, canvas, iframe, a").length, 0);
   const release = button(host, "Release flag");
   assert.equal(release.getAttribute("aria-label"), "Release flag on post p2");
+  assert.ok(release.className.includes("min-h-[44px]"));
+  assert.equal(host.querySelector("#csam-release-hint-f1")?.textContent, queue.RELEASE_REASON_HINT);
+  assert.equal(
+    host.querySelector("#csam-release-f1")?.getAttribute("aria-describedby"),
+    "csam-release-hint-f1",
+    "the hint is always tied to the box",
+  );
   act(() => release.click());
   await flush();
   const box = /** @type {HTMLTextAreaElement} */ (host.querySelector("#csam-release-f1"));
-  assert.equal(box.getAttribute("aria-describedby"), "csam-release-error-f1");
+  assert.equal(box.getAttribute("aria-describedby"), "csam-release-hint-f1 csam-release-error-f1");
   assert.equal(host.querySelector("#csam-release-error-f1")?.textContent, queue.RELEASE_REASON_ERROR);
   assert.deepEqual(calls, []);
   const setter = /** @type {(this: HTMLTextAreaElement, v: string) => void} */ (
@@ -185,11 +193,21 @@ test("Release flag needs a written reason, stays blind, and a pending release ne
   act(() => button(host, "Release flag").click());
   await flush();
   assert.deepEqual(calls, [["requestRelease", "f1", "Scanner matched a stock photo of a cat."]]);
+  assert.equal(host.querySelector('[role="status"]')?.textContent, queue.RELEASE_REQUESTED);
+  await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  assert.equal(document.activeElement?.id, "csam-queue-heading", "focus is kept in the queue");
   done();
 
-  const second = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat." }], admins: [] });
+  const mine = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat.", releaseRequestedByMe: true }], admins: [] });
+  const own = await mount(mine.api);
+  assert.ok((own.host.textContent ?? "").includes(queue.RELEASE_MINE));
+  assert.equal([...own.host.querySelectorAll("button")].some((b) => b.textContent === "Confirm release"), false);
+  own.done();
+
+  const second = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat.", releaseRequestedByMe: false }], admins: [] });
   const view = await mount(second.api);
   assert.ok((view.host.textContent ?? "").includes("Ann asked to release this flag"));
+  assert.ok(button(view.host, "Confirm release").className.includes("min-h-[44px]"));
   act(() => button(view.host, "Confirm release").click());
   await flush();
   assert.ok((view.host.textContent ?? "").includes(queue.RELEASE_CONFIRM));

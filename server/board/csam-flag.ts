@@ -28,7 +28,8 @@ export type CsamFlag = {
   at: number;
   /** A pending two-person release, if one custodian has asked for it. */
   releaseRequestedBy: string;
-  releaseRequestedById: string;
+  /** The viewer asked for this release, so they cannot confirm it. */
+  releaseRequestedByMe: boolean;
   releaseReason: string;
 };
 
@@ -258,7 +259,7 @@ export async function confirmFlagRelease(
 }
 
 /** Metadata only, and only for custodians. */
-export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
+export async function listCsamFlags(db: Db, viewerId = ""): Promise<CsamFlag[]> {
   const rows = await db.query<{
     id: string;
     post_id: string;
@@ -299,7 +300,7 @@ export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
       fileIds: row.media_id && !files.includes(row.media_id) ? [row.media_id, ...files] : files,
       at: atMs(row.created_at),
       releaseRequestedBy: row.release_requested_by ?? "",
-      releaseRequestedById: row.release_requested_by_user_id ?? "",
+      releaseRequestedByMe: Boolean(viewerId) && row.release_requested_by_user_id === viewerId,
       releaseReason: row.release_reason ?? "",
     };
   });
