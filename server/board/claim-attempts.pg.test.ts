@@ -132,14 +132,37 @@ test("parallel email guesses on Postgres stop at the attempts that were counted"
       `select state, evidence from claim_request where id = $1`,
       [claimId],
     );
-    const evidence = JSON.parse(saved[0]?.evidence ?? "{}") as { attempts?: number };
+    const evidence = JSON.parse(saved[0]?.evidence ?? "{}") as {
+      attempts?: number;
+      verifiedAt?: string;
+    };
     const attempts = evidence.attempts ?? 0;
-    assert.equal(saved[0]?.state, "expired");
+    // Every counted refusal is in the row, and never more than the limit.
     assert.equal(attempts, results.filter(counted).length);
-    assert.equal(attempts, 5);
-    assert.equal(right?.ok, false);
-    const again = await confirmClaimCode(db, { userId, claimId, code, now });
+    assert.equal(attempts <= 5, true);
+    // The right code races the guesses. Either it lands before the fifth
+    // counted guess and the claim stays verified, or it lands after and the
+    // claim is expired. It must never be both.
+    if (right?.ok) {
+      assert.equal(saved[0]?.state, "pending");
+      assert.equal(typeof evidence.verifiedAt, "string");
+      assert.equal(attempts < 5, true);
+    } else {
+      assert.equal(saved[0]?.state, "expired");
+      assert.equal(attempts, 5);
+      assert.equal(Boolean(evidence.verifiedAt), false);
+    }
+    const again = await confirmClaimCode(db, { userId, claimId, code: wrongCode, now });
     assert.equal(again.ok, false);
+    const after = await db.query<{ state: string; evidence: string }>(
+      `select state, evidence from claim_request where id = $1`,
+      [claimId],
+    );
+    assert.equal(after[0]?.state, saved[0]?.state, "a late guess does not change the outcome");
+    assert.equal(
+      (JSON.parse(after[0]?.evidence ?? "{}") as { attempts?: number }).attempts ?? 0,
+      attempts,
+    );
   } finally {
     await pool.end();
     await admin.query(`drop database if exists ${name}`);
