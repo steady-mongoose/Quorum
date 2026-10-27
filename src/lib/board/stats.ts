@@ -152,14 +152,51 @@ export function protectBreakdown(
   return { parts: shownParts, total: rounded };
 }
 
-/** True when the rounded total leaves at most one possible value for the single hidden cell. */
+/**
+ * True when the published total pins any hidden cell to one value. All hidden
+ * cells are considered together: each lies in [low, 4] (low is 1 when zeros are
+ * shown as 0, else 0), and their sum is whatever the rounded total allows once
+ * the visible cells are taken out. A cell leaks when its feasible range is a
+ * single value, or when no assignment fits at all.
+ */
 export function hiddenCellLeaks(
   parts: number[],
   publishedTotal: number,
   rule: BreakdownRule = {},
 ): boolean {
-  if (parts.filter((part) => isSmallCell(part, rule)).length !== 1) return false;
-  return recoverableHidden(parts, publishedTotal, rule).length <= 1;
+  const hidden = parts.filter((part) => isSmallCell(part, rule)).length;
+  if (hidden === 0) return false;
+  const ranges = hiddenCellRanges(parts, publishedTotal, rule);
+  return ranges.length === 0 || ranges.some(([low, high]) => low >= high);
+}
+
+/**
+ * The range each hidden cell can still take, given the published total and the
+ * visible cells. Every hidden cell shares the same range. Empty when nothing fits.
+ */
+export function hiddenCellRanges(
+  parts: number[],
+  publishedTotal: number,
+  rule: BreakdownRule = {},
+): Array<[number, number]> {
+  const hidden = parts.filter((part) => isSmallCell(part, rule)).length;
+  if (hidden === 0) return [];
+  const low = rule.emptyShown ? 1 : 0;
+  const high = SMALL_COUNT - 1;
+  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
+  let sumLow = Number.POSITIVE_INFINITY;
+  let sumHigh = Number.NEGATIVE_INFINITY;
+  for (let total = Math.max(0, publishedTotal - 2); total <= publishedTotal + 2; total += 1) {
+    if (roundToFive(total) !== publishedTotal) continue;
+    const rest = total - visible;
+    if (rest < hidden * low || rest > hidden * high) continue;
+    sumLow = Math.min(sumLow, rest);
+    sumHigh = Math.max(sumHigh, rest);
+  }
+  if (sumLow > sumHigh) return [];
+  const cellLow = Math.max(low, sumLow - (hidden - 1) * high);
+  const cellHigh = Math.min(high, sumHigh - (hidden - 1) * low);
+  return Array.from({ length: hidden }, () => [cellLow, cellHigh] as [number, number]);
 }
 
 /**

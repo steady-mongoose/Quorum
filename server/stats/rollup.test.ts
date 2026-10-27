@@ -8,6 +8,7 @@ import {
   endpointGroup,
   parseStatsQuery,
   protectBreakdown,
+  hiddenCellRanges,
   recoverableHidden,
   showCount,
   showPercent,
@@ -89,6 +90,45 @@ test("empty category buckets are not small cells, so full totals still show", ()
     const shown = protectBreakdown(parts, rule);
     assert.equal(shown.parts.at(-1), "<5");
     assert.notEqual(recoverableHidden(parts, shown.total, rule).length, 1, String(parts));
+  }
+});
+
+test("several hidden cells together are never pinned by the published total", () => {
+  const rule = { emptyShown: true };
+  // QA's cases: each of these used to publish a total that fixed every hidden cell.
+  for (const parts of [
+    [10, 10, 10, 10, 1, 1, 0, 0],
+    [10, 10, 10, 10, 4, 4],
+    [1, 1, 1, 1, 1, 1, 1, 0],
+  ]) {
+    for (const r of [rule, {}]) {
+      const shown = protectBreakdown(parts, r);
+      if (typeof shown.total === "number") {
+        const ranges = hiddenCellRanges(parts, shown.total, r);
+        assert.ok(ranges.length > 0, String(parts));
+        for (const [low, high] of ranges) assert.ok(low < high, `${parts} ${low}-${high}`);
+      }
+    }
+    assert.equal(protectBreakdown(parts, rule).total, "<5", String(parts));
+  }
+
+  // Exhaustive: for every small breakdown, no hidden cell collapses to one value.
+  const visibleSets = [[], [5], [10], [7, 6], [10, 10, 10, 10]];
+  for (const visible of visibleSets) {
+    for (let a = 0; a < 5; a += 1) {
+      for (let b = 0; b < 5; b += 1) {
+        for (let c = 0; c < 5; c += 1) {
+          const parts = [...visible, a, b, c];
+          for (const r of [rule, {}]) {
+            const shown = protectBreakdown(parts, r);
+            if (typeof shown.total !== "number") continue;
+            for (const [low, high] of hiddenCellRanges(parts, shown.total, r)) {
+              assert.ok(low < high, `${parts} ${JSON.stringify(r)}`);
+            }
+          }
+        }
+      }
+    }
   }
 });
 
