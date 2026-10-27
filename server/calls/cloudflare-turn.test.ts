@@ -177,3 +177,39 @@ test("no Cloudflare call without a key", async () => {
   await source(plain, ada, 0);
   assert.equal(cf.calls.length, 0);
 });
+
+test("a routine refresh does not revoke the set a live relay may be using", async () => {
+  const cf = fakeCloudflare();
+  const source = createIceSource(cf.impl, () => {});
+  const ttl = CLOUDFLARE_TTL_SECONDS * 1000;
+  const first = await source(config, ada, 0);
+  const next = await source(config, ada, ttl - 60_000);
+  assert.notEqual(next[1]?.username, first[1]?.username, "refresh mints a new set");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(cf.calls.filter((c) => c.url.endsWith("/revoke")).length, 0);
+  source.release("ada");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(cf.calls.some((c) => c.url.endsWith(`/credentials/${next[1]?.username}/revoke`)));
+});
+
+test("a failed revoke is logged and retried once", async () => {
+  const calls: string[] = [];
+  const logs: Record<string, unknown>[] = [];
+  const impl = (async (url: string) => {
+    calls.push(url);
+    if (url.endsWith("/revoke")) return new Response(null, { status: 500 });
+    return new Response(JSON.stringify(good), { status: 201 });
+  }) as unknown as typeof fetch;
+  const source = createIceSource(impl, (line) => logs.push(line));
+  await source(config, ada, 0);
+  source.release("ada");
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.equal(calls.filter((u) => u.endsWith("/revoke")).length, 2);
+  const failed = logs.filter((l) => l.event === "turn-revoke-failed");
+  assert.deepEqual(
+    failed.map((l) => l.attempt),
+    [1, 2],
+  );
+  assert.equal(failed[0]?.failure, "status 500");
+  assert.doesNotMatch(JSON.stringify(logs), /tttt/);
+});

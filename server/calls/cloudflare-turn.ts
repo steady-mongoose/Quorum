@@ -55,7 +55,8 @@ function relayUsername(servers: IceServer[]): string {
  * One credential set per member per call session (call key + join
  * generation), never shared between people. The route mints only after it
  * has checked the session, membership, and bans on that same request.
- * Leaving, re-joining, or a ban revokes the set at Cloudflare.
+ * Leaving, re-joining, or a ban revokes the set at Cloudflare; a routine
+ * refresh does not (the old set expires by TTL so a live relay keeps going).
  * Each mint is logged with the user id, session, and Cloudflare username,
  * never the credential.
  */
@@ -70,15 +71,26 @@ export function createCloudflareIceCache(fetchImpl: typeof fetch, log: Logger = 
     minted.delete(id);
     if (!entry || !entry.username || !lastKey || lastKey.keyId !== entry.keyId) return;
     const key = lastKey;
-    log({ event: "turn-revoke", provider: "cloudflare", username: entry.username, reason });
-    void fetchImpl(
-      `${CLOUDFLARE_TURN_BASE}/${encodeURIComponent(key.keyId)}/credentials/${encodeURIComponent(entry.username)}/revoke`,
-      {
+    const url = `${CLOUDFLARE_TURN_BASE}/${encodeURIComponent(key.keyId)}/credentials/${encodeURIComponent(entry.username)}/revoke`;
+    const attempt = () =>
+      fetchImpl(url, {
         method: "POST",
         headers: { authorization: `Bearer ${key.apiToken}` },
         signal: AbortSignal.timeout(5000),
-      },
-    ).catch(() => undefined);
+      }).then(
+        (response) => (response.ok ? null : `status ${response.status}`),
+        (error: unknown) => (error instanceof Error ? error.name : "error"),
+      );
+    const base = { provider: "cloudflare", username: entry.username, reason };
+    log({ event: "turn-revoke", ...base });
+    // One retry; after that the set still dies at its short TTL.
+    void (async () => {
+      for (let tries = 1; tries <= 2; tries++) {
+        const failure = await attempt();
+        if (!failure) return;
+        log({ event: "turn-revoke-failed", ...base, attempt: tries, failure });
+      }
+    })();
   };
 
   return {
@@ -118,7 +130,9 @@ export function createCloudflareIceCache(fetchImpl: typeof fetch, log: Logger = 
           if (!servers) return held && nowMs < held.expiresAt ? held.servers : null;
           const expiresAt = nowMs + CLOUDFLARE_TTL_SECONDS * 1000;
           const username = relayUsername(servers);
-          if (held && held.username !== username) revokeEntry(id, "refreshed");
+          // A routine refresh never revokes the old set: a live relay may still
+          // be on it (the client only swaps config, no ICE restart), so it is
+          // left to expire at its TTL. Leave, ban, and re-join still revoke.
           minted.set(id, {
             servers,
             username,

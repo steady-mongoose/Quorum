@@ -163,7 +163,13 @@ export function RoomView() {
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
-              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
+              <h1
+                id="room-heading"
+                tabIndex={-1}
+                className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
+              >
+                {title}
+              </h1>
               <RoomAudienceMark audience={audience} />
             </>
           )}
@@ -194,6 +200,8 @@ export function RoomView() {
       <section className="plate plate--hero flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
+          id="room-heading"
+          tabIndex={-1}
           className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
           style={armedRoom === room ? { viewTransitionName: `card-${room}` } : undefined}
         >

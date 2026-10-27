@@ -44,12 +44,13 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   const ring = rings[0];
   if (!ring) return null;
 
-  const dismiss = (id: string) => {
+  const dismiss = (id: string, restore = true) => {
     const target = returnTo.current;
     returnTo.current = null;
-    requestAnimationFrame(() =>
-      (target?.isConnected ? target : document.getElementById("main"))?.focus(),
-    );
+    if (restore)
+      requestAnimationFrame(() =>
+        (target?.isConnected ? target : document.getElementById("main"))?.focus(),
+      );
     setRings((list) => list.filter((item) => item.id !== id));
     void apiFetch(`/api/calls/rings/${id}/dismiss`, {
       method: "POST",
@@ -87,7 +88,7 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
           type="button"
           className={cn(btnGhost, "min-h-[44px]")}
           onClick={() => {
-            dismiss(ring.id);
+            dismiss(ring.id, false);
             onGo(ring.roomId);
           }}
         >
@@ -103,4 +104,22 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
       </div>
     </section>
   );
+}
+
+/**
+ * After "Go to the call" lands on /rooms: focus the call's Join button.
+ * The button appears once /api/calls/status answers, so wait up to about a
+ * second for it, then fall back to the room heading.
+ */
+export function focusRoomCall(waitMs = 1000, startedAt = Date.now()): void {
+  const join = document.getElementById("room-call-join");
+  if (join) {
+    join.focus();
+    return;
+  }
+  if (Date.now() - startedAt >= waitMs) {
+    document.getElementById("room-heading")?.focus();
+    return;
+  }
+  requestAnimationFrame(() => focusRoomCall(waitMs, startedAt));
 }

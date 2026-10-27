@@ -19,6 +19,8 @@ import { cn } from "@/lib/cn";
  * The button stays out of the page until the API says calls are on.
  * Josh sets CALLS=on on the box. A rebuild of the site is not required.
  */
+export const ROOM_CALL_JOIN_ID = "room-call-join";
+
 /** True once the API says calls are on and not recorded. */
 export function useCallsEnabled(): { enabled: boolean; selfId: string | null } {
   const server = useServerSession();
@@ -66,6 +68,7 @@ export function RoomCall({ roomId }: { roomId: string }) {
       label="Room call"
       note="This call is not recorded. Only people who have stood in this room can join."
       joinLabel="Join the call"
+      joinId={ROOM_CALL_JOIN_ID}
       extra={<RingMembers roomId={roomId} />}
     />
   );
@@ -185,6 +188,8 @@ export type CallPanelProps = {
   extra?: ReactNode;
   /** Shown before joining, e.g. Close on the DM panel. */
   onClose?: () => void;
+  /** DOM id for the Join button, so a ring can send focus to it. */
+  joinId?: string;
 };
 
 export function CallPanel({
@@ -196,6 +201,7 @@ export function CallPanel({
   joinLabel,
   extra,
   onClose,
+  joinId,
 }: CallPanelProps) {
   const [phase, setPhase] = useState<"idle" | "joining" | "live">("idle");
   const [error, setError] = useState("");
@@ -429,6 +435,7 @@ export function CallPanel({
           <>
             <button
               ref={joinRef}
+              id={joinId}
               type="button"
               className={cn(btnSignal, "min-h-[44px]")}
               onClick={() => void join()}

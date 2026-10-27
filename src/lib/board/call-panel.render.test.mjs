@@ -141,3 +141,9 @@ test("DM panel has Close before joining", async () => {
   assert.equal(closed, 1);
   await act(async () => root.unmount());
 });
+
+test("the Join button takes the id a ring focuses", async () => {
+  const { root, button } = mount({ joinId: "room-call-join" });
+  assert.equal(button("Join the call").id, "room-call-join");
+  await act(async () => root.unmount());
+});

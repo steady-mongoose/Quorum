@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { CallRings } from "@/components/board/call-rings";
+import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
   CalendarDays,
@@ -237,7 +237,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           onGo={(roomId) => {
             setSection("rooms");
             setRoom(roomId as Parameters<typeof setRoom>[0]);
-            void navigate({ to: "/rooms" });
+            void navigate({ to: "/rooms" }).then(() =>
+              requestAnimationFrame(() => focusRoomCall()),
+            );
           }}
         />
       ) : null}
@@ -317,7 +319,10 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p>
-              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+              {userFacingError(
+                boardError,
+                "That did not go through. Please try again in a moment.",
+              )}
             </p>
             <button
               type="button"

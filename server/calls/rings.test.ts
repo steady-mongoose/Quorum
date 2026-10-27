@@ -107,6 +107,9 @@ test("per-ringer cap, then it resets after the window", () => {
   assert.ok(
     s.ring({ roomId: "shop", from: "host", fromName: "Host", to: "late" }, RINGER_WINDOW_MS + 100),
   );
+  assert.equal(s.ringerCount(), 1, "\"other\" aged out of the window");
+  s.pending("nobody", 3 * RINGER_WINDOW_MS);
+  assert.equal(s.ringerCount(), 0, "idle ringers are swept");
 });
 
 test("the ring route answers 429 past the per-ringer cap", async () => {

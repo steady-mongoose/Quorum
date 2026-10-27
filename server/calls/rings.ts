@@ -26,6 +26,10 @@ export function createRingStore() {
   let next = 1;
   const sweep = (at: number) => {
     for (const [id, ring] of rings) if (at - ring.at > RING_TTL_MS) rings.delete(id);
+    // Idle ringers drop out once their last ring leaves the window.
+    for (const [from, stamps] of sent) {
+      if (!stamps.some((stamp) => at - stamp < RINGER_WINDOW_MS)) sent.delete(from);
+    }
   };
   return {
     /** Null when the ringer is over the per-ringer cap. */
@@ -46,6 +50,10 @@ export function createRingStore() {
       const ring: Ring = { ...input, id: `r${next++}`, at };
       rings.set(ring.id, ring);
       return ring;
+    },
+    /** Ringers with history still tracked (for tests). */
+    ringerCount(): number {
+      return sent.size;
     },
     pending(userId: string, at: number): Ring[] {
       sweep(at);

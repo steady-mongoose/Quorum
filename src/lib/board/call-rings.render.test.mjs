@@ -56,7 +56,7 @@ globalThis.fetch = async (input, init) => {
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
-const { CallRings } = await import("../../components/board/call-rings.tsx");
+const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
 
 const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
@@ -112,7 +112,7 @@ test("incoming call banner: polite status, ghost buttons, no autofocus, Escape d
   await act(async () => root.unmount());
 });
 
-async function mountBanner() {
+async function mountBanner(onGo = () => {}) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -128,7 +128,7 @@ async function mountBanner() {
             user: { id: "ada", name: "Ada" },
           },
         },
-        createElement(CallRings, { onGo: () => {} }),
+        createElement(CallRings, { onGo }),
       ),
     );
   });
@@ -177,4 +177,49 @@ test("Escape falls back to #main when the old target is gone", async () => {
   assert.equal(document.activeElement, main);
   await act(async () => root.unmount());
   main.remove();
+});
+
+async function waitFor(ok, ms = 2000) {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+}
+
+test("Go skips the focus return and lands on the call's Join button", async () => {
+  const before = document.createElement("button");
+  document.body.append(before);
+  const heading = document.createElement("h1");
+  heading.id = "room-heading";
+  heading.tabIndex = -1;
+  let join = null;
+  const { root, banner } = await mountBanner(() => {
+    // Stand-in for app.tsx: navigate, then the room renders and the Join
+    // button shows up a little later, once calls status answers.
+    document.body.append(heading);
+    setTimeout(() => {
+      join = document.createElement("button");
+      join.id = "room-call-join";
+      document.body.append(join);
+    }, 30);
+    requestAnimationFrame(() => focusRoomCall());
+  });
+  await act(async () => enterFrom(banner, before));
+  const go = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Go to the call");
+  await act(async () => go.click());
+  await waitFor(() => document.activeElement?.id === "room-call-join");
+  assert.notEqual(document.activeElement, before, "no return to the old element");
+  assert.ok(join);
+  assert.equal(document.activeElement, join);
+  await act(async () => root.unmount());
+  for (const node of [before, heading, join]) node?.remove();
+});
+
+test("focusRoomCall falls back to the room heading", async () => {
+  const heading = document.createElement("h1");
+  heading.id = "room-heading";
+  heading.tabIndex = -1;
+  document.body.append(heading);
+  focusRoomCall(20);
+  await waitFor(() => document.activeElement === heading);
+  assert.equal(document.activeElement, heading);
+  heading.remove();
 });

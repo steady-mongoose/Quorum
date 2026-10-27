@@ -50,7 +50,7 @@ Pricing sources (fetched Oct 27, 2026):
 
 ## 4. TURN: Cloudflare first, coturn fallback (built on this branch)
 
-- `server/calls/cloudflare-turn.ts` calls `POST https://rtc.live.cloudflare.com/v1/turn/keys/{TURN_KEY_ID}/credentials/generate-ice-servers` with `Bearer TURN_KEY_API_TOKEN` and `{ttl: 3600}`. The result is cached for half the TTL, with a 5 s timeout. Only `turn.cloudflare.com` and `stun.cloudflare.com` URLs are passed on.
+- `server/calls/cloudflare-turn.ts` calls `POST https://rtc.live.cloudflare.com/v1/turn/keys/{TURN_KEY_ID}/credentials/generate-ice-servers` with `Bearer TURN_KEY_API_TOKEN` and `{ttl: 900}`, one set per member per call session. A new set is minted in the last 5 minutes; the old one is not revoked on refresh (a live relay may still use it) and expires by TTL. Leave, ban, and re-join revoke at once; a failed revoke is logged and retried once. 5 s timeout. Only `turn.cloudflare.com` and `stun.cloudflare.com` URLs are passed on.
 - `createIceSource` in `server/calls/config.ts`: Cloudflare when both vars are set; otherwise, or when Cloudflare fails, the existing coturn HMAC path. If only one var is set, calls stay off (`partial-turn`).
 - **Policy change to review:** the codebase refused every vendor ICE host. Cloudflare is now allowed only for lists the API minted through the key API (`parseIceUrl(..., {allowCloudflare: true})`). Env URL lists still refuse cloudflare.com.
 - No key was created and Cloudflare/prod were not touched. To go live: Josh creates a TURN key (Cloudflare dashboard > Realtime > TURN), puts the two vars in `deploy/.env`, sets `CALLS=on`, then restarts the api.
