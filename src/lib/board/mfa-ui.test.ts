@@ -53,3 +53,13 @@ test("authenticator screens use the plate, 44px targets, and no inline script", 
   assert.match(about, /data-export/);
   assert.match(app, /server\.mfa === "enroll"/);
 });
+
+test("authenticator code fields take six digits and the start button hides while codes show", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
+  assert.equal(ui.split('maxLength={6}\n').length - 1 >= 3, true);
+  assert.equal(ui.split('pattern="[0-9]*"\n').length - 1 >= 3, true);
+  assert.match(ui, /!status\?\.enrolled && !modules && !recovery \?/);
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  assert.match(app, /before you moderate, grant a role, approve a reset, or export/);
+});

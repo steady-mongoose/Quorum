@@ -180,7 +180,7 @@ export function MfaSettings() {
           left. Each works once.
         </p>
       ) : null}
-      {!status?.enrolled && !modules ? (
+      {!status?.enrolled && !modules && !recovery ? (
         <button
           type="button"
           className={cn(btnSignal, "w-full sm:w-auto")}
@@ -222,8 +222,10 @@ export function MfaSettings() {
               className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
               value={code}
               inputMode="numeric"
+              maxLength={6}
+              pattern="[0-9]*"
               autoComplete="one-time-code"
-              onChange={(event) => setCode(event.target.value)}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             />
           </label>
           <button
@@ -331,8 +333,10 @@ export function MfaSettings() {
               className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
               value={code}
               inputMode="numeric"
+              maxLength={6}
+              pattern="[0-9]*"
               autoComplete="one-time-code"
-              onChange={(event) => setCode(event.target.value)}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             />
           </label>
           <button type="submit" className={cn(btnGhost, "w-full sm:w-auto")} disabled={pending}>
@@ -462,8 +466,10 @@ export function MfaResetQueue() {
           className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
           value={code}
           inputMode="numeric"
+          maxLength={6}
+          pattern="[0-9]*"
           autoComplete="one-time-code"
-          onChange={(event) => setCode(event.target.value)}
+          onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
         />
       </label>
       {rows && rows.length === 0 ? <p className="text-sm text-muted">No resets are waiting.</p> : null}
