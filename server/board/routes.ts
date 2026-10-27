@@ -37,7 +37,7 @@ import {
   revisePost,
   type Result,
 } from "./store.ts";
-import { fileReport, listReports } from "./reports.ts";
+import { closeReport, fileReport, listReports } from "./reports.ts";
 
 type SessionUser = { id: string; name: string; email: string };
 
@@ -156,6 +156,7 @@ export async function handleBoard(
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
+  const reportClose = /^\/api\/reports\/([A-Za-z0-9_-]{1,80})\/close$/.exec(url.pathname);
   const gatheringOne =
     /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
       url.pathname,
@@ -177,6 +178,7 @@ export async function handleBoard(
     (url.pathname === "/api/access" && request.method === "POST") ||
     (url.pathname === "/api/bans" && request.method === "POST") ||
     (url.pathname === "/api/reports" && (request.method === "GET" || request.method === "POST")) ||
+    Boolean(reportClose && request.method === "POST") ||
     Boolean(roomJoin && (request.method === "POST" || request.method === "DELETE")) ||
     Boolean(decide && request.method === "POST") ||
     Boolean(postAction && request.method === "POST") ||
@@ -266,6 +268,18 @@ export async function handleBoard(
     }
 
     const body = await readJson(request);
+
+    if (reportClose && request.method === "POST") {
+      const closed = await closeReport(deps.db, {
+        userId: session.id,
+        reportId: decodeURIComponent(reportClose[1] ?? ""),
+        resolution: stringField(body, "resolution"),
+        note: stringField(body, "note"),
+        now,
+      });
+      if (!closed.ok) return json(closed.status, { error: closed.error });
+      return json(200, { report: closed.value });
+    }
 
     if (url.pathname === "/api/reports" && request.method === "POST") {
       const filed = await fileReport(deps.db, {

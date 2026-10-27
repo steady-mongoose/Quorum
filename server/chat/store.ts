@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { autoCloseReports } from "../board/report-close.ts";
 import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
@@ -308,6 +309,12 @@ export async function removeChatMessage(
       [message.id, input.now],
     );
     if (!updated[0]) return null;
+    await autoCloseReports(tx, {
+      subjectKind: "chat",
+      subjectIds: [message.id],
+      actorUserId: input.userId,
+      now: input.now,
+    });
     await tx.query(
       `insert into room_chat_removal
        (id, message_id, room_id, author_user_id, author_name, by_user_id, by_name, reason, created_at)

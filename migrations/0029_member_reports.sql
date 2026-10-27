@@ -33,3 +33,24 @@ create index if not exists member_report_open_idx
 create unique index if not exists member_report_one_open_idx
   on member_report (reporter_user_id, subject_kind, subject_id)
   where status = 'open';
+
+-- Closing a report. A steward of the room or an admin closes it by hand,
+-- or removing the post or chat line closes every open report on it.
+-- Each close writes one row to member_report_log.
+alter table member_report add column if not exists closed_at timestamptz;
+alter table member_report add column if not exists closed_by_user_id text;
+alter table member_report add column if not exists resolution text
+  check (resolution is null or resolution in ('resolved', 'dismissed', 'removed'));
+
+create table if not exists member_report_log (
+  id text primary key,
+  report_id text not null references member_report (id) on delete cascade,
+  actor_user_id text,
+  action text not null check (action in ('close', 'auto-close')),
+  resolution text not null check (resolution in ('resolved', 'dismissed', 'removed')),
+  note text not null default '' check (char_length(note) <= 500),
+  created_at timestamptz not null
+);
+
+create index if not exists member_report_log_report_idx
+  on member_report_log (report_id, created_at);

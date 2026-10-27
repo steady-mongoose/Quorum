@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { compareReports } from "../../src/lib/board/reports.ts";
 import { isHardRule, type HardRuleValue } from "../../src/lib/board/text.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
-import { actorRole, type BoardActor } from "./access.ts";
+import { actorRole, stewardsRoom, type BoardActor } from "./access.ts";
 import { guardRoomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 
@@ -17,6 +17,7 @@ export type MemberReport = {
   note: string;
   source: "member" | "steward";
   at: number;
+  /** Admins only. Empty for a steward who is not an admin. */
   reporterName: string;
   /** Empty when the reason is CSAM. The post text is not sent. */
   excerpt: string;
@@ -142,6 +143,8 @@ export async function listReports(
   const actor = await actorRole(db, input.userId);
   const allowed = queueRooms(actor, input.roomId);
   if (!allowed.ok) return allowed;
+  const stopped = await moderatorStop(db, actor, input.userId, allowed.rooms[0] ?? "", input.now);
+  if (stopped) return stopped;
   const rows = await db.query<{
     id: string;
     room_id: string;
@@ -181,7 +184,7 @@ export async function listReports(
       note: row.note,
       source: row.source === "steward" ? "steward" : "member",
       at: new Date(row.created_at).getTime(),
-      reporterName: row.reporter_name,
+      reporterName: actor.admin ? row.reporter_name : "",
       excerpt: row.reason === "csam" ? "" : (row.excerpt ?? ""),
     });
   }
@@ -201,4 +204,67 @@ function queueRooms(
     return fail(403, "Reports in this room go to its stewards.");
   }
   return { ok: true, rooms: [roomId] };
+}
+
+/**
+ * A steward with no live member role, or anyone barred from the room or the
+ * site, cannot read or act on the queue.
+ */
+async function moderatorStop(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  roomId: string,
+  now: Date,
+): Promise<Err | null> {
+  if (!actor.member) return fail(403, "Only a member with a live role can read reports.");
+  const ban = await openBan(db, userId, now, roomId);
+  if (ban) return fail(403, "This account is barred and cannot read reports.");
+  return null;
+}
+
+export type ReportResolution = "resolved" | "dismissed";
+
+/** A steward of the room or an admin closes one open report. One log row is written. */
+export async function closeReport(
+  db: Db,
+  input: { userId: string; reportId: string; resolution: string; note: string; now: Date },
+): Promise<Ok<{ id: string; resolution: ReportResolution }> | Err> {
+  if (input.resolution !== "resolved" && input.resolution !== "dismissed") {
+    return fail(400, "Choose resolved or dismissed.");
+  }
+  const resolution: ReportResolution = input.resolution;
+  const note = input.note.trim();
+  if (note.length > NOTE_MAX) return fail(400, "Keep the note under 500 characters.");
+  const rows = await db.query<{ room_id: string; status: string }>(
+    `select room_id, status from member_report where id = $1`,
+    [input.reportId],
+  );
+  const report = rows[0];
+  if (!report) return fail(404, "That report is not here.");
+  const actor = await actorRole(db, input.userId);
+  if (!stewardsRoom(actor, report.room_id)) {
+    return fail(403, "Reports in this room go to its stewards.");
+  }
+  const stopped = await moderatorStop(db, actor, input.userId, report.room_id, input.now);
+  if (stopped) return stopped;
+  if (report.status !== "open") return fail(409, "That report is already closed.");
+  const closed = await db.transaction(async (tx) => {
+    const updated = await tx.query<{ id: string }>(
+      `update member_report
+       set status = 'closed', closed_at = $2, closed_by_user_id = $3, resolution = $4
+       where id = $1 and status = 'open'
+       returning id`,
+      [input.reportId, input.now, input.userId, resolution],
+    );
+    if (!updated[0]) return false;
+    await tx.query(
+      `insert into member_report_log (id, report_id, actor_user_id, action, resolution, note, created_at)
+       values ($1, $2, $3, 'close', $4, $5, $6)`,
+      [randomUUID(), input.reportId, input.userId, resolution, note, input.now],
+    );
+    return true;
+  });
+  if (!closed) return fail(409, "That report is already closed.");
+  return { ok: true, value: { id: input.reportId, resolution } };
 }

@@ -64,9 +64,26 @@ export async function loadReportQueue(
       reason: row.reason,
       note: typeof row.note === "string" ? row.note : "",
       at: row.at,
-      reporterName: typeof row.reporterName === "string" ? row.reporterName : "Member",
+      reporterName: typeof row.reporterName === "string" ? row.reporterName : "",
       excerpt: typeof row.excerpt === "string" ? row.excerpt : "",
     });
   }
   return { ok: true, reports };
+}
+
+/** A steward of the room or an admin closes a report as resolved or dismissed. */
+export async function closeReport(input: {
+  id: string;
+  resolution: "resolved" | "dismissed";
+  note?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await apiFetch(`/api/reports/${encodeURIComponent(input.id)}/close`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ resolution: input.resolution, note: input.note ?? "" }),
+  });
+  const json = await response.json().catch(() => null);
+  if (!response.ok) return { ok: false, error: errorMessage(json, "That report was not closed.") };
+  return { ok: true };
 }
