@@ -27,6 +27,7 @@ import {
   MARK_LABEL,
   POST_TYPES,
   RULE_LABEL,
+  removalConfirm,
   RULE_SENTENCE,
   authorName,
   activeBan,
@@ -71,6 +72,17 @@ import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
+
+const ROOM_HEADING_ID = "room-heading";
+const REMOVAL_STATUS_ID = "removal-status";
+export const REMOVED_MESSAGE = "Removed. The author can appeal.";
+
+/** The removed card unmounts, so focus moves to the room heading and the status is read out. */
+function announceRemoval() {
+  const status = document.getElementById(REMOVAL_STATUS_ID);
+  if (status) status.textContent = REMOVED_MESSAGE;
+  window.setTimeout(() => document.getElementById(ROOM_HEADING_ID)?.focus(), 0);
+}
 
 export function RoomView() {
   const room = useBoard((state) => state.room);
@@ -164,7 +176,7 @@ export function RoomView() {
             <>
               <Kicker>Room</Kicker>
               <h1
-                id="room-heading"
+                id={ROOM_HEADING_ID}
                 tabIndex={-1}
                 className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
               >
@@ -200,13 +212,14 @@ export function RoomView() {
       <section className="plate plate--hero flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
-          id="room-heading"
+          id={ROOM_HEADING_ID}
           tabIndex={-1}
           className="illum font-display text-4xl text-balance text-fg lg:text-5xl"
           style={armedRoom === room ? { viewTransitionName: `card-${room}` } : undefined}
         >
           {meta.name}
         </h1>
+        <p id={REMOVAL_STATUS_ID} className="sr-only" role="status" aria-live="polite" />
         <p id="room-call-status" role="status" className="sr-only" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
@@ -871,6 +884,7 @@ const PostCard = memo(function PostCard({
     error: string;
   } | null>(null);
   const [removeError, setRemoveError] = useState("");
+  const [confirmRule, setConfirmRule] = useState<HardRule | null>(null);
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
@@ -1063,12 +1077,7 @@ const PostCard = memo(function PostCard({
                     key={rule}
                     type="button"
                     className={btnGhost}
-                    onClick={() => {
-                      void remove(post.id, rule).then((result) => {
-                        if (!result.ok)
-                          setRemoveError(result.error ?? "That post was not removed.");
-                      });
-                    }}
+                    onClick={() => setConfirmRule(rule)}
                   >
                     Remove: {RULE_LABEL[rule]}
                   </button>
@@ -1172,6 +1181,22 @@ const PostCard = memo(function PostCard({
               Removing a post bars the account. The reason stays in the log. A mark never hides a
               post. {RULE_SENTENCE.doxxing} {RULE_SENTENCE.blasphemy}
             </p>
+          ) : null}
+          {confirmRule ? (
+            <ConfirmDialog
+              open
+              {...removalConfirm(confirmRule, "post")}
+              tone="danger"
+              onCancel={() => setConfirmRule(null)}
+              onConfirm={() => {
+                const rule = confirmRule;
+                setConfirmRule(null);
+                void remove(post.id, rule).then((result) => {
+                  if (!result.ok) setRemoveError(result.error ?? "That post was not removed.");
+                  else announceRemoval();
+                });
+              }}
+            />
           ) : null}
         </div>
       ) : null}
