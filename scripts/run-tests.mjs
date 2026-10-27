@@ -129,6 +129,7 @@ const appTests = [
   "server/board/places-store.test.ts",
   "server/board/http.test.ts",
   "server/board/reports.test.ts",
+  "server/board/report-csam-flag.test.ts",
   "src/lib/board/report-control.render.test.mjs",
   "src/lib/board/moderation-queue.render.test.mjs",
   "server/board/categories.test.ts",

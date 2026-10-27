@@ -1534,7 +1534,7 @@ export async function removePost(
 }
 
 /** After the response is built and the call eviction has run. A hang does not stall either. */
-function scheduleHoldAlert(alert: HoldAlert): void {
+export function scheduleHoldAlert(alert: HoldAlert): void {
   setImmediate(() => {
     void sendHoldAlert(alert);
   });

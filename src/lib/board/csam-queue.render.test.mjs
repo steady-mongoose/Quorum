@@ -219,3 +219,32 @@ test("a filed hold is released only with a lawyer's name and reference, confirme
   assert.equal(button(view.host, "Release hold"), undefined, "a hold not yet reported to NCMEC cannot be released");
   view.done();
 });
+
+test("a chat flag shows the line's id, room and time, never its text", async () => {
+  const { api } = fakeApi({
+    custodian: true, owner: false, reports: [],
+    flags: [{
+      id: "f9", postId: "", source: "report", reporter: "rae", reason: "Member report r1", uploader: "bo", fileIds: [],
+      at: 0, chatMessageId: "c42", chatRoomId: "shop", chatAt: Date.UTC(2026, 9, 19, 12),
+    }],
+    admins: [],
+  });
+  const { host, done } = await mount(api);
+  const text = host.textContent ?? "";
+  assert.match(text, /chat line c42/);
+  assert.match(text, /Room shop/);
+  assert.match(text, /sent /);
+  assert.equal(/\bbo\b/.test(text), false, "never names who sent the line");
+  assert.equal(/sent by|uploaded by/.test(text), false);
+  assert.equal(/post\s*$/.test(text), false);
+  const remove = /** @type {HTMLButtonElement} */ (host.querySelector('[aria-label="Preserve and remove chat line c42"]'));
+  assert.ok(remove.className.includes("min-h-[44px]"));
+  act(() => remove.click());
+  await flush();
+  assert.ok((host.textContent ?? "").includes(queue.REMOVE_FLAGGED_CHAT_CONFIRM));
+  assert.equal((host.textContent ?? "").includes(queue.REMOVE_FLAGGED_CONFIRM), false);
+  act(() => dialogConfirm(host).click());
+  await flush();
+  assert.equal(host.querySelector('[role="status"]')?.textContent, queue.REMOVE_FLAGGED_CHAT_DONE);
+  done();
+});

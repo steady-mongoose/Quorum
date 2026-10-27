@@ -1,3 +1,4 @@
+import { openCsamFlagFor } from "./report-close.ts";
 import { randomUUID } from "node:crypto";
 import { compareReports } from "../../src/lib/board/reports.ts";
 import { isHardRule, type HardRuleValue } from "../../src/lib/board/text.ts";
@@ -5,6 +6,8 @@ import { isUniqueViolation, type Db } from "../db.ts";
 import { actorRole, stewardsRoom, type BoardActor } from "./access.ts";
 import { guardRoomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
+import { flagCsam } from "./csam-flag.ts";
+import { logHoldAccess } from "./csam-custody.ts";
 
 export type ReportSubject = "post" | "chat";
 
@@ -79,12 +82,37 @@ export async function fileReport(
 
   const id = randomUUID();
   try {
-    await db.query(
-      `insert into member_report
-       (id, room_id, subject_kind, subject_id, reporter_user_id, reason, note, source, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, input.roomId, input.subjectKind, input.subjectId, input.userId, input.reason, note, source, input.now],
-    );
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `insert into member_report
+         (id, room_id, subject_kind, subject_id, reporter_user_id, reason, note, source, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, input.roomId, input.subjectKind, input.subjectId, input.userId, input.reason, note, source, input.now],
+      );
+      // A CSAM report on a post also flags it for the custodian. The flag hides the
+      // post's media from everyone at once, and the custodian decides what happens.
+      // A chat line has no media to hide, but it is flagged for the custodian too.
+      if (input.reason === "csam" && input.subjectKind === "chat") {
+        const flagId = randomUUID();
+        await tx.query(
+          `insert into csam_flag (id, chat_message_id, source, reporter_user_id, reporter_name, reason, created_at)
+           values ($1, $2, 'report', $3, $4, $5, $6)`,
+          [flagId, input.subjectId, input.userId, input.name.trim().slice(0, 120), `Member report ${id}`, input.now],
+        );
+        await logHoldAccess(tx, { actorUserId: input.userId, action: "flag", detail: flagId, now: input.now });
+      }
+      if (input.reason === "csam" && input.subjectKind === "post") {
+        const flagged = await flagCsam(tx, {
+          userId: input.userId,
+          name: input.name,
+          postId: input.subjectId,
+          reason: `Member report ${id}`,
+          source: "report",
+          now: input.now,
+        });
+        if (!flagged.ok) throw new Error(`CSAM flag failed: ${flagged.error}`);
+      }
+    });
   } catch (error) {
     if (isUniqueViolation(error)) return fail(409, "You already reported this.");
     throw error;
@@ -223,6 +251,9 @@ async function moderatorStop(
   return null;
 }
 
+export const CSAM_FLAG_OPEN =
+  "A custodian has to preserve and remove the CSAM flag before this report can be closed.";
+
 export type ReportResolution = "resolved" | "dismissed";
 
 /** A steward of the room or an admin closes one open report. One log row is written. */
@@ -236,8 +267,8 @@ export async function closeReport(
   const resolution: ReportResolution = input.resolution;
   const note = input.note.trim();
   if (note.length > NOTE_MAX) return fail(400, "Keep the note under 500 characters.");
-  const rows = await db.query<{ room_id: string; status: string }>(
-    `select room_id, status from member_report where id = $1`,
+  const rows = await db.query<{ room_id: string; status: string; reason: string; subject_kind: string; subject_id: string }>(
+    `select room_id, status, reason, subject_kind, subject_id from member_report where id = $1`,
     [input.reportId],
   );
   const report = rows[0];
@@ -249,7 +280,17 @@ export async function closeReport(
   const stopped = await moderatorStop(db, actor, input.userId, report.room_id, input.now);
   if (stopped) return stopped;
   if (report.status !== "open") return fail(409, "That report is already closed.");
-  const closed = await db.transaction(async (tx) => {
+  const closed = await db.transaction(async (tx): Promise<boolean | "flagged"> => {
+    // Lock the report first, then check for an open CSAM flag in the same
+    // transaction, so a flag filed while this closes cannot slip past.
+    const locked = await tx.query<{ id: string }>(
+      `select id from member_report where id = $1 and status = 'open' for update`,
+      [input.reportId],
+    );
+    if (!locked[0]) return false;
+    if (await openCsamFlagFor(tx, { id: input.reportId, subjectKind: report.subject_kind, subjectId: report.subject_id })) {
+      return "flagged";
+    }
     const updated = await tx.query<{ id: string }>(
       `update member_report
        set status = 'closed', closed_at = $2, closed_by_user_id = $3, resolution = $4
@@ -265,6 +306,7 @@ export async function closeReport(
     );
     return true;
   });
+  if (closed === "flagged") return fail(409, CSAM_FLAG_OPEN);
   if (!closed) return fail(409, "That report is already closed.");
   return { ok: true, value: { id: input.reportId, resolution } };
 }

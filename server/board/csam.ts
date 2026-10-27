@@ -647,6 +647,72 @@ export async function dropObjectKeys(
  * and drop the author id so the account can be deleted. An open hold still
  * blocks that deletion.
  */
+/** True when a chat line is already sealed into a hold. */
+export async function chatLineIsHeld(db: Db, messageId: string): Promise<boolean> {
+  const rows = await db.query<{ id: string }>(
+    `select id from board_csam_hold where purged_at is null and chat_message_id = $1 limit 1`,
+    [messageId],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Seals a chat line into a CSAM hold, unread: the text is encrypted into the hold
+ * and the live row is redacted. Same one-year retention and lawyer-only release.
+ */
+export async function sealCsamChatHold(
+  tx: Db,
+  messageId: string,
+  now: Date,
+): Promise<{ holdId: string; alert: HoldAlert }> {
+  const rows = await tx.query<{
+    id: string;
+    room_id: string;
+    author_user_id: string | null;
+    author_name: string;
+    body: string;
+  }>(`select id, room_id, author_user_id, author_name, body from room_chat_message where id = $1`, [messageId]);
+  const line = rows[0];
+  if (!line) throw new Error("That chat line is not here.");
+  const holdId = randomUUID();
+  const encrypt = holdKeyError() === null;
+  const withKey = await holdKeyColumn(tx);
+  const keyId = encrypt && withKey ? holdKeyId() : "";
+  const held: HeldBody = { claim: line.body, reason: "", replies: [], files: [] };
+  const sealed = encrypt ? sealHold(held) : JSON.stringify(held);
+  const sealStatus = encrypt ? "sealed" : "pending_seal";
+  const kind = encrypt ? "csam_hold" : "csam_pending_seal";
+  await tx.query(
+    `insert into board_csam_hold
+     (id, post_id, post_ids, room_id, author_user_id, author_name, sealed, seal_status,
+      media_count, byte_size, media_types, created_at, retain_until, chat_message_id${withKey ? ", key_id" : ""})
+     values ($1, '', '{}', $2, $3, $4, $5, $6, 0, 0, '{}', $7, $8, $9${withKey ? ", $10" : ""})`,
+    [
+      holdId,
+      line.room_id,
+      line.author_user_id,
+      line.author_name,
+      sealed,
+      sealStatus,
+      now,
+      new Date(now.getTime() + holdMs()),
+      line.id,
+      ...(withKey ? [keyId] : []),
+    ],
+  );
+  const alertId = randomUUID();
+  await tx.query(
+    `insert into board_admin_alert (id, kind, hold_id, created_at) values ($1, $2, $3, $4)`,
+    [alertId, kind, holdId, now],
+  );
+  await tx.query(
+    `update room_chat_message set body = $2, removed = true, removed_at = coalesce(removed_at, $3) where id = $1`,
+    [line.id, REDACTED_CLAIM, now],
+  );
+  console.log(JSON.stringify({ event: "csam-admin-alert", kind, holdId, roomId: line.room_id, chatMessageId: line.id }));
+  return { holdId, alert: { id: alertId, kind, holdId, roomId: line.room_id, postId: "" } };
+}
+
 export async function purgeExpiredHolds(
   db: Db,
   now: Date,
