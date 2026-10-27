@@ -1148,3 +1148,18 @@ export function threadIdFor(a: string, b: string): string {
 export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
 }
+
+/**
+ * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
+ * admins see everything; anyone else sees only their own name. The lists live
+ * on this device today (the server never sends them), so this runs where the
+ * views assemble their board data.
+ */
+export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+  if (viewer.admin) return card;
+  return {
+    ...card,
+    going: (card.going ?? []).filter((name) => name === viewer.name),
+    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
+  };
+}
