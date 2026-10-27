@@ -84,7 +84,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal suspends the account. Pornography and child sexual abuse material suspend the account everywhere on Avouch the first time. An admin then reviews it and closes the account for good. Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A child sexual abuse material closure is never lifted. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal. An admin decides appeals of pornography removals, and a pornography closure can be appealed only with proof the account was compromised. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal suspends the account everywhere on Avouch until an admin reviews it. Pornography and child sexual abuse material suspend the account everywhere on Avouch the first time. An admin then reviews it and closes the account for good. Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A child sexual abuse material closure is never lifted. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal. An admin decides appeals of pornography removals, and a pornography closure can be appealed only with proof that someone else took over the account. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -205,10 +205,10 @@ export function AboutView() {
         </dl>
         <p className="max-w-prose text-sm text-muted">
           Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}. A second
-          removal closes the account. Pornography and child sexual abuse material suspend the account
+          removal suspends the account everywhere on Avouch until an admin reviews it. Pornography and child sexual abuse material suspend the account
           everywhere on Avouch the first time. An admin then reviews it and closes the account for good.
           A child sexual abuse material closure is never lifted. A pornography closure can be appealed
-          only with proof the account was compromised.
+          only with proof that someone else took over the account.
         </p>
         <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
           {RULES.map((rule) => (
