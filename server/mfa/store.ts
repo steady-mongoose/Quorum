@@ -271,7 +271,7 @@ async function checkCode(
       const lock = await recordFailure(db, userId, now, attempt.count);
       return {
         ok: false,
-        failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
+        failure: lock ?? fail(422, "mfa_replay", "That code was already used."),
       };
     }
     await clearLock(db, userId);
@@ -281,7 +281,7 @@ async function checkCode(
     const lock = await recordFailure(db, userId, now, attempt.count);
     return {
       ok: false,
-      failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
+      failure: lock ?? fail(422, "mfa_replay", "That code was already used."),
     };
   }
   if (factor && (/[A-Za-z-]/.test(code) || code.trim().length > 6)) {
@@ -302,7 +302,7 @@ async function checkCode(
         const lock = await recordFailure(db, userId, now, attempt.count);
         return {
           ok: false,
-          failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
+          failure: lock ?? fail(422, "mfa_replay", "That code was already used."),
         };
       }
       await clearLock(db, userId);
@@ -313,7 +313,7 @@ async function checkCode(
   const lock = await recordFailure(db, userId, now, attempt.count);
   return {
     ok: false,
-    failure: lock ?? fail(401, "mfa_invalid", "That code is not valid."),
+    failure: lock ?? fail(422, "mfa_invalid", "That code is not valid."),
   };
 }
 
@@ -409,7 +409,7 @@ export async function confirmEnroll(
       failure:
         lock ??
         fail(
-          401,
+          422,
           totp.reason === "replay" ? "mfa_replay" : "mfa_invalid",
           totp.reason === "replay" ? "That code was already used." : "That code is not valid.",
         ),

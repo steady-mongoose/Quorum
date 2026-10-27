@@ -356,7 +356,7 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
       }),
     );
     const replayBody = (await replay.json()) as { error?: string };
-    assert.equal(replay.status, 401);
+    assert.equal(replay.status, 422);
     assert.equal(replayBody.error, "mfa_replay");
 
     const needsStep = await app(
@@ -413,7 +413,7 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
           body: JSON.stringify({ code: "000000" }),
         }),
       );
-      assert.equal(bad.status, 401);
+      assert.equal(bad.status, 422);
     }
     const fifth = await app(
       new Request("http://127.0.0.1:8787/api/mfa/challenge", {
@@ -456,7 +456,7 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
           body: JSON.stringify({ code: "111111" }),
         }),
       );
-      assert.equal(bad.status, 401);
+      assert.equal(bad.status, 422);
     }
     const rate = await app(
       new Request("http://127.0.0.1:8787/api/mfa/challenge", {
@@ -599,7 +599,7 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
         body: JSON.stringify({ code: firstCode }),
       }),
     );
-    assert.equal(again.status, 401);
+    assert.equal(again.status, 422);
     const nextCode = await app(
       new Request("http://127.0.0.1:8787/api/mfa/challenge", {
         method: "POST",
