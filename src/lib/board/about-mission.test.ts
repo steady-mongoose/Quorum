@@ -25,7 +25,7 @@ test("About says a second removal suspends the account pending an admin, not tha
   assert.ok(prose.includes("A second removal by a steward suspends the account everywhere on Avouch until an admin reviews it."));
   assert.equal(prose.includes("A second removal closes the account"), false);
   assert.equal(prose.includes("A second removal suspends the account. "), false);
-  assert.ok(prose.includes("When an admin removes it, the account is closed at once."));
+  assert.ok(prose.includes("When an admin makes either removal, the account is closed at once."));
 });
 
 test("About says a pornography closure is appealable only if someone else took over the account", () => {
