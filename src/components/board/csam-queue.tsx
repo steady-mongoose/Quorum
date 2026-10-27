@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import {
@@ -18,6 +18,7 @@ export const NOT_CUSTODIAN =
   "Only a named CSAM custodian can see this queue. Ask the owner if you should be one.";
 export const LEGAL_HOLD_OFF_CONFIRM = "Turn off the legal hold? The hold will be purged when its year ends.";
 export const LEGAL_HOLD_NOTE_LABEL = "Who asked for the hold, and why";
+export const LEGAL_HOLD_NOTE_ERROR = "Say who asked for the hold, and why.";
 export const REMOVE_FLAGGED_CONFIRM =
   "Preserve and remove this post? Its files are sealed unopened for NCMEC and the post comes down.";
 export const recordConfirm = (id: string) =>
@@ -41,6 +42,16 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
+  const [focusHeading, setFocusHeading] = useState(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  // After Record filing or Preserve and remove, the row that held the button is gone.
+  // Focus moves to the queue heading so keyboard and screen reader users keep their place.
+  useEffect(() => {
+    if (!focusHeading) return;
+    const timer = setTimeout(() => headingRef.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [focusHeading]);
 
   const load = useCallback(async () => {
     const next = await api.load();
@@ -55,7 +66,10 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
     void load();
   }, [load]);
 
-  const run = async (action: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+  const run = async (
+    action: () => Promise<{ ok: true } | { ok: false; error: string }>,
+    moveFocus = false,
+  ) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -65,14 +79,15 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
     } finally {
       setBusy(false);
       setPending(null);
+      if (moveFocus) setFocusHeading((n) => n + 1);
     }
   };
 
   const confirm = () => {
     if (!pending) return;
-    if (pending.kind === "file") void run(() => api.file(pending.holdId, pending.reportId));
+    if (pending.kind === "file") void run(() => api.file(pending.holdId, pending.reportId), true);
     else if (pending.kind === "hold-off") void run(() => api.legalHold(pending.holdId, false, ""));
-    else if (pending.kind === "remove") void run(() => api.removeFlagged(pending.flagId));
+    else if (pending.kind === "remove") void run(() => api.removeFlagged(pending.flagId), true);
     else void run(() => api.custodian(pending.userId, pending.kind === "grant"));
   };
 
@@ -94,7 +109,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
       aria-labelledby="csam-queue-heading"
       className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5"
     >
-      <h2 id="csam-queue-heading" className="text-2xl text-fg">
+      <h2 id="csam-queue-heading" ref={headingRef} tabIndex={-1} className="text-2xl text-fg">
         CyberTipline queue
       </h2>
       {error ? (
@@ -199,7 +214,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
 function Files({ ids, hashes }: { ids: string[]; hashes?: string[] }) {
   if (ids.length === 0) return null;
   return (
-    <ul className="mt-1 flex flex-col gap-1 font-mono text-xs">
+    <ul className="mt-1 flex min-w-0 flex-col gap-1 break-all font-mono text-xs">
       {ids.map((id, index) => (
         <li key={id}>
           file {id}
@@ -222,6 +237,7 @@ function FlagRow({ flag, busy, onRemove }: { flag: CsamFlagView; busy: boolean; 
       <button
         type="button"
         className={`${btnSignal} mt-2`}
+        aria-label={`Preserve and remove post ${flag.postId}`}
         aria-disabled={busy || undefined}
         onClick={() => !busy && onRemove()}
       >
@@ -247,6 +263,8 @@ function HoldRow({
   const [reportId, setReportId] = useState("");
   const [note, setNote] = useState("");
   const [fieldError, setFieldError] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const noteErrorId = `csam-note-error-${hold.id}`;
   const reportField = `csam-report-${hold.id}`;
   const noteField = `csam-note-${hold.id}`;
   const errorId = `csam-error-${hold.id}`;
@@ -295,6 +313,7 @@ function HoldRow({
           <button
             type="button"
             className={btnSignal}
+            aria-label={`Record filing for post ${hold.postId}`}
             aria-disabled={busy || undefined}
             onClick={() => {
               if (busy) return;
@@ -316,6 +335,7 @@ function HoldRow({
           <button
             type="button"
             className={btnGhost}
+            aria-label={`Turn off legal hold for post ${hold.postId}`}
             aria-disabled={busy || undefined}
             onClick={() => !busy && onHoldOff()}
           >
@@ -331,17 +351,36 @@ function HoldRow({
               className={fieldClass}
               value={note}
               maxLength={300}
-              onChange={(event) => setNote(event.target.value)}
+              aria-invalid={noteError ? true : undefined}
+              aria-describedby={noteError ? noteErrorId : undefined}
+              onChange={(event) => {
+                setNote(event.target.value);
+                setNoteError("");
+              }}
             />
           </label>
           <button
             type="button"
             className={btnGhost}
+            aria-label={`Turn on legal hold for post ${hold.postId}`}
             aria-disabled={busy || undefined}
-            onClick={() => !busy && onHoldOn(note)}
+            onClick={() => {
+              if (busy) return;
+              const typed = note.trim();
+              if (!typed) {
+                setNoteError(LEGAL_HOLD_NOTE_ERROR);
+                return;
+              }
+              onHoldOn(typed);
+            }}
           >
             Turn on legal hold
           </button>
+          {noteError ? (
+            <p id={noteErrorId} role="alert" className="basis-full text-danger">
+              {noteError}
+            </p>
+          ) : null}
         </div>
       )}
     </li>
