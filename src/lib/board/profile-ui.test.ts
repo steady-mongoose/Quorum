@@ -59,3 +59,25 @@ test("corrections UI requests and decides through the API", () => {
   assert.match(client, /\/api\/profile\/corrections\?scope=/);
   assert.match(client, /JSON\.stringify\(\{ decision, note \}\)/);
 });
+
+test("a refusal without a note shows its error on that row and focuses the note", () => {
+  assert.match(ui, /<p role="alert" id=\{`err-\$\{row\.id\}`\} className="text-danger">/);
+  assert.match(ui, /aria-describedby=\{rowError\[row\.id\] \? `err-\$\{row\.id\}` : undefined\}/);
+  assert.match(ui, /getElementById\(`note-\$\{id\}`\)\?\.focus\(\)/);
+  const decide = ui.slice(ui.indexOf("const decide = (id"), ui.indexOf("return (", ui.indexOf("const decide = (id")));
+  assert.doesNotMatch(decide, /setError\(/);
+  for (const copy of [
+    "Waiting for an admin",
+    "Approved, your profile is updated",
+    "Not approved",
+    "Note to the member (required to refuse)",
+    "No correction requests are waiting.",
+    "What went wrong?",
+    "asks to change",
+    "That picture is over 5 MB. Choose a smaller one.",
+    "Choose a JPEG, PNG, or WebP picture.",
+    "Choose a picture, not a video.",
+  ]) {
+    assert.ok(ui.includes(copy), copy);
+  }
+});

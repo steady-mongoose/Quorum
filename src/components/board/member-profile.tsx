@@ -637,6 +637,10 @@ export function MemberProfile() {
 
   const onPhoto = (file: File | undefined) => {
     if (!file) return;
+    if (file.type.startsWith("video/")) {
+      setPhotoError("Choose a picture, not a video.");
+      return;
+    }
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       setPhotoError("Choose a JPEG, PNG, or WebP picture.");
       return;
@@ -987,6 +991,13 @@ export function MemberProfile() {
   );
 }
 
+const STATUS_TEXT: Record<string, string> = {
+  pending: "Waiting for an admin",
+  approved: "Approved, your profile is updated",
+  refused: "Not approved",
+  withdrawn: "Withdrawn",
+};
+
 function Corrections() {
   const [own, setOwn] = useState<CorrectionRow[]>([]);
   const [queue, setQueue] = useState<CorrectionRow[] | null>(null);
@@ -994,6 +1005,7 @@ function Corrections() {
   const [value, setValue] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
 
@@ -1023,11 +1035,21 @@ function Corrections() {
     });
   };
 
+  const showRowError = (id: string, message: string) => {
+    setRowError((current) => ({ ...current, [id]: message }));
+    window.requestAnimationFrame(() => document.getElementById(`note-${id}`)?.focus());
+  };
+
   const decide = (id: string, decision: "approve" | "refuse") => {
-    setError("");
-    void decideCorrection(id, decision, (notes[id] ?? "").trim()).then((result) => {
+    const note = (notes[id] ?? "").trim();
+    setRowError((current) => ({ ...current, [id]: "" }));
+    if (decision === "refuse" && !note) {
+      showRowError(id, "Write a note to the member before you refuse.");
+      return;
+    }
+    void decideCorrection(id, decision, note).then((result) => {
       if (!result.ok) {
-        setError(result.error);
+        showRowError(id, result.error);
         return;
       }
       refresh();
@@ -1079,7 +1101,7 @@ function Corrections() {
             />
           </Field>
         )}
-        <Field label="What was entered by mistake">
+        <Field label="What went wrong?">
           <input
             className={inputClass}
             value={reason}
@@ -1104,7 +1126,7 @@ function Corrections() {
         <ul className="flex flex-col gap-1 text-muted">
           {own.map((row) => (
             <li key={row.id}>
-              {row.field === "gender" ? "Gender" : "Birthdate"}: {row.status}
+              {row.field === "gender" ? "Gender" : "Birthdate"}: {STATUS_TEXT[row.status] ?? row.status}
               {row.decidedNote ? `. ${row.decidedNote}` : ""}
             </li>
           ))}
@@ -1113,20 +1135,30 @@ function Corrections() {
       {queue ? (
         <div className="flex flex-col gap-3">
           <h3 className="font-semibold text-fg">Correction requests to decide</h3>
-          {queue.length === 0 ? <p className="text-muted">Nothing waiting.</p> : null}
+          {queue.length === 0 ? <p className="text-muted">No correction requests are waiting.</p> : null}
           {queue.map((row) => (
             <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-line p-3">
               <p className="text-fg">
-                {row.name} asks to set {row.field} to {row.requestedValue}. Reason: {row.reason}
+                {row.name} asks to change {row.field === "gender" ? "Gender" : "Birthdate"} to{" "}
+                {row.field === "gender" ? genderLabel(row.requestedValue === "woman" ? "woman" : "man") : row.requestedValue}. Reason:{" "}
+                {row.reason}
               </p>
-              <Field label="Note (needed to refuse)">
+              <Field label="Note to the member (required to refuse)">
                 <input
+                  id={`note-${row.id}`}
+                  aria-invalid={rowError[row.id] ? true : undefined}
+                  aria-describedby={rowError[row.id] ? `err-${row.id}` : undefined}
                   className={inputClass}
                   value={notes[row.id] ?? ""}
                   maxLength={300}
                   onChange={(event) => setNotes({ ...notes, [row.id]: event.target.value })}
                 />
               </Field>
+              {rowError[row.id] ? (
+                <p role="alert" id={`err-${row.id}`} className="text-danger">
+                  {rowError[row.id]}
+                </p>
+              ) : null}
               <div className="flex gap-2">
                 <button
                   type="button"
