@@ -6,6 +6,7 @@ import {
   phaseFor,
   privilegedPath,
   roleRequiresMfa,
+  rolloutRequiresMfa,
   stepUpAction,
 } from "./policy.ts";
 
@@ -93,4 +94,17 @@ test("privileged is deny by default: moderation reads, PUT/PATCH and unknown rou
   ]) {
     assert.equal(privilegedPath(path!, method!), false, `${method} ${path}`);
   }
+});
+
+test("the owner enrolls first; admins and stewards are required once the owner has", () => {
+  const base = { member: true, steward: false, admin: false, owner: false, stewardRooms: [] as string[] };
+  const owner = { ...base, admin: true, steward: true, owner: true };
+  const admin = { ...base, admin: true, steward: true };
+  const steward = { ...base, steward: true, stewardRooms: ["shop"] };
+  assert.equal(rolloutRequiresMfa(owner, false), true);
+  assert.equal(rolloutRequiresMfa(admin, false), false);
+  assert.equal(rolloutRequiresMfa(steward, false), false);
+  assert.equal(rolloutRequiresMfa(admin, true), true);
+  assert.equal(rolloutRequiresMfa(steward, true), true);
+  assert.equal(rolloutRequiresMfa(base, true), false);
 });

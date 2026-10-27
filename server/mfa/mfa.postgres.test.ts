@@ -219,7 +219,11 @@ async function user(input: {
     );
   }
   if (input.owner) {
-    await db.query(`insert into bootstrap_seat (id, user_id) values ('founding', $1)`, [id]);
+    await db.query(
+      `insert into bootstrap_seat (id, user_id) values ('founding', $1)
+       on conflict (id) do update set user_id = excluded.user_id`,
+      [id],
+    );
   }
   if (input.stewardRoom) {
     await db.query(
@@ -230,6 +234,20 @@ async function user(input: {
     );
   }
   return { id, sessionId, email: input.email, name: input.name };
+}
+
+/**
+ * Admins and stewards are required to enroll only after the owner has.
+ * Seats a stand-in owner with an active authenticator so those rules apply.
+ */
+async function ownerEnrolled() {
+  if (!db) throw new Error("Postgres is not connected.");
+  const owner = await user({ name: "Seed Owner", email: `owner-${randomUUID()}@example.com`, owner: true });
+  await db.query(
+    `insert into mfa_factor (id, user_id, kind, status, confirmed_at) values ($1, $2, 'totp', 'active', now())`,
+    [randomUUID(), owner.id],
+  );
+  return owner;
 }
 
 function headers(person: { id: string; sessionId: string; email: string; name: string }, ip: string) {
@@ -314,6 +332,7 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
     };
   }
   try {
+    await ownerEnrolled();
     const member = await user({ name: "Ada", email: "ada@example.com" });
     const steward = await user({
       name: "Tom",
@@ -745,6 +764,7 @@ test("an unenrolled admin or steward is refused on every non-member route", asyn
   }
   const clock = { now: new Date("2026-10-27T19:00:00Z") };
   const app = handler(clock);
+  await ownerEnrolled();
   const admin = await user({ name: "Plain Admin", email: "plain-admin@example.com", admin: true });
   const steward = await user({ name: "Plain Steward", email: "plain-steward@example.com", stewardRoom: "shop" });
   const routes: Array<[string, string]> = [

@@ -115,8 +115,32 @@ export function roleRequiresMfa(actor: BoardActor): boolean {
   return actor.owner || actor.admin || actor.stewardRooms.length > 0;
 }
 
+/**
+ * Rollout order: the owner enrolls first. Until the owner has an active
+ * authenticator, admins and stewards are not yet required to enroll, so no one
+ * is locked out of a privileged page before the owner can approve resets.
+ * Once the owner is enrolled, every admin and steward is required.
+ */
+export function rolloutRequiresMfa(actor: BoardActor, ownerEnrolled: boolean): boolean {
+  if (actor.owner) return true;
+  return ownerEnrolled && roleRequiresMfa(actor);
+}
+
+export async function ownerHasMfa(db: Db): Promise<boolean> {
+  const rows = await db.query<{ id: string }>(
+    `select f.id from mfa_factor f
+       join bootstrap_seat b on b.id = 'founding' and b.user_id = f.user_id
+      where f.status = 'active'
+      limit 1`,
+  );
+  return rows.length > 0;
+}
+
 export async function actorRequiresMfa(db: Db, userId: string): Promise<boolean> {
-  return roleRequiresMfa(await actorRole(db, userId));
+  const actor = await actorRole(db, userId);
+  if (actor.owner) return true;
+  if (!roleRequiresMfa(actor)) return false;
+  return rolloutRequiresMfa(actor, await ownerHasMfa(db));
 }
 
 export type MfaPhase = "ok" | "challenge" | "enroll";
