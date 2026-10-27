@@ -1,7 +1,10 @@
-import { useState } from "react";
-import { btnSignal, fieldClass } from "@/components/quorum/bits";
+import { useRef, useState } from "react";
+import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { useServerSession } from "@/lib/server-session-state";
+
+export const COPIED = "Copied.";
+export const COPY_BLOCKED = "Couldn't copy. The code is selected; copy it by hand.";
 
 /** A member makes a server invite. The code is shown once. */
 export function ServerInvite() {
@@ -9,6 +12,19 @@ export function ServerInvite() {
   const [maxUses, setMaxUses] = useState("1");
   const [code, setCode] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  const [copyNote, setCopyNote] = useState("");
+  const codeText = useRef<HTMLParagraphElement | null>(null);
+
+  /** When the clipboard is blocked, select the code so it can be copied by hand. */
+  const selectCode = () => {
+    const node = codeText.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!node || !selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
 
   if (server.mode !== "live" || !server.user) return null;
 
@@ -40,13 +56,41 @@ export function ServerInvite() {
               setOutcome(result.message);
               return;
             }
+            setCopyNote("");
             setCode(result.code);
           });
         }}
       >
         Make a code
       </button>
-      {code ? <p className="font-mono text-lg tracking-widest text-fg">{code}</p> : null}
+      {code ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p ref={codeText} id="invite-code" className="font-mono text-lg tracking-widest text-fg select-all">
+            {code}
+          </p>
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px]")}
+            aria-label="Copy code"
+            aria-describedby="invite-code"
+            onClick={() => {
+              const done = () => setCopyNote(COPIED);
+              const blocked = () => {
+                selectCode();
+                setCopyNote(COPY_BLOCKED);
+              };
+              const clip = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+              if (!clip?.writeText) return blocked();
+              void clip.writeText(code).then(done, blocked);
+            }}
+          >
+            Copy code
+          </button>
+        </div>
+      ) : null}
+      <p className="text-sm text-muted" role="status">
+        {copyNote}
+      </p>
       {outcome ? <p className="text-sm text-muted">{outcome}</p> : null}
     </section>
   );

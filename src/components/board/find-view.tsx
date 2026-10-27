@@ -295,32 +295,12 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
 }
 
 /** A host's one-use code for one card. Shown once; the host hands it over however they like. */
-function InviteMaker({ cardId }: { cardId: string }) {
-  const createInvite = useBoard((state) => state.createInvite);
-  const [code, setCode] = useState<string | null>(null);
-  const { copied, failed, copy } = useCopy();
-  if (code) {
-    const label = copyStatus(copied, failed, code, "Copy code");
-    return (
-      <span className="inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm">
-        <span className="font-mono tracking-widest text-fg">{code}</span>
-        <button
-          type="button"
-          className={cn(btnQuiet, "px-1")}
-          onClick={() => copy(code, code)}
-          aria-label={label}
-        >
-          {label === "Copied" ? <CheckIcon className="size-4" /> : <Copy className="size-4" />}
-          {label === "Couldn't copy" ? label : null}
-        </button>
-      </span>
-    );
-  }
-  return (
-    <button type="button" className={btnQuiet} onClick={() => setCode(createInvite(cardId))}>
-      Invite someone
-    </button>
-  );
+/**
+ * Invite codes come from the server, under About ("Make a code"). This used to
+ * mint a code in the browser only, which the signup door rejected.
+ */
+function InviteNote() {
+  return <span className="text-sm text-muted">To invite someone, make a code under About.</span>;
 }
 
 function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
@@ -385,7 +365,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
           {went ? "You've been" : "I went"}
         </button>
         <MessageHost card={card} {...rest} />
-        {isHost ? <InviteMaker cardId={card.id} /> : null}
+        {isHost ? <InviteNote /> : null}
         {(isHost || rest.steward) && shown ? (
           <button
             type="button"

@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "src/lib/board/find-invite.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
