@@ -56,3 +56,9 @@ test("the views read cards through forViewer", () => {
   }
   assert.match(read("room-view.tsx"), /"Say how it went, and set the next date\."/);
 });
+
+test("server board responses carry a forViewer TODO", () => {
+  for (const path of ["../../../server/board/store.ts", "./store.ts"]) {
+    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /TODO\(rsvp-server\):[^\n]*forViewer/);
+  }
+});
