@@ -147,7 +147,11 @@ export async function setLegalHold(
   }
   const rows = await db.query<{ id: string }>(
     `update board_csam_hold
-     set legal_hold = $2, legal_hold_note = $3, legal_hold_by_user_id = $4, legal_hold_at = $5
+     set legal_hold = $2, legal_hold_note = $3, legal_hold_by_user_id = $4, legal_hold_at = $5,
+         -- A hold set again after a release needs a fresh lawyer sign-off to release it.
+         -- The earlier release stays in the access log.
+         released_at = null, released_by_user_id = null,
+         release_lawyer_name = '', release_lawyer_reference = ''
      where id = $1 and purged_at is null
      returning id`,
     [input.holdId, input.on, input.on ? note : "", input.userId, input.now],

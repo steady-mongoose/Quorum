@@ -184,3 +184,33 @@ test("a legal hold stops the purge; only a recorded lawyer sign-off on a filed h
     await close();
   }
 });
+
+test("a hold set again after a release is released again only through a new lawyer sign-off", async () => {
+  const { db, close, ids } = await setup();
+  try {
+    const store = createMemoryStore();
+    const holdId = await hold(db, ids.maria);
+    await db.query(`update board_csam_hold set filed_at = $2, report_id = '42' where id = $1`, [holdId, now]);
+    assert.equal((await setLegalHold(db, { userId: ids.owner, holdId, on: true, note: "Subpoena 2026-11", now })).ok, true);
+    const first = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "Dana Reyes", lawyerReference: "DR-114", now });
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const again = await setLegalHold(db, { userId: ids.owner, holdId, on: true, note: "Second subpoena 2026-12", now });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    const due = new Date(now.getTime() + 366 * DAY);
+    assert.equal(await purgeExpiredHolds(db, due, store), 0, "held again: not purged");
+    const noLawyer = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "", lawyerReference: "LK-9", now: due });
+    assert.equal(noLawyer.ok, false, "the same sign-off path applies");
+    const second = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "Lee Kim", lawyerReference: "LK-9", now: due });
+    assert.equal(second.ok, true, JSON.stringify(second));
+    const [row] = await db.query<{ release_lawyer_name: string; legal_hold: boolean }>(
+      `select release_lawyer_name, legal_hold from board_csam_hold where id = $1`,
+      [holdId],
+    );
+    assert.deepEqual(row, { release_lawyer_name: "Lee Kim", legal_hold: false });
+    const releases = (await log(db)).filter((r) => r.action === "hold_released");
+    assert.equal(releases.length, 2, "both releases are logged");
+    assert.equal(await purgeExpiredHolds(db, due, store), 1);
+  } finally {
+    await close();
+  }
+});
