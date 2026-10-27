@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { cn } from "@/lib/cn";
 import {
   csamApi,
   type CsamApi,
@@ -20,14 +21,14 @@ export const LEGAL_HOLD_NOTE_LABEL = "Who asked for the hold, and why";
 export const LEGAL_HOLD_NOTE_ERROR = "Say who asked for the hold, and why.";
 export const REMOVE_FLAGGED_CONFIRM =
   "Preserve and remove this post? Its files are sealed unopened for NCMEC and the post comes down.";
-export const RELEASE_LAWYER_LABEL = "Lawyer who signed off";
-export const RELEASE_REFERENCE_LABEL = "Lawyer's reference";
+export const RELEASE_LAWYER_LABEL = "Lawyer who signed off (required)";
+export const RELEASE_REFERENCE_LABEL = "Lawyer's reference (required)";
 export const RELEASE_HINT =
-  "A hold is released only with a lawyer's sign-off. Both fields are logged. The one-year preservation still applies.";
+  "Releasing ends the legal hold. Nothing is opened or shown again. The files are still kept until the one-year preservation ends, then purged as usual. A lawyer's sign-off is required, and both fields are logged.";
 export const RELEASE_FIELDS_ERROR = "Enter the lawyer's name and their reference.";
 export const RELEASE_DONE = "Lawyer sign-off recorded. The hold is released.";
 export const releaseConfirm = (lawyer: string, reference: string) =>
-  `Record the release signed off by ${lawyer} (reference ${reference})? This is logged. The files stay preserved until the year ends.`;
+  `Release the legal hold, signed off by ${lawyer} (reference ${reference})? The files stay sealed and are purged when the one-year preservation ends. This is logged and can't be undone.`;
 export const recordConfirm = (id: string) =>
   `Record CyberTipline report ${id}? This starts the one-year hold. Check the number against the NCMEC receipt.`;
 export const grantConfirm = (name: string) =>
@@ -108,7 +109,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
     pending?.kind === "file"
       ? { title: "Record filing", text: recordConfirm(pending.reportId), label: "Record filing" }
       : pending?.kind === "release"
-        ? { title: "Release hold", text: releaseConfirm(pending.lawyer, pending.reference), label: "Record release" }
+        ? { title: "Release hold", text: releaseConfirm(pending.lawyer, pending.reference), label: "Release hold" }
         : pending?.kind === "grant"
           ? { title: "CSAM custodian", text: grantConfirm(pending.name), label: "Make custodian" }
           : pending?.kind === "revoke"
@@ -369,7 +370,7 @@ function HoldRow({
       {hold.releasedAt ? (
         <p className="text-fg">
           Released {when(hold.releasedAt)} on the sign-off of {hold.releaseLawyer} (reference{" "}
-          {hold.releaseReference})
+          {hold.releaseReference}).
         </p>
       ) : hold.legalHold ? (
         <p className="text-fg">Legal hold on: {hold.legalHoldNote}</p>
@@ -416,11 +417,15 @@ function HoldRow({
       )}
       {canRelease && hold.status === "filed" && !hold.releasedAt ? (
         <div className="flex flex-wrap items-end gap-2">
+          <p id={releaseHintId} className="basis-full text-muted">
+            {RELEASE_HINT}
+          </p>
           <label htmlFor={lawyerField} className="flex flex-col gap-1 text-fg">
             {RELEASE_LAWYER_LABEL}
             <input
               id={lawyerField}
-              className={fieldClass}
+              className={cn(fieldClass, "min-h-[44px]")}
+              aria-required="true"
               value={lawyer}
               maxLength={120}
               autoComplete="off"
@@ -436,7 +441,8 @@ function HoldRow({
             {RELEASE_REFERENCE_LABEL}
             <input
               id={referenceField}
-              className={fieldClass}
+              className={cn(fieldClass, "min-h-[44px]")}
+              aria-required="true"
               value={reference}
               maxLength={120}
               autoComplete="off"
@@ -466,9 +472,6 @@ function HoldRow({
           >
             Release hold
           </button>
-          <p id={releaseHintId} className="basis-full text-muted">
-            {RELEASE_HINT}
-          </p>
           {releaseError ? (
             <p id={releaseErrorId} role="alert" className="basis-full text-danger">
               {releaseError}
