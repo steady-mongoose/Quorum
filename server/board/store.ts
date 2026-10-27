@@ -132,6 +132,8 @@ export type BanEntry = {
   until: number;
   strikes: number;
   at: number;
+  /** A steward's removal that would close the account: a 30-day bar until an admin decides. */
+  pendingReview?: boolean;
 };
 
 export type AppealEntry = {
@@ -835,6 +837,103 @@ export async function listBoard(
   };
 }
 
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
+
+/** A banned admin cannot moderate, decide appeals, or close accounts. */
+export async function bannedAdminStop(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  now: Date,
+): Promise<{ ok: false; status: number; error: string } | null> {
+  if (!actor.admin) return null;
+  if (await openBan(db, userId, now)) return { ok: false, status: 403, error: BANNED_ADMIN };
+  return null;
+}
+
+export type BanReview = {
+  id: string;
+  banId: string;
+  userId: string | null;
+  name: string;
+  reason: string;
+  requestedBy: string;
+  at: number;
+};
+
+/** Open cases where a steward's removal would have closed an account. Admins only. */
+export async function listBanReviews(db: Db, userId: string, now: Date): Promise<Result<BanReview[]>> {
+  const actor = await actorRole(db, userId);
+  if (!actor.admin) return fail(403, "Only an admin reviews permanent bans.");
+  const stopped = await bannedAdminStop(db, actor, userId, now);
+  if (stopped) return stopped;
+  const rows = await db.query<{
+    id: string;
+    ban_id: string;
+    user_id: string | null;
+    name: string;
+    reason: string;
+    by_name: string;
+    created_at: Date | string;
+  }>(
+    `select r.id, r.ban_id, r.user_id, b.name, r.reason, b.by_name, r.created_at
+     from ban_review r join board_ban b on b.id = r.ban_id
+     where r.status = 'open' order by r.created_at asc, r.id asc`,
+  );
+  return {
+    ok: true,
+    value: rows.map((row) => ({
+      id: row.id,
+      banId: row.ban_id,
+      userId: row.user_id,
+      name: row.name,
+      reason: row.reason,
+      requestedBy: row.by_name,
+      at: new Date(row.created_at).getTime(),
+    })),
+  };
+}
+
+/**
+ * An admin closes the account for good, or keeps the 30-day bar. Only an admin
+ * issues a permanent ban.
+ */
+export async function decideBanReview(
+  db: Db,
+  input: { userId: string; reviewId: string; decision: string; now: Date },
+): Promise<Result<{ id: string; decision: "closed" | "kept" }>> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.admin) return fail(403, "Only an admin issues a permanent ban.");
+  const stopped = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (stopped) return stopped;
+  if (input.decision !== "closed" && input.decision !== "kept") {
+    return fail(400, "Close the account or keep the 30-day bar.");
+  }
+  const decision = input.decision;
+  const pending = await db.query<{ user_id: string | null }>(
+    `select user_id from ban_review where id = $1 and status = 'open'`,
+    [input.reviewId],
+  );
+  if (!pending[0]) return fail(404, "That review is not open.");
+  if (pending[0].user_id === input.userId) return fail(403, "Another admin decides your own case.");
+  const rows = await db.query<{ ban_id: string; user_id: string | null }>(
+    `update ban_review set status = $2, decided_by_user_id = $3, decided_at = $4
+     where id = $1 and status = 'open' returning ban_id, user_id`,
+    [input.reviewId, decision, input.userId, input.now],
+  );
+  const review = rows[0];
+  if (!review) return fail(404, "That review is not open.");
+  if (decision === "closed") {
+    await db.query(`update board_ban set until_at = $2, room_id = '' where id = $1`, [
+      review.ban_id,
+      new Date(input.now.getTime() + CLOSED_MS),
+    ]);
+    if (review.user_id) evictCallMember(review.user_id);
+  }
+  console.log(JSON.stringify({ event: "ban-review-decided", id: input.reviewId, decision }));
+  return { ok: true, value: { id: input.reviewId, decision } };
+}
+
 export async function writeBan(
   tx: Db,
   input: {
@@ -852,6 +951,8 @@ export async function writeBan(
      * because its row lives in room_chat_removal, not board_removal.
      */
     removalAlreadyCounted?: boolean;
+    /** Only an admin closes an account for good. Anyone else gets a 30-day bar and an admin review. */
+    byAdmin?: boolean;
   },
 ): Promise<BanEntry> {
   const prior = await queryBanTable<{ strikes: number }>(
@@ -882,9 +983,9 @@ export async function writeBan(
   const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
   const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
   const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
-  const until = new Date(
-    input.now.getTime() + (permanentOnFirst(input.reason) || strikes >= 2 ? CLOSED_MS : BAN_MS),
-  );
+  const permanent = permanentOnFirst(input.reason) || strikes >= 2;
+  const pendingReview = permanent && input.byAdmin !== true;
+  const until = new Date(input.now.getTime() + (permanent && !pendingReview ? CLOSED_MS : BAN_MS));
   const id = randomUUID();
   await tx.query(
     `insert into board_ban
@@ -904,8 +1005,15 @@ export async function writeBan(
       input.now,
     ],
   );
+  if (pendingReview) {
+    await tx.query(
+      `insert into ban_review (id, ban_id, user_id, reason, requested_by_user_id, created_at)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [randomUUID(), id, input.userId, input.reason, input.byUserId || null, input.now],
+    );
+  }
   console.log(
-    JSON.stringify({ event: "member-banned", userId: input.userId, reason: input.reason, strikes }),
+    JSON.stringify({ event: "member-banned", userId: input.userId, reason: input.reason, strikes, pendingReview }),
   );
   return {
     id,
@@ -914,6 +1022,7 @@ export async function writeBan(
     until: until.getTime(),
     strikes,
     at: input.now.getTime(),
+    ...(pendingReview ? { pendingReview: true } : {}),
   };
 }
 
@@ -1329,6 +1438,8 @@ export async function removePost(
   },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!isHardRule(input.reason)) return fail(400, RULE_ERROR);
   const reason = input.reason;
   const existing = await db.query<{
@@ -1397,6 +1508,7 @@ export async function removePost(
       );
       const siteWide = actor.admin || permanentOnFirst(reason);
       return writeBan(tx, {
+        byAdmin: actor.admin,
         userId: post.author_user_id,
         name: post.author_name,
         reason,
@@ -1472,6 +1584,8 @@ export async function banMember(
   },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!actor.admin && actor.stewardRooms.length === 0) {
     return fail(403, "Only a steward can bar an account.");
   }
@@ -1492,6 +1606,7 @@ export async function banMember(
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
     const ban = await writeBan(db, {
+      byAdmin: true,
       userId: person.id,
       name: person.name,
       reason,
@@ -1774,6 +1889,8 @@ export async function decideAppeal(
   },
 ): Promise<Result<{ appeal: AppealEntry; posts: BoardPost[] }>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (input.decision !== "uphold" && input.decision !== "lift")
     return fail(400, "Uphold or lift the appeal.");
   const sentence = sentenceOrStop(input.reason);
@@ -1800,6 +1917,16 @@ export async function decideAppeal(
   const appeal = open[0];
   if (!appeal || appeal.decision) return fail(404, "That appeal is not open.");
   const rule = appeal.rule ?? "";
+  const closing =
+    appeal.kind === "removal"
+      ? await db.query<{ id: string }>(
+          `select id from board_ban where removal_id = $1 and strikes >= 2 limit 1`,
+          [appeal.target_id],
+        )
+      : [];
+  if (closing[0] && !actor.admin) {
+    return fail(403, "Only an admin decides an appeal of a permanent ban.");
+  }
   if (rule === "porn" || rule === "csam") {
     if (!actor.admin) return fail(403, "Only an admin decides an appeal of a permanent ban.");
     if (
@@ -1850,7 +1977,8 @@ export async function decideAppeal(
         ]);
         await tx.query(
           `update board_ban set until_at = $2
-           where removal_id = $1 and strikes < 2 and (room_id = '' or room_id = $3)`,
+           where removal_id = $1 and reason <> 'csam'
+             and (strikes < 2 or reason = 'porn') and (room_id = '' or room_id = $3)`,
           [appeal.target_id, input.now, appeal.room_id],
         );
       }

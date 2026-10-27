@@ -5,7 +5,7 @@ import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../boa
 import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
-import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
+import { bannedAdminStop, openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
@@ -267,6 +267,8 @@ export async function removeChatMessage(
     detail: "remove",
   });
   if (!gate.ok) return gate;
+  const adminBanned = await bannedAdminStop(db, gate.value, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!stewardsRoom(gate.value, input.roomId)) {
     return fail(
       403,
@@ -328,6 +330,7 @@ export async function removeChatMessage(
     if (!message.author_user_id) return { ban: null, siteWide: false };
     const siteWide = gate.value.admin || permanentOnFirst(reason);
     const ban = await writeBan(tx, {
+      byAdmin: gate.value.admin,
       userId: message.author_user_id,
       name: message.author_name,
       reason,
