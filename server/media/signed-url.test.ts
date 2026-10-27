@@ -6,7 +6,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createMemoryStore } from "./memory-store.ts";
 import { readMediaConfig } from "./config.ts";
-import { handleSignedMedia, type MediaRuntime } from "./routes.ts";
+import { EDGE_MAX_AGE_S, handleSignedMedia, signedCacheControl, type MediaRuntime } from "./routes.ts";
 import { readForMember, type MediaServiceDeps } from "./service.ts";
 import { createSigner, readMediaHostConfig, SIGNED_WINDOW_SECONDS } from "./signed-url.ts";
 
@@ -101,7 +101,7 @@ test("a member's read link points at the media host and serves cacheable bytes w
     assert.deepEqual(new Uint8Array(await response!.arrayBuffer()), bytes);
     assert.match(response!.headers.get("cache-control") ?? "", /^public, max-age=\d+, s-maxage=\d+$/);
     const age = Number(/max-age=(\d+)/.exec(response!.headers.get("cache-control") ?? "")?.[1]);
-    assert.ok(age > 0 && age <= 600);
+    assert.ok(age > 0 && age <= EDGE_MAX_AGE_S, "a held or deleted file leaves the edge within a minute");
     assert.equal(response!.headers.get("set-cookie"), null);
     assert.equal(response!.headers.get("content-type"), "image/jpeg");
     assert.equal(response!.headers.get("x-content-type-options"), "nosniff");
@@ -194,4 +194,11 @@ test("the media service calls mediaIsBlocked before every signer.url", () => {
   assert.ok(lastCheck > 0);
   assert.ok(lastCheck < read.indexOf("signer.url("));
   assert.equal(source.includes("servingBlocked"), false);
+});
+
+test("signed media is edge-cached for at most a minute and never past the link", () => {
+  assert.equal(EDGE_MAX_AGE_S, 60);
+  assert.equal(signedCacheControl(600), "public, max-age=60, s-maxage=60");
+  assert.equal(signedCacheControl(25), "public, max-age=25, s-maxage=25");
+  assert.equal(signedCacheControl(-5), "public, max-age=0, s-maxage=0");
 });

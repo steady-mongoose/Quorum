@@ -22,6 +22,19 @@ export type MediaRuntime = {
 };
 
 /**
+ * The edge may keep a signed file for at most a minute. The signature is in the
+ * path, so it is part of Cloudflare's cache key: a new link is a new cache entry.
+ * When a file is held, flagged or deleted, the origin answers 404 at once, and a
+ * copy already at the edge is gone within EDGE_MAX_AGE_S. No purge API call is made.
+ */
+export const EDGE_MAX_AGE_S = 60;
+
+export function signedCacheControl(secondsLeft: number): string {
+  const age = Math.max(0, Math.min(secondsLeft, EDGE_MAX_AGE_S));
+  return `public, max-age=${age}, s-maxage=${age}`;
+}
+
+/**
  * GET /m/:id/:variant/:exp/:sig on the media host. Cacheable at the edge for at most
  * the time left on the link, so Cloudflare's CSAM scanner sees each file. Never sets
  * or reads a cookie. Held or flagged files are 404 for everyone.
@@ -54,7 +67,7 @@ export async function handleSignedMedia(
   const headers = new Headers({
     "content-type": served.contentType,
     "content-length": String(served.bytes.byteLength),
-    "cache-control": `public, max-age=${served.maxAge}, s-maxage=${served.maxAge}`,
+    "cache-control": signedCacheControl(served.maxAge),
     "content-disposition": `inline; filename="${served.filename}"`,
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; sandbox",
