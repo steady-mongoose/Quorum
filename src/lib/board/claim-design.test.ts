@@ -54,3 +54,16 @@ test("claim copy names the code, the email, and the member steps", () => {
   assert.match(queue, /flex-col gap-2 sm:flex-row/);
   assert.match(room, /Only stewards can\s+see this listing until a host claims it\./);
 });
+
+test("claim plates stay in flow, and the confirm dialog stays centered", () => {
+  const css = source("../../../public/backgrounds.css");
+  const dialog = source("../../components/board/confirm-dialog.tsx");
+  // Only the hero title plate overlaps the band; a bare .plate gets no negative margin.
+  assert.doesNotMatch(css, /(^|[^-\w])\.plate\s*\{[^}]*margin-top/m);
+  assert.match(css, /\.plate--hero\s*\{[^}]*margin-top/);
+  assert.match(css, /\.plate:not\(dialog\)/);
+  assert.doesNotMatch(queue, /plate--hero/);
+  // No inline marginTop pinning the modal, and a 24px title.
+  assert.doesNotMatch(dialog, /marginTop/);
+  assert.match(dialog, /font-display text-2xl/);
+});
