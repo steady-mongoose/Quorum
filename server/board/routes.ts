@@ -31,6 +31,22 @@ import {
   requestAccountDeletion,
 } from "./account.ts";
 import {
+  createCategory,
+  deleteCategory,
+  listCategories,
+  readCategory,
+  updateCategory,
+  type CategoryResult,
+} from "./categories.ts";
+import {
+  checkSiteCode,
+  decideClaim,
+  importListings,
+  listClaims,
+  requestClaim,
+  confirmClaimCode,
+} from "./claims.ts";
+import {
   banMember,
   closeAsked,
   createRoom,
@@ -43,6 +59,7 @@ import {
   removePost,
   replyToPost,
   revisePost,
+  updateRoom,
   type Result,
 } from "./store.ts";
 
@@ -107,12 +124,12 @@ class HttpError extends Error {
   }
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+async function readJson(request: Request, max = 65_536): Promise<Record<string, unknown>> {
   const claimed = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(claimed) && claimed > 65_536)
+  if (Number.isFinite(claimed) && claimed > max)
     throw new HttpError(413, "That request is too large.");
   const text = await request.text();
-  if (text.length > 65_536) throw new HttpError(413, "That request is too large.");
+  if (text.length > max) throw new HttpError(413, "That request is too large.");
   if (!text) return {};
   try {
     const body = JSON.parse(text) as unknown;
@@ -125,14 +142,16 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function fromResult(status: number, result: Result<unknown>): Response {
+function fromResult(status: number, result: Result<unknown> | CategoryResult<unknown>): Response {
   if (!result.ok) {
     return json(result.status, {
       error: result.error,
-      ...(result.stops ? { stops: result.stops } : {}),
+      ...("stops" in result && result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
-      ...(result.code ? { code: result.code } : {}),
-      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
+      ...("code" in result && result.code ? { code: result.code } : {}),
+      ...("audience" in result && (result.audience === "men" || result.audience === "women")
+        ? { audience: result.audience }
+        : {}),
     });
   }
   return json(status, result.value);
@@ -141,6 +160,30 @@ function fromResult(status: number, result: Result<unknown>): Response {
 function stringField(body: Record<string, unknown>, key: string): string {
   const value = body[key];
   return typeof value === "string" ? value : "";
+}
+
+function categoryIdsField(body: Record<string, unknown>): { categoryIds?: string[] } {
+  if (Array.isArray(body.categoryIds)) return { categoryIds: stringList(body, "categoryIds") };
+  if ("categoryId" in body) {
+    const one = stringField(body, "categoryId").trim();
+    return { categoryIds: one ? [one] : [] };
+  }
+  return {};
+}
+
+function pinField(body: Record<string, unknown>): { pinOrder: number | null } | Record<string, never> {
+  if (!("pinOrder" in body)) return {};
+  const value = body.pinOrder;
+  if (value === null) return { pinOrder: null };
+  if (typeof value === "number" && Number.isInteger(value)) return { pinOrder: value };
+  return { pinOrder: Number.NaN };
+}
+
+function optionalInt(body: Record<string, unknown>, key: string): number | undefined | null {
+  if (!(key in body)) return undefined;
+  const value = body[key];
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value;
 }
 
 function stringList(body: Record<string, unknown>, key: string): string[] {
@@ -161,20 +204,35 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
+  const claimAction =
+    /^\/api\/claims\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(confirm|check|decide)$/i.exec(
+      url.pathname,
+    );
   const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
+  const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
+  const categoryOne = /^\/api\/categories\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const gatheringOne =
     /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
       url.pathname,
     );
   const matched =
-    (url.pathname === "/api/gatherings" && (request.method === "GET" || request.method === "POST")) ||
+    (url.pathname === "/api/gatherings" &&
+      (request.method === "GET" || request.method === "POST")) ||
     (gatheringOne !== null &&
       (request.method === "GET" || request.method === "DELETE" || request.method === "POST")) ||
     (url.pathname === "/api/board" && request.method === "GET") ||
     (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
+    (url.pathname === "/api/categories" &&
+      (request.method === "GET" || request.method === "POST")) ||
+    (categoryOne !== null &&
+      (request.method === "GET" || request.method === "PATCH" || request.method === "DELETE")) ||
+    (roomOne !== null && request.method === "PATCH") ||
+    (url.pathname === "/api/rooms/seed" && request.method === "POST") ||
+    (url.pathname === "/api/claims" && (request.method === "GET" || request.method === "POST")) ||
+    Boolean(claimAction && request.method === "POST") ||
     (url.pathname === "/api/gender" && request.method === "POST") ||
     (url.pathname === "/api/gender/confirm" && request.method === "POST") ||
     Boolean(roomAudience && request.method === "POST") ||
@@ -202,6 +260,10 @@ export async function handleBoard(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (url.pathname === "/api/claims" && request.method === "GET") {
+      return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
+    }
 
     if (url.pathname === "/api/appeals" && request.method === "GET") {
       const appeals = await listOwnAppeals(deps.db, session.id);
@@ -264,6 +326,21 @@ export async function handleBoard(
       return fromResult(200, await listHome(deps.db, session.id, now));
     }
 
+    if (url.pathname === "/api/categories" && request.method === "GET") {
+      return fromResult(200, await listCategories(deps.db, session.id, now));
+    }
+
+    if (categoryOne && request.method === "GET") {
+      return fromResult(200, await readCategory(deps.db, session.id, categoryOne[1] ?? "", now));
+    }
+
+    if (categoryOne && request.method === "DELETE") {
+      return fromResult(
+        200,
+        await deleteCategory(deps.db, { userId: session.id, slug: categoryOne[1] ?? "", now }),
+      );
+    }
+
     if (roomJoin && request.method === "DELETE") {
       return fromResult(
         200,
@@ -274,6 +351,15 @@ export async function handleBoard(
           leave: true,
         }),
       );
+    }
+
+    if (url.pathname === "/api/rooms/seed" && request.method === "POST") {
+      const seeded = await importListings(deps.db, {
+        userId: session.id,
+        body: await readJson(request, 262_144),
+        now,
+      });
+      return fromResult(201, seeded);
     }
 
     const body = await readJson(request);
@@ -302,10 +388,60 @@ export async function handleBoard(
       );
     }
 
-    if (
-      (url.pathname === "/api/gatherings" || gatheringOne) &&
-      request.method === "POST"
-    ) {
+    if (url.pathname === "/api/claims" && request.method === "POST") {
+      return fromResult(
+        201,
+        await requestClaim(
+          deps.db,
+          {
+            userId: session.id,
+            roomKey: stringField(body, "roomId") || stringField(body, "name"),
+            method: stringField(body, "method"),
+            email: stringField(body, "email"),
+            now,
+          },
+          {},
+        ),
+      );
+    }
+
+    if (claimAction && claimAction[2] === "confirm") {
+      return fromResult(
+        200,
+        await confirmClaimCode(deps.db, {
+          userId: session.id,
+          claimId: claimAction[1] ?? "",
+          code: stringField(body, "code"),
+          now,
+        }),
+      );
+    }
+
+    if (claimAction && claimAction[2] === "check") {
+      return fromResult(
+        200,
+        await checkSiteCode(deps.db, {
+          userId: session.id,
+          claimId: claimAction[1] ?? "",
+          now,
+        }),
+      );
+    }
+
+    if (claimAction && claimAction[2] === "decide") {
+      return fromResult(
+        200,
+        await decideClaim(deps.db, {
+          userId: session.id,
+          claimId: claimAction[1] ?? "",
+          decision: stringField(body, "decision"),
+          note: stringField(body, "note"),
+          now,
+        }),
+      );
+    }
+
+    if ((url.pathname === "/api/gatherings" || gatheringOne) && request.method === "POST") {
       const saved = await saveGathering(deps.db, {
         userId: session.id,
         id: gatheringOne ? (gatheringOne[1] ?? "") : stringField(body, "id"),
@@ -326,10 +462,53 @@ export async function handleBoard(
         id: stringField(body, "id"),
         name: stringField(body, "name"),
         what: stringField(body, "what"),
+        categoryIds: categoryIdsField(body).categoryIds ?? [],
         audience: body.audience,
         now,
       });
       return fromResult(201, created);
+    }
+
+    if (roomOne && request.method === "PATCH") {
+      return fromResult(
+        200,
+        await updateRoom(deps.db, {
+          userId: session.id,
+          id: roomOne[1] ?? "",
+          ...categoryIdsField(body),
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(typeof body.what === "string" ? { what: body.what } : {}),
+          ...pinField(body),
+          now,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/categories" && request.method === "POST") {
+      return fromResult(
+        201,
+        await createCategory(deps.db, {
+          userId: session.id,
+          slug: stringField(body, "slug"),
+          name: stringField(body, "name"),
+          now,
+        }),
+      );
+    }
+
+    if (categoryOne && request.method === "PATCH") {
+      const sortOrder = optionalInt(body, "sortOrder");
+      if (sortOrder === null) return json(400, { error: "Give the category a place in the list." });
+      return fromResult(
+        200,
+        await updateCategory(deps.db, {
+          userId: session.id,
+          slug: categoryOne[1] ?? "",
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(sortOrder !== undefined ? { sortOrder } : {}),
+          now,
+        }),
+      );
     }
 
     if (roomAudience && request.method === "POST") {

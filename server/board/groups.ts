@@ -18,6 +18,7 @@ import { CODE_ROOM_IDS } from "../../src/lib/board/model.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/text.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
+import { canReadRoom, readRoomListing } from "./room-visibility.ts";
 import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
@@ -960,10 +961,10 @@ export async function requestGroup(
   if (!blurb.ok) return fail(400, blurb.error);
   const roomId = input.roomId.trim();
   if (!ROOM_ID.test(roomId)) return fail(400, "Ask from a room you have joined.");
-  const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
-    roomId,
-  ]);
-  if (!rooms[0]) return fail(400, "Ask from a room you have joined.");
+  const source = await readRoomListing(db, roomId);
+  if (!source || !source.name || !canReadRoom(source.status, gated.actor)) {
+    return fail(400, "Ask from a room you have joined.");
+  }
   const standing = await db.query<{ user_id: string }>(
     `select user_id from room_member where room_id = $1 and user_id = $2`,
     [roomId, input.userId],
