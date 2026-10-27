@@ -119,11 +119,6 @@ export function roundToFive(count: number): number {
 }
 
 /**
- * Hide every part under 5. When that leaves a total an attacker could subtract
- * down to one hidden cell, round the total to the nearest 5, and hide it
- * entirely if one cell would still be the only possible value.
- */
-/**
  * Small-cell rules. By default every count under 5 is a small cell, zero
  * included. With `emptyShown`, an empty bucket (0) names no one: it is shown
  * as 0 and left out of suppression, so a "<5" cell is known to hold 1 to 4 and
@@ -145,11 +140,30 @@ export function protectBreakdown(
   if (!parts.some((part) => isSmallCell(part, rule))) {
     return { parts: shownParts, total: showCount(total) };
   }
-  const rounded = roundToFive(total);
-  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded, rule)) {
-    return { parts: shownParts, total: "<5" };
+  if (!roundedTotalIsSafe(parts, rule)) return { parts: shownParts, total: "<5" };
+  return { parts: shownParts, total: roundToFive(total) };
+}
+
+/**
+ * Whether a rounded total may be published. The answer uses only what is
+ * already public: the shown cells and how many cells are hidden. It never
+ * looks at the hidden values, so a "<5" total says nothing about them. It is
+ * true only when every possible set of hidden values would round to a total of
+ * 5 or more that pins no hidden cell. Then any published total leaves each
+ * hidden cell at least two possible values.
+ */
+export function roundedTotalIsSafe(parts: number[], rule: BreakdownRule = {}): boolean {
+  const hidden = parts.filter((part) => isSmallCell(part, rule)).length;
+  if (hidden === 0) return true;
+  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
+  const low = rule.emptyShown ? 1 : 0;
+  for (let rest = hidden * low; rest <= hidden * (SMALL_COUNT - 1); rest += 1) {
+    const rounded = roundToFive(visible + rest);
+    if (rounded < SMALL_COUNT) return false;
+    const ranges = rangesFor(visible, hidden, rounded, rule);
+    if (ranges.length === 0 || ranges.some(([a, b]) => a >= b)) return false;
   }
-  return { parts: shownParts, total: rounded };
+  return true;
 }
 
 /**
@@ -181,9 +195,18 @@ export function hiddenCellRanges(
 ): Array<[number, number]> {
   const hidden = parts.filter((part) => isSmallCell(part, rule)).length;
   if (hidden === 0) return [];
+  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
+  return rangesFor(visible, hidden, publishedTotal, rule);
+}
+
+function rangesFor(
+  visible: number,
+  hidden: number,
+  publishedTotal: number,
+  rule: BreakdownRule,
+): Array<[number, number]> {
   const low = rule.emptyShown ? 1 : 0;
   const high = SMALL_COUNT - 1;
-  const visible = parts.reduce((sum, part) => sum + (isSmallCell(part, rule) ? 0 : part), 0);
   let sumLow = Number.POSITIVE_INFINITY;
   let sumHigh = Number.NEGATIVE_INFINITY;
   for (let total = Math.max(0, publishedTotal - 2); total <= publishedTotal + 2; total += 1) {

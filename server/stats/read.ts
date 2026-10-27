@@ -5,7 +5,7 @@ import {
   SMALL_COUNT,
   STATS_CATEGORIES,
   endpointLabel,
-  hiddenCellLeaks,
+  roundedTotalIsSafe,
   protectBreakdown,
   roundToFive,
   showCount,
@@ -278,9 +278,10 @@ const CATEGORY_RULE = { emptyShown: true } as const;
 
 function protectRoomTotal(total: number, parts: number[]): ShownCount {
   if (!parts.some((part) => part > 0 && part < SMALL_COUNT)) return showCount(total);
+  // Decided from public facts only (shown cells, hidden count), never the hidden values.
+  if (!roundedTotalIsSafe(parts, CATEGORY_RULE)) return "<5";
   const rounded = roundToFive(total);
-  if (rounded < SMALL_COUNT || hiddenCellLeaks(parts, rounded, CATEGORY_RULE)) return "<5";
-  return rounded;
+  return rounded < SMALL_COUNT ? "<5" : rounded;
 }
 
 function compared(

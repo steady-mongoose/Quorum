@@ -349,7 +349,8 @@ test("the nightly rollup writes counts and the read hides anything under 5", asy
     assert.equal(stats.roll.find((row) => row.date === "2026-10-20")?.attendance, 6);
     assert.equal(stats.roll.find((row) => row.date === "2026-10-21")?.attendance, "<5");
     const week = stats.rooms.weeks.find((row) => row.week === "2026-10-19");
-    assert.equal(week?.posts, 5);
+    // One room is hidden and some hidden value would pin it, so the total is hidden whatever that value is.
+    assert.equal(week?.posts, "<5");
     assert.equal(week?.gatherings, "<5");
     const shop = stats.rooms.rows.find(
       (row) => row.week === "2026-10-19" && row.room === "The Shop",
@@ -377,7 +378,7 @@ test("the nightly rollup writes counts and the read hides anything under 5", asy
     const csv = await readStatsCsv(db, NOW);
     assert.match(csv, /<5/);
     assert.match(csv, /,6/);
-    assert.match(csv, /rooms,2026-10-19,posts,,5/);
+    assert.match(csv, /rooms,2026-10-19,posts,,<5/);
     assert.equal(csv.includes("rooms,2026-10-19,posts,,6"), false);
     assert.equal(csv.includes("Members,,8"), false);
     assert.equal(csv.includes("Lovelace"), false);
@@ -545,7 +546,7 @@ test("a room in two categories counts in each filter and once overall", async ()
     const churches = await readStats(db, NOW, { days: 30, category: "churches" });
     const civic = await readStats(db, NOW, { days: 30, category: "civic" });
     const trades = await readStats(db, NOW, { days: 30, category: "business-trades" });
-    assert.equal(all.tiles.find((tile) => tile.id === "rooms")?.value, 10);
+    assert.equal(all.tiles.find((tile) => tile.id === "rooms")?.value, "<5"); // civic is hidden; the decision ignores its value, and some values would pin it.
     assert.equal(all.roomsByCategory.find((row) => row.id === "churches")?.count, 6);
     assert.equal(all.roomsByCategory.find((row) => row.id === "civic")?.count, "<5");
     assert.equal(churches.tiles.find((tile) => tile.id === "rooms")?.value, 6);
@@ -977,4 +978,81 @@ test("rooms not yet sorted are listed last, labeled plainly, and hidden at zero"
   } finally {
     await close();
   }
+});
+
+/**
+ * Attacker who knows the algorithm: every hidden-cell assignment that yields
+ * exactly the published output (cells and total) stays possible. No hidden cell
+ * may be left with a single possible value.
+ */
+function pinnedHidden(parts: number[], rule: { emptyShown?: boolean }): boolean {
+  const shown = protectBreakdown(parts, rule);
+  const hiddenIdx = shown.parts.flatMap((p, i) => (p === "<5" ? [i] : []));
+  const h = hiddenIdx.length;
+  if (h === 0) return false;
+  const low = rule.emptyShown ? 1 : 0;
+  // Any hidden values keep the same shown cells, so the output can only vary
+  // with their sum. Find every sum that reproduces the published total, then
+  // every value one cell can take inside some such sum.
+  const sums: number[] = [];
+  for (let sum = h * low; sum <= h * 4; sum += 1) {
+    const trial = [...parts];
+    let left = sum;
+    for (const idx of hiddenIdx) {
+      const v = Math.max(low, Math.min(4, left - (h - 1 - hiddenIdx.indexOf(idx)) * low));
+      trial[idx] = v;
+      left -= v;
+    }
+    const out = protectBreakdown(trial, rule);
+    if (out.total === shown.total && out.parts.every((p, i) => p === shown.parts[i])) sums.push(sum);
+  }
+  const values = new Set<number>();
+  for (const sum of sums) {
+    for (let v = low; v <= 4; v += 1) {
+      const rest = sum - v;
+      if (rest >= (h - 1) * low && rest <= (h - 1) * 4) values.add(v);
+    }
+  }
+  return values.size < 2;
+}
+
+test("QA example [38,0,8,1,0,0,30,0]: the total decision does not depend on the hidden value", () => {
+  const rule = { emptyShown: true };
+  const parts = [38, 0, 8, 1, 0, 0, 30, 0];
+  const shown = protectBreakdown(parts, rule);
+  assert.deepEqual(shown.parts, [38, 0, 8, "<5", 0, 0, 30, 0]);
+  for (let v = 1; v <= 4; v += 1) {
+    const other = protectBreakdown([38, 0, 8, v, 0, 0, 30, 0], rule);
+    assert.equal(typeof other.total, typeof shown.total, `hidden=${v}`);
+  }
+  assert.equal(pinnedHidden(parts, rule), false);
+  for (const [p, r] of [
+    [[8, 0, 0, 0, 1, 0, 8, 0], rule],
+    [[9, 0, 5, 6, 6, 1, 0, 0], rule],
+    [[21, 10, 0, 0, 6, 0, 0, 0], {}],
+  ] as const) {
+    assert.equal(pinnedHidden([...p], r), false, String(p));
+  }
+});
+
+test("fuzz: 10k random 8-category breakdowns never pin a hidden value, under both rules", () => {
+  let seed = 0x5eed52;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return seed / 2 ** 32;
+  };
+  const pick = () => {
+    const r = rand();
+    if (r < 0.35) return 0;
+    if (r < 0.65) return 1 + Math.floor(rand() * 4);
+    return 5 + Math.floor(rand() * 40);
+  };
+  const bad: string[] = [];
+  for (let i = 0; i < 10_000; i += 1) {
+    const parts = Array.from({ length: 8 }, pick);
+    for (const rule of [{ emptyShown: true }, {}]) {
+      if (pinnedHidden(parts, rule)) bad.push(`${JSON.stringify(parts)} ${JSON.stringify(rule)}`);
+    }
+  }
+  assert.deepEqual(bad.slice(0, 5), []);
 });
