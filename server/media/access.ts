@@ -1,10 +1,11 @@
 import type { Db } from "../db.ts";
+import { actorRole } from "../board/access.ts";
+import { concealedListing, readRoomListing } from "../board/room-visibility.ts";
 import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 
 export type AccessResult =
-  | { ok: true }
-  | { ok: false; status: 400 | 403 | 404; error: string; ban?: OpenBan };
+  { ok: true } | { ok: false; status: 400 | 403 | 404; error: string; ban?: OpenBan };
 
 async function isAdmin(db: Db, userId: string): Promise<boolean> {
   const rows = await db.query<{ is_admin: boolean }>(
@@ -30,7 +31,8 @@ export async function memberOfRoom(
   roomId: string,
   now: Date,
 ): Promise<AccessResult> {
-  if (!(await roomExists(db, roomId))) {
+  const listed = await readRoomListing(db, roomId);
+  if (concealedListing(listed, await actorRole(db, userId))) {
     return { ok: false, status: 404, error: "That room is not here." };
   }
   const ban = await openBanOrNone(db, userId, now, roomId);

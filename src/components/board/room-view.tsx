@@ -213,6 +213,18 @@ export function RoomView() {
           All rooms
         </button>
         <RoomCategoryFields room={meta} />
+        {meta.status === "draft" || meta.status === "unclaimed" ? (
+          <p className="max-w-prose text-sm text-muted">
+            {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Only stewards can
+            see this listing until a host claims it.
+          </p>
+        ) : null}
+        {meta.town || meta.county || meta.category ? (
+          <p className="text-sm text-muted">
+            {[meta.town, meta.county, meta.category].filter(Boolean).join(", ")}
+          </p>
+        ) : null}
+        {meta.sourceUrl ? <p className="text-sm break-all text-muted">{meta.sourceUrl}</p> : null}
         {meta.host ? (
           <RoomAudienceEditor
             key={`${meta.id}-${meta.audience ?? "all"}`}

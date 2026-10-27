@@ -83,7 +83,13 @@ export type Room = {
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */
   joined?: boolean;
-  /** Who may enter. A sample room leaves this unset, which means everyone. */
+  /** Omitted on a local room. Draft and unclaimed stay off the public page. */
+  status?: "draft" | "unclaimed" | "active";
+  town?: string;
+  county?: string;
+  category?: string;
+  sourceUrl?: string;
+  /** Who the room is for. Missing means everyone. */
   audience?: "all" | "men" | "women";
   /** The signed-in member may change the audience. */
   host?: boolean;

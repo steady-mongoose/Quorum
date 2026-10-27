@@ -36,3 +36,8 @@ EB Garamond, by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.
 The license is `public/fonts/OFL.txt`. The shipped files are a Latin subset of the
 variable fonts from `google/fonts/ofl/ebgaramond`, in WOFF2, about 100KB together.
 Only the roman is preloaded. The italic loads if a heading asks for it.
+
+Public Sans, by the U.S. Web Design System (USWDS), SIL Open Font License 1.1.
+The license is `public/fonts/OFL-PublicSans.txt`. The shipped files are the Latin
+subset of the variable font from `@fontsource-variable/public-sans` 5.3.0, in WOFF2,
+about 55KB together. Fonts are self-hosted; the app makes no Google Fonts request.

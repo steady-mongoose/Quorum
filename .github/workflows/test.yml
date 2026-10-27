@@ -63,6 +63,8 @@ jobs:
         if: always()
         env:
           CATEGORY_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch_test
+          CLAIM_POSTGRES_URL: postgres://avouch:secret@127.0.0.1:5432/avouch_test
+          CLAIM_POSTGRES_REQUIRED: "1"
         run: node scripts/run-tests.mjs app
 
       - name: Frontend build
