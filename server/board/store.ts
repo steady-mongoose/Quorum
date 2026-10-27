@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { autoCloseReports } from "./report-close.ts";
 import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
@@ -1392,9 +1393,16 @@ export async function removePost(
         publicKeys = relocated.files.map((item) => item.from);
         alert = relocated.alert;
       }
-      await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [
-        post.id,
-      ]);
+      const gone = await tx.query<{ id: string }>(
+        `update board_post set removed = true where id = $1 or parent_id = $1 returning id`,
+        [post.id],
+      );
+      await autoCloseReports(tx, {
+        subjectKind: "post",
+        subjectIds: gone.map((row) => row.id),
+        actorUserId: input.userId,
+        now: input.now,
+      });
       await tx.query(
         `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8)`,

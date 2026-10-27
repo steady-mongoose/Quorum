@@ -2,6 +2,8 @@ import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEve
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
+import { ModerationQueue } from "@/components/board/moderation-queue";
+import { ReportControl } from "@/components/board/report-control";
 import { RoomChat } from "@/components/board/room-chat";
 import {
   Check as CheckIcon,
@@ -58,6 +60,7 @@ import {
   type Post,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { sendReport } from "@/lib/board/report-api";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -211,6 +214,7 @@ export function RoomView() {
         ) : null}
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
+        <ModerationQueue roomId={room} />
       </section>
 
       <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
@@ -819,6 +823,7 @@ const PostCard = memo(function PostCard({
   canMessage: boolean;
   steward: boolean;
 }) {
+  const remote = useBoard((state) => state.remote);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
   const closeAsked = useBoard((state) => state.closeAsked);
@@ -989,6 +994,21 @@ const PostCard = memo(function PostCard({
             <CheckIcon className="size-4" aria-hidden="true" />
             Answered
           </button>
+        ) : null}
+        {!mine ? (
+          <ReportControl
+            label="Report this post"
+            onSubmit={(input) => {
+              if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
+              return sendReport({
+                roomId: post.room,
+                subjectKind: "post",
+                subjectId: post.id,
+                reason: input.reason,
+                note: input.note,
+              });
+            }}
+          />
         ) : null}
         {mine && post.mark ? (
           <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setEditing(true)}>
