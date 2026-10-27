@@ -13,7 +13,17 @@ import {
   type ZipCorrectionInput,
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
-import { loadGatherings, removeGathering, saveGathering, type StoredGathering } from "./gathering-public.ts";
+import { removalFailedCopy } from "./errors.ts";
+
+/** How long Find offers Undo before the DELETE is sent. */
+export const REMOVAL_UNDO_MS = 5000;
+import {
+  loadGatherings,
+  removeGathering,
+  removeGatheringKeepalive,
+  saveGathering,
+  type StoredGathering,
+} from "./gathering-public.ts";
 import {
   APP_NAME,
   DAY,
@@ -56,7 +66,7 @@ import {
   type Section,
   type SharedMedia,
 } from "./model.ts";
-import { SAMPLE_VERSION, SEED_CARDS, sampleBoard } from "./sample.ts";
+import { SEED_CARDS } from "./seed-cards.ts";
 import { SENTENCE_ERROR, oneSentence } from "./text.ts";
 
 type BoardState = {
@@ -66,10 +76,6 @@ type BoardState = {
   member: boolean;
   /** The founder code has been used on this box. */
   founded: boolean;
-  /** The board is the invented sample week, not real members. */
-  sample: boolean;
-  /** Which version of the sample was loaded, so a stale one is reloaded. */
-  sampleVersion: number;
   me: string;
   profile: Profile;
   /** The desk is opt-in. Off until this member turns it on. */
@@ -97,11 +103,17 @@ type BoardState = {
   } | null;
   roomHoldBack: { section: Section; room: RoomId } | null;
   dismissRoomHold: () => void;
-  /** Server Home. Null in the sample week. The array order is the server's. */
+  /** Server Home. Null on a local board. The array order is the server's. */
   home: HomePayload | null;
   /** True while this browser is writing rooms and posts to the API. */
   remote: boolean;
   boardError: string;
+  /** Names in the current removal failure, oldest first. Not stored. */
+  failedRemovalNames: string[];
+  /** Removals still inside the undo window, oldest first. Not stored. */
+  undoQueue: MeetingCard[];
+  /** A card just put back after a failed removal. Find scrolls it into view. Not stored. */
+  scrollCardId: string | null;
   rooms: Room[];
   posts: Post[];
   cards: MeetingCard[];
@@ -187,7 +199,14 @@ type BoardState = {
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
   visited: (id: string) => void;
-  removeCard: (id: string) => void;
+  removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Cancel a removal that has not been sent yet and put the card back. */
+  undoRemoveCard: (id: string) => boolean;
+  /**
+   * Send removals that are still inside the undo window.
+   * `keepalive` is for the document going away; `now` is for leaving Find.
+   */
+  commitPendingRemovals: (mode: "now" | "keepalive") => void;
   /** A host makes a one-use code for one card. The card shows only after a name redeems it. */
   createInvite: (cardId: string) => string | null;
   /**
@@ -201,7 +220,6 @@ type BoardState = {
   openDm: (other: string) => void;
   sendDm: (threadId: string, text: string, media?: SharedMedia) => void;
   setOpenThread: (id: string | null) => void;
-  loadSample: () => void;
   clearBoard: () => void;
   /**
    * Wipes the local board after the person confirms, stays on This week,
@@ -211,7 +229,7 @@ type BoardState = {
   undoClearBoard: () => void;
   /** One-step undo of the last confirmed clear. Persisted until it expires. */
   undoClear: BoardUndo | null;
-  /** Keeps a cleared sample inside the app on a live server. Not persisted. */
+  /** Keeps a cleared local board inside the app on a live server. Not persisted. */
   localEntry: boolean;
 };
 
@@ -222,8 +240,6 @@ export const UNDO_TTL_MS = 10 * 60 * 1000;
 
 type BoardUndo = {
   at: number;
-  sample: boolean;
-  sampleVersion: number;
   me: string;
   profile: Profile;
   steward: boolean;
@@ -258,17 +274,9 @@ export function canClearBoard(actor: { admin: boolean; owner: boolean }): boolea
   return actor.admin === true || actor.owner === true;
 }
 
-/**
- * The founder owns this box. The sample week lives only in this browser,
- * so the person looking at it owns that copy.
- */
-export function localBoardOwner(state: { founded: boolean; sample: boolean }): boolean {
-  return state.founded === true || state.sample === true;
-}
-
-/** The sample week is only invented data, so clearing it does not ask for a typed phrase. */
-export function clearPhraseRequired(sample: boolean): boolean {
-  return sample !== true;
+/** The founder owns this box. */
+export function localBoardOwner(state: { founded: boolean }): boolean {
+  return state.founded === true;
 }
 
 /** The confirm button stays off until the board name or CLEAR is typed. */
@@ -283,7 +291,6 @@ export function clearPhraseMatches(typed: string, boardName: string): boolean {
 /** A JSON snapshot of the local board. No likes, reshares, or scores. */
 export function boardExportDocument(input: {
   me: string;
-  sample: boolean;
   profile: Profile;
   rooms: { id: string; name: string }[];
   posts: Post[];
@@ -300,7 +307,6 @@ export function boardExportDocument(input: {
   return JSON.stringify({
     name: APP_NAME,
     me: input.me,
-    sample: input.sample,
     profile: input.profile,
     rooms: input.rooms,
     posts: input.posts,
@@ -316,6 +322,36 @@ export function boardExportDocument(input: {
   });
 }
 
+/**
+ * Boards saved before v7 may hold the invented sample week (six made-up
+ * members, posts, and threads). It is gone from the app, so a saved copy is
+ * dropped on load and the person lands back at the door.
+ */
+export function dropSampleWeek(saved: Record<string, unknown>): Record<string, unknown> {
+  const cards = Array.isArray(saved.cards) ? (saved.cards as { id?: string }[]) : [];
+  const isSample = saved.sample === true || cards.some((card) => card?.id === "s-framing");
+  const rest = { ...saved };
+  delete rest.sample;
+  delete rest.sampleVersion;
+  if (!isSample) return rest;
+  return { room: rest.room, deskOn: rest.deskOn, lineDismissedAt: rest.lineDismissedAt };
+}
+
+/**
+ * Steps run in order and fall through, so an old save picks up every later
+ * step. Before v5 the room ids and card fields differ: pre-release, start clean.
+ */
+export function migrateBoardStorage(persisted: unknown, version: number): object {
+  if (version < 5 || !persisted || typeof persisted !== "object") return {};
+  let saved = persisted as Record<string, unknown>;
+  if (version < 6) {
+    const markLog = Array.isArray(saved.markLog) ? (saved.markLog as MarkRow[]) : [];
+    saved = { ...saved, markLog: markLog.map((row) => ({ ...row, reason: row.reason ?? "" })) };
+  }
+  if (version < 7) saved = dropSampleWeek(saved);
+  return saved;
+}
+
 const EMPTY_PROFILE: Profile = { household: "", parish: "", trade: "" };
 
 function pruneMessages(messages: DmMessage[], now: number): DmMessage[] {
@@ -329,7 +365,6 @@ function addName(list: string[], name: string): string[] {
 
 function emptyLocalBoard(remote: boolean, rooms: Room[]) {
   return {
-    sample: false,
     posts: [] as Post[],
     cards: SEED_CARDS,
     invites: [] as Invite[],
@@ -347,8 +382,6 @@ function emptyLocalBoard(remote: boolean, rooms: Room[]) {
 }
 
 function snapshotBoard(state: {
-  sample: boolean;
-  sampleVersion: number;
   me: string;
   profile: Profile;
   steward: boolean;
@@ -372,8 +405,6 @@ function snapshotBoard(state: {
 }): BoardUndo {
   return structuredClone({
     at: Date.now(),
-    sample: state.sample,
-    sampleVersion: state.sampleVersion,
     me: state.me,
     profile: state.profile,
     steward: state.steward,
@@ -528,7 +559,6 @@ export const useBoard = create<BoardState>()(
         setRoomCatalog(rooms);
         set({
           remote: true,
-          sample: false,
           boardError: "",
           rooms,
           posts: board.posts,
@@ -557,7 +587,9 @@ export const useBoard = create<BoardState>()(
       };
 
       const placeCall = async (
-        run: (client: Awaited<ReturnType<typeof getBoardClient>>) => Promise<{ ok: true } | { ok: false; error: string }>,
+        run: (
+          client: Awaited<ReturnType<typeof getBoardClient>>,
+        ) => Promise<{ ok: true } | { ok: false; error: string }>,
         reloadBoard: boolean,
       ): Promise<{ ok: boolean; error?: string }> => {
         if (!get().remote) return { ok: false, error: "That is saved on the server." };
@@ -571,13 +603,70 @@ export const useBoard = create<BoardState>()(
         return { ok: true };
       };
 
+      type PendingRemoval = {
+        card: MeetingCard;
+        timer: ReturnType<typeof setTimeout>;
+        remote: boolean;
+      };
+      const pendingRemovals = new Map<string, PendingRemoval>();
+      let removalOrder: string[] = [];
+      const syncRemovalOrder = (cards: MeetingCard[]) => {
+        const seen = new Set(removalOrder);
+        for (const card of cards) {
+          if (seen.has(card.id)) continue;
+          removalOrder.push(card.id);
+          seen.add(card.id);
+        }
+      };
+      const placeRemovedCard = (cards: MeetingCard[], card: MeetingCard) => {
+        if (cards.some((item) => item.id === card.id)) return cards;
+        syncRemovalOrder(cards);
+        if (!removalOrder.includes(card.id)) removalOrder.push(card.id);
+        const byId = new Map(cards.map((item) => [item.id, item]));
+        byId.set(card.id, card);
+        const used = new Set<string>();
+        const next: MeetingCard[] = [];
+        for (const id of removalOrder) {
+          const item = byId.get(id);
+          if (!item || used.has(id)) continue;
+          next.push(item);
+          used.add(id);
+        }
+        for (const item of cards) {
+          if (!used.has(item.id)) next.push(item);
+        }
+        return next;
+      };
+      const settleRemoval = async (pending: PendingRemoval) => {
+        let failed = false;
+        try {
+          const result = await removeGathering(pending.card.id);
+          failed = !result.ok;
+        } catch {
+          failed = true;
+        }
+        if (!failed) return;
+        set((state) => {
+          const prior =
+            state.boardError && state.failedRemovalNames.length > 0 ? state.failedRemovalNames : [];
+          const names = prior.includes(pending.card.name)
+            ? prior
+            : [...prior, pending.card.name];
+          return {
+            cards: placeRemovedCard(state.cards, pending.card),
+            failedRemovalNames: names,
+            boardError: removalFailedCopy(names),
+            scrollCardId: pending.card.id,
+            undoQueue: state.undoQueue.filter((item) => item.id !== pending.card.id),
+          };
+        });
+      };
+
       return {
         section: "week",
         room: "county",
         member: false,
         founded: false,
-        sample: false,
-        sampleVersion: 0,
         me: "",
         profile: EMPTY_PROFILE,
         deskOn: false,
@@ -596,6 +685,9 @@ export const useBoard = create<BoardState>()(
         home: null,
         remote: false,
         boardError: "",
+        failedRemovalNames: [],
+        undoQueue: [],
+        scrollCardId: null,
         rooms: ROOMS,
         posts: [],
         cards: SEED_CARDS,
@@ -1034,7 +1126,13 @@ export const useBoard = create<BoardState>()(
         updateCard: (id, patch) => {
           patchCard(id, (card) => ({ ...card, ...patch, id }));
           if (!get().remote) return;
-          if (!("name" in patch || "place" in patch || "time" in patch || "next" in patch || "room" in patch)) {
+          if (!(
+            "name" in patch ||
+            "place" in patch ||
+            "time" in patch ||
+            "next" in patch ||
+            "room" in patch
+          )) {
             return;
           }
           const card = get().cards.find((item) => item.id === id);
@@ -1112,9 +1210,59 @@ export const useBoard = create<BoardState>()(
             unverified: false,
             wentBy: addName(card.wentBy, me()),
           })),
-        removeCard: (id) => {
-          set({ cards: get().cards.filter((card) => card.id !== id) });
-          if (get().remote) void removeGathering(id);
+        removeCard: async (id) => {
+          const cards = get().cards;
+          const index = cards.findIndex((card) => card.id === id);
+          if (index < 0) return { ok: true };
+          const card = cards[index];
+          if (!card) return { ok: true };
+          if (pendingRemovals.size === 0) removalOrder = [];
+          syncRemovalOrder(cards);
+          const remote = get().remote;
+          set({
+            cards: cards.filter((item) => item.id !== id),
+            boardError: "",
+            failedRemovalNames: [],
+            undoQueue: [...get().undoQueue.filter((item) => item.id !== id), card],
+          });
+          const timer = setTimeout(() => {
+            const pending = pendingRemovals.get(id);
+            if (!pending) return;
+            pendingRemovals.delete(id);
+            set((state) => ({
+              undoQueue: state.undoQueue.filter((item) => item.id !== id),
+            }));
+            if (pending.remote) void settleRemoval(pending);
+          }, REMOVAL_UNDO_MS);
+          pendingRemovals.set(id, { card, timer, remote });
+          return { ok: true };
+        },
+        undoRemoveCard: (id) => {
+          const pending = pendingRemovals.get(id);
+          if (!pending) return false;
+          clearTimeout(pending.timer);
+          pendingRemovals.delete(id);
+          set((state) => ({
+            cards: placeRemovedCard(state.cards, pending.card),
+            boardError: "",
+            failedRemovalNames: [],
+            undoQueue: state.undoQueue.filter((item) => item.id !== id),
+          }));
+          return true;
+        },
+        commitPendingRemovals: (mode) => {
+          const waiting = [...pendingRemovals.values()];
+          pendingRemovals.clear();
+          const ids = new Set(waiting.map((pending) => pending.card.id));
+          set((state) => ({
+            undoQueue: state.undoQueue.filter((item) => !ids.has(item.id)),
+          }));
+          for (const pending of waiting) {
+            clearTimeout(pending.timer);
+            if (!pending.remote) continue;
+            if (mode === "keepalive") removeGatheringKeepalive(pending.card.id);
+            else void settleRemoval(pending);
+          }
         },
         createInvite: (cardId) => {
           const card = get().cards.find((item) => item.id === cardId);
@@ -1177,7 +1325,8 @@ export const useBoard = create<BoardState>()(
           const body = text.trim();
           const thread = get().threads.find((item) => item.id === threadId);
           const attachment = media ? [media] : [];
-          if ((dmTextError(text) && attachment.length === 0) || !thread?.between.includes(me())) return;
+          if ((dmTextError(text) && attachment.length === 0) || !thread?.between.includes(me()))
+            return;
           if (!body && attachment.length === 0) return;
           set({
             messages: [
@@ -1226,7 +1375,9 @@ export const useBoard = create<BoardState>()(
             const again = await (await getBoardClient()).load({ room: hold.roomId });
             if (again.ok) set({ roomHold: null, roomHoldBack: null });
             else if (again.code === "gender-unstated" || again.code === "gender-unconfirmed") {
-              set({ roomHold: { roomId: hold.roomId, code: again.code, audience: again.audience } });
+              set({
+                roomHold: { roomId: hold.roomId, code: again.code, audience: again.audience },
+              });
             } else set({ roomHold: null, roomHoldBack: null });
           }
           await pullHome();
@@ -1278,7 +1429,7 @@ export const useBoard = create<BoardState>()(
         setCouncil: (id, input) => placeCall((client) => client.setCouncil(id, input), true),
         connectRemote: async () => {
           if (readDemoFlag()) return;
-          set({ remote: true, sample: false, boardError: "", undoClear: null });
+          set({ remote: true, boardError: "", undoClear: null });
           const client = await getBoardClient();
           const loaded = await client.load();
           if (!loaded.ok) {
@@ -1370,33 +1521,6 @@ export const useBoard = create<BoardState>()(
             localEntry: false,
           });
         },
-        loadSample: () => {
-          if (get().remote) return;
-          setRoomCatalog(ROOMS);
-          set({
-            ...sampleBoard(),
-            rooms: ROOMS,
-            bans: [],
-            remote: false,
-            admin: false,
-            council: false,
-            councilChair: false,
-            stewardRooms: [],
-            home: null,
-            boardError: "",
-            sample: true,
-            sampleVersion: SAMPLE_VERSION,
-            member: true,
-            steward: true,
-            invites: [],
-            removals: [],
-            appeals: [],
-            csamReports: [],
-            openThread: null,
-            viewing: null,
-            section: "week",
-          });
-        },
         clearBoard: () => {
           const state = get();
           setRoomCatalog(state.remote ? state.rooms : ROOMS);
@@ -1422,8 +1546,6 @@ export const useBoard = create<BoardState>()(
           if (!undo || get().remote) return;
           setRoomCatalog(undo.rooms);
           set({
-            sample: undo.sample,
-            sampleVersion: undo.sampleVersion,
             me: undo.me,
             profile: undo.profile,
             steward: undo.steward,
@@ -1452,14 +1574,12 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: "the-board-v1",
-      version: 6,
+      version: 7,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
         member: state.member,
         founded: state.founded,
-        sample: state.sample,
-        sampleVersion: state.sampleVersion,
         me: state.me,
         profile: state.profile,
         deskOn: state.deskOn,
@@ -1476,37 +1596,9 @@ export const useBoard = create<BoardState>()(
         undoClear: state.remote ? null : state.undoClear,
       }),
       // Earlier versions have different room ids and card fields. Pre-release; start clean.
-      migrate: (persisted, version) => {
-        if (version < 5) return {};
-        if (version < 6 && persisted && typeof persisted === "object") {
-          const saved = persisted as { markLog?: MarkRow[] };
-          return {
-            ...saved,
-            markLog: (saved.markLog ?? []).map((row) => ({ ...row, reason: row.reason ?? "" })),
-          };
-        }
-        return persisted as object;
-      },
+      migrate: (persisted, version) => migrateBoardStorage(persisted, version),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<BoardState>;
-        // A saved sample older than the current one is replaced, so the demo
-        // never shows yesterday's placeholders.
-        const isSample =
-          saved.sample === true || (saved.cards?.some((card) => card.id === "s-framing") ?? false);
-        if (isSample && (saved.sampleVersion ?? 0) < SAMPLE_VERSION) {
-          const fresh = sampleBoard();
-          return {
-            ...current,
-            ...saved,
-            ...fresh,
-            sample: true,
-            sampleVersion: SAMPLE_VERSION,
-            member: true,
-            steward: true,
-            undoClear: null,
-            messages: pruneMessages(fresh.messages, Date.now()),
-          };
-        }
         return {
           ...current,
           ...saved,
@@ -1517,3 +1609,18 @@ export const useBoard = create<BoardState>()(
     },
   ),
 );
+
+useBoard.subscribe((state, previous) => {
+  if (previous.section === "find" && state.section !== "find") {
+    state.commitPendingRemovals("now");
+  }
+});
+
+const leaveTarget = globalThis as typeof globalThis & {
+  addEventListener?: (type: string, listener: () => void) => void;
+};
+if (typeof leaveTarget.addEventListener === "function") {
+  const sendPending = () => useBoard.getState().commitPendingRemovals("keepalive");
+  leaveTarget.addEventListener("pagehide", sendPending);
+  leaveTarget.addEventListener("beforeunload", sendPending);
+}

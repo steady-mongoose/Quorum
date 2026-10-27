@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } from "@/lib/board/store";
+import { userFacingError } from "@/lib/board/errors";
+import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
@@ -78,9 +79,6 @@ function BoardShell() {
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
-  const sample = useBoard((state) => state.sample);
-  const admin = useBoard((state) => state.admin);
-  const founded = useBoard((state) => state.founded);
   const localEntry = useBoard((state) => state.localEntry);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -93,7 +91,7 @@ function BoardShell() {
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
-  const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const entered = server.mode === "live" ? Boolean(server.user) || localEntry : member;
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
@@ -139,11 +137,9 @@ function BoardShell() {
     if (server.mode !== "live" || !server.user) return;
     const name = server.user.name.trim();
     if (!name) return;
-    const state = useBoard.getState();
-    if (state.sample) state.clearBoard();
     const next = useBoard.getState();
-    if (next.me !== name || !next.member || next.sample) {
-      useBoard.setState({ member: true, me: name, sample: false });
+    if (next.me !== name || !next.member) {
+      useBoard.setState({ member: true, me: name });
     }
     let cancel = false;
     setBoardLoading(true);
@@ -271,9 +267,23 @@ function BoardShell() {
           </div>
         </div>
       </header>
-      {boardError ? (
-        <div className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
-          <p>{boardError}</p>
+      {boardError && shown !== "find" ? (
+        <div
+          role="alert"
+          className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+            </p>
+            <button
+              type="button"
+              className={cn(btnQuiet, "min-h-[44px]")}
+              onClick={() => useBoard.setState({ boardError: "", failedRemovalNames: [] })}
+            >
+              Dismiss
+            </button>
+          </div>
           {boardError === "This account is barred from the board." && ownAppeals.length > 0 ? (
             <ul className="mt-1 text-muted">
               {ownAppeals.map((row) => (
@@ -285,26 +295,6 @@ function BoardShell() {
             </ul>
           ) : null}
         </div>
-      ) : null}
-      {entered && sample ? (
-        <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
-          <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom,
-          Dale, Maria, Luis, Ruth, Pete) and everything they wrote is invented, to show what the app
-          looks like in use.
-          {canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) }) ? (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="inline-flex min-h-[44px] items-center text-signal underline"
-                onClick={() => setSection("about")}
-              >
-                Clear the sample week…
-              </button>{" "}
-              when you are ready to use it for real.
-            </>
-          ) : null}
-        </p>
       ) : null}
       {entered && undoClear && undoBar ? (
         <div className="border-b border-line bg-surface" role="status">

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import {
   btnGhost,
@@ -30,12 +31,16 @@ import {
   type MeetingCard,
   type RoomId,
 } from "@/lib/board/model";
+import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
+import { scrollRestoredCard } from "@/lib/board/scroll-card";
+import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
+  const scrollCardId = useBoard((state) => state.scrollCardId);
   const me = useBoard((state) => authorName(state.me));
   const steward = useBoard((state) => state.steward);
 
@@ -64,18 +69,16 @@ export function FindView() {
 
   const removal = useUndoCardRemoval();
   const rowProps = { me, steward, peers, clear, onRemove: removal.remove };
+  useEffect(() => {
+    if (!scrollCardId) return;
+    if (!scrollRestoredCard(scrollCardId)) return;
+    useBoard.setState({ scrollCardId: null });
+  }, [scrollCardId, cards]);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
+    <div className="grid gap-8 pb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+9rem)] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
+      <RemovalToast removal={removal} />
       <div className="flex flex-col gap-8">
-        {removal.removed ? (
-          <p role="status" className="flex flex-wrap items-center gap-3 text-sm text-muted">
-            Removed {removal.removed.name}.
-            <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
-              Undo
-            </button>
-          </p>
-        ) : null}
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
           <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
@@ -156,27 +159,69 @@ type RowProps = {
 
 function useUndoCardRemoval() {
   const removeCard = useBoard((state) => state.removeCard);
-  const [removed, setRemoved] = useState<MeetingCard | null>(null);
-  useEffect(() => {
-    if (!removed) return;
-    const id = window.setTimeout(() => setRemoved(null), 5000);
-    return () => window.clearTimeout(id);
-  }, [removed]);
+  const undoQueue = useBoard((state) => state.undoQueue);
+  const removed = undoQueue[undoQueue.length - 1] ?? null;
   return {
     removed,
-    remove(card: MeetingCard) {
-      removeCard(card.id);
-      setRemoved(card);
+    async remove(card: MeetingCard) {
+      await removeCard(card.id);
     },
     undo() {
       if (!removed) return;
-      const card = removed;
-      setRemoved(null);
-      useBoard.setState((state) => ({
-        cards: state.cards.some((item) => item.id === card.id) ? state.cards : [...state.cards, card],
-      }));
+      useBoard.getState().undoRemoveCard(removed.id);
     },
   };
+}
+
+const TOAST_CLASS =
+  "board-toast fixed inset-x-0 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-40 mx-auto flex w-[min(36rem,calc(100%-2rem))] flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface px-4 py-2 shadow-lg md:bottom-6 lg:bottom-6";
+
+function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemoval> }) {
+  const boardError = useBoard((state) => state.boardError);
+  const appeals = useBoard((state) => state.appeals);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setHost(document.body);
+  }, []);
+  const errorText = boardError
+    ? userFacingError(boardError, "That did not go through. Please try again in a moment.")
+    : "";
+  const showError = errorText.length > 0;
+  if (!host || (!showError && !removal.removed)) return null;
+  if (showError) {
+    return createPortal(
+      <div className={cn(TOAST_CLASS, "border-danger text-danger")} role="alert" style={themeVars(themeById(OWNER_THEME))}>
+        <p className="text-sm">{errorText}</p>
+        <button
+          type="button"
+          className={cn(btnGhost, "min-h-[44px]")}
+          onClick={() => useBoard.setState({ boardError: "", failedRemovalNames: [] })}
+        >
+          Dismiss
+        </button>
+        {boardError === "This account is barred from the board." && appeals.length > 0 ? (
+          <ul className="mt-1 w-full text-muted">
+            {appeals.map((row) => (
+              <li key={row.id}>
+                Your {row.kind} appeal is{" "}
+                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>,
+      host,
+    );
+  }
+  return createPortal(
+    <div className={cn(TOAST_CLASS, "border-line text-muted")} role="status" style={themeVars(themeById(OWNER_THEME))}>
+      <p className="text-sm">Removed {removal.removed.name}.</p>
+      <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
+        Undo
+      </button>
+    </div>,
+    host,
+  );
 }
 
 function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNode }) {
@@ -219,7 +264,10 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
 function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[] }) {
   const shown = witnesses.length >= 2;
   return (
-    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article
+      id={`card-${card.id}`}
+      className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}
+    >
       <Tags card={card} />
       <h3 className="mt-2 text-xl text-fg">{card.name}</h3>
       <p className="text-sm text-muted">{cardSummary(card)}</p>
@@ -293,7 +341,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const going = card.going.includes(rest.me);
 
   return (
-    <article className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}>
+    <article
+      id={`card-${card.id}`}
+      className={cn("card rounded-lg border border-line bg-surface p-4", !shown && "opacity-80")}
+    >
       <Tags card={card}>
         {card.unverified ? <span className="text-muted">not yet visited</span> : null}
         {card.pinned ? <span className="text-signal">pinned</span> : null}

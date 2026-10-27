@@ -1,10 +1,14 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { mock } from "node:test";
 import test from "node:test";
 import { setBoardClient, type BoardClient, type BoardSnapshot } from "./client.ts";
+import { removalFailedCopy, userFacingError } from "./errors.ts";
 import type { HomePayload } from "./home.ts";
-import { blankDraft, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
-import { UNDO_TTL_MS, useBoard } from "./store.ts";
+import { blankDraft, newCard, todayIso, weekFor, type MeetingCard, type Post } from "./model.ts";
+import { scrollRestoredCard } from "./scroll-card.ts";
+import { REMOVAL_UNDO_MS, UNDO_TTL_MS, dropSampleWeek, migrateBoardStorage, useBoard } from "./store.ts";
 
 const idle = async () => ({ ok: false as const, error: "unused" });
 
@@ -48,15 +52,51 @@ function draft() {
   };
 }
 
+/** A small local board: one member, two posts. */
+function fillLocalBoard() {
+  const post = (id: string, claim: string): Post => ({
+    id,
+    room: "shop",
+    type: "did",
+    claim,
+    reason: "Tom checked them.",
+    on: todayIso(),
+    next: "",
+    came: [],
+    named: "",
+    author: "Maria",
+    at: 1,
+    parentId: null,
+    closed: false,
+    mark: null,
+    removed: false,
+    media: [],
+  });
+  useBoard.setState({
+    remote: false,
+    member: true,
+    founded: true,
+    me: "Maria",
+    section: "week",
+    posts: [post("l1", "Sharpened the chisels."), post("l2", "Swept the shop.")],
+  });
+}
+
 function reset() {
   setBoardClient(null);
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 204 });
+  try {
+    useBoard.getState().commitPendingRemovals("keepalive");
+  } finally {
+    globalThis.fetch = priorFetch;
+  }
   useBoard.setState({
     remote: false,
     admin: false,
     steward: true,
     member: true,
     me: "Maria",
-    sample: false,
     posts: [],
     removals: [],
     markLog: [],
@@ -64,6 +104,8 @@ function reset() {
     appeals: [],
     csamReports: [],
     boardError: "",
+    failedRemovalNames: [],
+    undoQueue: [],
     undoClear: null,
     localEntry: false,
   });
@@ -197,14 +239,13 @@ test("a local CSAM removal keeps the words off the post and bans the account", a
 
 test("a confirmed clear stays on an empty week and undo puts the board back", () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const before = useBoard.getState();
   const posts = before.posts.length;
   const name = before.me;
   assert.ok(posts > 0);
   useBoard.getState().clearLocalBoard();
   const cleared = useBoard.getState();
-  assert.equal(cleared.sample, false);
   assert.equal(cleared.localEntry, true);
   assert.equal(cleared.section, "week");
   assert.equal(cleared.posts.length, 0);
@@ -213,7 +254,6 @@ test("a confirmed clear stays on an empty week and undo puts the board back", ()
   assert.equal(cleared.undoClear?.posts.length, posts);
   useBoard.getState().undoClearBoard();
   const restored = useBoard.getState();
-  assert.equal(restored.sample, true);
   assert.equal(restored.me, name);
   assert.equal(restored.posts.length, posts);
   assert.equal(restored.undoClear, null);
@@ -232,14 +272,14 @@ function persisted(): {
 
 /** Drop the in-memory board, then load whatever was put back in storage. */
 async function reload(raw: string) {
-  useBoard.setState({ posts: [], undoClear: null, me: "", sample: false, member: false });
+  useBoard.setState({ posts: [], undoClear: null, me: "", member: false });
   localStorage.setItem("the-board-v1", raw);
   await useBoard.persist.rehydrate();
 }
 
 test("a reload during the undo window still has the board", async () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const posts = useBoard.getState().posts.length;
   const name = useBoard.getState().me;
   assert.ok(posts > 0);
@@ -254,20 +294,18 @@ test("a reload during the undo window still has the board", async () => {
   await reload(saved);
   const reloaded = useBoard.getState();
   assert.equal(reloaded.posts.length, 0);
-  assert.equal(reloaded.sample, false);
   assert.equal(reloaded.member, true);
   assert.equal(reloaded.undoClear?.posts.length, posts);
   assert.equal(reloaded.undoClear?.me, name);
   useBoard.getState().undoClearBoard();
   assert.equal(useBoard.getState().posts.length, posts);
-  assert.equal(useBoard.getState().sample, true);
   assert.equal(useBoard.getState().me, name);
   assert.equal(useBoard.getState().undoClear, null);
 });
 
 test("an expired undo snapshot is dropped on reload", async () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   useBoard.getState().clearLocalBoard();
   const stored = persisted();
   assert.ok(stored.state.undoClear);
@@ -339,17 +377,79 @@ test("a second file does not post while the first is still sending", async () =>
 
 test("a silent clear and a remote board do not offer undo", () => {
   reset();
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   useBoard.getState().clearBoard();
   assert.equal(useBoard.getState().undoClear, null);
-  assert.equal(useBoard.getState().sample, false);
-  useBoard.getState().loadSample();
+  fillLocalBoard();
   const posts = useBoard.getState().posts.length;
   useBoard.setState({ remote: true });
   useBoard.getState().clearLocalBoard();
   assert.equal(useBoard.getState().remote, true);
   assert.equal(useBoard.getState().posts.length, posts);
   assert.equal(useBoard.getState().undoClear, null);
+});
+
+test("a saved sample week is dropped on load", () => {
+  const sample = dropSampleWeek({
+    sample: true,
+    sampleVersion: 8,
+    me: "Josh",
+    member: true,
+    posts: [{}],
+    room: "shop",
+  });
+  assert.deepEqual(sample, { room: "shop", deskOn: undefined, lineDismissedAt: undefined });
+  const legacy = dropSampleWeek({ cards: [{ id: "s-framing" }], me: "Josh" });
+  assert.equal(legacy.me, undefined);
+  const real = dropSampleWeek({ sample: false, sampleVersion: 0, me: "Maria", posts: [{}] });
+  assert.deepEqual(real, { me: "Maria", posts: [{}] });
+});
+
+test("storage migrations chain: v5 and v6 sample weeks are dropped, real boards kept", () => {
+  const mark = { id: "m1", postId: "p1", by: "Tom", at: 1 };
+  const v5Sample = migrateBoardStorage(
+    {
+      sample: true,
+      sampleVersion: 8,
+      me: "Josh",
+      member: true,
+      posts: [{ id: "s1" }],
+      markLog: [mark],
+      room: "shop",
+    },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Sample.me, undefined);
+  assert.equal(v5Sample.posts, undefined);
+  assert.equal(v5Sample.markLog, undefined);
+  assert.equal(v5Sample.room, "shop");
+
+  const v5Legacy = migrateBoardStorage({ me: "Josh", cards: [{ id: "s-framing" }] }, 5) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(v5Legacy.me, undefined);
+
+  const v5Real = migrateBoardStorage(
+    { sample: false, sampleVersion: 0, me: "Maria", posts: [{ id: "p1" }], markLog: [mark] },
+    5,
+  ) as Record<string, unknown>;
+  assert.equal(v5Real.me, "Maria");
+  assert.deepEqual(v5Real.posts, [{ id: "p1" }]);
+  assert.deepEqual(v5Real.markLog, [{ ...mark, reason: "" }]);
+  assert.equal("sample" in v5Real, false);
+  assert.equal("sampleVersion" in v5Real, false);
+
+  const v6Sample = migrateBoardStorage(
+    { sample: true, me: "Josh", posts: [{}], room: "county" },
+    6,
+  ) as Record<string, unknown>;
+  assert.equal(v6Sample.me, undefined);
+  assert.equal(v6Sample.room, "county");
+
+  const v7 = { me: "Maria", posts: [{}] };
+  assert.equal(migrateBoardStorage(v7, 7), v7);
+  assert.deepEqual(migrateBoardStorage({ me: "x" }, 4), {});
 });
 
 test("a live board keeps the server home order", async () => {
@@ -411,6 +511,344 @@ test("a live board keeps the server home order", async () => {
   );
   assert.equal(useBoard.getState().council, true);
   assert.equal(useBoard.getState().home?.sections[0]?.label, "What you've joined");
+});
+
+const LIFTS_ID = "3f2a9c1e-8241-4c3e-9a11-8241abcd1234";
+
+function removalCards() {
+  const card = newCard({
+    id: LIFTS_ID,
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  return { card, other };
+}
+
+async function flushRemoval() {
+  for (let step = 0; step < 4; step += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+test("remove, then undo, sends no DELETE", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { card, other } = removalCards();
+  useBoard.setState({ remote: true, cards: [other, card], boardError: "stale", section: "find" });
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  try {
+    const result = await useBoard.getState().removeCard(card.id);
+    assert.equal(result.ok, true);
+    assert.equal(calls, 0);
+    assert.equal(useBoard.getState().cards.some((item) => item.id === card.id), false);
+    assert.equal(useBoard.getState().undoRemoveCard(card.id), true);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(calls, 0);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, card.id],
+    );
+  } finally {
+    useBoard.getState().commitPendingRemovals("keepalive");
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("remove, then the undo window, sends DELETE and keeps a 200", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { card, other } = removalCards();
+  useBoard.setState({ remote: true, cards: [other, card], boardError: "", section: "find" });
+  const original = globalThis.fetch;
+  let method = "";
+  let calls = 0;
+  globalThis.fetch = async (input, init) => {
+    calls += 1;
+    method = init?.method ?? "GET";
+    assert.match(String(input), new RegExp(`/api/gatherings/${LIFTS_ID}$`));
+    assert.equal(init?.credentials, "include");
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    await useBoard.getState().removeCard(card.id);
+    assert.equal(calls, 0);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(calls, 1);
+    assert.equal(method, "DELETE");
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id],
+    );
+    assert.equal(useBoard.getState().boardError, "");
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("remove, then a failed DELETE, restores the card and shows the error", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { card, other } = removalCards();
+  useBoard.setState({ remote: true, cards: [other, card], boardError: "stale", section: "find" });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "api-unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    await useBoard.getState().removeCard(card.id);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(useBoard.getState().boardError, removalFailedCopy("Saturday lifts"));
+    assert.equal(userFacingError("api-unavailable", removalFailedCopy("Saturday lifts")), removalFailedCopy("Saturday lifts"));
+    assert.equal(useBoard.getState().boardError.includes("api-unavailable"), false);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, card.id],
+    );
+    assert.equal(useBoard.getState().scrollCardId, card.id);
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("a network failure or timeout while removing restores the card", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { card } = removalCards();
+  useBoard.setState({ remote: true, cards: [card], boardError: "", section: "find" });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  };
+  try {
+    await useBoard.getState().removeCard(card.id);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(useBoard.getState().cards[0]?.id, card.id);
+    assert.equal(useBoard.getState().boardError, removalFailedCopy(card.name));
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("leaving the page during the undo window sends the DELETE", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { card } = removalCards();
+  useBoard.setState({ remote: true, cards: [card], section: "find" });
+  const original = globalThis.fetch;
+  let keepalive = false;
+  let method = "";
+  globalThis.fetch = async (_input, init) => {
+    method = init?.method ?? "GET";
+    keepalive = init?.keepalive === true;
+    return new Response(null, { status: 200 });
+  };
+  try {
+    await useBoard.getState().removeCard(card.id);
+    useBoard.getState().commitPendingRemovals("keepalive");
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(method, "DELETE");
+    assert.equal(keepalive, true);
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("undo restores the latest removal, and each removal keeps its own timer", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  const first = newCard({
+    id: LIFTS_ID,
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const second = newCard({
+    id: "8c1d0e2a-1111-4b2c-9d00-1111abcd1234",
+    room: "shop",
+    kind: "meeting",
+    name: "Wednesday meal",
+    place: "The shop",
+    time: "6 p.m.",
+    host: "Maria",
+  });
+  useBoard.setState({ remote: true, cards: [other, first, second], section: "find", undoQueue: [] });
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    await useBoard.getState().removeCard(first.id);
+    mock.timers.tick(1000);
+    await useBoard.getState().removeCard(second.id);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(
+      useBoard.getState().undoQueue.map((item) => item.id),
+      [first.id, second.id],
+    );
+    assert.equal(useBoard.getState().undoRemoveCard(second.id), true);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, second.id],
+    );
+    mock.timers.tick(4000);
+    await flushRemoval();
+    assert.deepEqual(calls.map((url) => url.endsWith(`/api/gatherings/${first.id}`)), [true]);
+    assert.equal(useBoard.getState().cards.some((item) => item.id === second.id), true);
+    assert.equal(useBoard.getState().cards.some((item) => item.id === first.id), false);
+    mock.timers.tick(1000);
+    await flushRemoval();
+    assert.equal(calls.length, 1);
+  } finally {
+    useBoard.getState().commitPendingRemovals("keepalive");
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("two failed removals restore both cards and share one message", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const other = newCard({
+    room: "shop",
+    kind: "meeting",
+    name: "Tuesday study",
+    place: "The shop",
+    time: "7 p.m.",
+    host: "Maria",
+  });
+  const first = newCard({
+    id: LIFTS_ID,
+    room: "shop",
+    kind: "meeting",
+    name: "Saturday lifts",
+    place: "The shop",
+    time: "7 a.m.",
+    host: "Maria",
+  });
+  const second = newCard({
+    id: "8c1d0e2a-1111-4b2c-9d00-1111abcd1234",
+    room: "shop",
+    kind: "meeting",
+    name: "Wednesday meal",
+    place: "The shop",
+    time: "6 p.m.",
+    host: "Maria",
+  });
+  useBoard.setState({ remote: true, cards: [other, first, second], section: "find" });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "api-unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    await useBoard.getState().removeCard(first.id);
+    await useBoard.getState().removeCard(second.id);
+    mock.timers.tick(REMOVAL_UNDO_MS);
+    await flushRemoval();
+    assert.equal(
+      useBoard.getState().boardError,
+      removalFailedCopy(["Saturday lifts", "Wednesday meal"]),
+    );
+    assert.equal(useBoard.getState().boardError.includes("api-unavailable"), false);
+    assert.deepEqual(
+      useBoard.getState().cards.map((item) => item.id),
+      [other.id, first.id, second.id],
+    );
+  } finally {
+    mock.timers.reset();
+    globalThis.fetch = original;
+  }
+});
+
+test("the removal error is one alert with a dismiss control, and the card can be scrolled back", () => {
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  assert.match(app, /role="alert"/);
+  assert.match(app, /min-h-\[44px\]/);
+  assert.match(app, />\s*Dismiss\s*</);
+  assert.match(app, /boardError: ""/);
+  assert.match(app, /userFacingError/);
+  assert.match(app, /shown !== "find"/);
+  assert.equal(find.includes("{boardError ? ("), false);
+  assert.match(find, /lg:bottom-6/);
+  assert.match(find, /env\(safe-area-inset-bottom\)/);
+  assert.match(find, /border-danger text-danger/);
+  assert.match(find, /role="status"/);
+  assert.equal(room.includes("boardError"), false);
+  assert.match(find, /scrollRestoredCard/);
+  assert.match(find, /id=\{`card-\$\{card\.id\}`\}/);
+  assert.match(find, /undoRemoveCard/);
+  const seen: ScrollIntoViewOptions[] = [];
+  const scrolled = scrollRestoredCard(LIFTS_ID, {
+    getElementById(elementId) {
+      assert.equal(elementId, `card-${LIFTS_ID}`);
+      return {
+        scrollIntoView(options) {
+          seen.push(options);
+        },
+      };
+    },
+  });
+  assert.equal(scrolled, true);
+  assert.deepEqual(seen, [{ block: "center" }]);
+  const sheet = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
+  assert.match(
+    sheet,
+    /\.card\{scroll-margin-bottom:calc\(var\(--tabbar-h,64px\) \+ env\(safe-area-inset-bottom\) \+ 9rem\)\}/,
+  );
+  const bits = readFileSync(new URL("../../components/quorum/bits.tsx", import.meta.url), "utf8");
+  assert.match(bits, /focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-\[var\(--color-fg\)\]/);
 });
 
 test("a banned member still sees the status of their own appeal", async () => {
