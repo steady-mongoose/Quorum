@@ -3,8 +3,10 @@ import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { actorRole } from "./access.ts";
 import { denyHold, isCustodian, logHoldAccess } from "./csam-custody.ts";
-import { postIsHeld } from "./csam.ts";
-import { memberCanSeeBoardPost, removePost } from "./store.ts";
+import { chatLineIsHeld, postIsHeld, sealCsamChatHold } from "./csam.ts";
+import { autoCloseReports } from "./report-close.ts";
+import { memberCanSeeBoardPost, removePost, scheduleHoldAlert, writeBan } from "./store.ts";
+import { evictCallMember } from "../calls/evict.ts";
 import { memberOfRoom } from "../media/access.ts";
 import { consumeLimit } from "../rate-limit.ts";
 
@@ -26,6 +28,10 @@ export type CsamFlag = {
   uploader: string;
   fileIds: string[];
   at: number;
+  /** A flagged chat line, by id, room and time. Never its text. */
+  chatMessageId: string;
+  chatRoomId: string;
+  chatAt: number | null;
 };
 
 /** Per member. A flag blocks files at once, so it is limited like any other write. */
@@ -197,13 +203,19 @@ export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
     created_at: Date | string;
     author_name: string | null;
     file_ids: unknown;
+    chat_message_id: string;
+    chat_room_id: string | null;
+    chat_author_name: string | null;
+    chat_created_at: Date | string | null;
   }>(
     `select f.id, f.post_id, f.media_id, f.source, f.reporter_name, f.reason, f.created_at,
-            p.author_name,
+            p.author_name, f.chat_message_id,
+            c.room_id as chat_room_id, c.author_name as chat_author_name, c.created_at as chat_created_at,
             coalesce((select array_agg(m.id order by m.id) from media_object m
                       where m.post_id = f.post_id and f.post_id <> ''), '{}') as file_ids
      from csam_flag f
      left join board_post p on p.id = f.post_id
+     left join room_chat_message c on c.id = f.chat_message_id and f.chat_message_id <> ''
      where f.resolved_at is null
      order by f.created_at desc
      limit 200`,
@@ -219,9 +231,12 @@ export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
       source: row.source === "scanner" ? "scanner" : "report",
       reporter: row.reporter_name,
       reason: row.reason,
-      uploader: row.author_name ?? "",
+      uploader: row.author_name ?? row.chat_author_name ?? "",
       fileIds: row.media_id && !files.includes(row.media_id) ? [row.media_id, ...files] : files,
       at: atMs(row.created_at),
+      chatMessageId: row.chat_message_id ?? "",
+      chatRoomId: row.chat_room_id ?? "",
+      chatAt: row.chat_created_at ? atMs(row.chat_created_at) : null,
     };
   });
 }
@@ -238,12 +253,13 @@ export async function removeFlagged(
   if (!actor.admin || !(await isCustodian(db, input.userId, actor, input.now))) {
     return denyHold(db, input.userId, "", `remove flagged ${input.flagId}`.slice(0, 120), input.now);
   }
-  const rows = await db.query<{ post_id: string; reporter_name: string; reason: string }>(
-    `select post_id, reporter_name, reason from csam_flag where id = $1 and resolved_at is null`,
+  const rows = await db.query<{ post_id: string; reporter_name: string; reason: string; chat_message_id: string }>(
+    `select post_id, reporter_name, reason, chat_message_id from csam_flag where id = $1 and resolved_at is null`,
     [input.flagId],
   );
   const flag = rows[0];
   if (!flag) return { ok: false, status: 404, error: "That flag is not here." };
+  if (flag.chat_message_id) return removeFlaggedChat(db, input, flag.chat_message_id, flag);
   if (!flag.post_id) return { ok: false, status: 400, error: "That file is not part of a post." };
   if (!(await postIsHeld(db, flag.post_id))) {
     const removed = await removePost(db, {
@@ -274,6 +290,7 @@ export async function removeFlagged(
      where resolved_at is null and post_id = $1`,
     [flag.post_id, input.now, holdId],
   );
+  await autoCloseReports(db, { subjectKind: "post", subjectIds: [flag.post_id], actorUserId: input.userId, now: input.now });
   await logHoldAccess(db, {
     holdId,
     actorUserId: input.userId,
@@ -282,4 +299,79 @@ export async function removeFlagged(
     now: input.now,
   });
   return { ok: true, value: { holdId } };
+}
+
+/**
+ * Preserve and remove for a flagged chat line: hide it, seal its text into a hold
+ * unread, record a CSAM removal (an admin's, so a permanent site-wide ban), and
+ * close the flag and its reports. Nobody reads the line.
+ */
+async function removeFlaggedChat(
+  db: Db,
+  input: { userId: string; name: string; flagId: string; now: Date },
+  messageId: string,
+  flag: { reporter_name: string; reason: string },
+): Promise<{ ok: true; value: { holdId: string } } | Fail> {
+  const lines = await db.query<{ room_id: string; author_user_id: string | null; author_name: string }>(
+    `select room_id, author_user_id, author_name from room_chat_message where id = $1`,
+    [messageId],
+  );
+  const line = lines[0];
+  if (!line) return { ok: false, status: 404, error: "That chat line is not here." };
+  const by = input.name.trim().slice(0, 80) || "Custodian";
+  const done = await db.transaction(async (tx) => {
+    let holdId = "";
+    let alert = null;
+    if (!(await chatLineIsHeld(tx, messageId))) {
+      const sealed = await sealCsamChatHold(tx, messageId, input.now);
+      holdId = sealed.holdId;
+      alert = sealed.alert;
+      await tx.query(
+        `insert into room_chat_removal
+         (id, message_id, room_id, author_user_id, author_name, by_user_id, by_name, reason, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, 'csam', $8)`,
+        [randomUUID(), messageId, line.room_id, line.author_user_id, line.author_name, input.userId, by, input.now],
+      );
+      if (line.author_user_id) {
+        await writeBan(tx, {
+          userId: line.author_user_id,
+          name: line.author_name,
+          reason: "csam",
+          byUserId: input.userId,
+          byName: by,
+          removalId: null,
+          removalAlreadyCounted: true,
+          now: input.now,
+          roomId: "",
+        });
+      }
+    } else {
+      const held = await tx.query<{ id: string }>(
+        `select id from board_csam_hold where purged_at is null and chat_message_id = $1 order by created_at desc limit 1`,
+        [messageId],
+      );
+      holdId = held[0]?.id ?? "";
+    }
+    await tx.query(
+      `update board_csam_hold set reporter_name = $2, report_reason = $3 where id = $1 and reporter_name = ''`,
+      [holdId, flag.reporter_name, flag.reason],
+    );
+    await tx.query(
+      `update csam_flag set resolved_at = $2, hold_id = $3, resolution = 'removed'
+       where resolved_at is null and chat_message_id = $1`,
+      [messageId, input.now, holdId],
+    );
+    await autoCloseReports(tx, { subjectKind: "chat", subjectIds: [messageId], actorUserId: input.userId, now: input.now });
+    return { holdId, alert };
+  });
+  if (line.author_user_id) evictCallMember(line.author_user_id);
+  if (done.alert) scheduleHoldAlert(done.alert);
+  await logHoldAccess(db, {
+    holdId: done.holdId,
+    actorUserId: input.userId,
+    action: "remove_flagged",
+    detail: input.flagId,
+    now: input.now,
+  });
+  return { ok: true, value: { holdId: done.holdId } };
 }

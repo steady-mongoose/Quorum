@@ -34,6 +34,10 @@ export type CsamFlagView = {
   uploader: string;
   fileIds: string[];
   at: number;
+  /** A flagged chat line: its id, room and time. Never its text. */
+  chatMessageId: string;
+  chatRoomId: string;
+  chatAt: number | null;
 };
 
 export type CsamPersonView = { id: string; name: string; custodian: boolean };
@@ -102,6 +106,9 @@ export function queueFrom(value: unknown): CsamQueueView {
       uploader: str(row.uploader),
       fileIds: strs(row.fileIds),
       at: num(row.at),
+      chatMessageId: str(row.chatMessageId),
+      chatRoomId: str(row.chatRoomId),
+      chatAt: typeof row.chatAt === "number" ? row.chatAt : null,
     })),
     admins: rows(body.admins).map((row) => ({
       id: str(row.id),

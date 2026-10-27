@@ -257,14 +257,21 @@ function FlagRow({
     <li className="rounded-md border border-line px-3 py-2 text-sm text-muted">
       <p>
         {flag.source === "scanner" ? "Scanner flag" : `Reported by ${flag.reporter || "a member"}`} ·{" "}
-        {when(flag.at)} · uploaded by {flag.uploader || "unknown"} · post {flag.postId}
+        {when(flag.at)} · {flag.chatMessageId ? "sent" : "uploaded"} by {flag.uploader || "unknown"} ·{" "}
+        {flag.chatMessageId ? `chat line ${flag.chatMessageId}` : `post ${flag.postId}`}
       </p>
+      {flag.chatMessageId ? (
+        <p>
+          Room {flag.chatRoomId || "unknown"}
+          {flag.chatAt !== null ? ` · sent ${when(flag.chatAt)}` : ""}
+        </p>
+      ) : null}
       {flag.reason ? <p>Reason: {flag.reason}</p> : null}
       <Files ids={flag.fileIds} />
       <button
         type="button"
         className={`${btnSignal} mt-2`}
-        aria-label={`Preserve and remove post ${flag.postId}`}
+        aria-label={`Preserve and remove ${flag.chatMessageId ? `chat line ${flag.chatMessageId}` : `post ${flag.postId}`}`}
         aria-disabled={busy || undefined}
         onClick={() => !busy && onRemove()}
       >

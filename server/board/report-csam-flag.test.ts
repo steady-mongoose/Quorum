@@ -4,9 +4,10 @@ import test from "node:test";
 import { sendChat } from "../chat/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import { mediaIsBlocked } from "./csam-flag.ts";
-import { closeReport, fileReport } from "./reports.ts";
-import { createPost } from "./store.ts";
+import { listCsamFlags, mediaIsBlocked, removeFlagged } from "./csam-flag.ts";
+import { withHoldKey, openHold, REDACTED_CLAIM } from "./csam.ts";
+import { CSAM_FLAG_OPEN, closeReport, fileReport } from "./reports.ts";
+import { createPost, removePost } from "./store.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 
@@ -113,7 +114,7 @@ test("a CSAM report on a chat line flags it for the custodian too", async () => 
   }
 });
 
-test("a CSAM report cannot be dismissed while its flag is open", async () => {
+test("a CSAM report cannot be closed in any way while its flag is open", async () => {
   const { db, close } = await openTestDb();
   try {
     const maria = randomUUID();
@@ -135,14 +136,87 @@ test("a CSAM report cannot be dismissed while its flag is open", async () => {
     assert.equal(filed.ok, true);
     if (!filed.ok) return;
     const dismissed = await closeReport(db, { userId: sam, reportId: filed.value.id, resolution: "dismissed", note: "", now });
-    assert.deepEqual(dismissed, {
-      ok: false,
-      status: 409,
-      error: "A custodian has to close the CSAM flag before this report can be dismissed.",
-    });
+    assert.deepEqual(dismissed, { ok: false, status: 409, error: CSAM_FLAG_OPEN });
+    const resolved = await closeReport(db, { userId: sam, reportId: filed.value.id, resolution: "resolved", note: "", now });
+    assert.deepEqual(resolved, { ok: false, status: 409, error: CSAM_FLAG_OPEN });
+    const removed = await withHoldKey("test-hold-key-value", () =>
+      removePost(db, { userId: sam, name: "Sam", postId: bad, reason: "csam", now }),
+    );
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    const [still] = await db.query<{ status: string }>(`select status from member_report where id = $1`, [filed.value.id]);
+    assert.equal(still?.status, "open", "a removal does not auto-close a report whose CSAM flag is open");
     await db.query(`update csam_flag set resolved_at = $1`, [now]);
     const later = await closeReport(db, { userId: sam, reportId: filed.value.id, resolution: "dismissed", note: "", now });
     assert.equal(later.ok, true);
+  } finally {
+    await close();
+  }
+});
+
+test("a chat flag shows the line by id, room and time only, and Preserve and remove hides, holds and preserves it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ruth = randomUUID();
+    const sam = randomUUID();
+    await member(db, maria, "Maria");
+    await member(db, ruth, "Ruth");
+    await member(db, sam, "Sam");
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Sam', 'admin', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $3)`,
+      [randomUUID(), sam, now],
+    );
+    await db.query(`insert into bootstrap_seat (id, user_id) values ('founding', $1)`, [sam]);
+    await post(db, maria, "Opens the room.");
+    const secret = "chat text nobody should see in the queue";
+    const sent = await sendChat(db, { userId: maria, name: "Maria", roomId: "shop", text: secret, now });
+    assert.equal(sent.ok, true);
+    if (!sent.ok) return;
+    const line = sent.value.id;
+    const filed = await fileReport(db, {
+      userId: ruth, name: "Ruth", roomId: "shop", subjectKind: "chat", subjectId: line, reason: "csam", note: "", now,
+    });
+    assert.equal(filed.ok, true);
+    if (!filed.ok) return;
+
+    const flags = await listCsamFlags(db);
+    assert.equal(flags.length, 1);
+    assert.equal(flags[0]?.chatMessageId, line);
+    assert.equal(flags[0]?.chatRoomId, "shop");
+    assert.equal(flags[0]?.chatAt, now.getTime());
+    assert.equal(JSON.stringify(flags).includes(secret), false, "metadata only, never the text");
+
+    const removed = await withHoldKey("test-hold-key-value", () =>
+      removeFlagged(db, { userId: sam, name: "Sam", flagId: flags[0]!.id, now }),
+    );
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    if (!removed.ok) return;
+    assert.ok(removed.value.holdId);
+    const [row] = await db.query<{ removed: boolean; body: string }>(
+      `select removed, body from room_chat_message where id = $1`,
+      [line],
+    );
+    assert.deepEqual(row, { removed: true, body: REDACTED_CLAIM }, "hidden and redacted");
+    const [hold] = await db.query<{ sealed: string; chat_message_id: string; retain_until: Date }>(
+      `select sealed, chat_message_id, retain_until from board_csam_hold where id = $1`,
+      [removed.value.holdId],
+    );
+    assert.equal(hold?.chat_message_id, line);
+    assert.equal(hold?.sealed.includes(secret), false, "sealed, not stored in the clear");
+    const opened = await withHoldKey("test-hold-key-value", async () => openHold(hold!.sealed));
+    assert.equal(opened.claim, secret, "the line is preserved for NCMEC");
+    assert.ok(new Date(hold!.retain_until).getTime() - now.getTime() >= 365 * 24 * 3600 * 1000);
+    const [flag] = await db.query<{ resolved_at: Date | null; resolution: string }>(
+      `select resolved_at, resolution from csam_flag where chat_message_id = $1`,
+      [line],
+    );
+    assert.equal(flag?.resolution, "removed");
+    const [report] = await db.query<{ status: string }>(`select status from member_report where id = $1`, [filed.value.id]);
+    assert.equal(report?.status, "closed", "the custodian's removal closes the report");
+    const removal = await db.query(`select 1 from room_chat_removal where message_id = $1 and reason = 'csam'`, [line]);
+    assert.equal(removal.length, 1);
   } finally {
     await close();
   }

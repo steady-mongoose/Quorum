@@ -1,3 +1,4 @@
+import { openCsamFlagFor } from "./report-close.ts";
 import { randomUUID } from "node:crypto";
 import { compareReports } from "../../src/lib/board/reports.ts";
 import { isHardRule, type HardRuleValue } from "../../src/lib/board/text.ts";
@@ -250,6 +251,9 @@ async function moderatorStop(
   return null;
 }
 
+export const CSAM_FLAG_OPEN =
+  "A custodian has to preserve and remove the CSAM flag before this report can be closed.";
+
 export type ReportResolution = "resolved" | "dismissed";
 
 /** A steward of the room or an admin closes one open report. One log row is written. */
@@ -263,8 +267,8 @@ export async function closeReport(
   const resolution: ReportResolution = input.resolution;
   const note = input.note.trim();
   if (note.length > NOTE_MAX) return fail(400, "Keep the note under 500 characters.");
-  const rows = await db.query<{ room_id: string; status: string; reason: string }>(
-    `select room_id, status, reason from member_report where id = $1`,
+  const rows = await db.query<{ room_id: string; status: string; reason: string; subject_kind: string; subject_id: string }>(
+    `select room_id, status, reason, subject_kind, subject_id from member_report where id = $1`,
     [input.reportId],
   );
   const report = rows[0];
@@ -276,12 +280,8 @@ export async function closeReport(
   const stopped = await moderatorStop(db, actor, input.userId, report.room_id, input.now);
   if (stopped) return stopped;
   if (report.status !== "open") return fail(409, "That report is already closed.");
-  if (resolution === "dismissed" && report.reason === "csam") {
-    const open = await db.query<{ id: string }>(
-      `select id from csam_flag where reason = $1 and resolved_at is null limit 1`,
-      [`Member report ${input.reportId}`],
-    );
-    if (open[0]) return fail(409, "A custodian has to close the CSAM flag before this report can be dismissed.");
+  if (await openCsamFlagFor(db, { id: input.reportId, subjectKind: report.subject_kind, subjectId: report.subject_id })) {
+    return fail(409, CSAM_FLAG_OPEN);
   }
   const closed = await db.transaction(async (tx) => {
     const updated = await tx.query<{ id: string }>(
