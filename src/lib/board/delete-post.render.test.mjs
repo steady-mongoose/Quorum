@@ -76,10 +76,11 @@ test("the delete confirm dialog uses the required copy at 390, 768, and 1440", (
       const dialog = document.querySelector("dialog");
       assert.ok(dialog instanceof HTMLDialogElement);
       assert.equal(dialog.querySelector("h2")?.textContent, "Delete this post?");
-      assert.match(dialog.textContent ?? "", /This removes it for everyone\. It can't be undone\./);
+      assert.match(dialog.textContent ?? "", /It can't be recovered\./);
+      assert.equal(dialog.textContent?.includes("undone"), false);
       const buttons = [...dialog.querySelectorAll("button")];
       assert.equal(buttons[0]?.textContent, "Delete");
-      assert.equal(buttons[1]?.textContent, "Keep");
+      assert.equal(buttons[1]?.textContent, "Cancel");
       assert.match(buttons[0]?.className ?? "", /min-h-\[44px\]/);
       assert.match(buttons[0]?.className ?? "", /text-danger/);
       assert.match(buttons[1]?.className ?? "", /min-h-\[44px\]/);
