@@ -21,6 +21,11 @@ export const LEGAL_HOLD_NOTE_LABEL = "Who asked for the hold, and why";
 export const LEGAL_HOLD_NOTE_ERROR = "Say who asked for the hold, and why.";
 export const REMOVE_FLAGGED_CONFIRM =
   "Preserve and remove this post? Its files are sealed unopened for NCMEC and the post comes down.";
+export const RELEASE_REASON_LABEL = "Why this flag is false (a second custodian must confirm)";
+export const RELEASE_REASON_MIN = 20;
+export const RELEASE_REASON_ERROR = `Write why this flag is false, at least ${RELEASE_REASON_MIN} characters.`;
+export const RELEASE_CONFIRM =
+  "Release this flag? Its files will be served again. You are confirming another custodian's written reason. Nobody opens the files.";
 export const recordConfirm = (id: string) =>
   `Record CyberTipline report ${id}? This starts the one-year hold. Check the number against the NCMEC receipt.`;
 export const grantConfirm = (name: string) =>
@@ -31,7 +36,8 @@ type Pending =
   | { kind: "file"; holdId: string; reportId: string }
   | { kind: "hold-off"; holdId: string }
   | { kind: "grant" | "revoke"; userId: string; name: string }
-  | { kind: "remove"; flagId: string };
+  | { kind: "remove"; flagId: string }
+  | { kind: "release"; flagId: string };
 
 function when(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -88,6 +94,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
     if (pending.kind === "file") void run(() => api.file(pending.holdId, pending.reportId), true);
     else if (pending.kind === "hold-off") void run(() => api.legalHold(pending.holdId, false, ""));
     else if (pending.kind === "remove") void run(() => api.removeFlagged(pending.flagId), true);
+    else if (pending.kind === "release") void run(() => api.confirmRelease(pending.flagId), true);
     else void run(() => api.custodian(pending.userId, pending.kind === "grant"));
   };
 
@@ -102,7 +109,9 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
             ? { title: "CSAM custodian", text: revokeConfirm(pending.name), label: "Remove custodian" }
             : pending?.kind === "remove"
               ? { title: "Preserve and remove", text: REMOVE_FLAGGED_CONFIRM, label: "Preserve and remove" }
-              : null;
+              : pending?.kind === "release"
+                ? { title: "Release flag", text: RELEASE_CONFIRM, label: "Confirm release" }
+                : null;
 
   return (
     <section
@@ -137,6 +146,8 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
                   flag={flag}
                   busy={busy}
                   onRemove={() => setPending({ kind: "remove", flagId: flag.id })}
+                  onRequestRelease={(reason) => void run(() => api.requestRelease(flag.id, reason))}
+                  onConfirmRelease={() => setPending({ kind: "release", flagId: flag.id })}
                 />
               ))}
             </ul>
@@ -225,7 +236,23 @@ function Files({ ids, hashes }: { ids: string[]; hashes?: string[] }) {
   );
 }
 
-function FlagRow({ flag, busy, onRemove }: { flag: CsamFlagView; busy: boolean; onRemove: () => void }) {
+function FlagRow({
+  flag,
+  busy,
+  onRemove,
+  onRequestRelease,
+  onConfirmRelease,
+}: {
+  flag: CsamFlagView;
+  busy: boolean;
+  onRemove: () => void;
+  onRequestRelease: (reason: string) => void;
+  onConfirmRelease: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState("");
+  const reasonId = `csam-release-${flag.id}`;
+  const reasonErrorId = `csam-release-error-${flag.id}`;
   return (
     <li className="rounded-md border border-line px-3 py-2 text-sm text-muted">
       <p>
@@ -243,6 +270,62 @@ function FlagRow({ flag, busy, onRemove }: { flag: CsamFlagView; busy: boolean; 
       >
         Preserve and remove
       </button>
+      {flag.releaseRequestedBy ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <p className="text-fg">
+            {flag.releaseRequestedBy} asked to release this flag: {flag.releaseReason}
+          </p>
+          <button
+            type="button"
+            className={`${btnGhost} self-start`}
+            aria-label={`Confirm release of flag on post ${flag.postId}`}
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && onConfirmRelease()}
+          >
+            Confirm release
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label htmlFor={reasonId} className="flex min-w-0 flex-1 flex-col gap-1 text-fg">
+            {RELEASE_REASON_LABEL}
+            <textarea
+              id={reasonId}
+              className={fieldClass}
+              value={reason}
+              maxLength={500}
+              aria-invalid={reasonError ? true : undefined}
+              aria-describedby={reasonError ? reasonErrorId : undefined}
+              onChange={(event) => {
+                setReason(event.target.value);
+                setReasonError("");
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className={btnGhost}
+            aria-label={`Release flag on post ${flag.postId}`}
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (busy) return;
+              const typed = reason.trim();
+              if (typed.length < RELEASE_REASON_MIN) {
+                setReasonError(RELEASE_REASON_ERROR);
+                return;
+              }
+              onRequestRelease(typed);
+            }}
+          >
+            Release flag
+          </button>
+          {reasonError ? (
+            <p id={reasonErrorId} role="alert" className="basis-full text-danger">
+              {reasonError}
+            </p>
+          ) : null}
+        </div>
+      )}
     </li>
   );
 }

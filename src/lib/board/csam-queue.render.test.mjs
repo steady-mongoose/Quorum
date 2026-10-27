@@ -8,7 +8,7 @@ const { GlobalWindow } = await import("happy-dom");
 const window = new GlobalWindow({ url: "http://localhost/", width: 1440, height: 900 });
 const browser = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window));
 for (const key of [
-  "window", "document", "HTMLElement", "HTMLButtonElement", "HTMLInputElement", "HTMLDialogElement",
+  "window", "document", "HTMLElement", "HTMLButtonElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLDialogElement",
   "Node", "Element", "DocumentFragment", "MutationObserver", "Event", "getComputedStyle",
   "requestAnimationFrame", "cancelAnimationFrame",
 ]) {
@@ -49,6 +49,8 @@ function fakeApi(view) {
       legalHold: async (/** @type {unknown[]} */ ...args) => (calls.push(["legalHold", ...args]), { ok: true }),
       custodian: async (/** @type {unknown[]} */ ...args) => (calls.push(["custodian", ...args]), { ok: true }),
       removeFlagged: async (/** @type {unknown[]} */ ...args) => (calls.push(["remove", ...args]), { ok: true }),
+      requestRelease: async (/** @type {unknown[]} */ ...args) => (calls.push(["requestRelease", ...args]), { ok: true }),
+      confirmRelease: async (/** @type {unknown[]} */ ...args) => (calls.push(["confirmRelease", ...args]), { ok: true }),
     },
   };
 }
@@ -161,4 +163,40 @@ test("design review: file list wraps, buttons name the post, note error is tied,
   assert.deepEqual(calls, [["remove", "f1"]]);
   assert.equal(document.activeElement?.id, "csam-queue-heading");
   done();
+});
+
+test("Release flag needs a written reason, stays blind, and a pending release needs a confirm", async () => {
+  const base = { id: "f1", postId: "p2", source: "report", reporter: "rae", reason: "A child.", uploader: "bo", fileIds: ["m2"], at: 0 };
+  const { api, calls } = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "", releaseReason: "" }], admins: [] });
+  const { host, done } = await mount(api);
+  assert.equal(host.querySelectorAll("img, video, picture, canvas, iframe, a").length, 0);
+  const release = button(host, "Release flag");
+  assert.equal(release.getAttribute("aria-label"), "Release flag on post p2");
+  act(() => release.click());
+  await flush();
+  const box = /** @type {HTMLTextAreaElement} */ (host.querySelector("#csam-release-f1"));
+  assert.equal(box.getAttribute("aria-describedby"), "csam-release-error-f1");
+  assert.equal(host.querySelector("#csam-release-error-f1")?.textContent, queue.RELEASE_REASON_ERROR);
+  assert.deepEqual(calls, []);
+  const setter = /** @type {(this: HTMLTextAreaElement, v: string) => void} */ (
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set
+  );
+  act(() => { setter.call(box, "Scanner matched a stock photo of a cat."); box.dispatchEvent(new Event("input", { bubbles: true })); });
+  act(() => button(host, "Release flag").click());
+  await flush();
+  assert.deepEqual(calls, [["requestRelease", "f1", "Scanner matched a stock photo of a cat."]]);
+  done();
+
+  const second = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat." }], admins: [] });
+  const view = await mount(second.api);
+  assert.ok((view.host.textContent ?? "").includes("Ann asked to release this flag"));
+  act(() => button(view.host, "Confirm release").click());
+  await flush();
+  assert.ok((view.host.textContent ?? "").includes(queue.RELEASE_CONFIRM));
+  assert.equal(document.activeElement?.textContent, "Cancel");
+  assert.deepEqual(second.calls, []);
+  act(() => dialogConfirm(view.host).click());
+  await flush();
+  assert.deepEqual(second.calls, [["confirmRelease", "f1"]]);
+  view.done();
 });

@@ -4,7 +4,7 @@ import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { fileCsamReport } from "./csam.ts";
 import { readCsamQueue, setCustodian, setLegalHold } from "./csam-custody.ts";
-import { flagCsam, removeFlagged } from "./csam-flag.ts";
+import { confirmFlagRelease, memberFlagCsam, removeFlagged, requestFlagRelease } from "./csam-flag.ts";
 import {
   correctZip,
   decideRoom,
@@ -198,6 +198,7 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const legalHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/legal-hold$/.exec(url.pathname);
   const flagRemove = /^\/api\/csam-flags\/([A-Za-z0-9_-]{1,80})\/remove$/.exec(url.pathname);
+  const flagRelease = /^\/api\/csam-flags\/([A-Za-z0-9_-]{1,80})\/release(\/confirm)?$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const claimAction =
@@ -246,7 +247,8 @@ export async function handleBoard(
     (url.pathname === "/api/csam-custodians" && request.method === "POST") ||
     (url.pathname === "/api/csam-flags" && request.method === "POST") ||
     (url.pathname === "/api/csam-queue" && request.method === "GET") ||
-    Boolean(flagRemove && request.method === "POST");
+    Boolean(flagRemove && request.method === "POST") ||
+    Boolean(flagRelease && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -642,8 +644,8 @@ export async function handleBoard(
 
     if (url.pathname === "/api/csam-flags") {
       return fromResult(
-        201,
-        await flagCsam(deps.db, {
+        202,
+        await memberFlagCsam(deps.db, {
           userId: session.id,
           name: session.name,
           postId: stringField(body, "postId"),
@@ -651,6 +653,16 @@ export async function handleBoard(
           reason: stringField(body, "reason"),
           now,
         }),
+      );
+    }
+
+    if (flagRelease) {
+      const flagId = flagRelease[1] ?? "";
+      return fromResult(
+        200,
+        flagRelease[2]
+          ? await confirmFlagRelease(deps.db, { userId: session.id, flagId, now })
+          : await requestFlagRelease(deps.db, { userId: session.id, flagId, reason: stringField(body, "reason"), now }),
       );
     }
 
