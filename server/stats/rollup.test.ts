@@ -430,7 +430,7 @@ test("a room in two categories counts in each filter and once overall", async ()
   try {
     const ada = await user(db, "Ada Lovelace", "ada-cats@example.com", "2026-09-01T15:00:00Z");
     await db.query(
-      `create table room_categories (
+      `create table if not exists room_categories (
          room_id text not null references room (id) on delete cascade,
          category_id text not null,
          primary key (room_id, category_id)
@@ -454,7 +454,8 @@ test("a room in two categories counts in each filter and once overall", async ()
       `insert into room_categories (room_id, category_id) values
        ('shop', 'business-trades'),
        ('shop', 'civic'),
-       ('county', 'county')`,
+       ('county', 'county')
+       on conflict do nothing`,
     );
     await post(db, ada, "Ada Lovelace", "shop", "2026-10-20T16:00:00Z");
     await post(db, ada, "Ada Lovelace", "county", "2026-10-20T16:30:00Z");
@@ -517,7 +518,7 @@ test("gathering filters cannot be subtracted back to a hidden category", async (
   try {
     const ada = await user(db, "Ada Lovelace", "ada-gap@example.com", "2026-01-01T00:00:00Z");
     await db.query(
-      `create table room_categories (
+      `create table if not exists room_categories (
          room_id text not null references room (id) on delete cascade,
          category_id text not null,
          primary key (room_id, category_id)
@@ -592,7 +593,7 @@ test("an admin-added category is shown by its name", async () => {
   try {
     const ada = await user(db, "Ada Lovelace", "ada-name@example.com", "2026-09-01T15:00:00Z");
     await db.query(
-      `create table categories (
+      `create table if not exists categories (
          slug text primary key,
          name text not null,
          sort_order integer not null default 0
@@ -602,7 +603,7 @@ test("an admin-added category is shown by its name", async () => {
       `insert into categories (slug, name, sort_order) values ('choir', 'Parish choir', 20)`,
     );
     await db.query(
-      `create table room_categories (
+      `create table if not exists room_categories (
          room_id text not null references room (id) on delete cascade,
          category_id text not null,
          primary key (room_id, category_id)
@@ -728,7 +729,8 @@ test("published totals do not let a hidden count be subtracted back", async () =
     const weekAll = await readStats(db, NOW, { days: 7, category: "all" });
     assert.equal(weekWindow.tiles[0]?.value, weekAll.tiles[0]?.value);
     assert.equal(weekWindow.tiles[1]?.value, weekAll.tiles[1]?.value);
-    assert.equal(stats.roomsByCategory.length, 7);
+    // Migration 0021 seeds eight categories, Uncategorized included.
+    assert.equal(stats.roomsByCategory.length, 8);
     assert.equal(weekWindow.roomsByCategory.length, 1);
     assert.equal(weekWindow.roomsByCategory[0]?.id, "churches");
     assert.deepEqual(parseStatsQuery(new URLSearchParams("days=3&category=nope")), {
