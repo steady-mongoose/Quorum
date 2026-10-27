@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { INVITE_HASH, watchInviteHash } from "@/lib/board/invite-hash";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const COPIED = "Code copied.";
-export const INVITE_HASH = "invite";
 export const COPY_BLOCKED = "Couldn't copy. The code is selected; copy it by hand.";
 
 /** A member makes a server invite. The code is shown once. */
@@ -34,17 +34,18 @@ export function ServerInvite() {
   useEffect(() => {
     if (!live || typeof window === "undefined") return;
     const land = () => {
-      if (window.location.hash !== `#${INVITE_HASH}`) return;
       heading.current?.focus();
       heading.current?.scrollIntoView({ block: "start" });
     };
-    land();
     // The router sets the hash with pushState, which fires no hashchange; look again next tick.
-    const later = window.setTimeout(land, 50);
-    window.addEventListener("hashchange", land);
+    let stop = watchInviteHash(window, land);
+    const later = window.setTimeout(() => {
+      stop();
+      stop = watchInviteHash(window, land);
+    }, 50);
     return () => {
       window.clearTimeout(later);
-      window.removeEventListener("hashchange", land);
+      stop();
     };
   }, [live]);
 
