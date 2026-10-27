@@ -900,6 +900,9 @@ export type BanReview = {
   name: string;
   reason: string;
   requestedBy: string;
+  roomId: string;
+  /** The admin reading the queue is the suspended member. Another admin decides. */
+  own: boolean;
   at: number;
 };
 
@@ -916,9 +919,10 @@ export async function listBanReviews(db: Db, userId: string, now: Date): Promise
     name: string;
     reason: string;
     requested_by_name: string;
+    room_id: string;
     created_at: Date | string;
   }>(
-    `select id, removal_id, user_id, name, reason, requested_by_name, created_at
+    `select id, removal_id, user_id, name, reason, requested_by_name, room_id, created_at
      from ban_review where status = 'open' order by created_at asc, id asc`,
   );
   return {
@@ -930,8 +934,48 @@ export async function listBanReviews(db: Db, userId: string, now: Date): Promise
       name: row.name,
       reason: row.reason,
       requestedBy: row.requested_by_name,
+      roomId: row.room_id,
+      own: row.user_id === userId,
       at: new Date(row.created_at).getTime(),
     })),
+  };
+}
+
+export type OwnSuspension = {
+  suspended: true;
+  reason: string;
+  /** The removed post to appeal, when the removal was a post. Never its content. */
+  postId: string | null;
+  appealable: boolean;
+};
+
+/**
+ * The signed-in member's own open suspension, if a steward's removal suspended
+ * them and an admin has not decided yet. It never returns the post, its text,
+ * the strike count or the steward's name.
+ */
+export async function ownSuspension(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<OwnSuspension | { suspended: false }> {
+  const rows = await db.query<{ reason: string; post_id: string | null }>(
+    `select r.reason, br.post_id
+     from ban_review r
+     left join board_ban b on b.id = r.ban_id
+     left join board_removal br on br.id = r.removal_id
+     where r.user_id = $1 and r.status = 'open'
+       and (b.id is null or b.until_at > $2)
+     order by r.created_at desc limit 1`,
+    [userId, now],
+  );
+  const row = rows[0];
+  if (!row) return { suspended: false };
+  return {
+    suspended: true,
+    reason: row.reason,
+    postId: row.post_id,
+    appealable: row.reason !== "csam" && Boolean(row.post_id),
   };
 }
 
@@ -999,6 +1043,8 @@ export async function writeBan(
     now: Date;
     /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
     roomId: string;
+    /** The room whose steward removed it, kept on the admin review even when the bar is site-wide. */
+    sourceRoomId?: string;
     /**
      * The new hard removal is already stored. A room chat line sets this
      * because its row lives in room_chat_removal, not board_removal.
@@ -1077,7 +1123,7 @@ export async function writeBan(
         input.name,
         input.reason,
         strikes,
-        input.roomId,
+        input.sourceRoomId ?? input.roomId,
         input.byUserId || null,
         input.byName,
         input.now,
@@ -1589,6 +1635,7 @@ export async function removePost(
         removalId,
         now: input.now,
         roomId: siteWide ? "" : post.room_id,
+        sourceRoomId: post.room_id,
       });
     });
     // The save committed. Drop the rollback list so a later error cannot delete the evidence.
@@ -1720,6 +1767,7 @@ export async function banMember(
     removalId: null,
     now: input.now,
     roomId: siteWide ? "" : roomId,
+    sourceRoomId: roomId,
   });
   if (ban.pendingReview || siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);

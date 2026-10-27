@@ -46,6 +46,7 @@ import {
   decideAppeal,
   decideBanReview,
   listBanReviews,
+  ownSuspension,
   fileAppeal,
   listBoard,
   listOwnAppeals,
@@ -248,6 +249,7 @@ export async function handleBoard(
     Boolean(appealAction && request.method === "POST") ||
     Boolean(fileHold && request.method === "POST") ||
     (url.pathname === "/api/admin/ban-reviews" && request.method === "GET") ||
+    (url.pathname === "/api/suspension" && request.method === "GET") ||
     Boolean(banReview && request.method === "POST");
   if (!matched) return null;
 
@@ -263,6 +265,9 @@ export async function handleBoard(
       return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
     }
 
+    if (url.pathname === "/api/suspension" && request.method === "GET") {
+      return json(200, await ownSuspension(deps.db, session.id, now));
+    }
     if (url.pathname === "/api/admin/ban-reviews" && request.method === "GET") {
       const listed = await listBanReviews(deps.db, session.id, now);
       if (!listed.ok) return json(listed.status, { error: listed.error });

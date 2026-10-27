@@ -1204,7 +1204,7 @@ const PostCard = memo(function PostCard({
           {confirmRule ? (
             <ConfirmDialog
               open
-              {...removalConfirm(confirmRule, "post")}
+              {...removalConfirm(confirmRule, "post", post.author)}
               tone="danger"
               onCancel={() => setConfirmRule(null)}
               onConfirm={() => {

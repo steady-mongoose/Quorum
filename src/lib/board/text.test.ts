@@ -62,6 +62,6 @@ test("the removal list names every rule, and porn and CSAM are permanent on the 
   for (const rule of ["threat", "doxxing", "blasphemy"]) assert.equal(permanentOnFirst(rule), false);
   assert.match(RULE_LABEL.threat, /Calls for violence, threats, or plans to attack or intimidate/);
   assert.match(RULE_LABEL.blasphemy, /^Blasphemy/);
-  assert.match(RULE_SENTENCE.porn, /closed for good the first time/);
-  assert.match(RULE_SENTENCE.csam, /closed for good the first time/);
+  assert.match(RULE_SENTENCE.porn, /suspended everywhere on Avouch until an admin reviews it/);
+  assert.match(RULE_SENTENCE.csam, /suspended everywhere on Avouch until an admin closes it/);
 });

@@ -56,7 +56,7 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
  * Members are never required to enroll, so this list does not limit them.
  */
 const MEMBER_ROUTES: Array<[string, RegExp]> = [
-  ["GET", /^\/api\/(board|home|place|gatherings|groups|claims|invite-log)$/],
+  ["GET", /^\/api\/(board|home|place|gatherings|groups|claims|invite-log|suspension)$/],
   ["GET", new RegExp(`^/api/groups/${ROOM}$`)],
   ["GET", new RegExp(`^/api/groups/${ROOM}/log$`)],
   ["GET", new RegExp(`^/api/rooms/${ROOM}/chat$`)],

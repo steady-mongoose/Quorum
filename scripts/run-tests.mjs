@@ -24,6 +24,7 @@ const appTests = [
   "src/lib/board/confirm-dialog.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
   "src/lib/board/removal-confirm.test.ts",
+  "src/lib/board/suspension.render.test.mjs",
   "src/lib/board/design-critic.test.ts",
   "src/lib/board/about-mission.test.ts",
   "src/lib/app-data/app-data.test.ts",

@@ -340,6 +340,7 @@ export async function removeChatMessage(
       removalAlreadyCounted: true,
       now: input.now,
       roomId: siteWide ? "" : input.roomId,
+      sourceRoomId: input.roomId,
     });
     return { ban, siteWide };
   });

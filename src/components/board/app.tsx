@@ -46,6 +46,8 @@ import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
+import { SuspendedNotice } from "@/components/board/suspension";
+import { suspensionApi, type OwnSuspension } from "@/lib/board/suspension-api";
 import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
 import { useEngravedDocument } from "@/components/board/engraved-ground";
 
@@ -99,6 +101,22 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
   const boardError = useBoard((state) => state.boardError);
   const ownAppeals = useBoard((state) => state.appeals);
+  const barred = boardError === "This account is barred from the board.";
+  const [suspension, setSuspension] = useState<OwnSuspension>({ suspended: false });
+  useEffect(() => {
+    if (!barred) {
+      setSuspension({ suspended: false });
+      return;
+    }
+    let live = true;
+    void suspensionApi.own().then((next) => {
+      if (live) setSuspension(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [barred]);
+  const suspended = suspension.suspended ? suspension : null;
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoBar, setUndoBar] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -226,14 +244,15 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         </div>
       ) : null}
       {!entered && <Door />}
-      {entered && shown === "week" && <WeekView />}
-      {entered && shown === "rooms" && <RoomView />}
-      {entered && shown === "groups" && <GroupsView />}
-      {entered && shown === "find" && <FindView />}
-      {entered && shown === "civic" && deskOn && <QuorumPanel />}
-      {entered && shown === "messages" && <DmView />}
-      {entered && shown === "profile" && <ProfileView />}
-      {entered && shown === "about" && <AboutView />}
+      {entered && suspended ? <SuspendedNotice suspension={suspended} /> : null}
+      {entered && !suspended && shown === "week" && <WeekView />}
+      {entered && !suspended && shown === "rooms" && <RoomView />}
+      {entered && !suspended && shown === "groups" && <GroupsView />}
+      {entered && !suspended && shown === "find" && <FindView />}
+      {entered && !suspended && shown === "civic" && deskOn && <QuorumPanel />}
+      {entered && !suspended && shown === "messages" && <DmView />}
+      {entered && !suspended && shown === "profile" && <ProfileView />}
+      {entered && !suspended && shown === "about" && <AboutView />}
     </>
   );
 
@@ -326,7 +345,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           </div>
         </div>
       </header>
-      {boardError && shown !== "find" ? (
+      {boardError && shown !== "find" && !suspended ? (
         <div
           role="alert"
           className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal"

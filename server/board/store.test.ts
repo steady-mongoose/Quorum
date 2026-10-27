@@ -17,6 +17,7 @@ import {
   decideAppeal,
   decideBanReview,
   listBanReviews,
+  ownSuspension,
   fileAppeal,
   listBoard,
   listOwnAppeals,
@@ -1534,11 +1535,19 @@ test("an admin who clears the member lifts the suspension, and it is logged", as
     const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
     const during = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now });
     assert.equal(during.ok, false, "suspended before the admin decides");
+    const own = await ownSuspension(db, maria, now);
+    assert.deepEqual(own, { suspended: true, reason: "porn", postId: posted.value.id, appealable: true });
+    assert.equal(JSON.stringify(own).includes("Tom"), false, "never names the steward");
+    assert.deepEqual(await ownSuspension(db, tom, now), { suspended: false });
+    const queue = await listBanReviews(db, ada, now);
+    assert.equal(queue.ok && queue.value[0]?.roomId, "shop");
+    assert.equal(queue.ok && queue.value[0]?.own, false);
     const later = new Date(now.getTime() + 60_000);
     const cleared = await decideBanReview(db, { userId: ada, reviewId: review!.id, decision: "cleared", now: later });
     assert.equal(cleared.ok, true, JSON.stringify(cleared));
     const back = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now: new Date(later.getTime() + 1) });
     assert.equal(back.ok, true, "cleared: the suspension is lifted");
+    assert.deepEqual(await ownSuspension(db, maria, later), { suspended: false });
     const [row] = await db.query<{ status: string; decided_by_user_id: string }>(
       `select status, decided_by_user_id from ban_review where id = $1`,
       [review!.id],

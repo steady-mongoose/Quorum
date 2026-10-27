@@ -8,6 +8,7 @@ import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
+import { BanReviewQueue } from "@/components/board/suspension";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
@@ -83,7 +84,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal closes the account. Pornography closes the account for good the first time, everywhere on Avouch. Child sexual abuse material is removed at once, the account is closed for good, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal suspends the account. Pornography and child sexual abuse material suspend the account everywhere on Avouch the first time. An admin then reviews it and closes the account for good. Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A child sexual abuse material closure is never lifted. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal. An admin decides appeals of pornography removals, and a pornography closure can be appealed only with proof the account was compromised. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -204,8 +205,10 @@ export function AboutView() {
         </dl>
         <p className="max-w-prose text-sm text-muted">
           Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}. A second
-          removal closes the account. Pornography and child sexual abuse material close it the first
-          time, everywhere on Avouch.
+          removal closes the account. Pornography and child sexual abuse material suspend the account
+          everywhere on Avouch the first time. An admin then reviews it and closes the account for good.
+          A child sexual abuse material closure is never lifted. A pornography closure can be appealed
+          only with proof the account was compromised.
         </p>
         <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
           {RULES.map((rule) => (
@@ -228,6 +231,7 @@ export function AboutView() {
       {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
+      {remote && admin ? <BanReviewQueue /> : null}
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>

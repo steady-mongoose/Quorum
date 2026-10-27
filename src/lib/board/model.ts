@@ -276,20 +276,30 @@ function lowerFirst(label: string): string {
 export function removalConfirm(
   rule: HardRule,
   target: "post" | "message",
+  author = "",
 ): { title: string; description: string; confirmLabel: string; cancelLabel: string } {
   const thing = target === "post" ? "post" : "chat message";
+  const name = author.trim() || "the author";
+  const suspends = `This also suspends ${name} everywhere on Avouch until an admin reviews it.`;
   if (rule === "csam") {
     return {
       title: `Remove this ${thing} as child sexual abuse material?`,
-      description:
-        "The account is banned from the whole site at once, and the file is held for the CyberTipline report without anyone opening it. This can't be undone.",
-      confirmLabel: "Remove and ban",
+      description: `The file is held for the CyberTipline report without anyone opening it. ${suspends} This can't be undone.`,
+      confirmLabel: "Remove",
+      cancelLabel: "Cancel",
+    };
+  }
+  if (rule === "porn") {
+    return {
+      title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
+      description: `The ${thing} comes down. ${suspends}`,
+      confirmLabel: "Remove",
       cancelLabel: "Cancel",
     };
   }
   return {
     title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
-    description: `The ${thing} comes down and the author can't post in this room for 30 days. A second removal closes the account. The author can appeal.`,
+    description: `The ${thing} comes down and the author can't post in this room for 30 days. If this is their second removal, this also suspends ${name} everywhere on Avouch until an admin reviews it. The author can appeal.`,
     confirmLabel: "Remove",
     cancelLabel: "Cancel",
   };
@@ -298,8 +308,8 @@ export function removalConfirm(
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat:
     "A call for violence, a threat, or a plan or instructions to attack or intimidate someone is removed.",
-  porn: "Pornography is removed and the account is closed for good the first time.",
-  csam: "Child sexual abuse material is removed at once, the account is closed for good the first time, and the evidence is held for one year, pending counsel.",
+  porn: "Pornography is removed and the account is suspended everywhere on Avouch until an admin reviews it.",
+  csam: "Child sexual abuse material is removed at once, the account is suspended everywhere on Avouch until an admin closes it, and the evidence is held for one year, pending counsel.",
   doxxing:
     "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
   blasphemy: "Blasphemy, a post that mocks God or Christ, is removed.",

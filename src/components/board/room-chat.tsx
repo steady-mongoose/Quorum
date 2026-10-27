@@ -59,6 +59,8 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const chatHeading = useRef<HTMLHeadingElement | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ id: string; rule: HardRule } | null>(null);
+  // Named in the confirm, so the steward sees who a suspension would reach.
+  const confirmAuthor = confirm ? (messages.find((row) => row.id === confirm.id)?.author ?? "") : "";
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLLIElement | null>(null);
   const roomRef = useRef(roomId);
@@ -262,7 +264,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       {confirm ? (
         <ConfirmDialog
           open
-          {...removalConfirm(confirm.rule, "message")}
+          {...removalConfirm(confirm.rule, "message", confirmAuthor)}
           tone="danger"
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
