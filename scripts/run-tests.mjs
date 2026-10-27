@@ -128,6 +128,7 @@ const appTests = [
   "server/board/public-fetch.test.ts",
   "server/board/claim-attempts.pg.test.ts",
   "server/board/public-gathering.test.ts",
+  "server/board/gathering-visibility.test.ts",
   "server/board/groups.test.ts",
   "server/board/audience.test.ts",
   "server/gender-policy.test.ts",

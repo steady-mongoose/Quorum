@@ -1018,7 +1018,10 @@ export function witnessesByTrade(posts: Post[], cards: MeetingCard[]): Map<strin
 export function cardListed(card: MeetingCard, witnesses: Map<string, string[]>): boolean {
   if (card.kind === "trade") return (witnesses.get(card.id)?.length ?? 0) >= 2;
   if (card.kind === "need") return true;
-  if (new Set(card.wentBy).size < 2) return false;
+  // A meeting lists for its room as soon as it is saved. Waiting for a second
+  // "I went" hid it from the only people who could press it.
+  // A seeded brief nobody has visited still waits for two visits.
+  if (card.unverified && new Set(card.wentBy).size < 2) return false;
   const recent = card.lastFour.slice(-2);
   if (recent.length === 2 && recent.every((went) => !went)) return false;
   if (roomById(card.room).requiresNextDate && !card.next) return false;
