@@ -276,3 +276,19 @@ Manual steps. This repository does not do them, and nothing here changes DNS or 
 7. Check: `curl -sS https://media.avouchsocial.com/api/media/status` answers JSON, and `curl -sS -o /dev/null -w '%{http_code}' https://media.avouchsocial.com/` is `404`.
 
 Not changed: the web app still calls `api.avouchsocial.com` for media. The session cookie is set for the API host, so a signed-in read through `media.avouchsocial.com` is answered 401 until the cookie scope or the client base URL is decided.
+
+## Real client address behind Cloudflare
+
+Caddy trusts Cloudflare's published IP ranges (`trusted_proxies static` in the
+global `servers` block) and, only for a peer in those ranges, reads the client
+address from `CF-Connecting-IP`. Rate-limit zones key on `{client_ip}`, and each
+`reverse_proxy` to the API sets `X-Forwarded-For` to that one address, so the
+API's per-IP limits see the visitor, not a Cloudflare edge. A direct caller
+outside those ranges keeps its socket address and cannot spoof the header.
+
+Manual upkeep: the ranges are pinned from https://www.cloudflare.com/ips-v4 and
+https://www.cloudflare.com/ips-v6 (fetched 2026-10-26). When Cloudflare changes
+them, update the Caddyfile line and `CLOUDFLARE_RANGES` in
+`scripts/deploy-edge.test.mjs` together. Keep the ranges on one line: Caddy
+2.10 silently ignores ranges written as a block. To run the live check locally,
+set `CADDY_BIN` to a Caddy binary and run `node --test scripts/deploy-edge.test.mjs`.
