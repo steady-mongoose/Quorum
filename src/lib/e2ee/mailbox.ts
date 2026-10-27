@@ -3,6 +3,7 @@
  * private keys in the vault the caller provides (this browser, or a test).
  */
 
+import { userFacingError } from "../user-facing-error.ts";
 import { DM_PREKEY_BATCH, SIGNED_PREKEY_ROTATE_AFTER_MS, dmTextError } from "./limits.ts";
 import {
   createBackupKey,
@@ -120,7 +121,7 @@ function messageOf(body: unknown, fallback: string): string {
     typeof body.error === "string" &&
     body.error
   ) {
-    return body.error;
+    return userFacingError(body.error, fallback);
   }
   return fallback;
 }

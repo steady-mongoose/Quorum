@@ -60,6 +60,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 @media (max-width:1023px){.margin-art{display:none}}
 /* Text only on solid cards */
 .card,.plate{background:var(--card);border:1px solid var(--line);border-radius:6px}
+.card{scroll-margin-bottom:calc(var(--tabbar-h,64px) + env(safe-area-inset-bottom) + 9rem)}
 .card,.plate:not(dialog){position:relative;z-index:1}
 .plate{padding:14px 22px}
 /* The title plate overlaps the band. Every other plate, including a sibling, stays put. */
