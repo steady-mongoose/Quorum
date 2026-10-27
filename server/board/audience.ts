@@ -38,7 +38,9 @@ type AuditAction =
   | "set-audience"
   | "audience-override"
   | "set-birthdate"
-  | "change-birthdate";
+  | "change-birthdate"
+  | "correction-request"
+  | "correction-refuse";
 
 function denial(
   path: AudiencePath,
