@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "src/lib/board/find-invite.test.ts",
   "server/board/removal-mine.test.ts",
   "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
@@ -23,6 +24,7 @@ const appTests = [
   "src/lib/board/engraved.test.ts",
   "src/lib/board/phone-nav.test.ts",
   "src/lib/board/more-menu.render.test.mjs",
+  "src/lib/board/dm-report.render.test.mjs",
   "src/lib/board/audience.render.test.mjs",
   "src/lib/board/confirm-dialog.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
@@ -45,6 +47,7 @@ const appTests = [
   "src/lib/e2ee/media-crypto.test.ts",
   "src/lib/e2ee/media-bridge.test.ts",
   "server/dm/store.test.ts",
+  "server/dm/reports.test.ts",
   "server/calls/membership-saved.test.ts",
   "server/dm/mailbox.integration.test.ts",
   "workers/frontend.test.ts",

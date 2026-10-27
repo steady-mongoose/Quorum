@@ -9,6 +9,7 @@ import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { DmReportQueue } from "@/components/board/dm-report";
 import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
@@ -241,6 +242,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       {!publicView && remote && admin ? <RoomsManager /> : null}
 
       {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
+
+      {!publicView && remote && admin ? <DmReportQueue /> : null}
 
       {!publicView && remote && admin ? <InviteTracker /> : null}
 
