@@ -5,6 +5,7 @@ import { isUniqueViolation, type Db } from "../db.ts";
 import { actorRole, stewardsRoom, type BoardActor } from "./access.ts";
 import { guardRoomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
+import { flagCsam } from "./csam-flag.ts";
 
 export type ReportSubject = "post" | "chat";
 
@@ -79,12 +80,28 @@ export async function fileReport(
 
   const id = randomUUID();
   try {
-    await db.query(
-      `insert into member_report
-       (id, room_id, subject_kind, subject_id, reporter_user_id, reason, note, source, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, input.roomId, input.subjectKind, input.subjectId, input.userId, input.reason, note, source, input.now],
-    );
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `insert into member_report
+         (id, room_id, subject_kind, subject_id, reporter_user_id, reason, note, source, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, input.roomId, input.subjectKind, input.subjectId, input.userId, input.reason, note, source, input.now],
+      );
+      // A CSAM report on a post also flags it for the custodian. The flag hides the
+      // post's media from everyone at once, and the custodian decides what happens.
+      // A chat line has no media, so it stays a report only.
+      if (input.reason === "csam" && input.subjectKind === "post") {
+        const flagged = await flagCsam(tx, {
+          userId: input.userId,
+          name: input.name,
+          postId: input.subjectId,
+          reason: `Member report ${id}`,
+          source: "report",
+          now: input.now,
+        });
+        if (!flagged.ok) throw new Error(`CSAM flag failed: ${flagged.error}`);
+      }
+    });
   } catch (error) {
     if (isUniqueViolation(error)) return fail(409, "You already reported this.");
     throw error;
