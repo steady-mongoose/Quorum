@@ -6,33 +6,50 @@ function day(ms: number | null): string {
   return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** "2 of 5": how many times the code was used, out of how many it allows. */
+export function usedLabel(row: Pick<InviteRow, "uses" | "maxUses">): string {
+  return `${row.uses} of ${row.maxUses}`;
+}
+
+const cell = "px-3 py-2 align-top";
+
 /** Admin only. Read only: no buttons that change anything. */
 export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
   if (rows.length === 0) return <p className="text-sm text-muted">No invites yet.</p>;
   return (
-    <div className="overflow-x-auto">
+    <div
+      role="region"
+      aria-labelledby="invite-tracker-caption"
+      tabIndex={0}
+      className="overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2"
+    >
       <table className="w-full text-left text-sm">
+        <caption id="invite-tracker-caption" className="px-3 pb-2 text-left text-sm text-muted">
+          Invite codes, newest first, with who used each one
+        </caption>
         <thead className="text-muted">
           <tr>
-            <th scope="col">Note</th>
-            <th scope="col">Created</th>
-            <th scope="col">Expires</th>
-            <th scope="col">Redeemed</th>
-            <th scope="col">By</th>
-            <th scope="col">Email</th>
-            <th scope="col">Last sign-in</th>
+            <th scope="col" className={cell}>Note</th>
+            <th scope="col" className={cell}>Created</th>
+            <th scope="col" className={cell}>Expires</th>
+            <th scope="col" className={cell}>Used</th>
+            <th scope="col" className={cell}>By</th>
+            <th scope="col" className={cell}>Email</th>
+            <th scope="col" className={cell}>Last sign-in</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
             <tr key={`${row.id}-${index}`} className="border-t border-line">
-              <td>{row.note || "—"}</td>
-              <td>{day(row.createdAt)}</td>
-              <td>{day(row.expiresAt)}</td>
-              <td>{row.redeemed ? day(row.redeemedAt) : "No"}</td>
-              <td>{row.redeemedBy || "—"}</td>
-              <td>{row.memberEmail || "—"}</td>
-              <td>{day(row.lastSignIn)}</td>
+              <td className={cell}>{row.note || "—"}</td>
+              <td className={cell}>{day(row.createdAt)}</td>
+              <td className={cell}>{day(row.expiresAt)}</td>
+              <td className={cell}>{usedLabel(row)}</td>
+              <td className={cell}>
+                {row.redeemedBy ? `${row.redeemedBy}, ${day(row.redeemedAt)}` : "—"}
+              </td>
+              <td className={cell}>{row.memberEmail || "—"}</td>
+              <td className={cell}>{day(row.lastSignIn)}</td>
             </tr>
           ))}
         </tbody>
