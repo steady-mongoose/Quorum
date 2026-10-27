@@ -78,17 +78,21 @@ export function addUnauthorizedHandler(handler: () => void): () => void {
   };
 }
 
+/** Tell session listeners that this response is a 401. Other statuses do nothing. */
+export function noteUnauthorized(response: Response): void {
+  if (response.status !== 401) return;
+  for (const handler of unauthorizedHandlers) {
+    try {
+      handler();
+    } catch {
+      // One listener cannot block the response or the other listeners.
+    }
+  }
+}
+
 /** Fetch `path` against the configured API base. */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const response = await softenFetch(apiUrl(path), init);
-  if (response.status === 401) {
-    for (const handler of unauthorizedHandlers) {
-      try {
-        handler();
-      } catch {
-        // One listener cannot block the response or the other listeners.
-      }
-    }
-  }
+  noteUnauthorized(response);
   return response;
 }
