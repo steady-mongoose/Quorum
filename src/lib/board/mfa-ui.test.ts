@@ -45,6 +45,7 @@ test("authenticator screens use the plate, 44px targets, and no inline script", 
   const turnOff = ui.slice(ui.indexOf("Six-digit code or a recovery code"), ui.indexOf("Turn off authenticator"));
   assert.match(turnOff, /inputMode="text"/);
   assert.match(turnOff, /autoComplete="one-time-code"/);
+  assert.doesNotMatch(turnOff, /autoCapitalize/);
   assert.match(ui, /Two different admins/);
   assert.match(css, /--font-mono:\s*ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;/);
   assert.match(door, /MfaChallenge/);

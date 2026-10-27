@@ -338,7 +338,6 @@ export function MfaSettings() {
               className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
               value={code}
               inputMode="text"
-              autoCapitalize="characters"
               maxLength={16}
               autoComplete="one-time-code"
               onChange={(event) => setCode(disableCodeInput(event.target.value))}
