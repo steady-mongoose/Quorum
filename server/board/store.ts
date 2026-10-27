@@ -5,6 +5,7 @@ import { isUniqueViolation } from "../db.ts";
 import { categoryForRoom, categorySlugOk } from "../../src/lib/board/categories.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
+import { NO_STEWARD_ERROR } from "../../src/lib/board/access-rules.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
 import {
@@ -29,7 +30,16 @@ import {
   type AudiencePath,
 } from "./audience.ts";
 import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy.ts";
-import { councilMarks, type CouncilMark } from "./places-store.ts";
+import {
+  councilMarks,
+  keepStewarded,
+  stewardSnapshot,
+  confirmStewardsLeft,
+  readAccessLog,
+  seatSteward,
+  StewardStop,
+  type CouncilMark,
+} from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
 import {
@@ -1516,6 +1526,60 @@ async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<b
   return Boolean(lines[0]);
 }
 
+/**
+ * Bar someone without leaving a room stewardless: lock the rooms they steward,
+ * hand on any room they solely steward, write the bar, then check again.
+ */
+async function banKeepingStewards(
+  db: Db,
+  input: {
+    actorId: string;
+    person: { id: string; name: string };
+    rooms: "all" | string[];
+    replacementEmail: string;
+    inviterEmail: string;
+    reason: Parameters<typeof writeBan>[1]["reason"];
+    byName: string;
+    roomId: string;
+    now: Date;
+  },
+) {
+  try {
+    return await db.transaction(async (tx) => {
+      const snapshot = await stewardSnapshot(tx, input.person.id, input.rooms);
+      const kept = await keepStewarded(tx, {
+        actorId: input.actorId,
+        outgoingId: input.person.id,
+        rooms: input.rooms,
+        replacementEmail: input.replacementEmail,
+        inviterEmail: input.inviterEmail,
+        now: input.now,
+      });
+      if (kept) return kept;
+      const ban = await writeBan(tx, {
+        userId: input.person.id,
+        name: input.person.name,
+        reason: input.reason,
+        byUserId: input.actorId,
+        byName: input.byName,
+        removalId: null,
+        now: input.now,
+        roomId: input.roomId,
+      });
+      await confirmStewardsLeft(tx, {
+        outgoingId: input.person.id,
+        roomIds: snapshot,
+        removed: true,
+        now: input.now,
+      });
+      return { ok: true as const, value: ban };
+    });
+  } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
+    throw error;
+  }
+}
+
 export async function banMember(
   db: Db,
   input: {
@@ -1524,6 +1588,8 @@ export async function banMember(
     email: string;
     reason: string;
     roomId?: string;
+    replacementEmail?: string;
+    inviterEmail?: string;
     now: Date;
   },
 ): Promise<Result<BanEntry>> {
@@ -1547,18 +1613,20 @@ export async function banMember(
   if (stopped) return fail(403, stopped);
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
-    const ban = await writeBan(db, {
-      userId: person.id,
-      name: person.name,
+    const banned = await banKeepingStewards(db, {
+      actorId: input.userId,
+      person,
+      rooms: "all",
+      replacementEmail: input.replacementEmail ?? "",
+      inviterEmail: input.inviterEmail ?? "",
       reason,
-      byUserId: input.userId,
       byName,
-      removalId: null,
-      now: input.now,
       roomId: "",
+      now: input.now,
     });
+    if (!banned.ok) return banned;
     evictCallMember(person.id);
-    return { ok: true, value: ban };
+    return banned;
   }
   const roomId = input.roomId?.trim() ?? "";
   if (!roomId) return fail(400, "Name the room this bar is for.");
@@ -1580,16 +1648,19 @@ export async function banMember(
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
   const siteWide = reason === "csam";
-  const ban = await writeBan(db, {
-    userId: person.id,
-    name: person.name,
+  const banned = await banKeepingStewards(db, {
+    actorId: input.userId,
+    person,
+    rooms: siteWide ? "all" : [roomId],
+    replacementEmail: input.replacementEmail ?? "",
+    inviterEmail: input.inviterEmail ?? "",
     reason,
-    byUserId: input.userId,
     byName,
-    removalId: null,
-    now: input.now,
     roomId: siteWide ? "" : roomId,
+    now: input.now,
   });
+  if (!banned.ok) return banned;
+  const ban = banned.value;
   if (siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
@@ -1888,6 +1959,8 @@ export async function createRoom(
     categoryIds: string[];
     now: Date;
     audience?: unknown;
+    stewardEmail?: string;
+    inviterEmail?: string;
   },
 ): Promise<Result<BoardRoom>> {
   const actor = await actorRole(db, input.userId);
@@ -1907,6 +1980,9 @@ export async function createRoom(
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
+  if (!input.stewardEmail?.trim() || !input.inviterEmail?.trim()) {
+    return fail(400, NO_STEWARD_ERROR);
+  }
   try {
     await db.transaction(async (tx) => {
       await tx.query(
@@ -1938,8 +2014,18 @@ export async function createRoom(
           now: input.now,
         });
       }
+      const seated = await seatSteward(tx, {
+        actorId: input.userId,
+        roomId: id,
+        stewardEmail: input.stewardEmail ?? "",
+        inviterEmail: input.inviterEmail ?? "",
+        rows: await readAccessLog(tx),
+        now: input.now,
+      });
+      if (!seated.ok) throw new StewardStop(seated.status, seated.error);
     });
   } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
     if (isUniqueViolation(error)) return fail(409, "That room already exists.");
     throw error;
   }

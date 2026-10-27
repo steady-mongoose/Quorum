@@ -474,6 +474,8 @@ export async function handleBoard(
         what: stringField(body, "what"),
         categoryIds: categoryIdsField(body).categoryIds ?? [],
         audience: body.audience,
+        stewardEmail: stringField(body, "stewardEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
         now,
       });
       return fromResult(201, created);
@@ -630,6 +632,8 @@ export async function handleBoard(
           requestId: decide[1] ?? "",
           decision: stringField(body, "decision"),
           note: stringField(body, "note"),
+          stewardEmail: stringField(body, "stewardEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
           now,
         }),
       );
@@ -657,6 +661,8 @@ export async function handleBoard(
           roomId: roomJoin[1] ?? "",
           now,
           leave: roomJoin[2] === "leave",
+          replacementEmail: stringField(body, "replacementEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
         }),
       );
     }
@@ -670,6 +676,7 @@ export async function handleBoard(
         inviterEmail: stringField(body, "inviterEmail"),
         stewardEmail: stringField(body, "stewardEmail"),
         role: stringField(body, "role"),
+        replacementEmail: stringField(body, "replacementEmail"),
         now,
       });
       return fromResult(200, changed);
@@ -682,6 +689,8 @@ export async function handleBoard(
         email: stringField(body, "email"),
         reason: stringField(body, "reason"),
         roomId: stringField(body, "roomId"),
+        replacementEmail: stringField(body, "replacementEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
         now,
       });
       return fromResult(201, banned);
