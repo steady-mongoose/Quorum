@@ -55,9 +55,62 @@ function json(status: number, body: unknown, extra?: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Allow a state-changing request when:
+ * - it is not POST, PUT, PATCH, or DELETE
+ * - Origin is on the allow-list
+ * - Origin is absent and Referer is absent (non-browser callers, and a
+ *   same-origin browser that sent neither header)
+ * - Origin is absent and the Referer's origin is on the allow-list
+ *
+ * Reject when Origin is present and not listed, or when Origin is absent and
+ * the Referer names some other origin.
+ */
+function stateChangeAllowed(request: Request, origins: string[]): boolean {
+  if (!STATE_CHANGING.has(request.method)) return true;
+  const origin = request.headers.get("origin");
+  if (origin) return origins.includes(origin);
+  const referer = request.headers.get("referer");
+  if (!referer) return true;
+  try {
+    return origins.includes(new URL(referer).origin);
+  } catch {
+    return false;
+  }
+}
+
+function varyOrigin(headers: Headers) {
+  const current = headers.get("vary");
+  if (!current) {
+    headers.set("vary", "Origin");
+    return;
+  }
+  const parts = current.split(",").map((part) => part.trim().toLowerCase());
+  if (!parts.includes("origin")) headers.set("vary", `${current}, Origin`);
+}
+
+/** Response headers are immutable, so Vary is added on a copy. */
+function responseWithVary(response: Response): Response {
+  const current = response.headers.get("vary") ?? "";
+  const parts = current.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean);
+  if (parts.includes("origin")) return response;
+  const headers = new Headers(response.headers);
+  varyOrigin(headers);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function withCors(request: Request, response: Response, origins: string[]): Response {
   const origin = request.headers.get("origin");
-  if (!origin || !origins.includes(origin)) return response;
+  if (!origin || !origins.includes(origin)) {
+    if (request.method === "OPTIONS" || response.status === 403) return responseWithVary(response);
+    return response;
+  }
   const headers = new Headers();
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie") return;
@@ -67,7 +120,7 @@ function withCors(request: Request, response: Response, origins: string[]): Resp
     headers.append("set-cookie", cookie);
   headers.set("access-control-allow-origin", origin);
   headers.set("access-control-allow-credentials", "true");
-  headers.set("vary", "Origin");
+  varyOrigin(headers);
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -192,12 +245,28 @@ async function route(
   url: URL,
 ): Promise<Response> {
   if (request.method === "OPTIONS") {
+    const origin = request.headers.get("origin");
+    if (!origin || !deps.origins.includes(origin)) {
+      return new Response(null, { status: 403, headers: { vary: "Origin" } });
+    }
     const headers = new Headers({
-      "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-allow-headers": "content-type, authorization",
       "access-control-max-age": "600",
     });
     return new Response(null, { status: 204, headers });
+  }
+
+  // State-changing requests (POST, PUT, PATCH, DELETE) are checked when the
+  // browser names an origin. A caller with neither Origin nor Referer is
+  // allowed: curl, uptime checks, and other non-browser clients send neither,
+  // and a same-origin browser that omits both is treated the same way.
+  // GET /api/health is not state-changing, so it stays open with no Origin.
+  // An Origin that is not on the allow-list is rejected. When Origin is
+  // missing, the Referer URL's origin is checked the same way. A Referer that
+  // is not a URL is rejected. The literal Origin "null" is not on the list.
+  if (!stateChangeAllowed(request, deps.origins)) {
+    return json(403, { error: "That origin is not allowed." }, new Headers({ vary: "Origin" }));
   }
 
   if (url.pathname === "/api/health" && request.method === "GET") {

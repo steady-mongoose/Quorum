@@ -347,3 +347,33 @@ test("an admin seals a profile photo and a steward cannot", async () => {
     await close();
   }
 });
+
+test("a member removes their own photo and it is tombstoned", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await person(db, "ann", "Ann Vale", "member", "woman");
+    await person(db, "bo", "Bo Hale", "member", "man");
+    const store = createMemoryStore();
+    const handler = app(db, store);
+    const pic = await readyPhoto(db, store, "ann");
+    const attached = await send(handler, "ann", "/api/profile/photo", "POST", { mediaId: pic.id });
+    assert.equal(attached.status, 200);
+    const removed = await send(handler, "ann", "/api/profile/photo", "DELETE");
+    assert.equal(removed.status, 200, await removed.clone().text());
+    const row = await db.query<{ photo_media_id: string | null }>(
+      `select photo_media_id from members where user_id = 'ann'`,
+    );
+    assert.equal(row[0]?.photo_media_id, null);
+    const media = await db.query<{ deleted_at: Date | null }>(
+      `select deleted_at from media_object where id = $1`,
+      [pic.id],
+    );
+    assert.ok(media[0]?.deleted_at);
+    const seen = await readForMember({ db, store, now: () => now, videoEnabled: false }, "bo", pic.id);
+    assert.equal(seen.ok, false);
+    const again = await send(handler, "ann", "/api/profile/photo", "DELETE");
+    assert.equal(again.status, 200);
+  } finally {
+    await close();
+  }
+});
