@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createMemoryStore } from "./memory-store.ts";
@@ -155,4 +156,42 @@ test("an open CSAM flag blocks the media host for everyone once the flag table e
   } finally {
     await close();
   }
+});
+
+test("mediaIsBlocked runs right before signing, so a hold placed mid-check mints no link", async () => {
+  const { db, close, deps, id } = await setup();
+  try {
+    let signed = 0;
+    const spy = { ...signer, url: (...args: Parameters<typeof signer.url>) => (signed += 1, signer.url(...args)) };
+    let placed = false;
+    const racing: Db = Object.create(db);
+    racing.query = (async (sql: string, params?: unknown[]) => {
+      const result = await db.query(sql, params as never);
+      if (!placed && /from room_post where id = \$1 and room_id = \$2/.test(sql)) {
+        placed = true;
+        await db.query(
+          `insert into board_csam_hold (id, post_id, post_ids, room_id, author_user_id, author_name,
+             sealed, media_count, byte_size, created_at, retain_until)
+           values ($1, 'post-1', array['post-1'], 'shop', 'josh', 'josh', 'x', 1, 4, $2, $3)`,
+          [randomUUID(), now, new Date(now.getTime() + 365 * 86_400_000)],
+        );
+      }
+      return result;
+    }) as Db["query"];
+    const read = await readForMember({ ...deps, db: racing, signer: spy }, "josh", id);
+    assert.equal(placed, true);
+    assert.equal(read.ok, false);
+    assert.equal(signed, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("the media service calls mediaIsBlocked before every signer.url", () => {
+  const source = readFileSync(new URL("./service.ts", import.meta.url), "utf8");
+  const read = source.slice(source.indexOf("export async function readForMember"), source.indexOf("export async function serveSigned"));
+  const lastCheck = read.lastIndexOf("mediaIsBlocked(");
+  assert.ok(lastCheck > 0);
+  assert.ok(lastCheck < read.indexOf("signer.url("));
+  assert.equal(source.includes("servingBlocked"), false);
 });

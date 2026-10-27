@@ -19,7 +19,7 @@ import {
   userExists,
 } from "./db.ts";
 import { attachmentName, type ObjectStore } from "./s3.ts";
-import { servingBlocked } from "./serve-block.ts";
+import { mediaIsBlocked } from "./serve-block.ts";
 import type { MediaUrlSigner } from "./signed-url.ts";
 
 export type MediaResult<T> =
@@ -163,7 +163,7 @@ export async function readForMember(
 > {
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
-  if (await servingBlocked(deps.db, row)) {
+  if (await mediaIsBlocked(deps.db, row)) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {
@@ -210,6 +210,11 @@ export async function readForMember(
         encryption: row.encryption,
       },
     };
+  }
+  // Check again right before signing. A hold or flag can land during the member check
+  // above, and a signed link must never be minted for a blocked file.
+  if (await mediaIsBlocked(deps.db, row)) {
+    return { ok: false, status: 404, error: "That file is not here." };
   }
   const now = deps.now();
   const servedType =
@@ -271,7 +276,7 @@ export async function serveSigned(
 > {
   const row = await readMedia(deps.db, input.id);
   if (!row || row.deleted_at || row.status !== "ready") return { ok: false, status: 404 };
-  if (await servingBlocked(deps.db, row)) return { ok: false, status: 404 };
+  if (await mediaIsBlocked(deps.db, row)) return { ok: false, status: 404 };
   const key = input.variant === "thumb" ? row.thumb_key : row.file_key;
   if (!key || key.startsWith("csam-hold/") || key.startsWith("csam-held:")) return { ok: false, status: 404 };
   const bytes = await deps.store.get(key);
