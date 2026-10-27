@@ -272,3 +272,18 @@ test("a site-wide revoke beats a room grant until a later site-wide grant", asyn
     await close();
   }
 });
+
+test("a later site-wide grant does not undo a room revoke; a later room grant does", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const m = await member(db, "Roomed");
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    await log(db, m, "revoke", "shop", t(1));
+    await log(db, m, "grant", "", t(2));
+    assert.equal((await roomCallMember(db, m, "shop", t(3))).kind, "outsider");
+    await log(db, m, "grant", "shop", t(4));
+    assert.equal((await roomCallMember(db, m, "shop", t(5))).kind, "member");
+  } finally {
+    await close();
+  }
+});

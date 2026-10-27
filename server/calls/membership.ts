@@ -99,14 +99,15 @@ function latest(rows: AccessRowLite[]): AccessRowLite | undefined {
 /**
  * Member standing for one room, from the site-wide ('') and this room's rows only.
  * A grant in another room never restores it. A site-wide revoke wins over any
- * room grant unless a later site-wide grant restores the member. Otherwise the
- * latest of the site-wide and this room's rows decides.
+ * room grant unless a later site-wide grant restores the member. A room revoke
+ * stands until a later grant for this same room; a site-wide grant does not undo it.
  * "none" means no grant history at all (posted-only people).
  */
 export function roomMemberStanding(rows: AccessRowLite[]): "granted" | "revoked" | "none" {
   const site = latest(rows.filter((row) => row.room_id === ""));
+  const room = latest(rows.filter((row) => row.room_id !== ""));
   if (site?.action === "revoke") return "revoked";
-  const last = latest(rows);
-  if (!last) return "none";
-  return last.action === "revoke" ? "revoked" : "granted";
+  // A room revoke stands until a later grant for this same room.
+  if (room) return room.action === "revoke" ? "revoked" : "granted";
+  return site ? "granted" : "none";
 }
