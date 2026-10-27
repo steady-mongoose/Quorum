@@ -16,14 +16,7 @@ import {
 } from "../gender-policy.ts";
 
 export type AudiencePath =
-  | "list"
-  | "read"
-  | "join"
-  | "post"
-  | "calls"
-  | "chat"
-  | "invite"
-  | "group";
+  "list" | "read" | "join" | "post" | "calls" | "chat" | "invite" | "group";
 
 export type AudienceDenial = {
   ok: false;
@@ -36,15 +29,18 @@ export type AudienceDenial = {
 };
 
 export type GenderResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: number; error: string; code?: AudienceCode };
+  { ok: true; value: T } | { ok: false; status: number; error: string; code?: AudienceCode };
 
 type AuditAction =
   | "set-gender"
   | "change-gender"
   | "confirm-gender"
   | "set-audience"
-  | "audience-override";
+  | "audience-override"
+  | "set-birthdate"
+  | "change-birthdate"
+  | "correction-request"
+  | "correction-refuse";
 
 function denial(
   path: AudiencePath,
@@ -265,7 +261,9 @@ async function groupFacts(
 
 function displayAudience(column: Audience, sources: GroupSource[]): Audience {
   if (sources.length === 0) return column;
-  const restricted = [...new Set(sources.map((source) => source.audience).filter((item) => item !== "all"))];
+  const restricted = [
+    ...new Set(sources.map((source) => source.audience).filter((item) => item !== "all")),
+  ];
   if (restricted.length === 1) return restricted[0] ?? "all";
   return "all";
 }
@@ -298,7 +296,8 @@ export async function filterGroups<T extends { id: string }>(
     return { row, fact, audience: displayAudience(fact.column, fact.sources) };
   });
   const restricted = decorated.some(
-    (item) => item.audience !== "all" || item.fact.sources.some((source) => source.audience !== "all"),
+    (item) =>
+      item.audience !== "all" || item.fact.sources.some((source) => source.audience !== "all"),
   );
   if (!restricted) {
     return { visible: decorated.map((item) => ({ ...item.row, audience: item.audience })), denied };
@@ -453,8 +452,17 @@ export async function setMemberGender(
   if (decision.kind === "same") return { ok: true, value: { gender: next } };
   await db.transaction(async (tx) => {
     await tx.query(
-      `insert into members (user_id, gender, gender_confirmed_by, gender_confirmed_at)
-       values ($1, $2, null, null)
+      `insert into members (user_id, gender, gender_confirmed_by, gender_confirmed_at, display_name)
+       values (
+         $1,
+         $2,
+         null,
+         null,
+         coalesce(
+           (select left(nullif(trim(name), ''), 80) from "user" where id = $1),
+           'Member'
+         )
+       )
        on conflict (user_id) do update
          set gender = excluded.gender,
              gender_confirmed_by = null,

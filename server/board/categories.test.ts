@@ -652,7 +652,7 @@ test("a category list hides a room the member does not match", async () => {
     await grant(db, man, "Ben", "member");
     await grant(db, steward, "Cora", "member");
     await grant(db, steward, "Cora", "steward", "shop");
-    await db.query(`insert into members (user_id, gender) values ($1, 'woman'), ($2, 'man'), ($3, 'woman')`, [
+    await db.query(`insert into members (user_id, display_name, gender) values ($1, 'Ann', 'woman'), ($2, 'Bo', 'man'), ($3, 'Cy', 'woman')`, [
       woman,
       man,
       steward,

@@ -8,6 +8,7 @@ import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
 import { handleTakedown } from "./takedown/routes.ts";
+import { handleProfile } from "./profile/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
@@ -396,6 +397,9 @@ async function route(
     }
     return json(201, minted.value);
   }
+
+  const profile = await handleProfile(deps, request, url);
+  if (profile) return profile;
 
   if (url.pathname === "/api/invite-log" && request.method === "GET") {
     const session = await deps.readSession(request.headers);
