@@ -1,6 +1,9 @@
 -- Numbered 0034 (0031-0033 are taken by queued PRs).
 -- CSAM holds: only named custodians (the owner, plus at most three admins the owner names)
--- can reach a hold. Every access is logged. A legal hold stops the one-year purge.
+-- can reach a hold. Every access is logged. Every match is reported to NCMEC and
+-- preserved for at least one year. A hold is released only with a recorded lawyer
+-- sign-off (name and reference, logged); no custodian releases on their own judgement.
+-- The purge needs the year to have passed, a filed report and that sign-off.
 
 create table if not exists csam_custodian (
   user_id text primary key references "user" (id) on delete cascade,
@@ -15,7 +18,7 @@ create table if not exists csam_access_log (
   action text not null check (
     action in ('list', 'file_report', 'legal_hold_on', 'legal_hold_off', 'purge',
                'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged',
-               'release_requested', 'release_confirmed')
+               'hold_released')
   ),
   detail text not null default '' check (char_length(detail) <= 500),
   created_at timestamptz not null default now()
@@ -52,18 +55,18 @@ create table if not exists csam_flag (
   check (post_id <> '' or media_id <> '')
 );
 
--- Release of a false flag. NEEDS JOSH'S POLICY OK. Nobody views the files to decide it:
--- one custodian writes why the flag is false, and a second, different custodian confirms.
--- Both steps are in csam_access_log.
+-- A flag is never released. It closes only when its post is preserved and removed.
 alter table csam_flag add column if not exists resolution text not null default ''
-  check (resolution in ('', 'removed', 'released'));
-alter table csam_flag add column if not exists release_requested_by_user_id text
+  check (resolution in ('', 'removed'));
+
+-- The lawyer sign-off that releases a hold.
+alter table board_csam_hold add column if not exists released_at timestamptz;
+alter table board_csam_hold add column if not exists released_by_user_id text
   references "user" (id) on delete set null;
-alter table csam_flag add column if not exists release_reason text not null default ''
-  check (char_length(release_reason) <= 500);
-alter table csam_flag add column if not exists release_requested_at timestamptz;
-alter table csam_flag add column if not exists released_by_user_id text
-  references "user" (id) on delete set null;
+alter table board_csam_hold add column if not exists release_lawyer_name text not null default ''
+  check (char_length(release_lawyer_name) <= 120);
+alter table board_csam_hold add column if not exists release_lawyer_reference text not null default ''
+  check (char_length(release_lawyer_reference) <= 120);
 
 create index if not exists csam_flag_post_idx on csam_flag (post_id) where resolved_at is null;
 create index if not exists csam_flag_media_idx on csam_flag (media_id) where resolved_at is null;

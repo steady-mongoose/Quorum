@@ -4,8 +4,8 @@ import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { fileCsamReport } from "./csam.ts";
-import { readCsamQueue, setCustodian, setLegalHold } from "./csam-custody.ts";
-import { confirmFlagRelease, memberFlagCsam, removeFlagged, requestFlagRelease } from "./csam-flag.ts";
+import { readCsamQueue, releaseHold, setCustodian, setLegalHold } from "./csam-custody.ts";
+import { memberFlagCsam, removeFlagged } from "./csam-flag.ts";
 import {
   correctZip,
   decideRoom,
@@ -202,7 +202,7 @@ export async function handleBoard(
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const legalHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/legal-hold$/.exec(url.pathname);
   const flagRemove = /^\/api\/csam-flags\/([A-Za-z0-9_-]{1,80})\/remove$/.exec(url.pathname);
-  const flagRelease = /^\/api\/csam-flags\/([A-Za-z0-9_-]{1,80})\/release(\/confirm)?$/.exec(url.pathname);
+  const holdRelease = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/release$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const claimAction =
@@ -258,7 +258,7 @@ export async function handleBoard(
     (url.pathname === "/api/csam-flags" && request.method === "POST") ||
     (url.pathname === "/api/csam-queue" && request.method === "GET") ||
     Boolean(flagRemove && request.method === "POST") ||
-    Boolean(flagRelease && request.method === "POST");
+    Boolean(holdRelease && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -723,13 +723,16 @@ export async function handleBoard(
       );
     }
 
-    if (flagRelease) {
-      const flagId = flagRelease[1] ?? "";
+    if (holdRelease) {
       return fromResult(
         200,
-        flagRelease[2]
-          ? await confirmFlagRelease(deps.db, { userId: session.id, flagId, now })
-          : await requestFlagRelease(deps.db, { userId: session.id, flagId, reason: stringField(body, "reason"), now }),
+        await releaseHold(deps.db, {
+          userId: session.id,
+          holdId: holdRelease[1] ?? "",
+          lawyerName: stringField(body, "lawyerName"),
+          lawyerReference: stringField(body, "lawyerReference"),
+          now,
+        }),
       );
     }
 

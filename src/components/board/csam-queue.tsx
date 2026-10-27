@@ -16,20 +16,18 @@ import {
  */
 export const NOT_CUSTODIAN =
   "Only a named CSAM custodian can see this queue. Ask the owner if you should be one.";
-export const LEGAL_HOLD_OFF_CONFIRM = "Turn off the legal hold? The hold will be purged when its year ends.";
 export const LEGAL_HOLD_NOTE_LABEL = "Who asked for the hold, and why";
 export const LEGAL_HOLD_NOTE_ERROR = "Say who asked for the hold, and why.";
 export const REMOVE_FLAGGED_CONFIRM =
   "Preserve and remove this post? Its files are sealed unopened for NCMEC and the post comes down.";
-export const RELEASE_REASON_LABEL = "Why this flag is false (a second custodian must confirm)";
-export const RELEASE_REASON_MIN = 20;
-export const RELEASE_REASON_ERROR = `Write why this flag is false, at least ${RELEASE_REASON_MIN} characters.`;
-export const RELEASE_REASON_HINT =
-  "At least 20 characters. Another custodian reads this before the flag is released.";
-export const RELEASE_REQUESTED = "Release requested. Another custodian must confirm.";
-export const RELEASE_MINE = "You asked to release this flag. Another custodian must confirm it.";
-export const RELEASE_CONFIRM =
-  "Release this flag? Its files will be served again. You are confirming another custodian's written reason. Nobody opens the files.";
+export const RELEASE_LAWYER_LABEL = "Lawyer who signed off";
+export const RELEASE_REFERENCE_LABEL = "Lawyer's reference";
+export const RELEASE_HINT =
+  "A hold is released only with a lawyer's sign-off. Both fields are logged. The one-year preservation still applies.";
+export const RELEASE_FIELDS_ERROR = "Enter the lawyer's name and their reference.";
+export const RELEASE_DONE = "Lawyer sign-off recorded. The hold is released.";
+export const releaseConfirm = (lawyer: string, reference: string) =>
+  `Record the release signed off by ${lawyer} (reference ${reference})? This is logged. The files stay preserved until the year ends.`;
 export const recordConfirm = (id: string) =>
   `Record CyberTipline report ${id}? This starts the one-year hold. Check the number against the NCMEC receipt.`;
 export const grantConfirm = (name: string) =>
@@ -38,10 +36,9 @@ export const revokeConfirm = (name: string) => `Remove ${name} as a CSAM custodi
 
 type Pending =
   | { kind: "file"; holdId: string; reportId: string }
-  | { kind: "hold-off"; holdId: string }
+  | { kind: "release"; holdId: string; lawyer: string; reference: string }
   | { kind: "grant" | "revoke"; userId: string; name: string }
-  | { kind: "remove"; flagId: string }
-  | { kind: "release"; flagId: string };
+  | { kind: "remove"; flagId: string };
 
 function when(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -101,26 +98,24 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
   const confirm = () => {
     if (!pending) return;
     if (pending.kind === "file") void run(() => api.file(pending.holdId, pending.reportId), true);
-    else if (pending.kind === "hold-off") void run(() => api.legalHold(pending.holdId, false, ""));
+    else if (pending.kind === "release")
+      void run(() => api.releaseHold(pending.holdId, pending.lawyer, pending.reference), true, RELEASE_DONE);
     else if (pending.kind === "remove") void run(() => api.removeFlagged(pending.flagId), true);
-    else if (pending.kind === "release") void run(() => api.confirmRelease(pending.flagId), true);
     else void run(() => api.custodian(pending.userId, pending.kind === "grant"));
   };
 
   const dialog =
     pending?.kind === "file"
       ? { title: "Record filing", text: recordConfirm(pending.reportId), label: "Record filing" }
-      : pending?.kind === "hold-off"
-        ? { title: "Legal hold", text: LEGAL_HOLD_OFF_CONFIRM, label: "Turn it off" }
+      : pending?.kind === "release"
+        ? { title: "Release hold", text: releaseConfirm(pending.lawyer, pending.reference), label: "Record release" }
         : pending?.kind === "grant"
           ? { title: "CSAM custodian", text: grantConfirm(pending.name), label: "Make custodian" }
           : pending?.kind === "revoke"
             ? { title: "CSAM custodian", text: revokeConfirm(pending.name), label: "Remove custodian" }
             : pending?.kind === "remove"
               ? { title: "Preserve and remove", text: REMOVE_FLAGGED_CONFIRM, label: "Preserve and remove" }
-              : pending?.kind === "release"
-                ? { title: "Release flag", text: RELEASE_CONFIRM, label: "Confirm release" }
-                : null;
+              : null;
 
   return (
     <section
@@ -158,10 +153,6 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
                   flag={flag}
                   busy={busy}
                   onRemove={() => setPending({ kind: "remove", flagId: flag.id })}
-                  onRequestRelease={(reason) =>
-                    void run(() => api.requestRelease(flag.id, reason), true, RELEASE_REQUESTED)
-                  }
-                  onConfirmRelease={() => setPending({ kind: "release", flagId: flag.id })}
                 />
               ))}
             </ul>
@@ -178,7 +169,10 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
                   busy={busy}
                   onFile={(reportId) => setPending({ kind: "file", holdId: hold.id, reportId })}
                   onHoldOn={(note) => void run(() => api.legalHold(hold.id, true, note))}
-                  onHoldOff={() => setPending({ kind: "hold-off", holdId: hold.id })}
+                  canRelease={view.custodian}
+                  onRelease={(lawyer, reference) =>
+                    setPending({ kind: "release", holdId: hold.id, lawyer, reference })
+                  }
                 />
               ))}
             </ul>
@@ -254,20 +248,11 @@ function FlagRow({
   flag,
   busy,
   onRemove,
-  onRequestRelease,
-  onConfirmRelease,
 }: {
   flag: CsamFlagView;
   busy: boolean;
   onRemove: () => void;
-  onRequestRelease: (reason: string) => void;
-  onConfirmRelease: () => void;
 }) {
-  const [reason, setReason] = useState("");
-  const [reasonError, setReasonError] = useState("");
-  const reasonId = `csam-release-${flag.id}`;
-  const reasonErrorId = `csam-release-error-${flag.id}`;
-  const reasonHintId = `csam-release-hint-${flag.id}`;
   return (
     <li className="rounded-md border border-line px-3 py-2 text-sm text-muted">
       <p>
@@ -285,67 +270,6 @@ function FlagRow({
       >
         Preserve and remove
       </button>
-      {flag.releaseRequestedByMe ? (
-        <p className="mt-2 text-fg">{RELEASE_MINE}</p>
-      ) : flag.releaseRequestedBy ? (
-        <div className="mt-2 flex flex-col gap-2">
-          <p className="text-fg">
-            {flag.releaseRequestedBy} asked to release this flag: {flag.releaseReason}
-          </p>
-          <button
-            type="button"
-            className={`${btnGhost} min-h-[44px] self-start`}
-            aria-label={`Confirm release of flag on post ${flag.postId}`}
-            aria-disabled={busy || undefined}
-            onClick={() => !busy && onConfirmRelease()}
-          >
-            Confirm release
-          </button>
-        </div>
-      ) : (
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <label htmlFor={reasonId} className="flex min-w-0 flex-1 flex-col gap-1 text-fg">
-            {RELEASE_REASON_LABEL}
-            <textarea
-              id={reasonId}
-              className={fieldClass}
-              value={reason}
-              maxLength={500}
-              aria-invalid={reasonError ? true : undefined}
-              aria-describedby={reasonError ? `${reasonHintId} ${reasonErrorId}` : reasonHintId}
-              onChange={(event) => {
-                setReason(event.target.value);
-                setReasonError("");
-              }}
-            />
-          </label>
-          <p id={reasonHintId} className="basis-full text-muted">
-            {RELEASE_REASON_HINT}
-          </p>
-          <button
-            type="button"
-            className={`${btnGhost} min-h-[44px]`}
-            aria-label={`Release flag on post ${flag.postId}`}
-            aria-disabled={busy || undefined}
-            onClick={() => {
-              if (busy) return;
-              const typed = reason.trim();
-              if (typed.length < RELEASE_REASON_MIN) {
-                setReasonError(RELEASE_REASON_ERROR);
-                return;
-              }
-              onRequestRelease(typed);
-            }}
-          >
-            Release flag
-          </button>
-          {reasonError ? (
-            <p id={reasonErrorId} role="alert" className="basis-full text-danger">
-              {reasonError}
-            </p>
-          ) : null}
-        </div>
-      )}
     </li>
   );
 }
@@ -355,14 +279,24 @@ function HoldRow({
   busy,
   onFile,
   onHoldOn,
-  onHoldOff,
+  canRelease,
+  onRelease,
 }: {
   hold: CsamHoldView;
   busy: boolean;
   onFile: (reportId: string) => void;
   onHoldOn: (note: string) => void;
-  onHoldOff: () => void;
+  canRelease: boolean;
+  onRelease: (lawyer: string, reference: string) => void;
 }) {
+  const [lawyer, setLawyer] = useState("");
+  const [reference, setReference] = useState("");
+  const [releaseError, setReleaseError] = useState("");
+  const lawyerField = `csam-lawyer-${hold.id}`;
+  const referenceField = `csam-lawyer-ref-${hold.id}`;
+  const releaseHintId = `csam-release-hint-${hold.id}`;
+  const releaseErrorId = `csam-release-error-${hold.id}`;
+  const releaseDescribed = releaseError ? `${releaseHintId} ${releaseErrorId}` : releaseHintId;
   const [reportId, setReportId] = useState("");
   const [note, setNote] = useState("");
   const [fieldError, setFieldError] = useState("");
@@ -432,19 +366,13 @@ function HoldRow({
           </button>
         </div>
       ) : null}
-      {hold.legalHold ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-fg">Legal hold on: {hold.legalHoldNote}</p>
-          <button
-            type="button"
-            className={btnGhost}
-            aria-label={`Turn off legal hold for post ${hold.postId}`}
-            aria-disabled={busy || undefined}
-            onClick={() => !busy && onHoldOff()}
-          >
-            Turn off legal hold
-          </button>
-        </div>
+      {hold.releasedAt ? (
+        <p className="text-fg">
+          Released {when(hold.releasedAt)} on the sign-off of {hold.releaseLawyer} (reference{" "}
+          {hold.releaseReference})
+        </p>
+      ) : hold.legalHold ? (
+        <p className="text-fg">Legal hold on: {hold.legalHoldNote}</p>
       ) : (
         <div className="flex flex-wrap items-end gap-2">
           <label htmlFor={noteField} className="flex flex-col gap-1 text-fg">
@@ -486,6 +414,68 @@ function HoldRow({
           ) : null}
         </div>
       )}
+      {canRelease && hold.status === "filed" && !hold.releasedAt ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <label htmlFor={lawyerField} className="flex flex-col gap-1 text-fg">
+            {RELEASE_LAWYER_LABEL}
+            <input
+              id={lawyerField}
+              className={fieldClass}
+              value={lawyer}
+              maxLength={120}
+              autoComplete="off"
+              aria-invalid={releaseError && !lawyer.trim() ? true : undefined}
+              aria-describedby={releaseDescribed}
+              onChange={(event) => {
+                setLawyer(event.target.value);
+                setReleaseError("");
+              }}
+            />
+          </label>
+          <label htmlFor={referenceField} className="flex flex-col gap-1 text-fg">
+            {RELEASE_REFERENCE_LABEL}
+            <input
+              id={referenceField}
+              className={fieldClass}
+              value={reference}
+              maxLength={120}
+              autoComplete="off"
+              aria-invalid={releaseError && !reference.trim() ? true : undefined}
+              aria-describedby={releaseDescribed}
+              onChange={(event) => {
+                setReference(event.target.value);
+                setReleaseError("");
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className={`${btnGhost} min-h-[44px]`}
+            aria-label={`Release hold for post ${hold.postId}`}
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (busy) return;
+              const name = lawyer.trim();
+              const ref = reference.trim();
+              if (name.length < 2 || ref.length < 2) {
+                setReleaseError(RELEASE_FIELDS_ERROR);
+                return;
+              }
+              onRelease(name, ref);
+            }}
+          >
+            Release hold
+          </button>
+          <p id={releaseHintId} className="basis-full text-muted">
+            {RELEASE_HINT}
+          </p>
+          {releaseError ? (
+            <p id={releaseErrorId} role="alert" className="basis-full text-danger">
+              {releaseError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }

@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
@@ -23,6 +24,7 @@ const appTests = [
   "src/lib/board/confirm-dialog.render.test.mjs",
   "src/lib/board/csam-queue.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
+  "src/lib/board/removal-confirm.test.ts",
   "src/lib/board/design-critic.test.ts",
   "src/lib/board/about-mission.test.ts",
   "src/lib/app-data/app-data.test.ts",
@@ -106,7 +108,6 @@ const appTests = [
   "server/board/csam.test.ts",
   "server/board/csam-custody.test.ts",
   "server/board/csam-flag.test.ts",
-  "server/board/csam-release.test.ts",
   "server/media/csam-block.test.ts",
   "server/security-log-purge.test.ts",
   "server/board/alert-mail.test.ts",
@@ -127,6 +128,10 @@ const appTests = [
   "server/board/groups.test.ts",
   "server/board/audience.test.ts",
   "server/gender-policy.test.ts",
+  "server/profile/fields.test.ts",
+  "server/profile/schema.test.ts",
+  "server/profile/view.test.ts",
+  "server/profile/http.test.ts",
   "server/board/groups-http.test.ts",
   "server/chat/store.test.ts",
   "server/chat/http.test.ts",

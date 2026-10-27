@@ -19,6 +19,10 @@ export type CsamHoldView = {
   fileHashes: string[];
   reporter: string;
   reportReason: string;
+  /** Released only with a recorded lawyer sign-off. */
+  releasedAt: number | null;
+  releaseLawyer: string;
+  releaseReference: string;
 };
 
 export type CsamFlagView = {
@@ -30,9 +34,6 @@ export type CsamFlagView = {
   uploader: string;
   fileIds: string[];
   at: number;
-  releaseRequestedBy: string;
-  releaseReason: string;
-  releaseRequestedByMe: boolean;
 };
 
 export type CsamPersonView = { id: string; name: string; custodian: boolean };
@@ -53,8 +54,7 @@ export type CsamApi = {
   legalHold: (holdId: string, on: boolean, note: string) => Promise<CsamDone>;
   custodian: (userId: string, grant: boolean) => Promise<CsamDone>;
   removeFlagged: (flagId: string) => Promise<CsamDone>;
-  requestRelease: (flagId: string, reason: string) => Promise<CsamDone>;
-  confirmRelease: (flagId: string) => Promise<CsamDone>;
+  releaseHold: (holdId: string, lawyerName: string, lawyerReference: string) => Promise<CsamDone>;
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -89,6 +89,9 @@ export function queueFrom(value: unknown): CsamQueueView {
       fileHashes: strs(row.fileHashes),
       reporter: str(row.reporter),
       reportReason: str(row.reportReason),
+      releasedAt: typeof row.releasedAt === "number" ? row.releasedAt : null,
+      releaseLawyer: str(row.releaseLawyer),
+      releaseReference: str(row.releaseReference),
     })),
     flags: rows(body.flags).map((row) => ({
       id: str(row.id),
@@ -99,9 +102,6 @@ export function queueFrom(value: unknown): CsamQueueView {
       uploader: str(row.uploader),
       fileIds: strs(row.fileIds),
       at: num(row.at),
-      releaseRequestedBy: str(row.releaseRequestedBy),
-      releaseReason: str(row.releaseReason),
-      releaseRequestedByMe: row.releaseRequestedByMe === true,
     })),
     admins: rows(body.admins).map((row) => ({
       id: str(row.id),
@@ -143,7 +143,6 @@ export const csamApi: CsamApi = {
     post(`/api/csam-holds/${encodeURIComponent(holdId)}/legal-hold`, { on, note }),
   custodian: (userId, grant) => post("/api/csam-custodians", { userId, grant }),
   removeFlagged: (flagId) => post(`/api/csam-flags/${encodeURIComponent(flagId)}/remove`, {}),
-  requestRelease: (flagId, reason) =>
-    post(`/api/csam-flags/${encodeURIComponent(flagId)}/release`, { reason }),
-  confirmRelease: (flagId) => post(`/api/csam-flags/${encodeURIComponent(flagId)}/release/confirm`, {}),
+  releaseHold: (holdId, lawyerName, lawyerReference) =>
+    post(`/api/csam-holds/${encodeURIComponent(holdId)}/release`, { lawyerName, lawyerReference }),
 };

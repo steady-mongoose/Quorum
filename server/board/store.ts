@@ -777,7 +777,7 @@ export async function listBoard(
       legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
-    if (custodian) csamFlags = await listCsamFlags(db, userId);
+    if (custodian) csamFlags = await listCsamFlags(db);
     if (custodian && reportRows.length > 0) {
       await logHoldAccess(db, {
         actorUserId: userId,
@@ -884,6 +884,7 @@ export async function listBoard(
       csamFlags,
       adminAlerts,
       pages,
+      // TODO(rsvp-server): this board response carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
     },
   };
 }
