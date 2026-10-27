@@ -12,7 +12,7 @@ import {
 } from "../closed-test/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import type { GenderPolicy } from "../gender-policy.ts";
+import { GENDER_CORRECTION_ERROR, type GenderPolicy } from "../gender-policy.ts";
 import {
   confirmMemberGender,
   guardRoomAudience,
@@ -505,27 +505,27 @@ test("a restricted room is enforced on every path, and a steward override is log
 
     const second = refusal(await setMemberGender(db, { actorUserId: adam, subjectUserId: adam, gender: "woman", now }));
     assert.equal(second.status, 403);
-    assert.equal(second.error, "This cannot be changed once it is set.");
+    assert.equal(second.error, GENDER_CORRECTION_ERROR);
     const stewardChange = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: adam, gender: "woman", now }),
     );
     assert.equal(stewardChange.status, 403);
-    assert.equal(stewardChange.error, "This cannot be changed once it is set.");
+    assert.equal(stewardChange.error, GENDER_CORRECTION_ERROR);
     const stewardSelf = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: helen, gender: "man", now }),
     );
     assert.equal(stewardSelf.status, 403);
-    assert.equal(stewardSelf.error, "This cannot be changed once it is set.");
+    assert.equal(stewardSelf.error, GENDER_CORRECTION_ERROR);
     const adminSelf = refusal(
       await setMemberGender(db, { actorUserId: josh, subjectUserId: josh, gender: "woman", now }),
     );
     assert.equal(adminSelf.status, 403);
-    assert.equal(adminSelf.error, "This cannot be changed once it is set.");
+    assert.equal(adminSelf.error, GENDER_CORRECTION_ERROR);
     const adminEdit = refusal(
       await setMemberGender(db, { actorUserId: josh, subjectUserId: adam, gender: "woman", now }),
     );
     assert.equal(adminEdit.status, 403);
-    assert.equal(adminEdit.error, "This cannot be changed once it is set.");
+    assert.equal(adminEdit.error, GENDER_CORRECTION_ERROR);
     const changeAudit = await db.query(`select 1 from gender_audit where action = 'change-gender'`);
     assert.equal(changeAudit.length, 0);
     // The rest of this test needs Adam recorded as a woman. There is no app path for that now,

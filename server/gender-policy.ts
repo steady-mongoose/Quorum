@@ -2,8 +2,9 @@
  * Who may record a gender, and whether a restricted room waits for confirmation.
  * Change this object to change the rule. Do not copy the rule anywhere else.
  *
- * Default: the member sets it once. An admin changes it after that.
- * No one changes their own. A room steward cannot change it.
+ * Default: the member sets it once. After that it changes only through a
+ * correction request that an admin reviews (server/profile/corrections.ts).
+ * No one edits it directly, including an admin.
  * Confirmation is off, so a stated gender counts at once.
  */
 export const GENDER_POLICY = {
@@ -12,6 +13,10 @@ export const GENDER_POLICY = {
   GENDER_CHANGE_BY: "admin",
   GENDER_CHANGE_ALLOWS_SELF: false,
 } as const;
+
+/** The refusal for a direct edit. It points to the correction request. */
+export const GENDER_CORRECTION_ERROR =
+  "This is already set. To correct it, send a correction request. An admin reviews it.";
 
 export type GenderSetBy = "self" | "inviter" | "steward";
 export type GenderChangeBy = "admin" | "steward";
@@ -113,7 +118,7 @@ export function genderWriteDecision(
     actorIsAdmin: boolean;
   },
   policy: GenderPolicy = GENDER_POLICY,
-): { ok: true; kind: "same" | "set" | "change" } | { ok: false; status: number; error: string } {
+): { ok: true; kind: "same" | "set" } | { ok: false; status: number; error: string } {
   if (input.current === input.next) return { ok: true, kind: "same" };
   if (input.current === null) {
     if (policy.GENDER_SET_BY === "self") {
@@ -131,9 +136,10 @@ export function genderWriteDecision(
     if (!input.actorIsSteward) return { ok: false, status: 403, error: "A steward sets this." };
     return { ok: true, kind: "set" };
   }
-  // No one edits a stated gender after it is set, including an admin.
+  // No one edits a stated gender directly, including an admin. A change goes
+  // through an admin-reviewed correction request instead.
   void policy;
-  return { ok: false, status: 403, error: "This cannot be changed once it is set." };
+  return { ok: false, status: 403, error: GENDER_CORRECTION_ERROR };
 }
 
 export function genderPolicyPayload(policy: GenderPolicy = GENDER_POLICY) {

@@ -164,10 +164,6 @@ type BoardState = {
     audience: "all" | "men" | "women",
   ) => Promise<{ ok: boolean; error?: string }>;
   setGender: (gender: "man" | "woman") => Promise<{ ok: boolean; error?: string }>;
-  setMemberGender: (input: {
-    gender: "man" | "woman";
-    email: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
   confirmGender: (email: string) => Promise<{ ok: boolean; error?: string }>;
   appointSteward: (input: {
     email: string;
@@ -1381,12 +1377,6 @@ export const useBoard = create<BoardState>()(
             } else set({ roomHold: null, roomHoldBack: null });
           }
           await pullHome();
-          return { ok: true };
-        },
-        setMemberGender: async (input) => {
-          if (!get().remote) return { ok: false, error: "That is saved on the server." };
-          const saved = await (await getBoardClient()).setGender(input);
-          if (!saved.ok) return { ok: false, error: saved.error };
           return { ok: true };
         },
         confirmGender: async (email) => {
