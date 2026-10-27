@@ -47,6 +47,36 @@ async function memberOrBan(db: Db, userId: string, now: Date): Promise<PhotoFail
 }
 
 /**
+ * The member takes their own photo down. The picture is tombstoned so the
+ * media sweep deletes it. A held (csam) object is left alone.
+ */
+export async function clearOwnProfilePhoto(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<PhotoResult<{ profile: ProfileBody }>> {
+  await db.transaction(async (tx) => {
+    const current = await tx.query<{ photo_media_id: string | null }>(
+      `select photo_media_id from members where user_id = $1 for update`,
+      [userId],
+    );
+    const previous = current[0]?.photo_media_id ?? "";
+    if (!previous) return;
+    await tx.query(
+      `update media_object
+       set deleted_at = $3
+       where id = $1 and owner_user_id = $2 and scope = 'profile'
+         and deleted_at is null and upload_key not like 'csam-held:%'`,
+      [previous, userId, now],
+    );
+    await tx.query(`update members set photo_media_id = null where user_id = $1`, [userId]);
+  });
+  const viewed = await profileView(db, { id: userId }, { id: userId }, now);
+  if (!viewed.ok) return viewed;
+  return { ok: true, body: { profile: viewed.profile } };
+}
+
+/**
  * Point the profile at a ready profile-scoped picture.
  * The previous profile picture is tombstoned so the media sweep can delete it.
  * A picture that is still processing is left alone, and the current photo stays.

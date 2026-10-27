@@ -5,7 +5,7 @@ import { MIN_PROFILE_AGE } from "./age.ts";
 import { decideCorrection, listCorrections, requestCorrection } from "./corrections.ts";
 import { INTERESTS } from "./interests.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER } from "./permissions.ts";
-import { attachProfilePhoto, removeProfilePhoto } from "./photo.ts";
+import { attachProfilePhoto, clearOwnProfilePhoto, removeProfilePhoto } from "./photo.ts";
 import { churchSuggestions, saveProfile } from "./store.ts";
 import { COUNTIES, ELSEWHERE_ID, TOWNS } from "./towns.ts";
 import { profileView, type ProfileFailure } from "./view.ts";
@@ -105,7 +105,7 @@ export async function handleProfile(
   const allowed =
     (own && (method === "GET" || method === "PATCH")) ||
     (onboard && method === "POST") ||
-    (photo && method === "POST") ||
+    (photo && (method === "POST" || method === "DELETE")) ||
     (removeId && method === "POST") ||
     (corrections && (method === "GET" || method === "POST")) ||
     (correctionId && method === "POST") ||
@@ -120,6 +120,12 @@ export async function handleProfile(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (photo && method === "DELETE") {
+      const cleared = await clearOwnProfilePhoto(deps.db, session.id, now);
+      if (!cleared.ok) return fromFailure(cleared);
+      return json(200, cleared.body);
+    }
 
     if (photo) {
       const body = await readJson(request);
