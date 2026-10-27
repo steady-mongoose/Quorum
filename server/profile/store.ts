@@ -155,6 +155,10 @@ class Rollback extends Error {
   }
 }
 
+/** The refusal for a direct edit of a stated gender. It points to the correction request. */
+export const GENDER_LOCKED =
+  "This is already set. To correct it, send a correction request. An admin reviews it.";
+
 async function applyGender(
   db: Db,
   userId: string,
@@ -177,9 +181,10 @@ async function applyGender(
     actorIsSteward: actor.admin || actor.stewardRooms.length > 0,
     actorIsAdmin: actor.admin,
   });
-  if (!decision.ok) return decision;
+  // A stated gender changes only through an admin-reviewed correction request.
+  if (!decision.ok) return current.stated ? refusal(403, GENDER_LOCKED) : decision;
   if (decision.kind === "same") return { ok: true };
-  if (decision.kind !== "set") return refusal(403, "You cannot change this yourself.");
+  if (decision.kind !== "set") return refusal(403, GENDER_LOCKED);
   const locked = await db.query<{ gender: string | null }>(
     `select gender from members where user_id = $1 for update`,
     [userId],
@@ -187,7 +192,7 @@ async function applyGender(
   const held = parseGender(locked[0]?.gender);
   if (held) {
     if (held === gender) return { ok: true };
-    return refusal(403, "You cannot change this yourself.");
+    return refusal(403, GENDER_LOCKED);
   }
   const updated = await db.query<{ user_id: string }>(
     `update members
@@ -196,7 +201,7 @@ async function applyGender(
      returning user_id`,
     [userId, gender],
   );
-  if (!updated[0]) return refusal(403, "You cannot change this yourself.");
+  if (!updated[0]) return refusal(403, GENDER_LOCKED);
   await writeGenderAudit(db, {
     actorUserId: userId,
     subjectUserId: userId,
@@ -268,7 +273,7 @@ export async function saveProfile(
         );
         const current = locked[0]?.birthdate?.slice(0, 10) ?? "";
         if (locked[0]?.onboarded_at && current && current !== next.birthdate) {
-          throw new Rollback(403, "You cannot change this yourself.");
+          throw new Rollback(403, GENDER_LOCKED);
         }
         if (!current || !locked[0]?.onboarded_at) {
           await tx.query(`update members set birthdate = $2::date where user_id = $1`, [

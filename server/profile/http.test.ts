@@ -112,7 +112,7 @@ test("onboarding stores a profile, skips a gender already set, and hides the bir
 
     const changed = await send(handler, "ann", "/api/profile", "PATCH", { gender: "man" });
     assert.equal(changed.status, 403);
-    assert.match(await changed.text(), /cannot change this yourself/i);
+    assert.match(await changed.text(), /send a correction request/);
 
     const own = await send(handler, "ann", "/api/profile", "GET");
     const ownBody = (await own.json()) as { options: { churches: string[] } };
@@ -201,7 +201,7 @@ test("two first gender writes cannot overwrite each other", async () => {
     const lost = [left, right].filter((response) => response.status === 403);
     assert.equal(won.length, 1, `${left.status} ${right.status}`);
     assert.equal(lost.length, 1);
-    assert.match(await lost[0]!.text(), /cannot change this yourself/i);
+    assert.match(await lost[0]!.text(), /send a correction request/);
     const winner = won[0] === left ? "woman" : "man";
     const rows = await db.query<{ gender: string }>(
       `select gender from members where user_id = 'ann'`,
@@ -239,7 +239,7 @@ test("a birthdate locks after onboarding, and only an approved correction change
     assert.equal(onboarded.status, 200, await onboarded.clone().text());
     const locked = await send(handler, "ann", "/api/profile", "PATCH", { birthdate: "1992-01-01" });
     assert.equal(locked.status, 403);
-    assert.match(await locked.text(), /cannot change this yourself/i);
+    assert.match(await locked.text(), /send a correction request/);
     const stored = await db.query<{ birthdate: string }>(
       `select to_char(birthdate, 'YYYY-MM-DD') as birthdate from members where user_id = 'ann'`,
     );
