@@ -1,10 +1,20 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { btnSignal, fieldClass } from "@/components/quorum/bits";
 import { apiFetch } from "@/lib/api-base";
 
 export type TakedownSubmit = (body: Record<string, unknown>) => Promise<
-  { ok: true; id: string; mailed: boolean } | { ok: false; error: string }
+  { ok: true; id: string; mailed: boolean } | { ok: false; error: string; field?: string }
 >;
+
+export const TAKEDOWN_FIELDS = [
+  "name",
+  "email",
+  "phone",
+  "contentUrl",
+  "description",
+  "goodFaith",
+  "signature",
+] as const;
 
 export const submitTakedownRequest: TakedownSubmit = async (body) => {
   try {
@@ -14,12 +24,20 @@ export const submitTakedownRequest: TakedownSubmit = async (body) => {
       body: JSON.stringify(body),
     });
     const json = (await response.json().catch(() => null)) as
-      | { request?: { id?: string; mailed?: boolean }; error?: string }
+      | { request?: { id?: string; mailed?: boolean }; error?: string; field?: string }
       | null;
     if (response.ok && json?.request?.id) {
       return { ok: true, id: json.request.id, mailed: json.request.mailed === true };
     }
-    return { ok: false, error: json?.error || "The request was not sent. Try again." };
+    const field =
+      typeof json?.field === "string" && (TAKEDOWN_FIELDS as readonly string[]).includes(json.field)
+        ? json.field
+        : undefined;
+    return {
+      ok: false,
+      error: json?.error || "The request was not sent. Try again.",
+      ...(field ? { field } : {}),
+    };
   } catch {
     return { ok: false, error: "The request was not sent. Check your connection and try again." };
   }
@@ -33,10 +51,27 @@ export const GOOD_FAITH_STATEMENT =
 export function TakedownPage({ submit = submitTakedownRequest }: { submit?: TakedownSubmit }) {
   const [sent, setSent] = useState<{ id: string; mailed: boolean } | null>(null);
   const [error, setError] = useState("");
+  const [errorField, setErrorField] = useState("");
+  const [errorTick, setErrorTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const doneRef = useRef<HTMLHeadingElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const base = useId();
   const field = (name: string) => `${base}-${name}`;
+  const errorId = field("error");
+  const invalid = (name: string) =>
+    errorField === name ? { "aria-invalid": true as const, "aria-describedby": errorId } : {};
+
+  useEffect(() => {
+    if (sent) doneRef.current?.focus();
+  }, [sent]);
+
+  useEffect(() => {
+    if (!errorField) return;
+    const target = formRef.current?.elements.namedItem(errorField);
+    if (target instanceof HTMLElement) target.focus();
+  }, [errorField, errorTick]);
 
   return (
     <main id="main" className="mx-auto flex w-full max-w-[44rem] flex-col gap-6 px-4 py-10 text-fg">
@@ -70,7 +105,11 @@ export function TakedownPage({ submit = submitTakedownRequest }: { submit?: Take
             Request received
           </h2>
           <p role="status">
-            Your request ID is <strong>{sent.id}</strong>. Keep it.
+            Your request ID is <strong>{sent.id}</strong>.
+          </p>
+          <p>
+            Keep it somewhere safe. You'll need it if you write to us. An Avouch admin will review
+            your request within 48 hours and email you what we did.
           </p>
           <p className="text-sm text-muted">
             {sent.mailed
@@ -82,9 +121,12 @@ export function TakedownPage({ submit = submitTakedownRequest }: { submit?: Take
         <form
           className="card flex flex-col gap-4 rounded-lg border border-line bg-surface p-6"
           noValidate
+          ref={formRef}
+          aria-busy={busy || undefined}
           onSubmit={(event) => {
             event.preventDefault();
-            if (busy) return;
+            if (busyRef.current) return;
+            busyRef.current = true;
             const elements = event.currentTarget.elements;
             const item = (key: string) => elements.namedItem(key) as HTMLInputElement | null;
             const text = (key: string) => item(key)?.value ?? "";
@@ -98,27 +140,30 @@ export function TakedownPage({ submit = submitTakedownRequest }: { submit?: Take
               goodFaith: item("goodFaith")?.checked === true,
               signature: text("signature"),
             }).then((result) => {
+              busyRef.current = false;
               setBusy(false);
               if (!result.ok) {
                 setError(result.error);
+                setErrorField(result.field ?? "");
+                setErrorTick((tick) => tick + 1);
                 return;
               }
               setError("");
+              setErrorField("");
               setSent({ id: result.id, mailed: result.mailed });
-              window.setTimeout(() => doneRef.current?.focus(), 0);
             });
           }}
         >
           <h2 className="text-xl">Your request</h2>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("name")}>
             Your name
-            <input id={field("name")} name="name" required autoComplete="name" className={fieldClass} />
+            <input id={field("name")} name="name" {...invalid("name")} required autoComplete="name" className={fieldClass} />
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("email")}>
             Email for our reply
             <input
               id={field("email")}
-              name="email"
+              name="email" {...invalid("email")}
               type="email"
               required
               autoComplete="email"
@@ -127,20 +172,20 @@ export function TakedownPage({ submit = submitTakedownRequest }: { submit?: Take
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("phone")}>
             Phone (optional)
-            <input id={field("phone")} name="phone" type="tel" autoComplete="tel" className={fieldClass} />
+            <input id={field("phone")} name="phone" {...invalid("phone")} type="tel" autoComplete="tel" className={fieldClass} />
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("contentUrl")}>
             Link to the image or video on Avouch
-            <input id={field("contentUrl")} name="contentUrl" type="url" className={fieldClass} />
+            <input id={field("contentUrl")} name="contentUrl" {...invalid("contentUrl")} type="url" className={fieldClass} />
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("description")}>
             Or describe where it is: the room, the post, who posted it, and when
-            <textarea id={field("description")} name="description" rows={4} className={fieldClass} />
+            <textarea id={field("description")} name="description" {...invalid("description")} rows={4} className={fieldClass} />
           </label>
           <label className="flex min-h-[44px] items-start gap-3 text-sm" htmlFor={field("goodFaith")}>
             <input
               id={field("goodFaith")}
-              name="goodFaith"
+              name="goodFaith" {...invalid("goodFaith")}
               type="checkbox"
               required
               className="mt-1 h-5 w-5 shrink-0"
@@ -149,14 +194,14 @@ export function TakedownPage({ submit = submitTakedownRequest }: { submit?: Take
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor={field("signature")}>
             Signature: type your full name
-            <input id={field("signature")} name="signature" required className={fieldClass} />
+            <input id={field("signature")} name="signature" {...invalid("signature")} required className={fieldClass} />
           </label>
           {error ? (
-            <p role="alert" className="text-sm text-danger">
+            <p id={errorId} role="alert" className="text-sm text-danger">
               {error}
             </p>
           ) : null}
-          <button type="submit" className={`${btnSignal} min-h-[44px] self-start`} disabled={busy}>
+          <button type="submit" className={`${btnSignal} min-h-[44px] self-start`} aria-disabled={busy || undefined}>
             {busy ? "Sending…" : "Send request"}
           </button>
         </form>

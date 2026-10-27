@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { apiFetch } from "@/lib/api-base";
 import { useBoard } from "@/lib/board/store";
@@ -34,6 +35,9 @@ async function call(path: string, body?: unknown): Promise<{ ok: boolean; json: 
   return { ok: response.ok, json: await response.json().catch(() => null) };
 }
 
+export const REMOVE_CONFIRM = "Remove these files and every identical copy? This can't be undone.";
+export const DECLINE_CONFIRM = "Close this request without removing anything? We will email the requester.";
+
 export const takedownApi: TakedownApi = {
   async list() {
     const { ok, json } = await call("/api/takedown");
@@ -63,6 +67,9 @@ export function TakedownQueue({ api, now: fixedNow }: { api: TakedownApi; now?: 
   const [error, setError] = useState("");
   const [tick, setTick] = useState(() => fixedNow ?? Date.now());
   const [status, setStatus] = useState("");
+  const listRef = useRef<HTMLOListElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusAt = useRef<number | null>(null);
 
   const load = () =>
     api.list().then((result) => {
@@ -71,6 +78,17 @@ export function TakedownQueue({ api, now: fixedNow }: { api: TakedownApi; now?: 
         setError("");
       } else setError(result.error);
     });
+
+  // After a remove or close, focus the next request's first button, or the heading when none are left.
+  useEffect(() => {
+    const index = focusAt.current;
+    if (index === null) return;
+    focusAt.current = null;
+    const buttons = listRef.current?.querySelectorAll<HTMLElement>("[data-first-action]") ?? [];
+    const next = buttons[Math.min(index, buttons.length - 1)];
+    if (next) next.focus();
+    else headingRef.current?.focus();
+  }, [rows]);
 
   useEffect(() => {
     void load();
@@ -83,7 +101,7 @@ export function TakedownQueue({ api, now: fixedNow }: { api: TakedownApi; now?: 
   const open = rows.filter((row) => row.status === "open");
   return (
     <section className="mt-6 flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="takedown-heading">
-      <h2 id="takedown-heading" className="kicker">
+      <h2 id="takedown-heading" ref={headingRef} tabIndex={-1} className="kicker">
         Intimate image removal requests
       </h2>
       <p role="status" className="sr-only">
@@ -95,14 +113,15 @@ export function TakedownQueue({ api, now: fixedNow }: { api: TakedownApi; now?: 
         </p>
       ) : null}
       {open.length === 0 && !error ? <p className="text-sm text-muted">No open requests.</p> : null}
-      <ol className="flex flex-col gap-4">
-        {open.map((row) => (
+      <ol ref={listRef} className="flex flex-col gap-4">
+        {open.map((row, index) => (
           <TakedownItem
             key={row.id}
             row={row}
             now={tick}
             api={api}
             onDone={(message) => {
+              focusAt.current = index;
               setStatus(message);
               void load();
             }}
@@ -128,10 +147,15 @@ function TakedownItem({
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [confirm, setConfirm] = useState<"remove" | "decline" | null>(null);
   const urgent = isUrgent(row.dueAt, now);
-  const run = (work: Promise<string>, done: string) => {
+  const run = (work: () => Promise<string>, done: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
-    void work.then((failure) => {
+    void work().then((failure) => {
+      busyRef.current = false;
       setBusy(false);
       if (failure) setError(failure);
       else onDone(done);
@@ -173,27 +197,47 @@ function TakedownItem({
         <button
           type="button"
           className={`${btnSignal} min-h-[44px]`}
-          disabled={busy}
+          data-first-action=""
+          aria-disabled={busy || undefined}
           aria-label={`Remove files for ${row.id}`}
-          onClick={() =>
-            run(
-              api.remove(row.id, media.split(/\s+/).filter(Boolean), note),
-              `Removed files for ${row.id}.`,
-            )
-          }
+          onClick={() => {
+            if (!busy) setConfirm("remove");
+          }}
         >
           Remove files
         </button>
         <button
           type="button"
           className={`${btnGhost} min-h-[44px]`}
-          disabled={busy}
+          aria-disabled={busy || undefined}
           aria-label={`Close ${row.id} without removing`}
-          onClick={() => run(api.decline(row.id, note), `Closed ${row.id}.`)}
+          onClick={() => {
+            if (!busy) setConfirm("decline");
+          }}
         >
           Close without removing
         </button>
       </div>
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm === "decline" ? "Close without removing" : "Remove files"}
+        description={confirm === "decline" ? DECLINE_CONFIRM : REMOVE_CONFIRM}
+        confirmLabel={confirm === "decline" ? "Close request" : "Remove files"}
+        cancelLabel="Cancel"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const action = confirm;
+          setConfirm(null);
+          if (action === "remove") {
+            run(
+              () => api.remove(row.id, media.split(/\s+/).filter(Boolean), note),
+              `Removed files for ${row.id}.`,
+            );
+          } else if (action === "decline") {
+            run(() => api.decline(row.id, note), `Closed ${row.id}.`);
+          }
+        }}
+      />
     </li>
   );
 }

@@ -204,3 +204,16 @@ test("media ids are read from pasted links; the mail names the ID and the 48 hou
   assert.match(mail.subject, /TD-ABCDEFGHJK/);
   assert.match(mail.text, /48 hours/);
 });
+
+test("a validation failure names the field that failed", () => {
+  const check = (patch: Record<string, unknown>, field: string) => {
+    const result = validateTakedown({ ...good, ...patch } as never);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.field, field);
+  };
+  check({ name: "" }, "name");
+  check({ email: "nope" }, "email");
+  check({ contentUrl: "", description: "" }, "contentUrl");
+  check({ goodFaith: false }, "goodFaith");
+  check({ signature: "" }, "signature");
+});

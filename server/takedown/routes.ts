@@ -47,7 +47,8 @@ const str = (body: Record<string, unknown>, key: string) =>
   typeof body[key] === "string" ? (body[key] as string) : "";
 
 function result<T>(status: number, value: TakedownResult<T>, key: string): Response {
-  return value.ok ? json(status, { [key]: value.value }) : json(value.status, { error: value.error });
+  if (value.ok) return json(status, { [key]: value.value });
+  return json(value.status, value.field ? { error: value.error, field: value.field } : { error: value.error });
 }
 
 const ACTION = /^\/api\/takedown\/(TD-[2-9A-HJKMNP-Z]{10})\/(remove|decline)$/;

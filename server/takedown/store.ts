@@ -6,9 +6,11 @@ import { sendTextEmail, type MailDeps } from "../board/alert-mail.ts";
 /** The TAKE IT DOWN Act gives a platform 48 hours from a valid request. */
 export const TAKEDOWN_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-export type TakedownResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
+export type TakedownField = "name" | "email" | "phone" | "contentUrl" | "description" | "goodFaith" | "signature";
+export type TakedownResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string; field?: TakedownField };
 
-const fail = (status: number, error: string) => ({ ok: false as const, status, error });
+const fail = (status: number, error: string, field?: TakedownField) =>
+  field ? { ok: false as const, status, error, field } : { ok: false as const, status, error };
 
 export type TakedownInput = {
   name: string;
@@ -53,18 +55,18 @@ export function validateTakedown(input: TakedownInput): TakedownResult<Required<
   const contentUrl = (input.contentUrl ?? "").trim();
   const description = (input.description ?? "").trim();
   const signature = input.signature.trim();
-  if (!name || name.length > 120) return fail(400, "Enter your name.");
-  if (!EMAIL.test(email) || email.length > 254) return fail(400, "Enter an email address we can reply to.");
-  if (phone.length > 40) return fail(400, "That phone number is too long.");
+  if (!name || name.length > 120) return fail(400, "Enter your name.", "name");
+  if (!EMAIL.test(email) || email.length > 254) return fail(400, "Enter an email address we can reply to.", "email");
+  if (phone.length > 40) return fail(400, "That phone number is too long.", "phone");
   if (!contentUrl && !description) {
-    return fail(400, "Give the link to the image, or describe where it is on Avouch.");
+    return fail(400, "Give the link to the image, or describe where it is on Avouch.", "contentUrl");
   }
-  if (contentUrl.length > 2000) return fail(400, "That link is too long.");
-  if (description.length > 4000) return fail(400, "Keep the description under 4,000 characters.");
+  if (contentUrl.length > 2000) return fail(400, "That link is too long.", "contentUrl");
+  if (description.length > 4000) return fail(400, "Keep the description under 4,000 characters.", "description");
   if (input.goodFaith !== true) {
-    return fail(400, "Confirm the statement that the image was shared without consent.");
+    return fail(400, "Confirm the statement that the image was shared without consent.", "goodFaith");
   }
-  if (!signature || signature.length > 120) return fail(400, "Type your full name as your signature.");
+  if (!signature || signature.length > 120) return fail(400, "Type your full name as your signature.", "signature");
   return {
     ok: true,
     value: { name, email, phone, contentUrl, description, goodFaith: true, signature },
