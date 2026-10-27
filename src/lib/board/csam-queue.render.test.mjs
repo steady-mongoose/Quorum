@@ -24,7 +24,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const queue = await import("../../components/board/csam-queue.tsx");
-const { CsamQueue, NOT_CUSTODIAN, LEGAL_HOLD_OFF_CONFIRM, LEGAL_HOLD_NOTE_LABEL, recordConfirm, grantConfirm } = queue;
+const { CsamQueue, NOT_CUSTODIAN, LEGAL_HOLD_NOTE_LABEL, recordConfirm, grantConfirm } = queue;
 
 const flush = async () => {
   for (let i = 0; i < 5; i += 1) await act(async () => { await Promise.resolve(); });
@@ -34,7 +34,7 @@ const hold = (/** @type {Record<string, unknown>} */ over = {}) => ({
   id: "h1", postId: "p1", author: "maria", accountId: "u-maria", incidentAt: 0, retainUntil: 0,
   mediaCount: 1, byteSize: 4, mediaTypes: ["image/jpeg"], status: "prepared", reportId: "",
   legalHold: false, legalHoldNote: "", fileIds: ["m1"], fileHashes: ["ab".repeat(32)],
-  reporter: "rae", reportReason: "A child.", ...over,
+  reporter: "rae", reportReason: "A child.", releasedAt: null, releaseLawyer: "", releaseReference: "", ...over,
 });
 
 /** @param {any} view */
@@ -49,8 +49,7 @@ function fakeApi(view) {
       legalHold: async (/** @type {unknown[]} */ ...args) => (calls.push(["legalHold", ...args]), { ok: true }),
       custodian: async (/** @type {unknown[]} */ ...args) => (calls.push(["custodian", ...args]), { ok: true }),
       removeFlagged: async (/** @type {unknown[]} */ ...args) => (calls.push(["remove", ...args]), { ok: true }),
-      requestRelease: async (/** @type {unknown[]} */ ...args) => (calls.push(["requestRelease", ...args]), { ok: true }),
-      confirmRelease: async (/** @type {unknown[]} */ ...args) => (calls.push(["confirmRelease", ...args]), { ok: true }),
+      releaseHold: async (/** @type {unknown[]} */ ...args) => (calls.push(["releaseHold", ...args]), { ok: true }),
     },
   };
 }
@@ -114,23 +113,19 @@ test("Record filing confirms with the report number, Cancel focused", async () =
   done();
 });
 
-test("turning off a legal hold and naming a custodian both confirm first", async () => {
+test("a legal hold has no off switch, and naming a custodian confirms first", async () => {
   const { api, calls } = fakeApi({
     custodian: true, owner: true, reports: [hold({ legalHold: true, legalHoldNote: "FBI, case 9" })], flags: [],
     admins: [{ id: "ann", name: "Ann", custodian: false }],
   });
   const { host, done } = await mount(api);
-  act(() => button(host, "Turn off legal hold").click());
-  await flush();
-  assert.ok((host.textContent ?? "").includes(LEGAL_HOLD_OFF_CONFIRM));
-  act(() => dialogConfirm(host).click());
-  await flush();
+  assert.equal(button(host, "Turn off legal hold"), undefined, "only a lawyer-signed release ends a hold");
   act(() => button(host, "Make custodian").click());
   await flush();
   assert.ok((host.textContent ?? "").includes(grantConfirm("Ann")));
   act(() => dialogConfirm(host).click());
   await flush();
-  assert.deepEqual(calls, [["legalHold", "h1", false, ""], ["custodian", "ann", true]]);
+  assert.deepEqual(calls, [["custodian", "ann", true]]);
   done();
 });
 
@@ -166,55 +161,51 @@ test("design review: file list wraps, buttons name the post, note error is tied,
   done();
 });
 
-test("Release flag needs a written reason, stays blind, and a pending release needs a confirm", async () => {
-  const base = { id: "f1", postId: "p2", source: "report", reporter: "rae", reason: "A child.", uploader: "bo", fileIds: ["m2"], at: 0 };
-  const { api, calls } = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "", releaseReason: "", releaseRequestedByMe: false }], admins: [] });
+test("there is no Release flag; a flag can only be preserved and removed", async () => {
+  const { api } = fakeApi({
+    custodian: true, owner: false, reports: [],
+    flags: [{ id: "f1", postId: "p2", source: "report", reporter: "rae", reason: "A child.", uploader: "bo", fileIds: ["m2"], at: 0 }],
+    admins: [],
+  });
   const { host, done } = await mount(api);
-  assert.equal(host.querySelectorAll("img, video, picture, canvas, iframe, a").length, 0);
-  const release = button(host, "Release flag");
-  assert.equal(release.getAttribute("aria-label"), "Release flag on post p2");
+  assert.equal(/release/i.test(host.textContent ?? ""), false);
+  assert.equal(host.querySelectorAll("textarea").length, 0);
+  done();
+});
+
+test("a filed hold is released only with a lawyer's name and reference, confirmed and announced", async () => {
+  const { api, calls } = fakeApi({
+    custodian: true, owner: false, reports: [hold({ status: "filed", reportId: "123456" })], flags: [], admins: [],
+  });
+  const { host, done } = await mount(api);
+  const release = button(host, "Release hold");
+  assert.equal(release.getAttribute("aria-label"), "Release hold for post p1");
   assert.ok(release.className.includes("min-h-[44px]"));
-  assert.equal(host.querySelector("#csam-release-hint-f1")?.textContent, queue.RELEASE_REASON_HINT);
-  assert.equal(
-    host.querySelector("#csam-release-f1")?.getAttribute("aria-describedby"),
-    "csam-release-hint-f1",
-    "the hint is always tied to the box",
-  );
+  assert.equal(host.querySelector("#csam-release-hint-h1")?.textContent, queue.RELEASE_HINT);
   act(() => release.click());
   await flush();
-  const box = /** @type {HTMLTextAreaElement} */ (host.querySelector("#csam-release-f1"));
-  assert.equal(box.getAttribute("aria-describedby"), "csam-release-hint-f1 csam-release-error-f1");
-  assert.equal(host.querySelector("#csam-release-error-f1")?.textContent, queue.RELEASE_REASON_ERROR);
+  const lawyer = /** @type {HTMLInputElement} */ (host.querySelector("#csam-lawyer-h1"));
+  const ref = /** @type {HTMLInputElement} */ (host.querySelector("#csam-lawyer-ref-h1"));
+  assert.equal(lawyer.getAttribute("aria-describedby"), "csam-release-hint-h1 csam-release-error-h1");
+  assert.equal(host.querySelector("#csam-release-error-h1")?.textContent, queue.RELEASE_FIELDS_ERROR);
   assert.deepEqual(calls, []);
-  const setter = /** @type {(this: HTMLTextAreaElement, v: string) => void} */ (
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set
+  const setter = /** @type {(this: HTMLInputElement, v: string) => void} */ (
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
   );
-  act(() => { setter.call(box, "Scanner matched a stock photo of a cat."); box.dispatchEvent(new Event("input", { bubbles: true })); });
-  act(() => button(host, "Release flag").click());
+  act(() => { setter.call(lawyer, "Dana Reyes"); lawyer.dispatchEvent(new Event("input", { bubbles: true })); });
+  act(() => { setter.call(ref, "DR-2026-114"); ref.dispatchEvent(new Event("input", { bubbles: true })); });
+  act(() => button(host, "Release hold").click());
   await flush();
-  assert.deepEqual(calls, [["requestRelease", "f1", "Scanner matched a stock photo of a cat."]]);
-  assert.equal(host.querySelector('[role="status"]')?.textContent, queue.RELEASE_REQUESTED);
-  await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
-  assert.equal(document.activeElement?.id, "csam-queue-heading", "focus is kept in the queue");
+  assert.ok((host.textContent ?? "").includes(queue.releaseConfirm("Dana Reyes", "DR-2026-114")));
+  assert.deepEqual(calls, []);
+  act(() => dialogConfirm(host).click());
+  await flush();
+  assert.deepEqual(calls, [["releaseHold", "h1", "Dana Reyes", "DR-2026-114"]]);
+  assert.equal(host.querySelector('[role="status"]')?.textContent, queue.RELEASE_DONE);
   done();
 
-  const mine = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat.", releaseRequestedByMe: true }], admins: [] });
-  const own = await mount(mine.api);
-  assert.ok((own.host.textContent ?? "").includes(queue.RELEASE_MINE));
-  assert.equal([...own.host.querySelectorAll("button")].some((b) => b.textContent === "Confirm release"), false);
-  own.done();
-
-  const second = fakeApi({ custodian: true, owner: false, reports: [], flags: [{ ...base, releaseRequestedBy: "Ann", releaseReason: "Scanner matched a stock photo of a cat.", releaseRequestedByMe: false }], admins: [] });
-  const view = await mount(second.api);
-  assert.ok((view.host.textContent ?? "").includes("Ann asked to release this flag"));
-  assert.ok(button(view.host, "Confirm release").className.includes("min-h-[44px]"));
-  act(() => button(view.host, "Confirm release").click());
-  await flush();
-  assert.ok((view.host.textContent ?? "").includes(queue.RELEASE_CONFIRM));
-  assert.equal(document.activeElement?.textContent, "Cancel");
-  assert.deepEqual(second.calls, []);
-  act(() => dialogConfirm(view.host).click());
-  await flush();
-  assert.deepEqual(second.calls, [["confirmRelease", "f1"]]);
+  const unfiled = fakeApi({ custodian: true, owner: false, reports: [hold()], flags: [], admins: [] });
+  const view = await mount(unfiled.api);
+  assert.equal(button(view.host, "Release hold"), undefined, "a hold not yet reported to NCMEC cannot be released");
   view.done();
 });

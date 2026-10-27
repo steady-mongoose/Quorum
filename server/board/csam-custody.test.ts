@@ -4,7 +4,7 @@ import test from "node:test";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createMemoryStore } from "../media/memory-store.ts";
-import { MAX_CUSTODIANS, isCustodian, setCustodian, setLegalHold } from "./csam-custody.ts";
+import { MAX_CUSTODIANS, isCustodian, releaseHold, setCustodian, setLegalHold } from "./csam-custody.ts";
 import { fileCsamReport, purgeExpiredHolds } from "./csam.ts";
 import { listBoard } from "./store.ts";
 
@@ -136,7 +136,7 @@ test("a custodian's queue read and CyberTipline filing are logged with number, d
   }
 });
 
-test("a legal hold stops the one-year purge until a custodian clears it", async () => {
+test("a legal hold stops the purge; only a recorded lawyer sign-off on a filed hold releases it", async () => {
   const { db, close, ids } = await setup();
   try {
     const store = createMemoryStore();
@@ -156,11 +156,30 @@ test("a legal hold stops the one-year purge until a custodian clears it", async 
     );
     assert.equal(kept[0]?.purged_at, null);
 
-    const cleared = await setLegalHold(db, { userId: ids.owner, holdId, on: false, note: "", now: due });
-    assert.equal(cleared.ok, true);
+    const offSwitch = await setLegalHold(db, { userId: ids.owner, holdId, on: false, note: "", now: due });
+    assert.equal(offSwitch.ok, false, "no custodian turns a legal hold off on their own judgement");
+    assert.equal(await purgeExpiredHolds(db, due, store), 0);
+
+    const unfiled = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "Dana Reyes", lawyerReference: "DR-114", now: due });
+    assert.equal(unfiled.ok, false, "a hold not reported to NCMEC cannot be released");
+    await db.query(`update board_csam_hold set filed_at = $2, report_id = '42' where id = $1`, [holdId, now]);
+    const byNonCustodian = await releaseHold(db, { userId: ids.di, holdId, lawyerName: "Dana Reyes", lawyerReference: "DR-114", now: due });
+    assert.equal(byNonCustodian.ok, false);
+    const noLawyer = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "", lawyerReference: "DR-114", now: due });
+    assert.equal(noLawyer.ok, false);
+    const noRef = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "Dana Reyes", lawyerReference: " ", now: due });
+    assert.equal(noRef.ok, false);
+    const released = await releaseHold(db, { userId: ids.owner, holdId, lawyerName: "Dana Reyes", lawyerReference: "DR-114", now: due });
+    assert.equal(released.ok, true, JSON.stringify(released));
+    const [row] = await db.query<{ release_lawyer_name: string; release_lawyer_reference: string; legal_hold: boolean }>(
+      `select release_lawyer_name, release_lawyer_reference, legal_hold from board_csam_hold where id = $1`,
+      [holdId],
+    );
+    assert.deepEqual(row, { release_lawyer_name: "Dana Reyes", release_lawyer_reference: "DR-114", legal_hold: false });
     assert.equal(await purgeExpiredHolds(db, due, store), 1);
-    const actions = (await log(db)).map((r) => r.action);
-    for (const a of ["denied", "legal_hold_on", "legal_hold_off", "purge"]) assert.ok(actions.includes(a), a);
+    const entries = await log(db);
+    const actions = entries.map((r) => r.action);
+    for (const a of ["denied", "legal_hold_on", "hold_released", "purge"]) assert.ok(actions.includes(a), a);
   } finally {
     await close();
   }

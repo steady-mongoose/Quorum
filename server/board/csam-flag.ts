@@ -26,11 +26,6 @@ export type CsamFlag = {
   uploader: string;
   fileIds: string[];
   at: number;
-  /** A pending two-person release, if one custodian has asked for it. */
-  releaseRequestedBy: string;
-  /** The viewer asked for this release, so they cannot confirm it. */
-  releaseRequestedByMe: boolean;
-  releaseReason: string;
 };
 
 /** Per member. A flag blocks files at once, so it is limited like any other write. */
@@ -38,7 +33,6 @@ export const CSAM_FLAG_LIMIT = { max: 10, windowMs: 60 * 60 * 1000 };
 
 /** The same answer whether or not the post exists or the member can see it. */
 export const FLAG_RECEIVED = "Thank you. A custodian will look at the details. Nobody opens the files.";
-export const RELEASE_REASON_MIN = 20;
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
 
@@ -187,79 +181,12 @@ export async function memberFlagCsam(
   return { ok: true, value: { message: FLAG_RECEIVED } };
 }
 
-/**
- * NEEDS JOSH'S POLICY OK. Step one of releasing a false flag. Blind: the custodian
- * decides from metadata and writes why. Nothing is shown or fetched.
- */
-export async function requestFlagRelease(
-  db: Db,
-  input: { userId: string; flagId: string; reason: string; now: Date },
-): Promise<{ ok: true; value: { pending: true } } | Fail> {
-  const actor = await actorRole(db, input.userId);
-  if (!actor.admin || !(await isCustodian(db, input.userId, actor, input.now))) {
-    return denyHold(db, input.userId, "", `release request ${input.flagId}`.slice(0, 120), input.now);
-  }
-  const reason = input.reason.trim();
-  if (reason.length < RELEASE_REASON_MIN) {
-    return { ok: false, status: 400, error: `Write why this flag is false, at least ${RELEASE_REASON_MIN} characters.` };
-  }
-  if (reason.length > 500) return { ok: false, status: 400, error: "Keep the reason under 500 characters." };
-  const rows = await db.query<{ id: string }>(
-    `update csam_flag
-     set release_requested_by_user_id = $2, release_reason = $3, release_requested_at = $4
-     where id = $1 and resolved_at is null and release_requested_by_user_id is null
-     returning id`,
-    [input.flagId, input.userId, reason, input.now],
-  );
-  if (!rows[0]) return { ok: false, status: 409, error: "That flag is closed or already has a release request." };
-  await logHoldAccess(db, {
-    actorUserId: input.userId,
-    action: "release_requested",
-    detail: `${input.flagId}: ${reason}`,
-    now: input.now,
-  });
-  return { ok: true, value: { pending: true } };
-}
-
-/** Step two: a different custodian confirms. Then the flag closes and the files serve again. */
-export async function confirmFlagRelease(
-  db: Db,
-  input: { userId: string; flagId: string; now: Date },
-): Promise<{ ok: true; value: { released: true } } | Fail> {
-  const actor = await actorRole(db, input.userId);
-  if (!actor.admin || !(await isCustodian(db, input.userId, actor, input.now))) {
-    return denyHold(db, input.userId, "", `release confirm ${input.flagId}`.slice(0, 120), input.now);
-  }
-  const pending = await db.query<{ release_requested_by_user_id: string | null; post_id: string }>(
-    `select release_requested_by_user_id, post_id from csam_flag where id = $1 and resolved_at is null`,
-    [input.flagId],
-  );
-  const flag = pending[0];
-  if (!flag || !flag.release_requested_by_user_id) {
-    return { ok: false, status: 409, error: "Nobody has asked to release that flag." };
-  }
-  if (flag.release_requested_by_user_id === input.userId) {
-    return { ok: false, status: 403, error: "A second custodian must confirm the release." };
-  }
-  if (flag.post_id && (await postIsHeld(db, flag.post_id))) {
-    return { ok: false, status: 409, error: "That post is under a hold. The flag cannot be released." };
-  }
-  await db.query(
-    `update csam_flag set resolved_at = $2, resolution = 'released', released_by_user_id = $3
-     where id = $1 and resolved_at is null`,
-    [input.flagId, input.now, input.userId],
-  );
-  await logHoldAccess(db, {
-    actorUserId: input.userId,
-    action: "release_confirmed",
-    detail: input.flagId,
-    now: input.now,
-  });
-  return { ok: true, value: { released: true } };
-}
-
 /** Metadata only, and only for custodians. */
-export async function listCsamFlags(db: Db, viewerId = ""): Promise<CsamFlag[]> {
+/**
+ * There is no release of a flag. Every match is preserved and reported to NCMEC.
+ * A hold ends only with a recorded lawyer sign-off (releaseHold in csam-custody.ts).
+ */
+export async function listCsamFlags(db: Db): Promise<CsamFlag[]> {
   const rows = await db.query<{
     id: string;
     post_id: string;
@@ -270,13 +197,9 @@ export async function listCsamFlags(db: Db, viewerId = ""): Promise<CsamFlag[]> 
     created_at: Date | string;
     author_name: string | null;
     file_ids: unknown;
-    release_requested_by_user_id: string | null;
-    release_requested_by: string | null;
-    release_reason: string;
   }>(
     `select f.id, f.post_id, f.media_id, f.source, f.reporter_name, f.reason, f.created_at,
-            p.author_name, f.release_requested_by_user_id, f.release_reason,
-            (select name from "user" u where u.id = f.release_requested_by_user_id) as release_requested_by,
+            p.author_name,
             coalesce((select array_agg(m.id order by m.id) from media_object m
                       where m.post_id = f.post_id and f.post_id <> ''), '{}') as file_ids
      from csam_flag f
@@ -299,9 +222,6 @@ export async function listCsamFlags(db: Db, viewerId = ""): Promise<CsamFlag[]> 
       uploader: row.author_name ?? "",
       fileIds: row.media_id && !files.includes(row.media_id) ? [row.media_id, ...files] : files,
       at: atMs(row.created_at),
-      releaseRequestedBy: row.release_requested_by ?? "",
-      releaseRequestedByMe: Boolean(viewerId) && row.release_requested_by_user_id === viewerId,
-      releaseReason: row.release_reason ?? "",
     };
   });
 }

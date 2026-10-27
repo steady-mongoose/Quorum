@@ -39,7 +39,8 @@ const HKDF_INFO = "avouch-csam-hold-v1";
 export const CSAM_QUEUE_SQL = `select id, post_id, room_id, author_user_id, author_name,
             media_count, byte_size, media_types, created_at, retain_until,
             seal_status, filed_at, report_id, filed_by_name, legal_hold, legal_hold_note,
-            file_ids, file_hashes, reporter_name, report_reason
+            file_ids, file_hashes, reporter_name, report_reason,
+            released_at, release_lawyer_name, release_lawyer_reference
      from board_csam_hold
      where purged_at is null
      order by created_at desc
@@ -75,7 +76,7 @@ export type CsamReport = {
   reportId: string;
   filedAt: number | null;
   filedBy: string;
-  /** Set by a custodian. The one-year purge skips this hold while it is on. */
+  /** Set by a custodian. Only a lawyer-signed release turns it off. */
   legalHold?: boolean;
   legalHoldNote?: string;
   /** Metadata only. No person views the files. */
@@ -83,6 +84,10 @@ export type CsamReport = {
   fileHashes?: string[];
   reporter?: string;
   reportReason?: string;
+  /** Set only by an admin recording a lawyer's sign-off. */
+  releasedAt?: number | null;
+  releaseLawyer?: string;
+  releaseReference?: string;
 };
 
 export type AdminAlert = {
@@ -247,6 +252,9 @@ export function reportFromRow(row: {
   file_hashes?: unknown;
   reporter_name?: string | null;
   report_reason?: string | null;
+  released_at?: Date | string | number | null;
+  release_lawyer_name?: string | null;
+  release_lawyer_reference?: string | null;
 }): CsamReport {
   const filedAt = row.filed_at ? atMs(row.filed_at) : null;
   const status = filedAt ? "filed" : row.seal_status === "pending_seal" ? "pending_seal" : "prepared";
@@ -271,6 +279,9 @@ export function reportFromRow(row: {
     fileHashes: textList(row.file_hashes),
     reporter: row.reporter_name ?? "",
     reportReason: row.report_reason ?? "",
+    releasedAt: row.released_at ? atMs(row.released_at) : null,
+    releaseLawyer: row.release_lawyer_name ?? "",
+    releaseReference: row.release_lawyer_reference ?? "",
   };
 }
 
@@ -643,7 +654,8 @@ export async function purgeExpiredHolds(
 ): Promise<number> {
   const due = await db.query<{ id: string; post_ids: unknown }>(
     `select id, post_ids from board_csam_hold
-     where purged_at is null and retain_until <= $1 and not legal_hold`,
+     where purged_at is null and retain_until <= $1 and not legal_hold
+       and filed_at is not null and released_at is not null`,
     [now],
   );
   for (const row of due) {

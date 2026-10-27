@@ -17,8 +17,7 @@ export type CustodyAction =
   | "denied"
   | "flag"
   | "remove_flagged"
-  | "release_requested"
-  | "release_confirmed";
+  | "hold_released";
 
 type Fail = { ok: false; status: number; error: string };
 
@@ -125,13 +124,22 @@ export async function setCustodian(
   return { ok: true, value: { custodians: rows.map((row) => row.user_id) } };
 }
 
-/** A custodian sets or clears a legal hold. While it is set, the one-year purge skips the hold. */
+export const LAWYER_RELEASE_ONLY =
+  "A hold is released only with a lawyer's sign-off. An admin records the lawyer's name and reference.";
+
+/**
+ * A custodian sets a legal hold. It is never turned off on a custodian's own
+ * judgement: only releaseHold, with a recorded lawyer sign-off, ends it.
+ */
 export async function setLegalHold(
   db: Db,
   input: { userId: string; holdId: string; on: boolean; note: string; now: Date },
 ): Promise<{ ok: true; value: { legalHold: boolean } } | Fail> {
   if (!(await isCustodian(db, input.userId))) {
     return denyHold(db, input.userId, input.holdId, "legal hold", input.now);
+  }
+  if (!input.on) {
+    return { ok: false, status: 409, error: LAWYER_RELEASE_ONLY };
   }
   const note = input.note.trim();
   if (input.on && (note.length < 4 || note.length > 300)) {
@@ -153,6 +161,53 @@ export async function setLegalHold(
     now: input.now,
   });
   return { ok: true, value: { legalHold: input.on } };
+}
+
+/**
+ * The only way a hold is released. An admin custodian records the lawyer who
+ * signed off and their reference; both are stored on the hold and logged. The
+ * hold must already be reported to NCMEC. Release does not shorten the one-year
+ * preservation: the purge still waits for retain_until.
+ */
+export async function releaseHold(
+  db: Db,
+  input: { userId: string; holdId: string; lawyerName: string; lawyerReference: string; now: Date },
+): Promise<{ ok: true; value: { released: true } } | Fail> {
+  const actor = await actorRole(db, input.userId);
+  if (!(actor.admin || actor.owner) || !(await isCustodian(db, input.userId, actor, input.now))) {
+    return denyHold(db, input.userId, input.holdId, "release", input.now);
+  }
+  const lawyer = input.lawyerName.trim();
+  const reference = input.lawyerReference.trim();
+  if (lawyer.length < 2 || lawyer.length > 120) {
+    return { ok: false, status: 400, error: "Enter the name of the lawyer who signed off." };
+  }
+  if (reference.length < 2 || reference.length > 120) {
+    return { ok: false, status: 400, error: "Enter the lawyer's reference for the sign-off." };
+  }
+  const rows = await db.query<{ id: string }>(
+    `update board_csam_hold
+     set released_at = $2, released_by_user_id = $3, release_lawyer_name = $4,
+         release_lawyer_reference = $5, legal_hold = false
+     where id = $1 and purged_at is null and released_at is null and filed_at is not null
+     returning id`,
+    [input.holdId, input.now, input.userId, lawyer, reference],
+  );
+  if (!rows[0]) {
+    return {
+      ok: false,
+      status: 409,
+      error: "That hold is not here, is already released, or is not yet reported to NCMEC.",
+    };
+  }
+  await logHoldAccess(db, {
+    holdId: input.holdId,
+    actorUserId: input.userId,
+    action: "hold_released",
+    detail: `lawyer: ${lawyer}; reference: ${reference}`.slice(0, 500),
+    now: input.now,
+  });
+  return { ok: true, value: { released: true } };
 }
 
 export type CsamPerson = { id: string; name: string; custodian: boolean };
@@ -187,7 +242,7 @@ export async function readCsamQueue(
   const { CSAM_QUEUE_SQL, reportFromRow } = await import("./csam.ts");
   const { listCsamFlags } = await import("./csam-flag.ts");
   const rows = await db.query<Parameters<typeof reportFromRow>[0]>(CSAM_QUEUE_SQL);
-  const flags = await listCsamFlags(db, input.userId);
+  const flags = await listCsamFlags(db);
   await logHoldAccess(db, {
     actorUserId: input.userId,
     action: "list",
