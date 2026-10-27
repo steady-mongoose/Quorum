@@ -39,6 +39,7 @@ import { DM_RETENTION_DAYS, formatWhen, otherIn, stoodWith } from "@/lib/board/m
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
 import { DmReportControl } from "@/components/board/dm-report";
+import { DmCall } from "@/components/board/dm-call";
 
 /**
  * Signed-in mailbox. Plaintext is sealed in the browser. This view never
@@ -403,6 +404,7 @@ export function EncryptedMailbox() {
           Account {active.otherUserId.slice(0, 8)}. Encrypted on this device, deleted after{" "}
           {DM_RETENTION_DAYS} days.
         </p>
+        <DmCall threadId={active.id} otherName={active.otherName} />
         {safety ? (
           <div className="rounded-md border border-line bg-surface px-3 py-3">
             <p className="text-sm font-semibold text-fg">Safety number</p>
@@ -562,7 +564,11 @@ export function EncryptedMailbox() {
             {showPassphrase ? "Hide passphrase" : "Show passphrase"}
           </button>
           <button type="submit" className={btnGhost} disabled={busy} aria-busy={busy}>
-            {busy ? "Saving…" : vaultForAccount.backup ? "Change the passphrase" : "Save a key backup"}
+            {busy
+              ? "Saving…"
+              : vaultForAccount.backup
+                ? "Change the passphrase"
+                : "Save a key backup"}
           </button>
         </form>
       </section>
