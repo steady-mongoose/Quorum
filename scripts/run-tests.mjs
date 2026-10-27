@@ -90,6 +90,8 @@ const appTests = [
   "server/board/order.test.ts",
   "server/board/store.test.ts",
   "server/board/csam.test.ts",
+  "server/admin/invite-tracker.test.ts",
+  "src/lib/admin/invite-tracker.test.ts",
   "server/board/alert-mail.test.ts",
   "server/board/places-store.test.ts",
   "server/board/http.test.ts",

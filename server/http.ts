@@ -1,4 +1,5 @@
 import type { Db } from "./db.ts";
+import { handleInviteTracker } from "./admin/invite-tracker-routes.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
 import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
@@ -450,6 +451,9 @@ async function route(
 
   const chat = await handleRoomChat(deps, request, url);
   if (chat) return chat;
+
+  const inviteTracker = await handleInviteTracker(deps, request, url);
+  if (inviteTracker) return inviteTracker;
 
   const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;
