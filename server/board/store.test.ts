@@ -1882,3 +1882,107 @@ test("a steward sees removals and bans only in rooms they steward", async () => 
     await close();
   }
 });
+
+test("a pornography appeal needs the compromise ground and evidence, and only an admin decides it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-appeal@example.com");
+    await user(db, tom, "Tom", "tom-appeal@example.com");
+    await user(db, ada, "Ada", "ada-appeal@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "member");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+    assert.equal(removed.ok, true);
+
+    const plain = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "I did not mean any harm by it.", now,
+    });
+    assert.equal(plain.ok, false);
+    if (!plain.ok) assert.equal(plain.status, 400);
+
+    const thin = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise", evidence: "It was hacked.", now,
+    });
+    assert.equal(thin.ok, false);
+
+    const evidence =
+      "On October 18 I got a password-reset email I did not request at 2:14 AM. My email provider's " +
+      "security log shows a sign-in from an address in another country at 2:20 AM, and the post went up " +
+      "at 2:31 AM. I changed my passwords on October 19. Screenshots of both logs are attached to my email.";
+    const filed = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise", evidence, now,
+    });
+    assert.equal(filed.ok, true, JSON.stringify(filed));
+    if (!filed.ok) return;
+
+    const bySteward = await decideAppeal(db, {
+      userId: tom, name: "Tom", appealId: filed.value.id, decision: "lift",
+      reason: "The logs show a takeover.", now,
+    });
+    assert.equal(bySteward.ok, false);
+    if (!bySteward.ok) assert.equal(bySteward.status, 403);
+
+    const byAdmin = await decideAppeal(db, {
+      userId: ada, name: "Ada", appealId: filed.value.id, decision: "lift",
+      reason: "The provider's log shows a foreign sign-in before the post.", now,
+    });
+    assert.equal(byAdmin.ok, true, JSON.stringify(byAdmin));
+
+    const audit = await db.query<{ action: string; rule: string; actor_user_id: string }>(
+      `select action, rule, actor_user_id from board_appeal_audit where post_id = $1 order by created_at, action`,
+      [posted.value.id],
+    );
+    const actions = audit.map((row) => row.action).sort();
+    assert.deepEqual(actions, ["filed", "lift", "refused", "refused"]);
+    assert.ok(audit.every((row) => row.rule === "porn"));
+    assert.equal(audit.find((row) => row.action === "lift")?.actor_user_id, ada);
+  } finally {
+    await close();
+  }
+});
+
+test("a CSAM removal cannot be appealed, and the refusal is logged", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-csam@example.com");
+    await user(db, ada, "Ada", "ada-csam@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, ada, "Ada", "member");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await withHoldKey("test-hold-key-value", () =>
+      removePost(db, { userId: ada, name: "Ada", postId: posted.value.id, reason: "csam", now }),
+    );
+    assert.equal(removed.ok, true);
+    const filed = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise",
+      evidence: "x".repeat(300), now,
+    });
+    assert.equal(filed.ok, false);
+    if (!filed.ok) assert.equal(filed.status, 403);
+    const audit = await db.query<{ action: string; rule: string }>(
+      `select action, rule from board_appeal_audit where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.deepEqual(audit, [{ action: "refused", rule: "csam" }]);
+  } finally {
+    await close();
+  }
+});

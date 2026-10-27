@@ -1593,9 +1593,53 @@ export async function listOwnAppeals(db: Db, userId: string): Promise<AppealEntr
   return visible;
 }
 
+/** The one ground a pornography removal can be appealed on. */
+export const COMPROMISE_GROUND = "account_compromise";
+/** Evidence of a compromise must be at least this long: what happened, when, and how it is shown. */
+export const COMPROMISE_EVIDENCE_MIN = 200;
+
+async function auditAppeal(
+  db: Db,
+  entry: {
+    appealId: string;
+    postId: string;
+    action: "filed" | "refused" | "uphold" | "lift";
+    actorUserId: string;
+    rule: string;
+    detail: string;
+    now: Date;
+  },
+): Promise<void> {
+  await db.query(
+    `insert into board_appeal_audit (id, appeal_id, post_id, action, actor_user_id, rule, detail, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      randomUUID(),
+      entry.appealId,
+      entry.postId,
+      entry.action,
+      entry.actorUserId || null,
+      entry.rule,
+      entry.detail.slice(0, 4000),
+      entry.now,
+    ],
+  );
+}
+
 export async function fileAppeal(
   db: Db,
-  input: { userId: string; name: string; postId: string; kind: string; reason: string; now: Date },
+  input: {
+    userId: string;
+    name: string;
+    postId: string;
+    kind: string;
+    reason: string;
+    now: Date;
+    /** Required for a pornography removal: "account_compromise". */
+    ground?: string;
+    /** Required with the compromise ground. */
+    evidence?: string;
+  },
 ): Promise<Result<AppealEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can appeal.");
@@ -1619,6 +1663,9 @@ export async function fileAppeal(
     return fail(404, "That post is not here.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can appeal.");
   let targetId = "";
+  let rule = "";
+  let ground = "";
+  let evidence = "";
   if (input.kind === "mark") {
     if (post.removed || !isMarkValue(post.mark)) return fail(404, "That mark is not here.");
     const marks = await db.query<{ id: string }>(
@@ -1627,21 +1674,55 @@ export async function fileAppeal(
     );
     targetId = marks[0]?.id ?? post.id;
   } else {
-    const removals = await db.query<{ id: string }>(
-      `select id from board_removal where post_id = $1 order by created_at desc limit 1`,
+    const removals = await db.query<{ id: string; reason: string }>(
+      `select id, reason from board_removal where post_id = $1 order by created_at desc limit 1`,
       [post.id],
     );
     const removal = removals[0];
     if (!removal) return fail(404, "That removal is not here.");
     targetId = removal.id;
+    rule = removal.reason;
+    const refuse = async (status: number, message: string) => {
+      await auditAppeal(db, {
+        appealId: "",
+        postId: post.id,
+        action: "refused",
+        actorUserId: input.userId,
+        rule,
+        detail: message,
+        now: input.now,
+      });
+      return fail(status, message);
+    };
+    if (rule === "csam") {
+      return refuse(403, "A removal for child sexual abuse material cannot be appealed.");
+    }
+    if (rule === "porn") {
+      if ((input.ground ?? "") !== COMPROMISE_GROUND) {
+        return refuse(
+          400,
+          "A pornography removal can be appealed only if your account was taken over by someone else.",
+        );
+      }
+      evidence = (input.evidence ?? "").trim();
+      if (evidence.length < COMPROMISE_EVIDENCE_MIN) {
+        return refuse(
+          400,
+          `Show how your account was taken over: what happened, when, and the proof, in at least ${COMPROMISE_EVIDENCE_MIN} characters.`,
+        );
+      }
+      if (evidence.length > 4000) return refuse(400, "Keep the evidence under 4,000 characters.");
+      ground = COMPROMISE_GROUND;
+    }
   }
   const id = randomUUID();
   const author = input.name.trim() || post.author_name;
   try {
     await db.query(
       `insert into board_appeal
-       (id, post_id, room_id, author_user_id, author_name, kind, target_id, reason, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (id, post_id, room_id, author_user_id, author_name, kind, target_id, reason, created_at,
+        ground, evidence)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         id,
         post.id,
@@ -1652,6 +1733,8 @@ export async function fileAppeal(
         targetId,
         sentence.text,
         input.now,
+        ground,
+        evidence,
       ],
     );
   } catch (error) {
@@ -1664,6 +1747,17 @@ export async function fileAppeal(
   );
   const row = saved[0];
   if (!row) return fail(500, "The appeal was not filed.");
+  if (input.kind === "removal") {
+    await auditAppeal(db, {
+      appealId: id,
+      postId: post.id,
+      action: "filed",
+      actorUserId: input.userId,
+      rule,
+      detail: ground ? `ground=${ground}` : "",
+      now: input.now,
+    });
+  }
   console.log(JSON.stringify({ event: "appeal-filed", postId: post.id, kind: input.kind }));
   return { ok: true, value: appealFrom(row) };
 }
@@ -1692,13 +1786,34 @@ export async function decideAppeal(
     kind: string;
     target_id: string;
     decision: string | null;
+    ground: string;
+    evidence: string;
+    rule: string | null;
   }>(
-    `select id, room_id, post_id, author_user_id, kind, target_id, decision from board_appeal where id = $1`,
+    `select a.id, a.room_id, a.post_id, a.author_user_id, a.kind, a.target_id, a.decision,
+            a.ground, a.evidence, r.reason as rule
+     from board_appeal a
+     left join board_removal r on a.kind = 'removal' and r.id = a.target_id
+     where a.id = $1`,
     [input.appealId],
   );
   const appeal = open[0];
   if (!appeal || appeal.decision) return fail(404, "That appeal is not open.");
-  if (!stewardsRoom(actor, appeal.room_id)) {
+  const rule = appeal.rule ?? "";
+  if (rule === "porn" || rule === "csam") {
+    if (!actor.admin) return fail(403, "Only an admin decides an appeal of a permanent ban.");
+    if (
+      input.decision === "lift" &&
+      (rule === "csam" || appeal.ground !== COMPROMISE_GROUND || !appeal.evidence.trim())
+    ) {
+      return fail(
+        400,
+        rule === "csam"
+          ? "That removal stays. Child sexual abuse material is not put back."
+          : "A pornography ban is lifted only on evidence that the account was taken over.",
+      );
+    }
+  } else if (!stewardsRoom(actor, appeal.room_id)) {
     return fail(
       403,
       actor.stewardRooms.length > 0
@@ -1750,6 +1865,17 @@ export async function decideAppeal(
          where id = $1 and decision is null`,
         [appeal.id, input.decision, sentence.text, input.userId, by, input.now],
       );
+      if (appeal.kind === "removal") {
+        await auditAppeal(tx, {
+          appealId: appeal.id,
+          postId: appeal.post_id,
+          action: input.decision === "lift" ? "lift" : "uphold",
+          actorUserId: input.userId,
+          rule,
+          detail: sentence.text,
+          now: input.now,
+        });
+      }
       if (input.decision !== "lift") return [];
       return tx.query<PostRow>(
         `select ${POST_RETURNING} from board_post where id = $1 or parent_id = $1`,

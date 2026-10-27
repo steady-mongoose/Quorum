@@ -605,6 +605,8 @@ export async function handleBoard(
           postId,
           kind: stringField(body, "kind"),
           reason: stringField(body, "reason"),
+          ground: stringField(body, "ground"),
+          evidence: stringField(body, "evidence"),
           now,
         }),
       );
