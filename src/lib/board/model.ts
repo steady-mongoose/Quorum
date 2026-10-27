@@ -204,6 +204,8 @@ export type RemovalRow = {
   at: number;
   /** A room chat line. A post leaves this off. */
   roomChat?: boolean;
+  /** The server sets this on the viewer's own removals, by user id. */
+  mine?: boolean;
 };
 export type BanRow = {
   id: string;

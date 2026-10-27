@@ -87,6 +87,18 @@ const HOW = [
   },
 ];
 
+/**
+ * On the server, "mine" comes from the author's user id, so two members with
+ * one display name never see each other's removals. The local demo board has
+ * no user ids, so it falls back to the name there.
+ */
+export function isMyRemoval(
+  row: { author: string; mine?: boolean },
+  viewer: { remote: boolean; name: string },
+): boolean {
+  return viewer.remote ? row.mine === true : row.author === viewer.name;
+}
+
 export function AboutView() {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
@@ -338,7 +350,7 @@ export function AboutView() {
               >
                 {new Date(row.at).toLocaleString()} · {row.roomChat ? "Room chat" : "Post"} ·{" "}
                 {row.author} · {RULE_LABEL[row.reason]}
-                {row.author === authorName(me) && !row.roomChat ? (
+                {isMyRemoval(row, { remote, name: authorName(me) }) && !row.roomChat ? (
                   <RemovalAppeal
                     postId={row.postId}
                     filed={appeals.some(

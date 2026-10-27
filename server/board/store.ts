@@ -127,6 +127,8 @@ export type RemovalEntry = {
   at: number;
   /** Set when the row is a room chat line. A post leaves this off. */
   roomChat?: boolean;
+  /** Set only on the viewer's own removals, matched by user id, never by name. */
+  mine?: boolean;
 };
 
 export type BanEntry = {
@@ -845,6 +847,7 @@ export async function listBoard(
           reason: ruleId(row.reason),
           at: atMs(row.created_at),
           ...(row.room_chat ? { roomChat: true } : {}),
+          ...(row.author_user_id !== null && row.author_user_id === userId ? { mine: true } : {}),
         })),
       bans: banRows
         .filter((row) => seesRoom(row.room_id))
