@@ -57,12 +57,15 @@ test("the door and the missing page link to about, privacy, and terms", () => {
 });
 
 test("the door intro comes before the form and keeps the desktop order", () => {
-  const pitchAt = door.indexOf("{APP_NAME} is invite-only.");
+  const pitchAt = door.indexOf("Welcome to {APP_NAME}");
   const sideAt = door.indexOf('className="door-side ');
   assert.ok(pitchAt > 0 && sideAt > pitchAt);
   assert.match(door, /lg:order-last/);
-  assert.match(door, /<Kicker>Invite-only<\/Kicker>/);
-  assert.match(door, /only if an existing member invites you/);
+  assert.doesNotMatch(door, /<Kicker>/);
+  assert.equal((door.match(/invite-only/g) ?? []).length <= 1, true);
+  assert.match(door, /A member who knows you gives you\s+an invite code\./);
+  assert.match(door, /Already a member\? Sign in below\.<\/p>\s*<AccountDoor/);
+  assert.match(door, /Enter your name and that code to\s+come in\./);
   assert.match(door, /text-base text-fg/);
 });
 
