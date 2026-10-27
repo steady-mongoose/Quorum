@@ -1,3 +1,4 @@
+import { denyHold, isCustodian, logHoldAccess } from "./csam-custody.ts";
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
@@ -37,7 +38,7 @@ const HKDF_INFO = "avouch-csam-hold-v1";
  */
 export const CSAM_QUEUE_SQL = `select id, post_id, room_id, author_user_id, author_name,
             media_count, byte_size, media_types, created_at, retain_until,
-            seal_status, filed_at, report_id, filed_by_name
+            seal_status, filed_at, report_id, filed_by_name, legal_hold
      from board_csam_hold
      where purged_at is null
      order by created_at desc
@@ -73,6 +74,8 @@ export type CsamReport = {
   reportId: string;
   filedAt: number | null;
   filedBy: string;
+  /** Set by a custodian. The one-year purge skips this hold while it is on. */
+  legalHold?: boolean;
 };
 
 export type AdminAlert = {
@@ -231,6 +234,7 @@ export function reportFromRow(row: {
   filed_at?: Date | string | number | null;
   report_id?: string | null;
   filed_by_name?: string | null;
+  legal_hold?: boolean | null;
 }): CsamReport {
   const filedAt = row.filed_at ? atMs(row.filed_at) : null;
   const status = filedAt ? "filed" : row.seal_status === "pending_seal" ? "pending_seal" : "prepared";
@@ -249,6 +253,7 @@ export function reportFromRow(row: {
     reportId: row.report_id ?? "",
     filedAt,
     filedBy: row.filed_by_name ?? "",
+    legalHold: row.legal_hold === true,
   };
 }
 
@@ -599,7 +604,8 @@ export async function purgeExpiredHolds(
   store: ObjectStore | null = null,
 ): Promise<number> {
   const due = await db.query<{ id: string; post_ids: unknown }>(
-    `select id, post_ids from board_csam_hold where purged_at is null and retain_until <= $1`,
+    `select id, post_ids from board_csam_hold
+     where purged_at is null and retain_until <= $1 and not legal_hold`,
     [now],
   );
   for (const row of due) {
@@ -637,6 +643,7 @@ export async function purgeExpiredHolds(
         [postIds, now],
       );
     }
+    await logHoldAccess(db, { holdId: row.id, action: "purge", detail: "retention ended", now });
   }
   return due.length;
 }
@@ -695,6 +702,9 @@ export async function fileCsamReport(
 ): Promise<{ ok: true; value: CsamReport } | { ok: false; status: number; error: string }> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return { ok: false, status: 403, error: "Only an admin can record a CyberTipline filing." };
+  if (!(await isCustodian(db, input.userId, actor))) {
+    return denyHold(db, input.userId, input.holdId, "file report", input.now);
+  }
   const reportId = input.reportId.trim();
   if (!REPORT_ID.test(reportId)) {
     return { ok: false, status: 400, error: "Enter the CyberTipline report id." };
@@ -716,6 +726,13 @@ export async function fileCsamReport(
      where id = $1`,
     [row.id, input.now, reportId, input.userId, name, until],
   );
+  await logHoldAccess(db, {
+    holdId: row.id,
+    actorUserId: input.userId,
+    action: "file_report",
+    detail: `report=${reportId}`,
+    now: input.now,
+  });
   console.log(JSON.stringify({ event: "csam-report-filed", holdId: row.id, reportId }));
   return {
     ok: true,

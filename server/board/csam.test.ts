@@ -102,6 +102,11 @@ async function grant(
      values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.', $6)`,
     [randomUUID(), userId, name, role, roomId, now],
   );
+  // These tests read the hold queue as an admin, so name every admin a CSAM custodian.
+  // csam-custody.test.ts covers the admin who is not one.
+  if (role === "admin") {
+    await db.query(`insert into csam_custodian (user_id) values ($1) on conflict do nothing`, [userId]);
+  }
 }
 
 test("the admin queue selects no sealed column", () => {

@@ -25,6 +25,7 @@ import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy
 import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
+import { isCustodian, logHoldAccess } from "./csam-custody.ts";
 import {
   CSAM_QUEUE_SQL,
   dropObjectKeys,
@@ -711,8 +712,9 @@ export async function listBoard(
   );
   let csamReports: CsamReport[] = [];
   let adminAlerts: AdminAlert[] = [];
+  const custodian = actor.admin && (await isCustodian(db, userId, actor));
   if (actor.admin) {
-    const reportRows = await db.query<{
+    const reportRows = !custodian ? [] : await db.query<{
       id: string;
       post_id: string;
       room_id: string;
@@ -727,8 +729,17 @@ export async function listBoard(
       filed_at: Date | string | null;
       report_id: string;
       filed_by_name: string;
+      legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
+    if (custodian && reportRows.length > 0) {
+      await logHoldAccess(db, {
+        actorUserId: userId,
+        action: "list",
+        detail: `${reportRows.length} holds`,
+        now,
+      });
+    }
     const alertRows = await db.query<{
       id: string;
       kind: string;
