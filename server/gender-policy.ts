@@ -57,6 +57,7 @@ export function mayNameAnotherGender(
   input: { actorIsAdmin: boolean; actorIsSteward: boolean },
   policy: GenderPolicy = GENDER_POLICY,
 ): boolean {
+  if (policy.GENDER_SET_BY === "self") return false;
   if (policy.GENDER_SET_BY === "inviter") return true;
   if (policy.GENDER_SET_BY === "steward") return input.actorIsAdmin || input.actorIsSteward;
   if (policy.GENDER_CHANGE_BY === "admin") return input.actorIsAdmin;
@@ -130,19 +131,9 @@ export function genderWriteDecision(
     if (!input.actorIsSteward) return { ok: false, status: 403, error: "A steward sets this." };
     return { ok: true, kind: "set" };
   }
-  if (input.actorIsSubject && !policy.GENDER_CHANGE_ALLOWS_SELF) {
-    return { ok: false, status: 403, error: "You cannot change this yourself." };
-  }
-  if (policy.GENDER_CHANGE_BY === "admin") {
-    if (!input.actorIsAdmin) {
-      return { ok: false, status: 403, error: "An admin changes this after it is set." };
-    }
-    return { ok: true, kind: "change" };
-  }
-  if (!input.actorIsSteward) {
-    return { ok: false, status: 403, error: "A steward changes this after it is set." };
-  }
-  return { ok: true, kind: "change" };
+  // No one edits a stated gender after it is set, including an admin.
+  void policy;
+  return { ok: false, status: 403, error: "This cannot be changed once it is set." };
 }
 
 export function genderPolicyPayload(policy: GenderPolicy = GENDER_POLICY) {

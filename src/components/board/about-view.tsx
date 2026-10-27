@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
-import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
+import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -205,12 +205,6 @@ export function AboutView() {
       </section>
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
-
-      {remote && admin ? (
-        <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
-          <MemberGenderForm />
-        </section>
-      ) : null}
 
       {remote && admin ? (
         <AdminTools

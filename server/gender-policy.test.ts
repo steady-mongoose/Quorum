@@ -49,7 +49,7 @@ test("audience decisions name the refusal and let a steward override", () => {
   assert.equal(waiting.code, "gender-unconfirmed");
 });
 
-test("a first gender follows who may set it, and a later change is an admin", () => {
+test("a first gender follows who may set it, and no one changes it later", () => {
   const base = {
     actorIsInviter: false,
     actorHasNoInviter: true,
@@ -88,7 +88,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(changed.ok, false);
   if (changed.ok) return;
-  assert.equal(changed.error, "You cannot change this yourself.");
+  assert.equal(changed.error, "This cannot be changed once it is set.");
   const steward = genderWriteDecision({
     ...base,
     current: "man",
@@ -99,7 +99,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(steward.ok, false);
   if (steward.ok) return;
-  assert.equal(steward.error, "An admin changes this after it is set.");
+  assert.equal(steward.error, "This cannot be changed once it is set.");
   const adminSelf = genderWriteDecision({
     ...base,
     current: "man",
@@ -109,7 +109,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(adminSelf.ok, false);
   if (adminSelf.ok) return;
-  assert.equal(adminSelf.error, "You cannot change this yourself.");
+  assert.equal(adminSelf.error, "This cannot be changed once it is set.");
   const admin = genderWriteDecision({
     ...base,
     current: "man",
@@ -117,7 +117,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
     actorIsSubject: false,
     actorIsAdmin: true,
   });
-  assert.deepEqual(admin, { ok: true, kind: "change" });
+  assert.equal(admin.ok, false, "an admin cannot edit a member's gender");
 
   const invited = {
     GENDER_SET_BY: "inviter" as const,

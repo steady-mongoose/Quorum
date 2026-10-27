@@ -505,35 +505,32 @@ test("a restricted room is enforced on every path, and a steward override is log
 
     const second = refusal(await setMemberGender(db, { actorUserId: adam, subjectUserId: adam, gender: "woman", now }));
     assert.equal(second.status, 403);
-    assert.equal(second.error, "You cannot change this yourself.");
+    assert.equal(second.error, "This cannot be changed once it is set.");
     const stewardChange = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: adam, gender: "woman", now }),
     );
     assert.equal(stewardChange.status, 403);
-    assert.equal(stewardChange.error, "An admin changes this after it is set.");
+    assert.equal(stewardChange.error, "This cannot be changed once it is set.");
     const stewardSelf = refusal(
       await setMemberGender(db, { actorUserId: helen, subjectUserId: helen, gender: "man", now }),
     );
     assert.equal(stewardSelf.status, 403);
-    assert.equal(stewardSelf.error, "You cannot change this yourself.");
+    assert.equal(stewardSelf.error, "This cannot be changed once it is set.");
     const adminSelf = refusal(
       await setMemberGender(db, { actorUserId: josh, subjectUserId: josh, gender: "woman", now }),
     );
     assert.equal(adminSelf.status, 403);
-    assert.equal(adminSelf.error, "You cannot change this yourself.");
-    const changed = await setMemberGender(db, {
-      actorUserId: josh,
-      subjectUserId: adam,
-      gender: "woman",
-      now,
-    });
-    assert.equal(changed.ok, true);
-    const changeAudit = await db.query<{ action: string; detail: string; subject_user_id: string }>(
-      `select action, detail, subject_user_id from gender_audit where action = 'change-gender'`,
+    assert.equal(adminSelf.error, "This cannot be changed once it is set.");
+    const adminEdit = refusal(
+      await setMemberGender(db, { actorUserId: josh, subjectUserId: adam, gender: "woman", now }),
     );
-    assert.equal(changeAudit.length, 1);
-    assert.equal(changeAudit[0]?.subject_user_id, adam);
-    assert.equal(changeAudit[0]?.detail, "man -> woman");
+    assert.equal(adminEdit.status, 403);
+    assert.equal(adminEdit.error, "This cannot be changed once it is set.");
+    const changeAudit = await db.query(`select 1 from gender_audit where action = 'change-gender'`);
+    assert.equal(changeAudit.length, 0);
+    // The rest of this test needs Adam recorded as a woman. There is no app path for that now,
+    // so the row is written directly, as an operator correction would be.
+    await db.query(`update members set gender = 'woman' where user_id = $1`, [adam]);
     const revised = refusal(
       await revisePost(db, {
         userId: adam,
@@ -760,10 +757,12 @@ test("naming an email is the same refusal when the caller cannot change a gender
     assert.equal(known.status, 403);
     assert.equal(unknown.status, 403);
     assert.deepEqual(await known.json(), await unknown.json());
-    const missing = await post(admin, "nobody@example.com");
-    assert.equal(missing.status, 404);
-    const body = (await missing.json()) as { error?: string };
-    assert.equal(body.error, "No member has that email.");
+    // An admin can no longer name another member's gender either.
+    const adminKnown = await post(admin, "other@example.com");
+    const adminMissing = await post(admin, "nobody@example.com");
+    assert.equal(adminKnown.status, 403);
+    assert.equal(adminMissing.status, 403);
+    assert.deepEqual(await adminKnown.json(), await adminMissing.json());
   } finally {
     await close();
   }
@@ -972,7 +971,7 @@ test("deleting a member clears gender words from the audit", async () => {
       gender: "woman",
       now,
     });
-    assert.equal(changed.ok, true);
+    assert.equal(changed.ok, false);
     await db.query(`delete from "user" where id = $1`, [member]);
     const rows = await db.query<{ detail: string }>(
       `select detail from gender_audit where subject_user_id is null or actor_user_id = $1`,
