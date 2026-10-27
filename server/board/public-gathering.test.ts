@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
@@ -52,7 +53,12 @@ function app(db: Db) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
-      return { id, name: "Dale", email: "dale@example.com" };
+      return {
+        id,
+        name: "Dale",
+        email: "dale@example.com",
+        sessionId: headers.get("x-session-id") ?? undefined,
+      };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
   } satisfies AppDeps);
@@ -147,6 +153,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     await grant(db, maria, "Maria", "member");
     await grant(db, ruth, "Ruth", "member");
     await grant(db, ruth, "Ruth", "steward", "shop");
+    const ruthSession = await trustAuthenticator(db, ruth);
     const handler = app(db);
     const created = await save(handler, dale, {
       id: DALE_ID,
@@ -161,7 +168,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const stewardOn = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -249,7 +256,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const stewardAgain = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -259,7 +266,7 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const steward = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: false, title: "Free prize claim now" }),
       }),
     );
@@ -302,6 +309,7 @@ test("a free-text time is stored for the host and omitted from the public page",
     await grant(db, dale, "Dale", "member");
     await grant(db, ruth, "Ruth", "member");
     await grant(db, ruth, "Ruth", "steward", "shop");
+    const ruthSession = await trustAuthenticator(db, ruth);
     const handler = app(db);
     const sentence = "Meet behind the old mill on Route 9";
     const created = await save(handler, dale, {
@@ -316,7 +324,7 @@ test("a free-text time is stored for the host and omitted from the public page",
     const turnedOn = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: true }),
       }),
     );
@@ -351,7 +359,7 @@ test("a free-text time is stored for the host and omitted from the public page",
     const off = await handler(
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": ruth },
+        headers: { "content-type": "application/json", "x-user-id": ruth, "x-session-id": ruthSession },
         body: JSON.stringify({ shared: false }),
       }),
     );

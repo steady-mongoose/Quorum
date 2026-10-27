@@ -5,6 +5,7 @@ import {
   signUpWithInvite,
   type AccountUser,
 } from "@/lib/account-api";
+import type { MfaPhase } from "@/lib/account-result";
 import type { ApiMode } from "@/lib/api-mode";
 
 export type ServerSession = {
@@ -12,8 +13,12 @@ export type ServerSession = {
   configured: boolean;
   mode: "pending" | ApiMode;
   user: AccountUser | null;
+  /** challenge hides the hall until the second step. enroll is a grace period. */
+  mfa: MfaPhase;
+  mfaEnrolled: boolean;
   signUp: typeof signUpWithInvite;
   signIn: typeof signInWithPassword;
+  finishMfa: (code: string) => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
   /** Run the health probe again. Used when sign-in is unavailable. */
   recheck: () => Promise<void>;
@@ -24,8 +29,11 @@ export const EMPTY_SERVER_SESSION: ServerSession = {
   configured: false,
   mode: "demo",
   user: null,
+  mfa: "ok",
+  mfaEnrolled: false,
   signUp: signUpWithInvite,
   signIn: signInWithPassword,
+  finishMfa: async () => ({ ok: false, message: "Sign in first." }),
   signOut: async () => undefined,
   recheck: async () => undefined,
   createInvite: createServerInvite,

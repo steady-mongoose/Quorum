@@ -5,6 +5,9 @@ import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { MfaResetQueue } from "@/components/board/mfa-ui";
+import { useServerSession } from "@/lib/server-session-state";
+import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
@@ -99,6 +102,9 @@ export function AboutView() {
   const appeal = useBoard((state) => state.appeal);
   const rooms = useBoard((state) => state.rooms);
   const admin = useBoard((state) => state.admin);
+  const server = useServerSession();
+  const [exportCode, setExportCode] = useState("");
+  const [exportError, setExportError] = useState("");
   const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
@@ -209,6 +215,7 @@ export function AboutView() {
       </section>
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+      {remote && admin ? <MfaResetQueue /> : null}
 
       {remote && admin ? (
         <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -298,13 +305,45 @@ export function AboutView() {
                 The file includes the posts, messages, invites, bans, marks, removals, appeals, and
                 reports saved in this browser.
               </p>
+              <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
+                Authenticator code, if yours is on
+                <input
+                  className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+                  value={exportCode}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  onChange={(event) => setExportCode(event.target.value)}
+                />
+              </label>
               <button
                 type="button"
                 className={cn(btnGhost, "mt-3 min-h-[44px]")}
-                onClick={() => downloadBoardExport(boardSnapshot())}
+                onClick={() => {
+                  void (async () => {
+                    setExportError("");
+                    if (server.mode === "live" && (server.mfaEnrolled || server.mfa === "enroll")) {
+                      const stepped = await stepUpMfa("data-export", exportCode.trim());
+                      if (!stepped.ok) {
+                        setExportError(stepped.message);
+                        return;
+                      }
+                      const remote = await fetchAccountExport();
+                      if (!remote.ok) {
+                        setExportError(remote.message);
+                        return;
+                      }
+                    }
+                    downloadBoardExport(boardSnapshot());
+                  })();
+                }}
               >
                 Export first
               </button>
+              {exportError ? (
+                <p role="alert" className="mt-2 text-sm text-danger">
+                  {exportError}
+                </p>
+              ) : null}
             </ConfirmDialog>
             {undoClear ? (
               <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -610,19 +649,28 @@ function RoleForm({
   const fields = useRoleFields();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "grant-steward">(null);
   const room = roomTitle(rooms, fields.roomId);
   const who = fields.email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
-    void onSubmit(fields).then((result) => {
+    void (async () => {
+      if (mfaCode.trim()) {
+        const stepped = await stepUpMfa("role-grant", mfaCode.trim());
+        if (!stepped.ok) {
+          setError(stepped.message);
+          return;
+        }
+      }
+      const result = await onSubmit(fields);
       if (!result.ok) {
         setError(result.error ?? "That role was not changed.");
         return;
       }
       setNotice(done);
-    });
+    })();
   };
   return (
     <details className="rounded-md border border-line p-3">
@@ -639,7 +687,17 @@ function RoleForm({
         }}
       >
         {children(fields)}
-        <button type="submit" className={cn(btnSignal, "self-start")}>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Authenticator code
+          <input
+            className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+            value={mfaCode}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </label>
+        <button type="submit" className={cn(btnSignal, "self-start min-h-[44px]")}>
           {title}
         </button>
         {error ? (
@@ -712,19 +770,28 @@ function RevokeRole({
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "revoke">(null);
   const room = roomTitle(rooms, roomId);
   const who = email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
-    void changeAccess({ action: "revoke", email, role, roomId }).then((result) => {
+    void (async () => {
+      if (mfaCode.trim()) {
+        const stepped = await stepUpMfa("role-grant", mfaCode.trim());
+        if (!stepped.ok) {
+          setError(stepped.message);
+          return;
+        }
+      }
+      const result = await changeAccess({ action: "revoke", email, role, roomId });
       if (!result.ok) {
         setError(result.error ?? "That role was not changed.");
         return;
       }
       setNotice("Role revoked.");
-    });
+    })();
   };
   return (
     <details className="rounded-md border border-line p-3">
@@ -752,7 +819,17 @@ function RevokeRole({
             <option value="admin">Admin</option>
           </select>
         </label>
-        <button type="submit" className={cn(btnQuiet, "self-start text-danger")}>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Authenticator code
+          <input
+            className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+            value={mfaCode}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </label>
+        <button type="submit" className={cn(btnQuiet, "self-start min-h-[44px] text-danger")}>
           Revoke
         </button>
         {error ? (

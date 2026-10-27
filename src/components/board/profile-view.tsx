@@ -5,6 +5,7 @@ import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { MfaSettings } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 
 /**
@@ -173,6 +174,8 @@ export function ProfileView() {
           </ul>
         </section>
       ) : null}
+
+      {mine && server.mode === "live" ? <MfaSettings /> : null}
 
       {hosts.length > 0 ? (
         <section className="flex flex-col gap-2">
