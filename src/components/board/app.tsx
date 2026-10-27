@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
   CalendarDays,
@@ -86,6 +87,7 @@ export function BoardApp({ categorySlug }: { categorySlug?: string | null } = {}
 function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const setRoom = useBoard((state) => state.setRoom);
   const navigate = useNavigate();
   const onRoomsRoute = categorySlug !== undefined;
   const deskOn = useBoard((state) => state.deskOn);
@@ -230,6 +232,17 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         Skip to content
       </a>
       <PrimaryHaptic />
+      {entered ? (
+        <CallRings
+          onGo={(roomId) => {
+            setSection("rooms");
+            setRoom(roomId as Parameters<typeof setRoom>[0]);
+            void navigate({ to: "/rooms" }).then(() =>
+              requestAnimationFrame(() => focusRoomCall()),
+            );
+          }}
+        />
+      ) : null}
       {art === "landing" || art === "signin" ? (
         <div className="plate-ground" aria-hidden="true" />
       ) : null}
@@ -272,7 +285,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
                 href={signingIn ? "#sign-in" : "#open-the-door"}
                 onClick={focusDoorField}
               >
-                {signingIn ? "Sign in" : "Open the door"}
+                {signingIn ? "Sign in" : "Enter your invite code"}
               </a>
             )}
             {server.user ? (
@@ -306,7 +319,10 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p>
-              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+              {userFacingError(
+                boardError,
+                "That did not go through. Please try again in a moment.",
+              )}
             </p>
             <button
               type="button"

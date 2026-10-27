@@ -88,6 +88,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0019_room_audience.sql",
       "0020_unclaimed_rooms.sql",
       "0021_categories.sql",
+      "0024_member_profile.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -126,6 +127,30 @@ test("migration 0021 adds categories and does not replace a function", () => {
   assert.match(sql, /category_id/);
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/create trigger/i.test(sql), false);
+});
+
+test("migration 0024 adds the member profile and leaves 0023 for MFA", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0024_member_profile.sql"), "utf8");
+  assert.match(sql, /Numbered 0024/);
+  assert.match(sql, /0023 is reserved for MFA/);
+  assert.match(sql, /owner must approve/i);
+  assert.match(sql, /add column if not exists display_name text/);
+  assert.match(sql, /alter column display_name set not null/i);
+  assert.match(sql, /birthdate date/);
+  assert.match(sql, /create table if not exists member_link/i);
+  assert.match(sql, /create table if not exists profile_visibility/i);
+  assert.match(sql, /scope in \('room', 'dm', 'profile'\)/);
+  assert.match(sql, /profile_anonymous/);
+  assert.match(sql, /permissions 0025/i);
+  assert.equal(/create or replace function anonymize_/i.test(sql), false);
+  assert.equal(/create trigger/i.test(sql), false);
+  assert.doesNotMatch(sql, /\blikes?\b/i);
+  assert.doesNotMatch(sql, /\bscore\b/i);
+  assert.doesNotMatch(sql, /\breshare\b/i);
+  assert.doesNotMatch(sql, /like_count/);
+  assert.match(sql, /No endpoint and no stats CSV selects/);
+  assert.match(sql, /change-birthdate/);
+  assert.match(sql, /set-birthdate/);
 });
 
 test("migration 0018 adds the public gathering and does not replace a function", () => {
