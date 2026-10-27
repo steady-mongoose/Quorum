@@ -45,6 +45,11 @@ function challengeError(message: string | undefined, recoveryMode: boolean): str
   return "That code didn't match. Codes change every 30 seconds, so try the newest one.";
 }
 
+/** The disable field takes a six-digit code or a recovery code (letters, digits, a dash). */
+export function disableCodeInput(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9 -]/g, "").slice(0, 16);
+}
+
 export function MfaChallenge({
   onSubmit,
 }: {
@@ -328,15 +333,15 @@ export function MfaSettings() {
           }}
         >
           <label className="flex flex-col gap-2 text-sm text-muted">
-            Code to turn it off
+            Six-digit code or a recovery code
             <input
               className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
               value={code}
-              inputMode="numeric"
-              maxLength={6}
-              pattern="[0-9]*"
+              inputMode="text"
+              autoCapitalize="characters"
+              maxLength={16}
               autoComplete="one-time-code"
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(event) => setCode(disableCodeInput(event.target.value))}
             />
           </label>
           <button type="submit" className={cn(btnGhost, "w-full sm:w-auto")} disabled={pending}>

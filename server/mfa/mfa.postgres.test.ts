@@ -619,7 +619,10 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
       new Request("http://127.0.0.1:8787/api/mfa/disable", {
         method: "POST",
         headers: headers(recoverUser, "203.0.113.64"),
-        body: JSON.stringify({ code: totpAt(paul.plain, clock.now.getTime()) }),
+        // A recovery code turns it off too, typed loosely (lowercase, spaced dash).
+        body: JSON.stringify({
+          code: `${paul.recoveryCodes[2]!.slice(0, 5)} - ${paul.recoveryCodes[2]!.slice(5)}`.toLowerCase(),
+        }),
       }),
     );
     assert.equal(turnedOff.status, 200, await turnedOff.clone().text());
