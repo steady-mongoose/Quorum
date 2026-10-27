@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -152,9 +152,7 @@ export function RoomView() {
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
-              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
-                {title}
-              </h1>
+              <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">{title}</h1>
               <RoomAudienceMark audience={audience} />
             </>
           )}
@@ -844,6 +842,14 @@ const PostCard = memo(function PostCard({
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
+  const [appealSent, setAppealSent] = useState(false);
+  const appealId = useId();
+  const appealInput = useRef<HTMLInputElement | null>(null);
+  const appealOpener = useRef<HTMLButtonElement | null>(null);
+  const appealDone = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (appealSent) appealDone.current?.focus();
+  }, [appealSent]);
   const appealOpen = appeals.some(
     (row) => row.postId === post.id && row.kind === "mark" && row.decision === null,
   );
@@ -997,13 +1003,29 @@ const PostCard = memo(function PostCard({
             Revise
           </button>
         ) : null}
-        {mine && post.mark && !appealOpen ? (
-          <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setAppealing(true)}>
+        {mine && post.mark && !appealOpen && !appealSent ? (
+          <button
+            ref={appealOpener}
+            type="button"
+            className={cn(btnQuiet, "min-h-[44px] px-0")}
+            aria-expanded={appealing}
+            onClick={() => {
+              setAppealing(true);
+              window.setTimeout(() => appealInput.current?.focus(), 0);
+            }}
+          >
             Appeal this mark
           </button>
         ) : null}
-        {mine && post.mark && appealOpen ? (
-          <span className="self-center text-sm text-muted">Appeal filed with the stewards.</span>
+        {mine && post.mark && (appealOpen || appealSent) ? (
+          <span
+            ref={appealDone}
+            tabIndex={-1}
+            role="status"
+            className="self-center text-sm text-muted"
+          >
+            Appeal filed with the stewards. They will read it and decide.
+          </span>
         ) : null}
       </div>
 
@@ -1107,10 +1129,12 @@ const PostCard = memo(function PostCard({
         </div>
       ) : null}
       {mine && appealing ? (
-        <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
-          One sentence to the stewards
+        <div className="mt-3 flex flex-col gap-2 text-sm text-muted">
+          <label htmlFor={appealId}>One sentence to the stewards</label>
           <input
-            className={fieldClass}
+            id={appealId}
+            ref={appealInput}
+            className={cn(fieldClass, "min-h-[44px]")}
             value={appealDraft}
             placeholder="The mark names the side, not the missing reason."
             onChange={(event) => {
@@ -1119,31 +1143,42 @@ const PostCard = memo(function PostCard({
             }}
           />
           {appealError ? (
-            <span className="text-danger" role="alert">
+            <p className="text-danger" role="alert">
               {appealError}
-            </span>
+            </p>
           ) : null}
-          <span className="flex gap-2">
+          <div className="flex gap-2">
             <button
               type="button"
-              className={btnSignal}
+              className={cn(btnSignal, "min-h-[44px]")}
               onClick={() => {
                 void appeal(post.id, "mark", appealDraft).then((result) => {
-                  if (!result.ok) setAppealError(result.error ?? "That appeal was not filed.");
-                  else {
+                  if (!result.ok) {
+                    setAppealError(result.error ?? "That appeal was not filed.");
+                    appealInput.current?.focus();
+                  } else {
                     setAppealing(false);
                     setAppealDraft("");
+                    setAppealSent(true);
                   }
                 });
               }}
             >
               File appeal
             </button>
-            <button type="button" className={btnQuiet} onClick={() => setAppealing(false)}>
+            <button
+              type="button"
+              className={cn(btnQuiet, "min-h-[44px]")}
+              onClick={() => {
+                setAppealing(false);
+                setAppealError("");
+                window.setTimeout(() => appealOpener.current?.focus(), 0);
+              }}
+            >
               Cancel
             </button>
-          </span>
-        </label>
+          </div>
+        </div>
       ) : null}
     </article>
   );

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
@@ -410,19 +410,44 @@ function RemovalAppeal({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  if (filed) return <p className="mt-2">Appeal filed with the stewards.</p>;
+  const [sent, setSent] = useState(false);
+  const fieldId = useId();
+  const input = useRef<HTMLInputElement | null>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const done = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (sent) done.current?.focus();
+  }, [sent]);
+  if (filed || sent) {
+    return (
+      <p ref={done} tabIndex={-1} role="status" className="mt-2">
+        Appeal filed with the stewards. They will read it and decide.
+      </p>
+    );
+  }
   if (!open) {
     return (
-      <button type="button" className={`${btnGhost} mt-2`} onClick={() => setOpen(true)}>
+      <button
+        ref={opener}
+        type="button"
+        className={`${btnGhost} mt-2 min-h-[44px]`}
+        aria-expanded={false}
+        onClick={() => setOpen(true)}
+      >
         Appeal this removal
       </button>
     );
   }
   return (
-    <label className="mt-2 flex flex-col gap-2">
-      One sentence to the stewards
+    <div className="mt-2 flex flex-col gap-2">
+      <label htmlFor={fieldId}>One sentence to the stewards</label>
       <input
-        className={fieldClass}
+        id={fieldId}
+        ref={input}
+        className={`${fieldClass} min-h-[44px]`}
         value={reason}
         onChange={(event) => {
           setReason(event.target.value);
@@ -430,28 +455,41 @@ function RemovalAppeal({
         }}
       />
       {error ? (
-        <span className="text-danger" role="alert">
+        <p className="text-danger" role="alert">
           {error}
-        </span>
+        </p>
       ) : null}
-      <span className="flex gap-2">
+      <div className="flex gap-2">
         <button
           type="button"
-          className={btnSignal}
+          className={`${btnSignal} min-h-[44px]`}
           onClick={() => {
             void appeal(postId, "removal", reason).then((result) => {
-              if (!result.ok) setError(result.error ?? "That appeal was not filed.");
-              else setOpen(false);
+              if (!result.ok) {
+                setError(result.error ?? "That appeal was not filed.");
+                input.current?.focus();
+              } else {
+                setOpen(false);
+                setSent(true);
+              }
             });
           }}
         >
           File appeal
         </button>
-        <button type="button" className={btnGhost} onClick={() => setOpen(false)}>
+        <button
+          type="button"
+          className={`${btnGhost} min-h-[44px]`}
+          onClick={() => {
+            setOpen(false);
+            setError("");
+            window.setTimeout(() => opener.current?.focus(), 0);
+          }}
+        >
           Cancel
         </button>
-      </span>
-    </label>
+      </div>
+    </div>
   );
 }
 
@@ -570,11 +608,7 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Member email
-      <input
-        className={fieldClass}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -583,11 +617,7 @@ function RoomField({ value, onChange }: { value: string; onChange: (value: strin
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
       Room id
-      <input
-        className={fieldClass}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <input className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -627,9 +657,7 @@ function RoleForm({
   };
   return (
     <details className="rounded-md border border-line p-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
-        {title}
-      </summary>
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
       <form
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
@@ -691,16 +719,7 @@ function useRoleFields(): RoleFields {
   const [roomId, setRoomId] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [stewardEmail, setStewardEmail] = useState("");
-  return {
-    email,
-    setEmail,
-    roomId,
-    setRoomId,
-    inviterEmail,
-    setInviterEmail,
-    stewardEmail,
-    setStewardEmail,
-  };
+  return { email, setEmail, roomId, setRoomId, inviterEmail, setInviterEmail, stewardEmail, setStewardEmail };
 }
 
 function RevokeRole({
