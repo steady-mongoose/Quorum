@@ -292,3 +292,12 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   act(() => root.unmount());
   host.remove();
 });
+
+test("the category select truncates at phone width and the header link is a 44px target", async () => {
+  const { readFileSync } = await import("node:fs");
+  const view = readFileSync(new URL("./stats-view.tsx", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../../routes/admin/stats.tsx", import.meta.url), "utf8");
+  assert.match(view, /w-full max-w-full truncate .*sm:w-auto sm:max-w-\[20rem\]/);
+  assert.match(view, /title=\{selectedLabel\}/);
+  assert.match(route, /<Link to="\/" className="inline-flex min-h-\[44px\] items-center text-sm text-muted">/);
+});

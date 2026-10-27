@@ -76,7 +76,7 @@ function AdminStatsPage() {
   return (
     <main className="mx-auto grid w-full max-w-[72rem] grid-cols-12 gap-4 overflow-x-hidden p-6">
       <header className="col-span-12 flex flex-col gap-2">
-        <Link to="/" className="text-sm text-muted">
+        <Link to="/" className="inline-flex min-h-[44px] items-center text-sm text-muted">
           {APP_NAME}
         </Link>
         <h1 className="text-4xl text-fg">Stats</h1>

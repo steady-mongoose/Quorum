@@ -46,6 +46,9 @@ export function StatsView({
   onCategory: (category: string) => void;
 }) {
   const [table, setTable] = useState(false);
+  const categories = stats.categories?.length ? stats.categories : STATS_CATEGORIES;
+  const selectedLabel =
+    category === "all" ? "All" : (categories.find((item) => item.id === category)?.label ?? "All");
   const roomRows = [...stats.rooms.rows].sort(
     (a, b) => a.room.localeCompare(b.room) || a.week.localeCompare(b.week),
   );
@@ -70,13 +73,14 @@ export function StatsView({
           <label className="flex min-w-0 flex-col gap-1 text-[0.85rem] text-muted">
             Category
             <select
-              className="min-h-[44px] rounded-md border border-line bg-surface px-3 text-fg"
+              className="min-h-[44px] w-full max-w-full truncate rounded-md border border-line bg-surface px-3 text-fg sm:w-auto sm:max-w-[20rem]"
               value={category}
+              title={selectedLabel}
               aria-label="Category"
               onChange={(event) => onCategory(event.target.value)}
             >
               <option value="all">All</option>
-              {(stats.categories?.length ? stats.categories : STATS_CATEGORIES).map((item) => (
+              {categories.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
                 </option>
