@@ -2,13 +2,19 @@ import type { Db } from "../db.ts";
 import { CALLS_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { iceServersForMember, publicCallsStatus, type CallsConfig } from "./config.ts";
 import { roomCallMember } from "./membership.ts";
+import { dmCallMember, type DmCallCheck } from "./dm-membership.ts";
 import { callDisplayName, type CallStore } from "./store.ts";
 
 export type CallsRuntime = {
   config: CallsConfig;
   store: CallStore;
   now: () => Date;
+  /** Tests may stub the DM rule. Production reads dm_thread and attendance. */
+  dmMember?: (db: Db, userId: string, threadId: string, now: Date) => Promise<DmCallCheck>;
 };
+
+/** A DM call holds exactly the two people in the thread. */
+export const DM_CALL_PEERS = 2;
 
 function json(status: number, body: unknown, extra?: Headers): Response {
   const headers = extra ?? new Headers();
@@ -40,6 +46,7 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
 }
 
 const roomPath = /^\/api\/calls\/rooms\/([a-z0-9-]{1,32})(\/(?:join|leave|signal))?$/;
+const dmPath = /^\/api\/calls\/dm\/([0-9a-f-]{36})(\/(?:join|leave|signal))?$/;
 
 /**
  * Group calls for one room. The session user is the only identity. Signals
@@ -62,10 +69,15 @@ export async function handleCalls(
   }
   if (!runtime.config.enabled) return json(404, { error: "Not found." });
 
-  const match = roomPath.exec(pathname);
+  const roomMatch = roomPath.exec(pathname);
+  const dmMatch = roomMatch ? null : dmPath.exec(pathname);
+  const match = roomMatch ?? dmMatch;
   if (!match) return json(404, { error: "Not found.", record: false });
-  const roomId = match[1] ?? "";
+  const targetId = match[1] ?? "";
   const action = match[2] ?? "";
+  // DM calls live in the same in-memory store under a key no room id can take.
+  const roomId = dmMatch ? `dm:${targetId}` : targetId;
+  const cap = dmMatch ? DM_CALL_PEERS : undefined;
   if (request.method !== "GET" && request.method !== "POST") {
     return json(405, { error: "Not found.", record: false });
   }
@@ -91,7 +103,9 @@ export async function handleCalls(
     }
   }
 
-  const member = await roomCallMember(db, session.id, roomId, runtime.now());
+  const member = dmMatch
+    ? await (runtime.dmMember ?? dmCallMember)(db, session.id, targetId, runtime.now())
+    : await roomCallMember(db, session.id, targetId, runtime.now());
   if (member.kind === "bad-room" || member.kind === "hidden") {
     return json(404, { error: "Not found.", record: false });
   }
@@ -106,7 +120,12 @@ export async function handleCalls(
   }
   if (member.kind === "outsider") {
     runtime.store.leave(roomId, session.id);
-    return json(403, { error: "You have not stood in that room.", record: false });
+    return json(403, {
+      error: dmMatch
+        ? "You can call someone you have been to a meeting with."
+        : "You have not stood in that room.",
+      record: false,
+    });
   }
 
   const at = runtime.now().getTime();
@@ -117,6 +136,7 @@ export async function handleCalls(
         roomId,
         { id: session.id, name: callDisplayName(session.name) },
         at,
+        cap,
       );
       if (!joined.ok) return json(joined.status, { error: joined.error, record: false });
       return json(200, {
