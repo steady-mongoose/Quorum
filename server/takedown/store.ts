@@ -1,10 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { actorRole } from "../board/access.ts";
+import { openBan } from "../board/store.ts";
 import { sendTextEmail, type MailDeps } from "../board/alert-mail.ts";
 
 /** The TAKE IT DOWN Act gives a platform 48 hours from a valid request. */
 export const TAKEDOWN_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
 
 export type TakedownField = "name" | "email" | "phone" | "contentUrl" | "description" | "goodFaith" | "signature";
 export type TakedownResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string; field?: TakedownField };
@@ -100,6 +103,17 @@ export function confirmationMail(id: string, dueAt: Date): { subject: string; te
   };
 }
 
+export function takedownLogLine(id: string, dueAt: Date, mailed: boolean): string {
+  return JSON.stringify({
+    level: "alert",
+    event: "takedown-received",
+    id,
+    dueAt: dueAt.toISOString(),
+    mailed,
+    message: `New intimate image removal request ${id}. Act by ${dueAt.toISOString()} (48 hours).`,
+  });
+}
+
 /** A public request. No account. Returns the request ID and whether the confirmation was mailed. */
 export async function submitTakedown(
   db: Db,
@@ -133,7 +147,9 @@ export async function submitTakedown(
     mail,
   );
   await audit(db, id, "mailed", "", sent.ok ? "sent" : `not sent: ${sent.error}`, now);
-  console.log(JSON.stringify({ event: "takedown-received", id, mailed: sent.ok }));
+  // Admins see it in the app: the open request heads their Home with its 48-hour deadline.
+  // This line is for the server log; no mail goes to admins.
+  console.log(takedownLogLine(id, dueAt, sent.ok));
   return { ok: true, value: { id, dueAt: dueAt.getTime(), mailed: sent.ok } };
 }
 
@@ -174,9 +190,14 @@ function rowFrom(row: RequestRecord): TakedownRow {
 }
 
 /** Admins only. Open requests first, soonest due first. */
-export async function listTakedowns(db: Db, userId: string): Promise<TakedownResult<TakedownRow[]>> {
+export async function listTakedowns(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<TakedownResult<TakedownRow[]>> {
   const actor = await actorRole(db, userId);
   if (!actor.admin) return fail(403, "Only an admin can see removal requests.");
+  if (await openBan(db, userId, now)) return fail(403, BANNED_ADMIN);
   const rows = await db.query<RequestRecord>(
     `select * from takedown_request
      order by (status = 'open') desc, due_at asc
@@ -202,6 +223,7 @@ export async function removeForTakedown(
 ): Promise<TakedownResult<{ request: TakedownRow; removedIds: string[] }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin can remove under a request.");
+  if (await openBan(db, input.userId, input.now)) return fail(403, BANNED_ADMIN);
   const ids = [...new Set(input.media.map(mediaIdFrom).filter(Boolean))];
   if (ids.length === 0) return fail(400, "Name at least one file to remove.");
   const note = input.note.trim();
@@ -258,6 +280,7 @@ export async function declineTakedown(
 ): Promise<TakedownResult<TakedownRow>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin can close a request.");
+  if (await openBan(db, input.userId, input.now)) return fail(403, BANNED_ADMIN);
   const note = input.note.trim();
   if (note.length < 4 || note.length > 500) return fail(400, "Say why nothing was removed.");
   const saved = await db.query<RequestRecord>(

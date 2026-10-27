@@ -55,6 +55,13 @@ export const takedownApi: TakedownApi = {
   },
 };
 
+/** The notice at the top of an admin's Home while any request is open. */
+export function takedownNotice(count: number, dueAt: number, now: number): string {
+  const what = count === 1 ? "1 removal request is open" : `${count} removal requests are open`;
+  const when = new Date(dueAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return `${what}. The law gives us 48 hours. The next one is due ${when} (${countdownLabel(dueAt, now)}).`;
+}
+
 /** Admin-only list of removal requests, each with its 48-hour countdown. */
 export function TakedownPanel() {
   const admin = useBoard((state) => state.admin);
@@ -99,11 +106,20 @@ export function TakedownQueue({ api, now: fixedNow }: { api: TakedownApi; now?: 
   }, []);
 
   const open = rows.filter((row) => row.status === "open");
+  const first = [...open].sort((a, b) => a.dueAt - b.dueAt)[0];
   return (
     <section className="mt-6 flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="takedown-heading">
       <h2 id="takedown-heading" ref={headingRef} tabIndex={-1} className="kicker">
         Intimate image removal requests
       </h2>
+      {first ? (
+        <p
+          data-takedown-notice=""
+          className="rounded-lg border-2 border-danger bg-surface p-4 text-base font-semibold text-danger"
+        >
+          {takedownNotice(open.length, first.dueAt, tick)}
+        </p>
+      ) : null}
       <p role="status" className="sr-only">
         {status}
       </p>

@@ -41,6 +41,7 @@ export function HomePanel() {
 
   return (
     <section className="flex flex-col gap-6">
+      <TakedownPanel />
       <div className="flex flex-col gap-2">
         <Kicker>Home</Kicker>
         <h2 className="font-display text-3xl text-fg">Nearest first</h2>
@@ -165,7 +166,6 @@ export function HomePanel() {
       </details>
 
       <ClaimsPanel />
-      <TakedownPanel />
 
       {home.requests.length > 0 ? (
         <details className="rounded-lg border border-line bg-surface p-4" open>

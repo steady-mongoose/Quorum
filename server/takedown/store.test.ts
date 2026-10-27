@@ -13,6 +13,7 @@ import {
   removeForTakedown,
   submitTakedown,
   TAKEDOWN_WINDOW_MS,
+  takedownLogLine,
   validateTakedown,
 } from "./store.ts";
 
@@ -216,4 +217,54 @@ test("a validation failure names the field that failed", () => {
   check({ contentUrl: "", description: "" }, "contentUrl");
   check({ goodFaith: false }, "goodFaith");
   check({ signature: "" }, "signature");
+});
+
+async function banSiteWide(db: Db, userId: string) {
+  await db.query(
+    `insert into board_ban (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id, created_at)
+     values ($1, $2, 'T', 'threat', null, 'owner', 1, $3, '', $4)`,
+    [randomUUID(), userId, new Date(now.getTime() + 86_400_000), now],
+  );
+}
+
+test("a banned admin cannot list, remove, or close requests", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const admin = randomUUID();
+    await user(db, admin, "admin");
+    const saved = await submitTakedown(db, good, now, { env: {} });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    assert.equal((await listTakedowns(db, admin, now)).ok, true);
+    await banSiteWide(db, admin);
+    const listed = await listTakedowns(db, admin, now);
+    assert.deepEqual(listed, { ok: false, status: 403, error: "This account is banned and cannot act as an admin right now." });
+    const removed = await removeForTakedown(db, { userId: admin, requestId: saved.value.id, media: [], note: "x", now });
+    assert.equal(removed.ok, false);
+    const declined = await declineTakedown(db, { userId: admin, requestId: saved.value.id, note: "Not ours.", now });
+    assert.equal(declined.ok, false);
+    if (!declined.ok) assert.equal(declined.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("a new request writes an alert line for the server log with its 48-hour deadline", async () => {
+  const { db, close } = await openTestDb();
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (line: string) => void lines.push(String(line));
+  try {
+    const saved = await submitTakedown(db, good, now, { env: {} });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    const due = new Date(now.getTime() + TAKEDOWN_WINDOW_MS);
+    assert.deepEqual(lines, [takedownLogLine(saved.value.id, due, false)]);
+    const parsed = JSON.parse(lines[0] ?? "{}");
+    assert.equal(parsed.level, "alert");
+    assert.equal(parsed.dueAt, "2026-10-29T12:00:00.000Z");
+  } finally {
+    console.log = original;
+    await close();
+  }
 });

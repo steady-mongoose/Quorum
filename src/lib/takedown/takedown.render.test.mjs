@@ -165,6 +165,10 @@ test("the admin queue shows each open request with its countdown", async () => {
   await flush();
   const counts = [...host.querySelectorAll("[data-countdown]")].map((el) => el.textContent);
   assert.deepEqual(counts, ["40 h 0 min left", "Overdue by 1 h 0 min"]);
+  const notice = host.querySelector("[data-takedown-notice]");
+  assert.ok(notice, "a prominent notice heads the queue");
+  assert.ok(notice.textContent?.startsWith("2 removal requests are open. The law gives us 48 hours."));
+  assert.ok(notice.textContent?.endsWith("(Overdue by 1 h 0 min)."), "it names the earliest deadline");
   const buttons = [...host.querySelectorAll("button")];
   assert.ok(buttons.some((b) => b.getAttribute("aria-label") === "Remove files for TD-AAAAAAAAAA"));
   act(() => root.unmount());
