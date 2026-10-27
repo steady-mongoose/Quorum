@@ -64,15 +64,12 @@ test("completing a deletion erases the member's posts except held or reported on
        values ($1, $2, $3, 'shop', $4, 'Maria', 'sealed', 'sealed', 0, 0, '{}', $5, $5)`,
       [randomUUID(), held, [held], maria, now],
     );
+    // 0029's report queue is in the test database: the reported post has an open report.
     await db.query(
-      `create table if not exists member_report (
-         id text primary key, room_id text not null, subject_kind text not null,
-         subject_id text not null, status text not null default 'open'
-       )`,
-    );
-    await db.query(
-      `insert into member_report (id, room_id, subject_kind, subject_id, status) values ('r1', 'shop', 'post', $1, 'open')`,
-      [reported],
+      `insert into member_report
+         (id, room_id, subject_kind, subject_id, reporter_user_id, reason, status, created_at)
+       values ('r1', 'shop', 'post', $1, $2, 'threat', 'open', $3)`,
+      [reported, maria, now],
     );
 
     assert.equal((await requestAccountDeletion(db, { userId: maria, name: "Maria", note: "", now })).ok, true);
