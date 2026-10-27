@@ -174,6 +174,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
             {message.author !== me ? (
               <div className="mt-2">
                 <ReportControl
+                  label="Report this message"
                   onSubmit={(input) =>
                     sendReport({
                       roomId,

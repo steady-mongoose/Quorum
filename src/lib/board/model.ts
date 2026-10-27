@@ -247,7 +247,7 @@ export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
   porn: "Pornography",
   csam: "Child sexual abuse material",
-  doxxing: "Doxxing",
+  doxxing: "Sharing someone's private details",
   blasphemy: "Mocking God or Christ",
 };
 /** One sentence a steward can apply the same way to every member. */

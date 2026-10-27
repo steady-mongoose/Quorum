@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Flag } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -9,7 +9,9 @@ const REASONS = REPORT_SEVERITY;
 
 export function ReportControl({
   onSubmit,
+  label = "Report this post",
 }: {
+  label?: string;
   onSubmit: (input: { reason: HardRule; note: string }) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [open, setOpen] = useState(false);
@@ -17,14 +19,48 @@ export function ReportControl({
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [sent, setSent] = useState(false);
   const reasonName = useId();
+  const legendRef = useRef<HTMLLegendElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+
+  useEffect(() => {
+    if (open) {
+      legendRef.current?.focus();
+    } else if (returnFocus.current) {
+      returnFocus.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
+  const close = () => {
+    returnFocus.current = true;
+    setOpen(false);
+  };
 
   if (!open) {
     return (
-      <button type="button" className={cn(btnQuiet, "px-3")} onClick={() => setOpen(true)}>
-        <Flag className="size-4" aria-hidden="true" />
-        Report
-      </button>
+      <div className="flex flex-col gap-1">
+        <button
+          ref={triggerRef}
+          type="button"
+          className={cn(btnQuiet, "self-start px-3")}
+          aria-label={label}
+          onClick={() => {
+            setSent(false);
+            setOpen(true);
+          }}
+        >
+          <Flag className="size-4" aria-hidden="true" />
+          Report
+        </button>
+        {sent ? (
+          <p role="status" className="text-sm text-muted">
+            Report sent. A steward will look at it.
+          </p>
+        ) : null}
+      </div>
     );
   }
 
@@ -45,7 +81,8 @@ export function ReportControl({
             setError(result.error ?? "That report was not sent.");
             return;
           }
-          setOpen(false);
+          setSent(true);
+          close();
           setReason("");
           setNote("");
           setError("");
@@ -53,7 +90,7 @@ export function ReportControl({
       }}
     >
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-sm text-muted">Why are you reporting this?</legend>
+        <legend ref={legendRef} tabIndex={-1} className="text-sm text-muted">Why are you reporting this?</legend>
         {REASONS.map((item) => (
           <label key={item} className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
             <input
@@ -92,7 +129,7 @@ export function ReportControl({
           type="button"
           className={btnGhost}
           onClick={() => {
-            setOpen(false);
+            close();
             setError("");
           }}
         >

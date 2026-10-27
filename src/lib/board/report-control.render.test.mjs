@@ -98,3 +98,59 @@ test("Report is a 44px control with a reason picker at 390, 768, and 1440", () =
     }
   }
 });
+
+test("Report moves focus to the form, back to the button, and confirms a send", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(ReportControl, {
+        label: "Report this message",
+        onSubmit: async () => ({ ok: true }),
+      }),
+    );
+  });
+  try {
+    const trigger = () => host.querySelector('button[aria-label="Report this message"]');
+    assert.ok(trigger());
+    act(() => trigger().click());
+    const legend = host.querySelector("legend");
+    assert.equal(legend?.getAttribute("tabindex"), "-1");
+    assert.equal(document.activeElement, legend);
+    assert.match(host.textContent ?? "", /Sharing someone's private details/);
+    assert.equal(host.textContent?.includes("Doxxing"), false);
+    const cancel = [...host.querySelectorAll("button")].find((b) => b.textContent === "Cancel");
+    act(() => cancel.click());
+    assert.equal(document.activeElement, trigger());
+    assert.equal(host.querySelector('[role="status"]'), null);
+    act(() => trigger().click());
+    const threat = host.querySelector('input[value="threat"]');
+    act(() => threat.click());
+    await act(async () => {
+      host.querySelector("form").requestSubmit();
+    });
+    assert.equal(host.querySelector("form"), null);
+    assert.equal(document.activeElement, trigger());
+    const status = host.querySelector('[role="status"]');
+    assert.equal(status?.textContent, "Report sent. A steward will look at it.");
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("Report defaults to the post label", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(createElement(ReportControl, { onSubmit: async () => ({ ok: true }) }));
+  });
+  try {
+    assert.ok(host.querySelector('button[aria-label="Report this post"]'));
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});

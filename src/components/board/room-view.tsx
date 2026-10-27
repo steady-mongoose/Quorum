@@ -986,6 +986,7 @@ const PostCard = memo(function PostCard({
         ) : null}
         {!mine ? (
           <ReportControl
+            label="Report this post"
             onSubmit={(input) => {
               if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
               return sendReport({
