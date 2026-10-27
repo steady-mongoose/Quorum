@@ -9,6 +9,7 @@ import {
   parseStatsQuery,
   protectBreakdown,
   protectTotalOverCells,
+  seriesSummary,
   hiddenCellRanges,
   recoverableHidden,
   showCount,
@@ -1203,4 +1204,20 @@ test("the gatherings change cannot give back the prior window's exact total", as
   } finally {
     await close();
   }
+});
+
+test("a series summary says about when any number is rounded", () => {
+  const exact = seriesSummary("Posts", [
+    { label: "Oct 12", count: 10 },
+    { label: "Oct 19", count: 15 },
+  ]);
+  assert.equal(exact, "Posts rose from 10 to 15 over Oct 12–Oct 19; peak 15 on Oct 19.");
+  const rounded = seriesSummary("Posts", [
+    { label: "Oct 12", count: 10 },
+    { label: "Oct 19", count: 15, approx: true },
+  ]);
+  assert.equal(
+    rounded,
+    "Posts rose from about 10 to about 15 over Oct 12–Oct 19; peak about 15 on Oct 19.",
+  );
 });

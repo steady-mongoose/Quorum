@@ -291,16 +291,21 @@ export function parseStatsQuery(params: URLSearchParams): { days: StatsDays; cat
   return { days, category };
 }
 
-export function seriesSummary(noun: string, rows: { label: string; count: ShownCount }[]): string {
+export function seriesSummary(
+  noun: string,
+  rows: { label: string; count: ShownCount; approx?: boolean }[],
+): string {
   const numbers = rows.flatMap((row) =>
     typeof row.count === "number" ? [{ label: row.label, count: row.count }] : [],
   );
+  // When any shown number is rounded, every number in the sentence is "about".
+  const about = rows.some((row) => row.approx && typeof row.count === "number") ? "about " : "";
   const first = numbers[0];
   const last = numbers[numbers.length - 1];
   if (!first || !last) return `${noun} in this window are under 5.`;
   const peak = numbers.reduce((best, row) => (row.count > best.count ? row : best));
   const verb = last.count >= first.count ? "rose" : "fell";
-  return `${noun} ${verb} from ${first.count} to ${last.count} over ${first.label}–${last.label}; peak ${peak.count} on ${peak.label}.`;
+  return `${noun} ${verb} from ${about}${first.count} to ${about}${last.count} over ${first.label}–${last.label}; peak ${about}${peak.count} on ${peak.label}.`;
 }
 
 /** Whole percent, only when the people counted are at least 5. */

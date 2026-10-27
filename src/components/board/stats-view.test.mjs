@@ -143,8 +143,10 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
     /Category shows only rooms in that category and their gatherings\. A room in more than one category appears under each, but totals count it once\./,
   );
   assert.equal(text.includes("Lovelace"), false);
-  const up = document.querySelector("[aria-label='up 4 versus prior 30 days']");
-  assert.ok(up);
+  const spoken = [...document.querySelectorAll("article .sr-only")].map((n) => n.textContent);
+  assert.ok(spoken.includes("Up 4 versus prior 30 days"));
+  assert.equal(document.querySelector("article p[aria-label]"), null);
+  assert.ok(spoken.includes("Change not shown"));
   assert.match(document.body.innerHTML, /text-danger/);
   assert.match(document.body.innerHTML, /border-danger/);
 
@@ -287,7 +289,11 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   assert.match(ranged, /Gatherings held \(7 days\)/);
   assert.match(ranged, /▲ 4 vs prior 7 days/);
   assert.match(ranged, /▼ 2 vs prior 7 days/);
-  assert.ok(document.querySelector("[aria-label='up 4 versus prior 7 days']"));
+  assert.ok(
+    [...document.querySelectorAll("article .sr-only")].some(
+      (n) => n.textContent === "Up 4 versus prior 7 days",
+    ),
+  );
 
   act(() => root.unmount());
   host.remove();
@@ -349,7 +355,14 @@ test("rounded and hidden counts read as about and fewer than, with one privacy n
       stats.tiles[0],
       stats.tiles[1],
       { id: "rooms", label: "Active rooms (30 days)", value: 20, approx: true, change: null },
-      stats.tiles[3],
+      {
+        id: "gatherings",
+        label: "Gatherings held (30 days)",
+        value: 25,
+        approx: true,
+        change: -5,
+        changeApprox: true,
+      },
     ],
   });
   act(() => {
@@ -370,9 +383,16 @@ test("rounded and hidden counts read as about and fewer than, with one privacy n
   assert.ok(rooms);
   const shown = rooms.querySelector('[aria-hidden="true"]');
   assert.equal(shown?.textContent, "~20");
-  assert.equal(rooms.querySelector(".sr-only")?.textContent, "about 20");
+  assert.equal(rooms.querySelector("p.font-display .sr-only")?.textContent, "about 20");
+  const gatherings = tiles.find((tile) => tile.textContent?.startsWith("Gatherings"));
+  assert.match(gatherings?.textContent ?? "", /▼ ~5 vs prior 30 days/);
+  assert.ok(
+    [...(gatherings?.querySelectorAll(".sr-only") ?? [])].some(
+      (n) => n.textContent === "Down about 5 versus prior 30 days",
+    ),
+  );
   const members = tiles.find((tile) => tile.textContent?.startsWith("Members"));
-  assert.equal(members?.querySelector(".sr-only"), null);
+  assert.equal(members?.querySelector("p.font-display .sr-only"), null);
   const notes = [...host.querySelectorAll("p")].filter(
     (node) => node.textContent === "Small counts are rounded to protect privacy.",
   );
@@ -410,6 +430,40 @@ test("with every count exact, there is no privacy note", async () => {
     );
   });
   assert.equal((host.textContent ?? "").includes("Small counts are rounded"), false);
+  act(() => root.unmount());
+  host.remove();
+});
+
+test("an approximate zero change reads About the same", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const same = /** @type {import("../../lib/board/stats.ts").StatsPayload} */ ({
+    ...stats,
+    tiles: [
+      { ...stats.tiles[0], value: 20, approx: true, change: 0, changeApprox: true },
+      stats.tiles[1],
+      stats.tiles[2],
+      stats.tiles[3],
+    ],
+  });
+  act(() => {
+    root.render(
+      createElement(StatsView, {
+        stats: same,
+        days: 30,
+        category: "all",
+        onDays: () => {},
+        onCategory: () => {},
+        onCsv: () => {},
+        csvError: "",
+      }),
+    );
+  });
+  const members = [...host.querySelectorAll("article")].find((tile) =>
+    tile.textContent?.startsWith("Members"),
+  );
+  assert.match(members?.textContent ?? "", /About the same/);
   act(() => root.unmount());
   host.remove();
 });

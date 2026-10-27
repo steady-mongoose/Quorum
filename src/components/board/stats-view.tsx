@@ -27,7 +27,7 @@ const CHART_IDS = [
   "stats-intent",
 ].join(" ");
 
-type Bar = { label: string; count: ShownCount | null };
+type Bar = { label: string; count: ShownCount | null; approx?: boolean };
 
 export function StatsView({
   stats,
@@ -241,7 +241,11 @@ export function StatsView({
           <LineChart
             label="Posts per week"
             noun="Posts"
-            rows={stats.rooms.weeks.map((row) => ({ label: shortDay(row.week), count: row.posts }))}
+            rows={stats.rooms.weeks.map((row) => ({
+              label: shortDay(row.week),
+              count: row.posts,
+              approx: row.postsApprox,
+            }))}
           />
         }
         table={
@@ -263,6 +267,7 @@ export function StatsView({
             rows={stats.rooms.weeks.map((row) => ({
               label: shortDay(row.week),
               count: row.gatherings,
+              approx: row.gatheringsApprox,
             }))}
           />
         }
@@ -372,20 +377,32 @@ function ChangeLine({
   days: StatsDays;
 }) {
   if (change === null) {
-    return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">—</p>;
+    return (
+      <p className="mt-2 text-[0.85rem] text-muted tabular-nums">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Change not shown</span>
+      </p>
+    );
   }
   if (change === 0) {
-    return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">No change</p>;
+    return (
+      <p className="mt-2 text-[0.85rem] text-muted tabular-nums">
+        {approx ? "About the same" : "No change"}
+      </p>
+    );
   }
   const up = change > 0;
   const abs = Math.abs(change);
   return (
-    <p
-      className="mt-2 text-[0.85rem] text-muted tabular-nums"
-      aria-label={`${up ? "up" : "down"} ${approx ? "about " : ""}${abs} versus prior ${days} days`}
-    >
-      {up ? "▲" : "▼"} {approx ? "~" : ""}
-      {abs} vs prior {days} days
+    <p className="mt-2 text-[0.85rem] text-muted tabular-nums">
+      <span aria-hidden="true">
+        {up ? "▲" : "▼"} {approx ? "~" : ""}
+        {abs} vs prior {days} days
+      </span>
+      <span className="sr-only">
+        {up ? "Up" : "Down"} {approx ? "about " : ""}
+        {abs} versus prior {days} days
+      </span>
     </p>
   );
 }
@@ -821,9 +838,9 @@ function funnelSummary(steps: FunnelStep[]): string {
   );
 }
 
-function numericRows(rows: Bar[]): { label: string; count: ShownCount }[] {
+function numericRows(rows: Bar[]): { label: string; count: ShownCount; approx?: boolean }[] {
   return rows.flatMap((row) =>
-    row.count === null ? [] : [{ label: row.label, count: row.count }],
+    row.count === null ? [] : [{ label: row.label, count: row.count, approx: row.approx }],
   );
 }
 
