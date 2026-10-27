@@ -26,6 +26,7 @@ import { councilMarks, type CouncilMark } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
 import { isCustodian, logHoldAccess } from "./csam-custody.ts";
+import { listCsamFlags, type CsamFlag } from "./csam-flag.ts";
 import {
   CSAM_QUEUE_SQL,
   dropObjectKeys,
@@ -171,6 +172,10 @@ export type BoardPayload = {
   bans: BanEntry[];
   appeals: AppealEntry[];
   csamReports: CsamReport[];
+  /** True for the owner and named custodians. Others see the custodian notice. */
+  csamCustodian: boolean;
+  /** Open reports and scanner flags. Metadata only, custodians only. */
+  csamFlags: CsamFlag[];
   adminAlerts: AdminAlert[];
   /** One cursor per room. Null means that room has no older page. */
   pages: RoomPage[];
@@ -711,6 +716,7 @@ export async function listBoard(
      limit 200`,
   );
   let csamReports: CsamReport[] = [];
+  let csamFlags: CsamFlag[] = [];
   let adminAlerts: AdminAlert[] = [];
   const custodian = actor.admin && (await isCustodian(db, userId, actor));
   if (actor.admin) {
@@ -732,6 +738,7 @@ export async function listBoard(
       legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
+    if (custodian) csamFlags = await listCsamFlags(db);
     if (custodian && reportRows.length > 0) {
       await logHoldAccess(db, {
         actorUserId: userId,
@@ -834,6 +841,8 @@ export async function listBoard(
             : null,
       })),
       csamReports,
+      csamCustodian: custodian,
+      csamFlags,
       adminAlerts,
       pages,
     },

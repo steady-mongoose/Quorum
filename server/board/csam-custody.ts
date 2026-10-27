@@ -13,7 +13,9 @@ export type CustodyAction =
   | "purge"
   | "grant_custodian"
   | "revoke_custodian"
-  | "denied";
+  | "denied"
+  | "flag"
+  | "remove_flagged";
 
 type Fail = { ok: false; status: number; error: string };
 
@@ -138,4 +140,64 @@ export async function setLegalHold(
     now: input.now,
   });
   return { ok: true, value: { legalHold: input.on } };
+}
+
+export type CsamPerson = { id: string; name: string; custodian: boolean };
+
+/**
+ * The custodian screen. Admins who are not custodians get only `custodian: false`
+ * and the notice. Custodians get hold and flag metadata. Nothing here opens a file.
+ */
+export async function readCsamQueue(
+  db: Db,
+  input: { userId: string; now: Date },
+): Promise<
+  | {
+      ok: true;
+      value: {
+        custodian: boolean;
+        owner: boolean;
+        reports: import("./csam.ts").CsamReport[];
+        flags: import("./csam-flag.ts").CsamFlag[];
+        admins: CsamPerson[];
+      };
+    }
+  | Fail
+> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.admin) return { ok: false, status: 403, error: "Only an admin can open this." };
+  const custodian = await isCustodian(db, input.userId, actor);
+  if (!custodian) {
+    await logHoldAccess(db, { actorUserId: input.userId, action: "denied", detail: "queue", now: input.now });
+    return { ok: true, value: { custodian: false, owner: false, reports: [], flags: [], admins: [] } };
+  }
+  const { CSAM_QUEUE_SQL, reportFromRow } = await import("./csam.ts");
+  const { listCsamFlags } = await import("./csam-flag.ts");
+  const rows = await db.query<Parameters<typeof reportFromRow>[0]>(CSAM_QUEUE_SQL);
+  const flags = await listCsamFlags(db);
+  await logHoldAccess(db, {
+    actorUserId: input.userId,
+    action: "list",
+    detail: `${rows.length} holds, ${flags.length} flags`,
+    now: input.now,
+  });
+  let admins: CsamPerson[] = [];
+  if (actor.owner) {
+    const people = await db.query<{ id: string; name: string; custodian: boolean }>(
+      `select u.id, u.name, exists (select 1 from csam_custodian c where c.user_id = u.id) as custodian
+       from "user" u
+       where u.id in (select distinct user_id from access_log where role = 'admin') and u.id <> $1
+       order by u.name, u.id`,
+      [input.userId],
+    );
+    for (const person of people) {
+      if ((await actorRole(db, person.id)).admin) {
+        admins.push({ id: person.id, name: person.name, custodian: person.custodian === true });
+      }
+    }
+  }
+  return {
+    ok: true,
+    value: { custodian: true, owner: actor.owner, reports: rows.map(reportFromRow), flags, admins },
+  };
 }

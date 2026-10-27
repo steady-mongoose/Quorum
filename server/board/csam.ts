@@ -38,7 +38,8 @@ const HKDF_INFO = "avouch-csam-hold-v1";
  */
 export const CSAM_QUEUE_SQL = `select id, post_id, room_id, author_user_id, author_name,
             media_count, byte_size, media_types, created_at, retain_until,
-            seal_status, filed_at, report_id, filed_by_name, legal_hold
+            seal_status, filed_at, report_id, filed_by_name, legal_hold, legal_hold_note,
+            file_ids, file_hashes, reporter_name, report_reason
      from board_csam_hold
      where purged_at is null
      order by created_at desc
@@ -76,6 +77,12 @@ export type CsamReport = {
   filedBy: string;
   /** Set by a custodian. The one-year purge skips this hold while it is on. */
   legalHold?: boolean;
+  legalHoldNote?: string;
+  /** Metadata only. No person views the files. */
+  fileIds?: string[];
+  fileHashes?: string[];
+  reporter?: string;
+  reportReason?: string;
 };
 
 export type AdminAlert = {
@@ -235,6 +242,11 @@ export function reportFromRow(row: {
   report_id?: string | null;
   filed_by_name?: string | null;
   legal_hold?: boolean | null;
+  legal_hold_note?: string | null;
+  file_ids?: unknown;
+  file_hashes?: unknown;
+  reporter_name?: string | null;
+  report_reason?: string | null;
 }): CsamReport {
   const filedAt = row.filed_at ? atMs(row.filed_at) : null;
   const status = filedAt ? "filed" : row.seal_status === "pending_seal" ? "pending_seal" : "prepared";
@@ -254,6 +266,11 @@ export function reportFromRow(row: {
     filedAt,
     filedBy: row.filed_by_name ?? "",
     legalHold: row.legal_hold === true,
+    legalHoldNote: row.legal_hold_note ?? "",
+    fileIds: textList(row.file_ids),
+    fileHashes: textList(row.file_hashes),
+    reporter: row.reporter_name ?? "",
+    reportReason: row.report_reason ?? "",
   };
 }
 
@@ -285,6 +302,7 @@ async function relocateFiles(
   files: StoredFile[],
   encrypt: boolean,
   heldKeys: string[],
+  hashes: Map<string, string> = new Map(),
 ): Promise<RelocatedFile[]> {
   if (!store) return [];
   const relocated: RelocatedFile[] = [];
@@ -305,6 +323,8 @@ async function relocateFiles(
       }
       const dest = sealedObjectKey(holdId, file.id);
       if (payload) {
+        // A fingerprint for the report. Nobody opens the file to make it.
+        hashes.set(file.id, createHash("sha256").update(payload).digest("hex"));
         const body = encrypt ? sealBytes(payload) : payload;
         await store.put(dest, body, "application/octet-stream");
         created.push(dest);
@@ -324,6 +344,17 @@ async function relocateFiles(
     }
     throw error;
   }
+}
+
+async function holdColumn(db: Db, column: string): Promise<boolean> {
+  const rows = await db.query<{ ok: boolean }>(
+    `select exists (
+       select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'board_csam_hold' and column_name = $1
+     ) as ok`,
+    [column],
+  );
+  return rows[0]?.ok === true;
 }
 
 async function holdKeyColumn(db: Db): Promise<boolean> {
@@ -399,7 +430,8 @@ export async function sealCsamHold(
   );
   const holdId = randomUUID();
   const encrypt = holdKeyError() === null;
-  const relocated = await relocateFiles(store, holdId, files, encrypt, heldKeys);
+  const hashes = new Map<string, string>();
+  const relocated = await relocateFiles(store, holdId, files, encrypt, heldKeys, hashes);
   const withKey = await holdKeyColumn(tx);
   const keyId = encrypt && withKey ? holdKeyId() : "";
   const types: string[] = [];
@@ -455,6 +487,12 @@ export async function sealCsamHold(
         media_count, byte_size, media_types, created_at, retain_until)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       holdValues,
+    );
+  }
+  if (await holdColumn(tx, "file_hashes")) {
+    await tx.query(
+      `update board_csam_hold set file_ids = $2, file_hashes = $3 where id = $1`,
+      [holdId, files.map((file) => file.id), files.map((file) => hashes.get(file.id) ?? "")],
     );
   }
   await tx.query(

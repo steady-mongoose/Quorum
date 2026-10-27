@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { postIsHeld } from "../board/csam.ts";
+import { mediaIsBlocked } from "../board/csam-flag.ts";
 import type { Db } from "../db.ts";
 import {
   IMAGE_BYTES,
@@ -160,7 +160,9 @@ export async function readForMember(
 > {
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
-  if (row.post_id && (await postIsHeld(deps.db, row.post_id))) {
+  // Held or flagged files are never served. No role is exempt: not the uploader,
+  // not an admin, not the owner. This check runs before any other.
+  if (await mediaIsBlocked(deps.db, row)) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {

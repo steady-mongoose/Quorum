@@ -14,7 +14,7 @@ create table if not exists csam_access_log (
   actor_user_id text references "user" (id) on delete set null,
   action text not null check (
     action in ('list', 'file_report', 'legal_hold_on', 'legal_hold_off', 'purge',
-               'grant_custodian', 'revoke_custodian', 'denied')
+               'grant_custodian', 'revoke_custodian', 'denied', 'flag', 'remove_flagged')
   ),
   detail text not null default '' check (char_length(detail) <= 500),
   created_at timestamptz not null default now()
@@ -27,3 +27,29 @@ alter table board_csam_hold add column if not exists legal_hold_note text not nu
 alter table board_csam_hold add column if not exists legal_hold_by_user_id text
   references "user" (id) on delete set null;
 alter table board_csam_hold add column if not exists legal_hold_at timestamptz;
+
+-- No person views CSAM in the app. The queue shows metadata only: a SHA-256 of each
+-- held file, the file ids, the uploader, the reporter, the reason and the time.
+alter table board_csam_hold add column if not exists file_ids text[] not null default '{}';
+alter table board_csam_hold add column if not exists file_hashes text[] not null default '{}';
+alter table board_csam_hold add column if not exists reporter_name text not null default '';
+alter table board_csam_hold add column if not exists report_reason text not null default '';
+
+-- A member report or a scanner flag. While a flag is open, the media route serves none
+-- of the post's files to anyone, the owner and admins included.
+create table if not exists csam_flag (
+  id text primary key,
+  post_id text not null default '',
+  media_id text not null default '',
+  source text not null check (source in ('report', 'scanner')),
+  reporter_user_id text references "user" (id) on delete set null,
+  reporter_name text not null default '',
+  reason text not null default '' check (char_length(reason) <= 500),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  hold_id text not null default '',
+  check (post_id <> '' or media_id <> '')
+);
+
+create index if not exists csam_flag_post_idx on csam_flag (post_id) where resolved_at is null;
+create index if not exists csam_flag_media_idx on csam_flag (media_id) where resolved_at is null;

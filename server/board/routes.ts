@@ -3,7 +3,8 @@ import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { fileCsamReport } from "./csam.ts";
-import { setCustodian, setLegalHold } from "./csam-custody.ts";
+import { readCsamQueue, setCustodian, setLegalHold } from "./csam-custody.ts";
+import { flagCsam, removeFlagged } from "./csam-flag.ts";
 import {
   correctZip,
   decideRoom,
@@ -161,6 +162,7 @@ export async function handleBoard(
     );
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const legalHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/legal-hold$/.exec(url.pathname);
+  const flagRemove = /^\/api\/csam-flags\/([A-Za-z0-9_-]{1,80})\/remove$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
   const claimAction =
@@ -199,7 +201,10 @@ export async function handleBoard(
     Boolean(appealAction && request.method === "POST") ||
     Boolean(fileHold && request.method === "POST") ||
     Boolean(legalHold && request.method === "POST") ||
-    (url.pathname === "/api/csam-custodians" && request.method === "POST");
+    (url.pathname === "/api/csam-custodians" && request.method === "POST") ||
+    (url.pathname === "/api/csam-flags" && request.method === "POST") ||
+    (url.pathname === "/api/csam-queue" && request.method === "GET") ||
+    Boolean(flagRemove && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -209,6 +214,10 @@ export async function handleBoard(
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
     const now = deps.now();
+
+    if (url.pathname === "/api/csam-queue") {
+      return fromResult(200, await readCsamQueue(deps.db, { userId: session.id, now }));
+    }
 
     if (url.pathname === "/api/claims" && request.method === "GET") {
       return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
@@ -527,6 +536,33 @@ export async function handleBoard(
           on: body?.on === true,
           note: stringField(body, "note"),
           now,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/csam-flags") {
+      return fromResult(
+        201,
+        await flagCsam(deps.db, {
+          userId: session.id,
+          name: session.name,
+          postId: stringField(body, "postId"),
+          mediaId: stringField(body, "mediaId"),
+          reason: stringField(body, "reason"),
+          now,
+        }),
+      );
+    }
+
+    if (flagRemove) {
+      return fromResult(
+        200,
+        await removeFlagged(deps.db, {
+          userId: session.id,
+          name: session.name,
+          flagId: flagRemove[1] ?? "",
+          now,
+          store: deps.store ?? null,
         }),
       );
     }
