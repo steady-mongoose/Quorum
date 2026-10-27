@@ -134,12 +134,13 @@ export function createSignIn(auth: ClosedAuth, baseURL: string): SignIn {
 export async function readSessionUser(
   auth: ClosedAuth,
   headers: Headers,
-): Promise<{ id: string; name: string; email: string } | null> {
+): Promise<{ id: string; name: string; email: string; sessionId?: string } | null> {
   const session = await auth.api.getSession({ headers });
   if (!session?.user?.id) return null;
   return {
     id: session.user.id,
     name: session.user.name,
     email: session.user.email,
+    sessionId: session.session?.id,
   };
 }

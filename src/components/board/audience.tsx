@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { btnGhost, fieldClass } from "@/components/quorum/bits";
+import { btnGhost } from "@/components/quorum/bits";
 import { audienceLabel } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 
@@ -177,75 +177,3 @@ export function RoomHoldPlate({
   );
 }
 
-export function MemberGenderForm() {
-  const setMemberGender = useBoard((state) => state.setMemberGender);
-  const confirmGender = useBoard((state) => state.confirmGender);
-  const needsConfirmation = useBoard((state) => state.genderNeedsConfirmation);
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
-  const [note, setNote] = useState("");
-  const send = (gender: "man" | "woman") => {
-    setError("");
-    setNote("");
-    void setMemberGender({ email, gender }).then((result) => {
-      if (!result.ok) setError(result.error ?? "That was not saved.");
-      else setNote(`Saved for ${email}.`);
-    });
-  };
-  return (
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-      }}
-    >
-      <h3 className="text-lg text-fg">Set a member's gender</h3>
-      <p className="max-w-prose text-sm text-muted">
-        The member sets it once. An admin changes it after that. No one changes their own.
-      </p>
-      <label className="flex flex-col gap-2 text-sm text-muted">
-        Email
-        <input
-          className={fieldClass}
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={btnGhost} onClick={() => send("man")}>
-          Set as man
-        </button>
-        <button type="button" className={btnGhost} onClick={() => send("woman")}>
-          Set as woman
-        </button>
-        {needsConfirmation ? (
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={() => {
-              setError("");
-              setNote("");
-              void confirmGender(email).then((result) => {
-                if (!result.ok) setError(result.error ?? "That was not confirmed.");
-                else setNote(`Saved for ${email}.`);
-              });
-            }}
-          >
-            Confirm
-          </button>
-        ) : null}
-      </div>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      {note ? (
-        <p role="status" className="text-sm text-muted">
-          {note}
-        </p>
-      ) : null}
-    </form>
-  );
-}
