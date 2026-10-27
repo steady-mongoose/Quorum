@@ -33,6 +33,8 @@ import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy
 import {
   councilMarks,
   keepStewarded,
+  stewardSnapshot,
+  confirmStewardsLeft,
   readAccessLog,
   seatSteward,
   StewardStop,
@@ -1506,6 +1508,60 @@ async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<b
   return Boolean(lines[0]);
 }
 
+/**
+ * Bar someone without leaving a room stewardless: lock the rooms they steward,
+ * hand on any room they solely steward, write the bar, then check again.
+ */
+async function banKeepingStewards(
+  db: Db,
+  input: {
+    actorId: string;
+    person: { id: string; name: string };
+    rooms: "all" | string[];
+    replacementEmail: string;
+    inviterEmail: string;
+    reason: Parameters<typeof writeBan>[1]["reason"];
+    byName: string;
+    roomId: string;
+    now: Date;
+  },
+) {
+  try {
+    return await db.transaction(async (tx) => {
+      const snapshot = await stewardSnapshot(tx, input.person.id, input.rooms);
+      const kept = await keepStewarded(tx, {
+        actorId: input.actorId,
+        outgoingId: input.person.id,
+        rooms: input.rooms,
+        replacementEmail: input.replacementEmail,
+        inviterEmail: input.inviterEmail,
+        now: input.now,
+      });
+      if (kept) return kept;
+      const ban = await writeBan(tx, {
+        userId: input.person.id,
+        name: input.person.name,
+        reason: input.reason,
+        byUserId: input.actorId,
+        byName: input.byName,
+        removalId: null,
+        now: input.now,
+        roomId: input.roomId,
+      });
+      await confirmStewardsLeft(tx, {
+        outgoingId: input.person.id,
+        roomIds: snapshot,
+        removed: true,
+        now: input.now,
+      });
+      return { ok: true as const, value: ban };
+    });
+  } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
+    throw error;
+  }
+}
+
 export async function banMember(
   db: Db,
   input: {
@@ -1539,27 +1595,20 @@ export async function banMember(
   if (stopped) return fail(403, stopped);
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
-    const kept = await keepStewarded(db, {
+    const banned = await banKeepingStewards(db, {
       actorId: input.userId,
-      outgoingId: person.id,
+      person,
       rooms: "all",
       replacementEmail: input.replacementEmail ?? "",
       inviterEmail: input.inviterEmail ?? "",
-      now: input.now,
-    });
-    if (kept) return kept;
-    const ban = await writeBan(db, {
-      userId: person.id,
-      name: person.name,
       reason,
-      byUserId: input.userId,
       byName,
-      removalId: null,
-      now: input.now,
       roomId: "",
+      now: input.now,
     });
+    if (!banned.ok) return banned;
     evictCallMember(person.id);
-    return { ok: true, value: ban };
+    return banned;
   }
   const roomId = input.roomId?.trim() ?? "";
   if (!roomId) return fail(400, "Name the room this bar is for.");
@@ -1581,25 +1630,19 @@ export async function banMember(
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
   const siteWide = reason === "csam";
-  const kept = await keepStewarded(db, {
+  const banned = await banKeepingStewards(db, {
     actorId: input.userId,
-    outgoingId: person.id,
+    person,
     rooms: siteWide ? "all" : [roomId],
     replacementEmail: input.replacementEmail ?? "",
     inviterEmail: input.inviterEmail ?? "",
-    now: input.now,
-  });
-  if (kept) return kept;
-  const ban = await writeBan(db, {
-    userId: person.id,
-    name: person.name,
     reason,
-    byUserId: input.userId,
     byName,
-    removalId: null,
-    now: input.now,
     roomId: siteWide ? "" : roomId,
+    now: input.now,
   });
+  if (!banned.ok) return banned;
+  const ban = banned.value;
   if (siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };

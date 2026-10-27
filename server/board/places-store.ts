@@ -10,7 +10,7 @@ import {
   planMemberGrant,
   planRevoke,
   planStewardGrant,
-  soleStewardRooms,
+  liveStewards,
   withoutSteward,
   LAST_STEWARD_ERROR,
   NO_STEWARD_ERROR,
@@ -276,6 +276,106 @@ export async function seatSteward(
  * `selfLeaving` means the outgoing steward is the approver, so the normal
  * "a steward of that room approves the next one" rule applies.
  */
+/**
+ * Lock the steward rows of every room this person stewards (or just `rooms`),
+ * so two removals for one room run one after the other. Call inside a
+ * transaction, before reading the log. Rows are locked in id order so two
+ * removals never deadlock.
+ */
+export async function lockStewardRooms(
+  db: Db,
+  outgoingId: string,
+  rooms: "all" | string[],
+): Promise<string[]> {
+  const held = await db.query<{ room_id: string }>(
+    `select distinct room_id from access_log
+     where user_id = $1 and role = 'steward' and room_id <> ''`,
+    [outgoingId],
+  );
+  const roomIds = held
+    .map((row) => row.room_id)
+    .filter((roomId) => rooms === "all" || rooms.includes(roomId))
+    .sort();
+  if (roomIds.length > 0) {
+    await db.query(
+      `select id from access_log
+       where role = 'steward' and room_id = any($1::text[])
+       order by id
+       for update`,
+      [roomIds],
+    );
+  }
+  return roomIds;
+}
+
+/** Live stewards of a room, leaving out anyone under an open bar, site-wide or for this room. */
+async function standingStewards(db: Db, log: readonly LogRow[], roomId: string, now: Date) {
+  const live = liveStewards(log, roomId);
+  const standing: string[] = [];
+  for (const userId of live) {
+    const bars = await queryBanTable<{ strikes: number; until_at: Date | string; reason: string }>(
+      db,
+      `select strikes, until_at, reason from board_ban
+       where user_id = $1 and (room_id = '' or room_id = $2)`,
+      [userId, roomId],
+    );
+    const barred = bars.some((row) =>
+      banOpen(
+        { reason: ruleId(row.reason), strikes: Number(row.strikes), until: atMs(row.until_at) },
+        now.getTime(),
+      ),
+    );
+    if (!barred) standing.push(userId);
+  }
+  return standing;
+}
+
+/** Rooms where this person is the only standing steward, read under the lock. */
+export async function soleStandingRooms(
+  db: Db,
+  outgoingId: string,
+  rooms: "all" | string[],
+  now: Date,
+): Promise<{ roomIds: string[]; log: LogRow[]; sole: string[] }> {
+  const roomIds = await lockStewardRooms(db, outgoingId, rooms);
+  const log = await readLog(db);
+  const sole: string[] = [];
+  for (const roomId of roomIds) {
+    const standing = await standingStewards(db, log, roomId, now);
+    if (standing.length === 1 && standing[0] === outgoingId) sole.push(roomId);
+  }
+  return { roomIds, log, sole };
+}
+
+/** Lock, then note which rooms this person stewards right now. */
+export async function stewardSnapshot(
+  db: Db,
+  outgoingId: string,
+  rooms: "all" | string[],
+): Promise<string[]> {
+  const roomIds = await lockStewardRooms(db, outgoingId, rooms);
+  const log = await readLog(db);
+  return roomIds.filter((roomId) => liveStewards(log, roomId).includes(outgoingId));
+}
+
+/**
+ * After a removal is written, each room in the snapshot must still have a
+ * standing steward. Throws StewardStop so the transaction rolls back.
+ */
+export async function confirmStewardsLeft(
+  db: Db,
+  input: { outgoingId: string; roomIds: string[]; removed: boolean; now: Date },
+): Promise<void> {
+  if (input.roomIds.length === 0) return;
+  const log = await readLog(db);
+  for (const roomId of input.roomIds) {
+    const standing = (await standingStewards(db, log, roomId, input.now)).filter(
+      (userId) => !(input.removed && userId === input.outgoingId),
+    );
+    if (standing.length === 0) throw new StewardStop(409, LAST_STEWARD_ERROR);
+  }
+}
+
 export async function keepStewarded(
   db: Db,
   input: {
@@ -288,10 +388,7 @@ export async function keepStewarded(
     now: Date;
   },
 ): Promise<{ ok: false; status: number; error: string } | null> {
-  const log = await readLog(db);
-  const sole = soleStewardRooms(log, input.outgoingId).filter(
-    (roomId) => input.rooms === "all" || input.rooms.includes(roomId),
-  );
+  const { log, sole } = await soleStandingRooms(db, input.outgoingId, input.rooms, input.now);
   if (sole.length === 0) return null;
   if (sole.length > 1) {
     return fail(
@@ -398,6 +495,10 @@ export async function grantAccess(
           roomId: input.roomId,
         });
         if (!planned.ok) return fail(400, planned.error);
+        const snapshot =
+          role === "admin"
+            ? []
+            : await stewardSnapshot(tx, target.id, role === "steward" ? [planned.plan.roomId] : "all");
         if (role !== "admin") {
           const kept = await keepStewarded(tx, {
             actorId: input.userId,
@@ -410,6 +511,14 @@ export async function grantAccess(
           if (kept) return kept;
         }
         await writeGrant(tx, { plan: planned.plan, actorName: actorPerson.name, now: input.now });
+        if (role !== "admin") {
+          await confirmStewardsLeft(tx, {
+            outgoingId: target.id,
+            roomIds: snapshot,
+            removed: role === "steward",
+            now: input.now,
+          });
+        }
         return { ok: true as const, value: { action: "revoke" as const, role } };
       }
       return fail(
@@ -419,6 +528,7 @@ export async function grantAccess(
     });
     return saved;
   } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
     if (isUniqueViolation(error)) return fail(409, "That access was already recorded.");
     throw error;
   }
@@ -785,10 +895,15 @@ export async function joinRoom(
     }
   }
   if (input.leave) {
-    const log = await readLog(db);
-    if (soleStewardRooms(log, input.userId).includes(input.roomId)) {
-      // The last steward hands the room on, then leaves it and its seat.
-      const left = await db.transaction(async (tx) => {
+    // Decide under the room's steward lock, so a leave and a revoke never both pass.
+    let left: Awaited<ReturnType<typeof keepStewarded>>;
+    try {
+      left = await db.transaction(async (tx) => {
+      const snapshot = await stewardSnapshot(tx, input.userId, [input.roomId]);
+      const { sole } = await soleStandingRooms(tx, input.userId, [input.roomId], input.now);
+      if (!sole.includes(input.roomId)) return null;
+      {
+        // The last steward hands the room on, then leaves it and its seat.
         const kept = await keepStewarded(tx, {
           actorId: input.userId,
           outgoingId: input.userId,
@@ -813,10 +928,20 @@ export async function joinRoom(
           actorName: me?.name ?? "",
           now: input.now,
         });
+        await confirmStewardsLeft(tx, {
+          outgoingId: input.userId,
+          roomIds: snapshot,
+          removed: true,
+          now: input.now,
+        });
         return null;
+      }
       });
-      if (left) return left;
+    } catch (error) {
+      if (error instanceof StewardStop) return fail(error.status, error.message);
+      throw error;
     }
+    if (left) return left;
     await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
       input.userId,
       input.roomId,
