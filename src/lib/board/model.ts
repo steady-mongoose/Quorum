@@ -1,6 +1,7 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
   hasHeadcount,
@@ -32,7 +33,8 @@ export type RoomId =
   | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
-export type Section = "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
+export type Section =
+  "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
 export type HardRule = HardRuleValue;
 
@@ -75,6 +77,18 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** Every category this room is listed in. */
+  categoryIds: string[];
+  /** Set when a steward of this room has pinned it. Absent means alphabetical. */
+  pinOrder?: number | null;
+  /** The signed-in member keeps this room on their list. */
+  joined?: boolean;
+  /** Omitted on a local room. Draft and unclaimed stay off the public page. */
+  status?: "draft" | "unclaimed" | "active";
+  town?: string;
+  county?: string;
+  category?: string;
+  sourceUrl?: string;
   /** Who the room is for. Missing means everyone. */
   audience?: "all" | "men" | "women";
   /** The signed-in member may change the audience. */
@@ -268,7 +282,7 @@ export const MARK_LABEL: Record<Mark, string> = {
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
-export const ROOMS: Room[] = [
+const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
     id: "county",
     name: "The County",
@@ -380,6 +394,15 @@ export const ROOMS: Room[] = [
     parish: false,
   },
 ];
+
+const SAMPLE_JOINED = new Set(["county", "shop"]);
+
+export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
+  ...entry,
+  categoryIds: [categoryForRoom(entry.id)],
+  pinOrder: null,
+  joined: SAMPLE_JOINED.has(entry.id),
+}));
 
 /** Room ids shipped in code. A group cannot take one, even if the row is missing. */
 export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));
@@ -1002,7 +1025,11 @@ export type WeekDay = { iso: string; cards: MeetingCard[] };
  * out. A named weekday is placed on that weekday. A stored date is a local
  * calendar day, not a UTC instant.
  */
-export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
+export function weekFor(
+  cards: MeetingCard[],
+  witnesses: Map<string, string[]>,
+  today: string,
+): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
@@ -1012,7 +1039,12 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
         cancelled: card.cancelled,
         until: card.until,
       });
-      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+      return (
+        occurs.includes(iso) &&
+        card.kind !== "trade" &&
+        card.kind !== "need" &&
+        cardListed(card, witnesses)
+      );
     });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
