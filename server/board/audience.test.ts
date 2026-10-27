@@ -378,6 +378,7 @@ test("a restricted room is enforced on every path, and a steward override is log
         password: "correct-horse",
         code: benchInvite.value.code,
         adult: true,
+        consent: true,
         headers,
       },
       createAccount,

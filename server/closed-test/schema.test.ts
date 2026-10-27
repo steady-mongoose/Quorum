@@ -47,7 +47,7 @@ test("deleting an inviter keeps the invite log and the indexes exist", async () 
     if (!mariaCode.ok) return;
     const maria = await redeemInvite(
       db,
-      { name: "Maria", email: "maria@example.com", password: "correct-horse", code: mariaCode.value.code, adult: true, headers },
+      { name: "Maria", email: "maria@example.com", password: "correct-horse", code: mariaCode.value.code, adult: true, consent: true, headers },
       createAccount,
       signIn,
       now,
@@ -63,7 +63,7 @@ test("deleting an inviter keeps the invite log and the indexes exist", async () 
     if (!luisCode.ok) return;
     const luis = await redeemInvite(
       db,
-      { name: "Luis", email: "luis@example.com", password: "correct-horse", code: luisCode.value.code, adult: true, headers },
+      { name: "Luis", email: "luis@example.com", password: "correct-horse", code: luisCode.value.code, adult: true, consent: true, headers },
       createAccount,
       signIn,
       now,
