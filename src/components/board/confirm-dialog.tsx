@@ -18,6 +18,7 @@ export function ConfirmDialog({
   onCancel,
   confirmDisabled = false,
   tone = "danger",
+  cancelFirst = false,
   children,
 }: {
   open: boolean;
@@ -29,6 +30,8 @@ export function ConfirmDialog({
   onCancel: () => void;
   confirmDisabled?: boolean;
   tone?: "danger" | "neutral";
+  /** Put Cancel before the confirm button, as well as focusing it. */
+  cancelFirst?: boolean;
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -53,6 +56,31 @@ export function ConfirmDialog({
       dialog.close();
     };
   }, [open]);
+
+  const confirmButton = (
+    <button
+      type="button"
+      className={cn(btnGhost, "min-h-[44px]", tone === "danger" && "border-danger/60 text-danger")}
+      disabled={confirmDisabled}
+      onClick={() => {
+        if (confirmDisabled) return;
+        confirming.current = true;
+        onConfirm();
+      }}
+    >
+      {confirmLabel}
+    </button>
+  );
+  const cancelButton = (
+    <button
+      ref={cancelRef}
+      type="button"
+      className={cn(btnGhost, "min-h-[44px]")}
+      onClick={onCancel}
+    >
+      {cancelLabel}
+    </button>
+  );
 
   return (
     <dialog
@@ -81,30 +109,9 @@ export function ConfirmDialog({
       </p>
       {children}
       <div className="mt-5 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={cn(
-            btnGhost,
-            "min-h-[44px]",
-            tone === "danger" && "border-danger/60 text-danger",
-          )}
-          disabled={confirmDisabled}
-          onClick={() => {
-            if (confirmDisabled) return;
-            confirming.current = true;
-            onConfirm();
-          }}
-        >
-          {confirmLabel}
-        </button>
-        <button
-          ref={cancelRef}
-          type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
-          onClick={onCancel}
-        >
-          {cancelLabel}
-        </button>
+        {cancelFirst ? cancelButton : null}
+        {confirmButton}
+        {cancelFirst ? null : cancelButton}
       </div>
     </dialog>
   );
