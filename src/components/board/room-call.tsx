@@ -1,17 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  CAMERA_DENIED,
+  CAMERA_UNAVAILABLE_LABEL,
+  MIC_DENIED,
+  liveLine,
+  openMedia,
+} from "@/lib/calls/media";
+import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { userFacingError } from "@/lib/user-facing-error";
 import { callsAreAvailable, parseCallJoin } from "@/lib/calls/status";
 import { RoomCallSession, type RemotePeer } from "@/lib/calls/session";
 import { useServerSession } from "@/lib/server-session-state";
-import { btnGhost, btnSignal } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
+import { cn } from "@/lib/cn";
 
 /**
  * The button stays out of the page until the API says calls are on.
  * Josh sets CALLS=on on the box. A rebuild of the site is not required.
  */
-export function RoomCall({ roomId }: { roomId: string }) {
+export const ROOM_CALL_JOIN_ID = "room-call-join";
+
+/** True once the API says calls are on and not recorded. */
+export function useCallsEnabled(): { enabled: boolean; selfId: string | null } {
   const server = useServerSession();
   const live = server.mode === "live" && Boolean(server.user);
   const [enabled, setEnabled] = useState(false);
@@ -38,8 +49,128 @@ export function RoomCall({ roomId }: { roomId: string }) {
     };
   }, [live]);
 
-  if (!live || !enabled || !server.user) return null;
-  return <RoomCallPanel key={roomId} roomId={roomId} selfId={server.user.id} />;
+  return { enabled: live && enabled, selfId: server.user?.id ?? null };
+}
+
+/**
+ * The button stays out of the page until the API says calls are on.
+ * Josh sets CALLS=on on the box. A rebuild of the site is not required.
+ */
+export function RoomCall({ roomId }: { roomId: string }) {
+  const { enabled, selfId } = useCallsEnabled();
+  if (!enabled || !selfId) return null;
+  return (
+    <CallPanel
+      key={roomId}
+      callKey={roomId}
+      basePath={`/api/calls/rooms/${roomId}`}
+      selfId={selfId}
+      label="Room call"
+      note="This call is not recorded. Only people who have stood in this room can join."
+      joinLabel="Join the call"
+      joinId={ROOM_CALL_JOIN_ID}
+      extra={<RingMembers roomId={roomId} />}
+    />
+  );
+}
+
+/** Host, steward, or admin only. The list stays hidden for everyone else. */
+function RingMembers({ roomId }: { roomId: string }) {
+  const [members, setMembers] = useState<{ id: string; name: string }[] | null>(null);
+  const [choice, setChoice] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fieldId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/api/calls/rooms/${roomId}/ring`, { credentials: "include", cache: "no-store" })
+      .then(async (response) => (response.ok ? ((await response.json()) as unknown) : null))
+      .then((body) => {
+        if (cancelled) return;
+        const row = body as { canRing?: unknown; members?: unknown } | null;
+        if (!row || row.canRing !== true || !Array.isArray(row.members)) {
+          setMembers(null);
+          return;
+        }
+        setMembers(
+          row.members.filter(
+            (m): m is { id: string; name: string } =>
+              Boolean(m) && typeof m.id === "string" && typeof m.name === "string",
+          ),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMembers(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
+
+  if (!members || members.length === 0) return null;
+  const chosen = members.find((m) => m.id === choice);
+
+  const ring = async () => {
+    if (!chosen) return;
+    setBusy(true);
+    setStatus("");
+    try {
+      const response = await apiFetch(`/api/calls/rooms/${roomId}/ring`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: chosen.id }),
+      });
+      const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+      setStatus(
+        response.ok
+          ? `Calling ${chosen.name}. They'll see it for one minute.`
+          : userFacingError(
+              typeof body?.error === "string" ? body.error : "",
+              "The call didn't go through.",
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
+      <label htmlFor={fieldId} className="text-sm font-semibold text-fg">
+        Call a member to this room
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <select
+          id={fieldId}
+          className={cn(fieldClass, "min-h-[44px] max-w-xs")}
+          value={choice}
+          onChange={(event) => setChoice(event.target.value)}
+        >
+          <option value="">Choose a member</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={cn(btnGhost, "min-h-[44px]")}
+          onClick={() => void ring()}
+          disabled={!chosen || busy}
+        >
+          <PhoneCall className="size-4" aria-hidden="true" />
+          {chosen ? `Call ${chosen.name}` : "Call"}
+        </button>
+      </div>
+      <p className="text-sm text-muted" role="status">
+        {status}
+      </p>
+    </div>
+  );
 }
 
 function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
@@ -47,23 +178,40 @@ function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
   node.srcObject = stream;
 }
 
-async function openMicAndCamera(): Promise<MediaStream> {
-  const audio = { echoCancellation: true, noiseSuppression: true };
-  try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio,
-      video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } },
-    });
-  } catch {
-    return navigator.mediaDevices.getUserMedia({ audio, video: false });
-  }
-}
+export type CallPanelProps = {
+  callKey: string;
+  basePath: string;
+  selfId: string;
+  label: string;
+  note: string;
+  joinLabel: string;
+  extra?: ReactNode;
+  /** Shown before joining, e.g. Close on the DM panel. */
+  onClose?: () => void;
+  /** DOM id for the Join button, so a ring can send focus to it. */
+  joinId?: string;
+};
 
-function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
+export function CallPanel({
+  callKey,
+  basePath,
+  selfId,
+  label,
+  note,
+  joinLabel,
+  extra,
+  onClose,
+  joinId,
+}: CallPanelProps) {
   const [phase, setPhase] = useState<"idle" | "joining" | "live">("idle");
   const [error, setError] = useState("");
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [notice, setNotice] = useState("");
+  const muteRef = useRef<HTMLButtonElement | null>(null);
+  const joinRef = useRef<HTMLButtonElement | null>(null);
+  const focusJoin = useRef(false);
   const [remotes, setRemotes] = useState<RemotePeer[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const sessionRef = useRef<RoomCallSession | null>(null);
@@ -84,9 +232,18 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [roomId]);
+  }, [callKey]);
+
+  useEffect(() => {
+    if (phase === "live") muteRef.current?.focus();
+    if (phase === "idle" && focusJoin.current) {
+      focusJoin.current = false;
+      joinRef.current?.focus();
+    }
+  }, [phase]);
 
   const leave = () => {
+    focusJoin.current = true;
     sessionRef.current?.close();
     sessionRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -95,25 +252,30 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
     setPhase("idle");
     setMicOn(true);
     setCameraOn(true);
+    setCameraDenied(false);
+    setNotice("");
   };
 
   const join = async () => {
     setError("");
+    setNotice("");
     setPhase("joining");
-    let stream: MediaStream;
-    try {
-      stream = await openMicAndCamera();
-    } catch {
+    const opened = await openMedia((c) => navigator.mediaDevices.getUserMedia(c));
+    if (!opened) {
       setPhase("idle");
-      setError("The browser did not get permission to use the microphone.");
+      setError(MIC_DENIED);
       return;
     }
+    const stream = opened.stream;
+    setCameraDenied(opened.cameraDenied);
+    setCameraOn(!opened.cameraDenied);
+    if (opened.cameraDenied) setNotice(CAMERA_DENIED);
     remember(stream);
     if (!alive.current) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    const response = await apiFetch(`/api/calls/rooms/${roomId}/join`, {
+    const response = await apiFetch(`${basePath}/join`, {
       method: "POST",
       credentials: "include",
       cache: "no-store",
@@ -139,13 +301,15 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
       return;
     }
     const session = new RoomCallSession({
-      roomId,
+      roomId: callKey,
+      basePath,
       selfId,
       cursor: joined.cursor,
       iceServers: joined.iceServers,
       localStream: stream,
       onPeers: (peers) => setRemotes(peers),
       onStopped: (message) => {
+        focusJoin.current = true;
         stream.getTracks().forEach((track) => track.stop());
         remember(null);
         sessionRef.current = null;
@@ -184,11 +348,17 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
   return (
     <section
       className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
-      aria-label="Room call"
+      aria-label={label}
     >
-      <p className="text-sm text-muted">
-        This call is not recorded. Only people who have stood in this room can join.
+      <p className="text-sm text-muted">{note}</p>
+      <p className="text-sm text-muted" role="status" aria-live="polite">
+        {phase === "live"
+          ? liveLine(micOn, cameraOn)
+          : phase === "joining"
+            ? "Joining the call."
+            : ""}
       </p>
+      {notice ? <p className="text-sm text-fg">{notice}</p> : null}
       {error ? (
         <p className="text-sm text-danger" role="alert">
           {error}
@@ -196,23 +366,25 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
       ) : null}
       {phase === "live" ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <figure className="flex flex-col gap-2">
-            <video
-              ref={(node) => bindStream(node, localStream)}
-              autoPlay
-              playsInline
-              muted
-              className="aspect-video w-full rounded-md bg-fg/10 object-cover"
-            />
-            <figcaption className="text-sm text-muted">You</figcaption>
-          </figure>
+          {cameraOn ? (
+            <figure className="flex flex-col gap-2">
+              <video
+                ref={(node) => bindStream(node, localStream)}
+                autoPlay
+                playsInline
+                muted
+                className="aspect-video w-full -scale-x-100 rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
+              />
+              <figcaption className="text-sm text-muted">You</figcaption>
+            </figure>
+          ) : null}
           {remotes.map((peer) => (
             <figure key={peer.id} className="flex flex-col gap-2">
               <video
                 ref={(node) => bindStream(node, peer.stream as MediaStream | null)}
                 autoPlay
                 playsInline
-                className="aspect-video w-full rounded-md bg-fg/10 object-cover"
+                className="aspect-video w-full rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
                 aria-label={peer.name}
               />
               <figcaption className="text-sm text-muted">
@@ -226,39 +398,61 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
       <div className="flex flex-wrap gap-2">
         {phase === "live" ? (
           <>
-            <button type="button" className={btnGhost} onClick={() => toggle("audio")}>
+            <button
+              ref={muteRef}
+              type="button"
+              className={cn(btnGhost, "min-h-[44px]")}
+              aria-pressed={!micOn}
+              onClick={() => toggle("audio")}
+            >
               {micOn ? (
                 <Mic className="size-4" aria-hidden="true" />
               ) : (
                 <MicOff className="size-4" aria-hidden="true" />
               )}
-              {micOn ? "Mute" : "Unmute"}
+              Mute
             </button>
-            <button type="button" className={btnGhost} onClick={() => toggle("video")}>
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px]")}
+              aria-pressed={!cameraOn}
+              disabled={cameraDenied}
+              onClick={() => toggle("video")}
+            >
               {cameraOn ? (
                 <Video className="size-4" aria-hidden="true" />
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              {cameraOn ? "Camera off" : "Camera on"}
+              {cameraDenied ? CAMERA_UNAVAILABLE_LABEL : "Turn camera off"}
             </button>
-            <button type="button" className={btnSignal} onClick={leave}>
+            <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />
-              Leave the call
+              Leave call
             </button>
           </>
         ) : (
-          <button
-            type="button"
-            className={btnSignal}
-            onClick={() => void join()}
-            disabled={phase === "joining"}
-          >
-            <Video className="size-4" aria-hidden="true" />
-            {phase === "joining" ? "Joining" : "Join the call"}
-          </button>
+          <>
+            <button
+              ref={joinRef}
+              id={joinId}
+              type="button"
+              className={cn(btnSignal, "min-h-[44px]")}
+              onClick={() => void join()}
+              disabled={phase === "joining"}
+            >
+              <Video className="size-4" aria-hidden="true" />
+              {phase === "joining" ? "Joining" : joinLabel}
+            </button>
+            {onClose && phase === "idle" ? (
+              <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={onClose}>
+                Close
+              </button>
+            ) : null}
+          </>
         )}
       </div>
+      {phase === "live" ? extra : null}
     </section>
   );
 }

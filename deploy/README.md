@@ -6,15 +6,15 @@ This is the closed-test API: Better Auth, invite codes, and Postgres on one Vult
 
 **Vultr Cloud Compute `vc2-2c-4gb` in New York, $20/month, chosen Oct 19.** Address `140.82.61.209`.
 
-|           |                |
-| --------- | -------------- |
-| Plan      | vc2-2c-4gb     |
-| vCPU      | 2              |
-| RAM       | 4 GB           |
-| Region    | New York       |
-| Price     | $20 /month     |
-| Chosen    | Oct 19         |
-| Public IP | 140.82.61.209  |
+|           |               |
+| --------- | ------------- |
+| Plan      | vc2-2c-4gb    |
+| vCPU      | 2             |
+| RAM       | 4 GB          |
+| Region    | New York      |
+| Price     | $20 /month    |
+| Chosen    | Oct 19        |
+| Public IP | 140.82.61.209 |
 
 Image: Ubuntu 24.04. Do not add Plesk or cPanel.
 
@@ -226,7 +226,7 @@ Deleting a member tombstones pictures that member sent. A sweep in the worker de
 
 Pictures in a direct message are ciphertext. The server stores a wrapped key and does not read the bytes. The messaging change has to encrypt on the device. See `src/lib/media/e2e.ts`.
 
-## Room calls
+## Room and message calls
 
 Live calls stay off until `CALLS=on` in `deploy/.env`. Restart the API after changing it. The site does not need a rebuild. Until then, `/api/calls/status` answers `{ "enabled": false, "record": false }` and the room page has no call button. Every other calls path answers 404.
 
@@ -234,7 +234,7 @@ This is not stored video. `MEDIA_VIDEO` still governs uploaded clips. A call is 
 
 Run one API container. The roster, the six-person cap, and the signals are in that process. A second replica would split the room. Do not scale `api` past one.
 
-Six people can be in one room's call. The mesh is browser to browser. Set `CALLS_STUN_URLS` and `CALLS_TURN_URLS` only when you want a relay you run yourself. Do not point them at Google, Cloudflare, AWS, Azure, Apple, or LiveKit Cloud. A TURN URL without `CALLS_TURN_SECRET`, or a secret without a URL, keeps calls off. The secret is 32 or more letters and digits (`openssl rand -hex 32`). The API mints a password that lasts about an hour. A poll or a re-join refreshes it before it expires. The status path does not receive that password.
+Six people can be in one room's call. The mesh is browser to browser. Set `CALLS_STUN_URLS` and `CALLS_TURN_URLS` only when you want a relay you run yourself. Do not point them at Google, Cloudflare, AWS, Azure, Apple, or LiveKit Cloud. The one vendor relay the API will use is Cloudflare Realtime TURN, and only through the key path below, never through these URL lists. A TURN URL without `CALLS_TURN_SECRET`, or a secret without a URL, keeps calls off. The secret is 32 or more letters and digits (`openssl rand -hex 32`). The API mints a password that lasts about an hour. A poll or a re-join refreshes it before it expires. The status path does not receive that password.
 
 Removing or banning someone takes them out of the call in the same moment. After the ban is saved, `banMember` calls `evictCallMember` with that member's id, and `removePost` calls it with the author's id. `evictCallMember` in `server/calls/evict.ts` drops them from every room on this process. `startHost` binds the store. A path that deletes one `room_member` row calls `store.leave(roomId, userId)` for that room. The other browsers close that peer when the id disappears from the roster.
 
@@ -256,6 +256,34 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile cal
 Coturn uses the host network and binds UDP and TCP 3478, plus UDP 49160 through 49260 for the relay. Open those in ufw only when you turn the profile on. It refuses to relay to the box's own public address, into private IPv4, and into `fc00::/7`, `fe80::/10`, and `::ffff:0:0/96`. It will not start without the secret and the public address. The credential is checked by coturn. It is not a standing password. Join, leave, and poll are limited to 60 in 10 seconds per member, and Caddy applies that same window per client address to those paths. A signal is limited to 120 in 10 seconds, in the API and at Caddy, on `/api/calls/rooms/<room>/signal`.
 
 Calls work without coturn when the browsers can reach each other directly. Most people behind home routers cannot. Leave the TURN lines blank until the profile is up. Calls stay on, and the browsers use host candidates only.
+
+### TURN: two paths
+
+The API picks one relay per request.
+
+1. **Cloudflare Realtime TURN.** Used when `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` are both set. The API calls `POST https://rtc.live.cloudflare.com/v1/turn/keys/$TURN_KEY_ID/credentials/generate-ice-servers` with `Authorization: Bearer $TURN_KEY_API_TOKEN` and `{"ttl":900}`.
+   - Credentials are minted per member per call session (call + join generation), never shared, and last 15 minutes. A poll re-mints in the last 5 minutes. The route mints only after it has checked the session, room or thread membership, and bans on that same request.
+   - Leaving, re-joining, a ban (`evictCallMember`), or failing the membership check revokes that member's credentials at Cloudflare (`.../credentials/<username>/revoke`).
+   - Each mint logs `{"event":"turn-mint","userId","session","username","expiresAt"}`. The Cloudflare `username` is what shows in Cloudflare's usage, so relay use traces to a member. The credential and the token are never logged.
+   - If Cloudflare fails, the API returns the member's own credentials only while they're unexpired. Otherwise it falls back to coturn/STUN. Only `turn.cloudflare.com` and `stun.cloudflare.com` URLs are passed on. Pricing: the first 1,000 GB a month are free, then $0.05/GB. Create the key in the Cloudflare dashboard under Realtime > TURN. This branch does not create one.
+2. **Coturn (fallback).** Used when the two Cloudflare vars are unset, or when Cloudflare fails or times out (5 s). This is the `CALLS_STUN_URLS` / `CALLS_TURN_URLS` / `CALLS_TURN_SECRET` setup described above.
+
+Setting only one of the two Cloudflare vars keeps calls off (`partial-turn`), just like half of the coturn pair. Cloudflare relays packets. It does not record them. The media is DTLS-SRTP end to end between the browsers.
+
+```bash
+# deploy/.env, Cloudflare path
+# CALLS=on
+# TURN_KEY_ID=
+# TURN_KEY_API_TOKEN=
+```
+
+### Message calls
+
+A thread in Messages gets a "Video call" button when calls are on. Only the two people in the thread can join, and only while they still share a verified meeting, the same rule as messages. The cap is two. The path is `/api/calls/dm/<thread>/(join|leave|signal)`.
+
+### Calling a member to a room
+
+The room's host (`room.host_user_id`), a steward of that room, or an admin can call a member from the room call panel. The member sees "X is calling you to a room call" with "Go to the call" and "Not now". A ring lasts one minute and is kept in memory only. Joining the call answers it. A ban clears it. Paths: `GET/POST /api/calls/rooms/<room>/ring`, `GET /api/calls/rings`, `POST /api/calls/rings/<id>/dismiss`. Ring POST shares the join rate limit, and one person can ring at most 10 times in 10 minutes (429 after that).
 
 ## What this box does not do
 

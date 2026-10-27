@@ -22,6 +22,13 @@ export function callsAreAvailable(body: unknown): boolean {
   return record.enabled === true && record.record === false;
 }
 
+/** Only an explicit record: true gets the recording copy. Malformed replies are refused with other copy. */
+export function claimsRecording(body: unknown): boolean {
+  return (
+    Boolean(body) && typeof body === "object" && (body as { record?: unknown }).record === true
+  );
+}
+
 /** Missing or true both refuse. The server sends false on every call response. */
 export function refusesRecording(body: unknown): boolean {
   if (!body || typeof body !== "object") return true;
@@ -56,7 +63,7 @@ function iceServer(value: unknown): CallIceServer | null {
   if (
     !urls ||
     urls.length === 0 ||
-    urls.some((item) => typeof item !== "string" || !parseIceUrl(item))
+    urls.some((item) => typeof item !== "string" || !parseIceUrl(item, { allowCloudflare: true }))
   ) {
     return null;
   }
