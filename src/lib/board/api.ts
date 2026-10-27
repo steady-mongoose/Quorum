@@ -316,6 +316,7 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
         reason: row.reason as RemovalRow["reason"],
         at: row.at,
         ...(row.roomChat === true ? { roomChat: true } : {}),
+        ...(row.mine === true ? { mine: true } : {}),
       });
     }
   }

@@ -1,5 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { InviteTracker } from "./invite-tracker";
+import { isMyRemoval } from "@/lib/board/removal-owner";
+
+export { isMyRemoval };
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { useCategories } from "@/components/board/use-categories";
@@ -92,6 +95,7 @@ const HOW = [
     text: "Home lists the rooms you joined, then your ZIP town, then your congregation, then farther out. Inside a room, posts stay newest first. A council approval adds the label Council-approved. It does not rank the post.",
   },
 ];
+
 
 export function AboutView() {
   const me = useBoard((state) => state.me);
@@ -371,7 +375,15 @@ export function AboutView() {
 
       {removals.length > 0 ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-2xl text-fg">Hard removals</h2>
+          <h2 className="text-2xl text-fg">
+            {steward || admin ? "Hard removals" : "Your removals"}
+          </h2>
+          {steward || admin ? null : (
+            <p className="max-w-prose text-sm text-muted">
+              A steward removed these posts of yours. You can appeal each one to that room's
+              stewards here, even while the room is off your list.
+            </p>
+          )}
           <ul className="flex flex-col gap-2">
             {removals.map((row) => (
               <li
@@ -380,7 +392,7 @@ export function AboutView() {
               >
                 {new Date(row.at).toLocaleString()} · {row.roomChat ? "Room chat" : "Post"} ·{" "}
                 {row.author} · {RULE_LABEL[row.reason]}
-                {row.author === authorName(me) ? (
+                {isMyRemoval(row, { remote, name: authorName(me) }) && !row.roomChat ? (
                   <RemovalAppeal
                     postId={row.postId}
                     filed={appeals.some(
@@ -454,19 +466,45 @@ function RemovalAppeal({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  if (filed) return <p className="mt-2">Appeal filed with the stewards.</p>;
+  const [sent, setSent] = useState(false);
+  const fieldId = useId();
+  const input = useRef<HTMLInputElement | null>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const done = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (sent) done.current?.focus();
+  }, [sent]);
+  if (filed || sent) {
+    return (
+      <p ref={done} tabIndex={-1} role="status" className="mt-2">
+        Appeal filed with the stewards. They will read it and decide.
+      </p>
+    );
+  }
   if (!open) {
     return (
-      <button type="button" className={`${btnGhost} mt-2`} onClick={() => setOpen(true)}>
+      <button
+        ref={opener}
+        type="button"
+        className={`${btnGhost} mt-2 min-h-[44px]`}
+        aria-expanded={false}
+        onClick={() => setOpen(true)}
+      >
         Appeal this removal
       </button>
     );
   }
   return (
-    <label className="mt-2 flex flex-col gap-2">
-      One sentence to the stewards
+    <div className="mt-2 flex flex-col gap-2">
+      <label htmlFor={fieldId}>One sentence to the stewards</label>
       <input
-        className={fieldClass}
+        id={fieldId}
+        ref={input}
+        className={`${fieldClass} min-h-[44px]`}
+        placeholder="For example: I was quoting the rule, not breaking it."
         value={reason}
         onChange={(event) => {
           setReason(event.target.value);
@@ -474,28 +512,41 @@ function RemovalAppeal({
         }}
       />
       {error ? (
-        <span className="text-danger" role="alert">
+        <p className="text-danger" role="alert">
           {error}
-        </span>
+        </p>
       ) : null}
-      <span className="flex gap-2">
+      <div className="flex gap-2">
         <button
           type="button"
-          className={btnSignal}
+          className={`${btnSignal} min-h-[44px]`}
           onClick={() => {
             void appeal(postId, "removal", reason).then((result) => {
-              if (!result.ok) setError(result.error ?? "That appeal was not filed.");
-              else setOpen(false);
+              if (!result.ok) {
+                setError(result.error ?? "That appeal was not filed.");
+                input.current?.focus();
+              } else {
+                setOpen(false);
+                setSent(true);
+              }
             });
           }}
         >
           File appeal
         </button>
-        <button type="button" className={btnGhost} onClick={() => setOpen(false)}>
+        <button
+          type="button"
+          className={`${btnGhost} min-h-[44px]`}
+          onClick={() => {
+            setOpen(false);
+            setError("");
+            window.setTimeout(() => opener.current?.focus(), 0);
+          }}
+        >
           Cancel
         </button>
-      </span>
-    </label>
+      </div>
+    </div>
   );
 }
 

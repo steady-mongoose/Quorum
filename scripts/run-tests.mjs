@@ -7,8 +7,10 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "server/board/removal-mine.test.ts",
   "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
+  "src/lib/board/appeal-a11y.test.ts",
   "src/lib/board/ux-copy-nav.test.ts",
   "src/lib/api-base.test.ts",
   "src/lib/api-mode.test.ts",
@@ -109,6 +111,7 @@ const appTests = [
   "server/board/ban-check.test.ts",
   "server/board/order.test.ts",
   "server/board/store.test.ts",
+  "server/board/appeal-paths.test.ts",
   "server/board/csam.test.ts",
   "server/admin/invite-tracker.test.ts",
   "src/lib/admin/invite-tracker.test.ts",
