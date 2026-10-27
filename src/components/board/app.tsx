@@ -175,7 +175,7 @@ function BoardShell() {
   ) : (
     <>
       {entered && server.mfa === "enroll" ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mfa-banner mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-prose text-sm text-fg">
             Turn on an authenticator before you grant a role, approve a reset, or export.
           </p>
