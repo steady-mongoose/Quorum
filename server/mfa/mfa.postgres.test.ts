@@ -866,3 +866,41 @@ test("a barred admin cannot approve a reset or read the queue", async (t) => {
   assert.equal(queue.status, 403);
   await queue.text();
 });
+
+test("one person's wrong codes do not block another person on the same address", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const database = db;
+  const clock = { now: new Date("2026-10-29T20:00:00Z") };
+  const app = handler(clock);
+  const shared = "198.51.100.200";
+  const noisy = await user({ name: "Noisy", email: "noisy.nat@example.com" });
+  const quiet = await user({ name: "Quiet", email: "quiet.nat@example.com" });
+  await enroll(app, noisy, clock, "198.51.100.201");
+  const quietMfa = await enroll(app, quiet, clock, "198.51.100.202");
+  await database.query(`delete from "rateLimit" where "key" = $1`, [`mfa:ip:${shared}`]);
+  const noisyHalf = await secondSession(noisy);
+  for (let n = 0; n < 11; n += 1) {
+    await database.query(`delete from mfa_lock where user_id = $1`, [noisy.id]);
+    const bad = await app(
+      new Request("http://127.0.0.1:8787/api/mfa/challenge", {
+        method: "POST",
+        headers: headers(noisyHalf, shared),
+        body: JSON.stringify({ code: "111111" }),
+      }),
+    );
+    await bad.text();
+  }
+  clock.now = new Date(clock.now.getTime() + 30_000);
+  const quietHalf = await secondSession(quiet);
+  const ok = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/challenge", {
+      method: "POST",
+      headers: headers(quietHalf, shared),
+      body: JSON.stringify({ code: totpAt(quietMfa.plain, clock.now.getTime()) }),
+    }),
+  );
+  assert.equal(ok.status, 200, await ok.clone().text());
+});

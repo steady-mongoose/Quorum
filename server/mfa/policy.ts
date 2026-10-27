@@ -15,6 +15,12 @@ export const MFA_FAIL_LIMIT = 5;
 export const MFA_LOCK_MS = 15 * 60 * 1000;
 export const STEP_UP_MS = 5 * 60 * 1000;
 export const MFA_RATE = { windowMs: 60_000, max: 10 };
+/**
+ * One address shared by many people (a NAT, or a missing proxy header that
+ * falls back to "local") gets a wider bucket. One person's wrong codes use up
+ * their own account's bucket, not everyone's second step on that address.
+ */
+export const MFA_IP_RATE = { windowMs: 60_000, max: 60 };
 
 const CLAIM_DECIDE =
   /^\/api\/claims\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/decide$/i;

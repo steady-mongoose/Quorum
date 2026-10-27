@@ -6,6 +6,7 @@ import { openBanOrNone } from "../board/store.ts";
 import {
   MFA_FAIL_LIMIT,
   MFA_LOCK_MS,
+  MFA_IP_RATE,
   MFA_RATE,
   STEP_UP_MS,
   actorRequiresMfa,
@@ -218,7 +219,7 @@ async function rateLimited(db: Db, userId: string, ip: string, now: Date): Promi
       retryAfter: userHit.retryAfter,
     });
   }
-  const ipHit = await consumeLimit(db, `mfa:ip:${ip}`, MFA_RATE, now.getTime());
+  const ipHit = await consumeLimit(db, `mfa:ip:${ip}`, MFA_IP_RATE, now.getTime());
   if (!ipHit.allowed) {
     return fail(429, "mfa_rate", "Too many attempts. Wait and try again.", {
       retryAfter: ipHit.retryAfter,
