@@ -250,8 +250,11 @@ test("members exchange one offer, and someone outside the room cannot read it", 
 
     const down = handler(
       {
-        query: async () => {
-          throw new Error("relation room_member does not exist");
+        query: async (sql, params) => {
+          if (String(sql).toLowerCase().includes("room_member")) {
+            throw new Error("relation room_member does not exist");
+          }
+          return db.query(sql, params);
         },
         transaction: async (fn) => fn(db),
       },
@@ -362,11 +365,7 @@ test("a barred member cannot join a call, even with a membership row", async () 
     await db.query(
       `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, created_at)
        values ($1, 'ada', 'Ada', 'threat', 'Tom', 1, $2, $3)`,
-      [
-        "ban-ada",
-        new Date("2026-11-20T12:00:00Z"),
-        new Date("2026-10-21T12:00:00Z"),
-      ],
+      ["ban-ada", new Date("2026-11-20T12:00:00Z"), new Date("2026-10-21T12:00:00Z")],
     );
     const again = await app(
       call("/api/calls/rooms/shop/join", { method: "POST", user: "ada", name: "Ada", body: {} }),

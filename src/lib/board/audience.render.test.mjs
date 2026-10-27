@@ -166,9 +166,10 @@ test("a room shows a plain men or women label, and the member can state a gender
   assert.match(room, /RoomAudienceEditor/);
   assert.match(room, /RoomHoldPlate/);
   assert.equal(app.includes("GenderGate"), false);
-  assert.match(form, /Set as man/);
-  assert.match(form, /Set as woman/);
-  assert.match(form, /Saved for \$\{email\}\./);
+  // The admin form that edited another member's gender is gone. A change goes
+  // through an admin-reviewed correction request.
+  assert.equal(form.includes("Set as man"), false);
+  assert.equal(form.includes("MemberGenderForm"), false);
   assert.match(form, /That room is not here/);
   assert.equal(/\blikes?\b|\bscore\b|\balgorithm\b/i.test(room), false);
   assert.equal(/\btext-danger\b/.test(room.match(/held[\s\S]{0,800}/)?.[0] ?? ""), false);

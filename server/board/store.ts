@@ -879,6 +879,7 @@ export async function listBoard(
       csamReports,
       adminAlerts,
       pages,
+      // TODO(rsvp-server): this board response carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
     },
   };
 }
@@ -1899,7 +1900,7 @@ async function knownCategory(db: Db, slug: string): Promise<boolean> {
   return Boolean(rows[0]);
 }
 
-async function checkedCategoryIds(
+export async function checkedCategoryIds(
   db: Db,
   categoryIds: readonly string[],
 ): Promise<string[] | { ok: false; status: number; error: string }> {
@@ -1918,7 +1919,7 @@ async function checkedCategoryIds(
   return slugs;
 }
 
-async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
+export async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
   await db.query(
     `delete from room_categories where room_id = $1 and not (category_id = any($2::text[]))`,
     [roomId, categoryIds],

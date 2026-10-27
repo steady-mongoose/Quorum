@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
   CalendarDays,
@@ -10,7 +11,7 @@ import {
   Search,
   User,
 } from "lucide-react";
-import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { userFacingError } from "@/lib/board/errors";
 import {
@@ -86,6 +87,7 @@ export function BoardApp({ categorySlug }: { categorySlug?: string | null } = {}
 function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const setRoom = useBoard((state) => state.setRoom);
   const navigate = useNavigate();
   const onRoomsRoute = categorySlug !== undefined;
   const deskOn = useBoard((state) => state.deskOn);
@@ -209,6 +211,20 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     </>
   ) : (
     <>
+      {entered && server.mfa === "enroll" ? (
+        <div className="mfa-banner mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-prose text-sm text-fg">
+            Turn on an authenticator before you moderate, grant a role, approve a reset, or export.
+          </p>
+          <button
+            type="button"
+            className={cn(btnSignal, "w-full sm:w-auto")}
+            onClick={() => openSection("profile")}
+          >
+            Set it up
+          </button>
+        </div>
+      ) : null}
       {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
@@ -230,6 +246,17 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         Skip to content
       </a>
       <PrimaryHaptic />
+      {entered ? (
+        <CallRings
+          onGo={(roomId) => {
+            setSection("rooms");
+            setRoom(roomId as Parameters<typeof setRoom>[0]);
+            void navigate({ to: "/rooms" }).then(() =>
+              requestAnimationFrame(() => focusRoomCall()),
+            );
+          }}
+        />
+      ) : null}
       {art === "landing" || art === "signin" ? (
         <div className="plate-ground" aria-hidden="true" />
       ) : null}
@@ -272,7 +299,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
                 href={signingIn ? "#sign-in" : "#open-the-door"}
                 onClick={focusDoorField}
               >
-                {signingIn ? "Sign in" : "Open the door"}
+                {signingIn ? "Sign in" : "Enter your invite code"}
               </a>
             )}
             {server.user ? (
@@ -306,7 +333,10 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p>
-              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+              {userFacingError(
+                boardError,
+                "That did not go through. Please try again in a moment.",
+              )}
             </p>
             <button
               type="button"
