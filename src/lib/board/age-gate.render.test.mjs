@@ -42,11 +42,13 @@ const { AGE_INVITE_ERROR, AGE_INVITE_LABEL, AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL }
 
 const WIDTHS = [390, 768, 1440];
 
+/** @param {number} width */
 function setWidth(width) {
   window.happyDOM.setViewport({ width, height: 900 });
   assert.equal(window.innerWidth, width);
 }
 
+/** @param {import("react").ReactNode} node */
 function render(node) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -63,19 +65,24 @@ function render(node) {
   };
 }
 
+/**
+ * @param {HTMLInputElement} input
+ * @param {string} value
+ */
 function setValue(input, value) {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
   setter?.call(input, value);
-  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not send without it", () => {
+  /** @type {any[]} */
   const sent = [];
   const session = {
     ...EMPTY_SERVER_SESSION,
-    mode: "live",
+    mode: /** @type {const} */ ("live"),
     configured: true,
-    signUp: async (input) => {
+    signUp: async (/** @type {any} */ input) => {
       sent.push(input);
       return { ok: true };
     },
@@ -85,7 +92,7 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
     sent.length = 0;
     const view = render(
       createElement(SessionContext.Provider, {
-        value: session,
+        value: /** @type {any} */ (session),
         children: createElement(AccountDoor),
       }),
     );
@@ -138,13 +145,14 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
 });
 
 test("the invite form requires the inviter's 18+ attestation at each width", () => {
+  /** @type {any[]} */
   const sent = [];
   const session = {
     ...EMPTY_SERVER_SESSION,
-    mode: "live",
+    mode: /** @type {const} */ ("live"),
     configured: true,
     user: { id: "josh", name: "Josh", email: "josh@example.com" },
-    createInvite: async (input) => {
+    createInvite: async (/** @type {any} */ input) => {
       sent.push(input);
       return { ok: true, code: "ABCDEFGH" };
     },
@@ -154,7 +162,7 @@ test("the invite form requires the inviter's 18+ attestation at each width", () 
     sent.length = 0;
     const view = render(
       createElement(SessionContext.Provider, {
-        value: session,
+        value: /** @type {any} */ (session),
         children: createElement(ServerInvite),
       }),
     );
