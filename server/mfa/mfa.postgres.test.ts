@@ -661,3 +661,68 @@ test("required roles, replay, lockout, reset, and recovery on Postgres", async (
     });
   }
 });
+
+async function secondSession(person: { id: string; sessionId: string; email: string; name: string }) {
+  if (!db) throw new Error("Postgres is not connected.");
+  const sessionId = randomUUID();
+  await db.query(
+    `insert into "session" (id, "expiresAt", token, "createdAt", "updatedAt", "userId")
+     values ($1, now() + interval '2 days', $2, now(), now(), $3)`,
+    [sessionId, randomUUID(), person.id],
+  );
+  return { ...person, sessionId };
+}
+
+test("a password-only session cannot reach DMs, invites, or account settings", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const clock = { now: new Date("2026-10-27T18:00:00Z") };
+  const app = handler(clock);
+  const admin = await user({ name: "Gate Admin", email: "gate-admin@example.com", admin: true });
+  await enroll(app, admin, clock, "198.51.100.1");
+  const halfway = await secondSession(admin);
+  const gated: Array<[string, string]> = [
+    ["GET", "/api/dm/threads"],
+    ["GET", "/api/dm/devices"],
+    ["GET", "/api/dm/peers"],
+    ["POST", "/api/dm/devices"],
+    ["GET", "/api/dm/backup"],
+    ["POST", "/api/invites"],
+    ["GET", "/api/invite-log"],
+    ["POST", "/api/auth/change-password"],
+    ["POST", "/api/auth/change-email"],
+    ["GET", "/api/auth/list-sessions"],
+    ["POST", "/api/auth/revoke-sessions"],
+    ["GET", "/api/board"],
+  ];
+  for (const [method, path] of gated) {
+    const response = await app(
+      new Request(`http://127.0.0.1:8787${path}`, {
+        method,
+        headers: headers(halfway, "198.51.100.2"),
+        ...(method === "GET" ? {} : { body: "{}" }),
+      }),
+    );
+    const body = (await response.json()) as { error?: string; step?: string };
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.equal(body.error, "mfa_required", `${method} ${path}`);
+    assert.equal(body.step, "challenge", `${method} ${path}`);
+  }
+  // Exempt: the session read, sign-out and the second step itself.
+  for (const [method, path] of [
+    ["GET", "/api/auth/get-session"],
+    ["POST", "/api/auth/sign-out"],
+    ["GET", "/api/mfa/status"],
+  ] as const) {
+    const response = await app(
+      new Request(`http://127.0.0.1:8787${path}`, {
+        method,
+        headers: headers(halfway, "198.51.100.3"),
+        ...(method === "GET" ? {} : { body: "{}" }),
+      }),
+    );
+    assert.notEqual(response.status, 403, `${method} ${path}`);
+  }
+});

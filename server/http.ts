@@ -284,6 +284,12 @@ async function route(
     });
   }
 
+  // Deny by default: every route except the sign-in, sign-up, sign-out,
+  // session read and the /api/mfa steps waits on the second factor. This
+  // runs before the auth forward, DMs and invites so none of them skip it.
+  const mfaBlocked = await enforceMfa(deps, request, url);
+  if (mfaBlocked) return mfaBlocked;
+
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
     const text = await readBody(request);
     let email = "";
@@ -422,13 +428,8 @@ async function route(
   }
 
   if (url.pathname === "/api/admin/export" && request.method === "GET") {
-    const blocked = await enforceMfa(deps, request, url);
-    if (blocked) return blocked;
     return exportAccount(deps, request);
   }
-
-  const blocked = await enforceMfa(deps, request, url);
-  if (blocked) return blocked;
 
   const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
   if (roomPost && request.method === "POST") {
