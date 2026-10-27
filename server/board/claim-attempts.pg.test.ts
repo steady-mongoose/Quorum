@@ -137,7 +137,7 @@ test("parallel email guesses on Postgres stop at the attempts that were counted"
     assert.equal(saved[0]?.state, "expired");
     assert.equal(attempts, results.filter(counted).length);
     assert.equal(attempts, 5);
-    assert.equal(right?.ok === true && saved[0]?.state === "pending", false);
+    assert.equal(right?.ok, false);
     const again = await confirmClaimCode(db, { userId, claimId, code, now });
     assert.equal(again.ok, false);
   } finally {
