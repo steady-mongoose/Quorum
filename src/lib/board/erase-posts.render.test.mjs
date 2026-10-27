@@ -55,7 +55,8 @@ test("the member copy says plainly that posts are erased, with the exceptions", 
   try {
     const text = view.host.textContent ?? "";
     assert.ok(text.includes(copy.DELETION_REQUEST_COPY));
-    assert.match(copy.DELETION_REQUEST_COPY, /your posts are erased/);
+    assert.match(copy.DELETION_REQUEST_COPY, /each post shows only "Erased\." from "Former member"/);
+    assert.equal(copy.completeDeletionDone(1, 0), "Done. 1 post erased. 0 kept for a hold, report, or appeal.");
     assert.match(copy.DELETION_REQUEST_COPY, /under a hold, an open report, or a pending appeal are kept/);
     assert.equal(text.includes("It does not delete"), false);
   } finally {
@@ -89,7 +90,7 @@ test("an admin completes a request through a confirm dialog with Cancel first an
     await flush();
     await flush();
     assert.deepEqual(completed, ["d1"]);
-    assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Done. 3 posts erased, 1 kept for a hold, report, or appeal.");
+    assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Done. 3 posts erased. 1 kept for a hold, report, or appeal.");
     assert.equal(document.activeElement?.textContent?.trim(), "Account deletion requests");
   } finally {
     view.cleanup();

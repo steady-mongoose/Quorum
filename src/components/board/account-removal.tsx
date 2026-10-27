@@ -47,7 +47,7 @@ export function AccountRemovalPanel({
       <p className="max-w-prose text-sm text-muted">
         Deactivation hides your profile and posts. You can turn it back on.
       </p>
-      {deactivated ? <p className="text-sm text-fg">Your profile and posts are hidden.</p> : null}
+      {deactivated ? <p role="status" className="text-sm text-fg">Your profile and posts are hidden.</p> : null}
       {deactivated ? (
         <button type="button" className={cn(btnGhost, "self-start")} aria-disabled={pending || undefined} onClick={() => !pending && onReactivate()}>
           Reactivate account
