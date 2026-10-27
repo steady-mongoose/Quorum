@@ -5,7 +5,33 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import { CLIENT_IP_HEADER } from "../proxy.ts";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { rollStats } from "./rollup.ts";
+
+/**
+ * These tests check who may read stats, not the second step, so each user acts
+ * through a session that has already passed MFA (admin routes need it) and
+ * entered a fresh code for the csv.
+ */
+const trusted = new WeakMap<Db, Map<string, Promise<string>>>();
+function trustedSession(db: Db, userId: string): Promise<string> {
+  const sessions = trusted.get(db) ?? new Map<string, Promise<string>>();
+  trusted.set(db, sessions);
+  let session = sessions.get(userId);
+  if (!session) {
+    session = trustAuthenticator(db, userId).then(async (sessionId) => {
+      // The csv is a data export, which also needs a fresh code.
+      await db.query(
+        `insert into mfa_step_up (id, session_id, user_id, action, expires_at)
+         values ($1, $2, $3, 'data-export', $4)`,
+        [randomUUID(), sessionId, userId, new Date(NOW.getTime() + 60_000)],
+      );
+      return sessionId;
+    });
+    sessions.set(userId, session);
+  }
+  return session;
+}
 
 const NOW = new Date("2026-10-26T12:00:00Z");
 
@@ -19,7 +45,12 @@ function app(db: Db) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
-      return { id, name: "Member", email: "member@example.com" };
+      return {
+        id,
+        name: "Member",
+        email: "member@example.com",
+        sessionId: await trustedSession(db, id),
+      };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
   } satisfies AppDeps);

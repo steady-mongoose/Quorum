@@ -1151,3 +1151,56 @@ test("the csv keeps a rounded count marked with ~ and a hidden one as <5", () =>
   assert.match(csv, /rooms,2026-10-19,gatherings,,<5/);
   assert.match(csv, /Members,,<5/);
 });
+
+test("the gatherings change cannot give back the prior window's exact total", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const ada = await user(db, "Ada Lovelace", "ada-change@example.com", "2026-01-01T00:00:00Z");
+    await db.query(
+      `create table if not exists room_categories (
+         room_id text not null references room (id) on delete cascade,
+         category_id text not null,
+         primary key (room_id, category_id)
+       )`,
+    );
+    await db.query(
+      `insert into room (id, name) values ('qa-loud', 'Loud Hall'), ('qa-quiet', 'Quiet Hall')`,
+    );
+    await db.query(
+      `insert into room_categories (room_id, category_id) values
+       ('qa-loud', 'civic'), ('qa-quiet', 'civic')`,
+    );
+    const add = async (roomId: string, count: number, week: string, day: string) => {
+      for (let i = 0; i < count; i += 1) {
+        await db.query(
+          `insert into public_gathering (id, title, gather_on, room_id, host_user_id)
+           values ($1, 'Gathering', $4::date, $2, $3)`,
+          [randomUUID(), roomId, ada, day],
+        );
+      }
+      await db.query(
+        `insert into stats_daily (date, metric, dimension, count)
+         values ($3::date, 'room_gatherings', $1, $2)`,
+        [roomId, count, week],
+      );
+    };
+    // Prior 7 days (week of Oct 12): Loud Hall 21, Quiet Hall 2. This window: Loud Hall 21 only.
+    await add("qa-loud", 21, "2026-10-12", "2026-10-14");
+    await add("qa-quiet", 2, "2026-10-12", "2026-10-14");
+    await add("qa-loud", 21, "2026-10-19", "2026-10-21");
+    await db.query(
+      `insert into stats_daily (date, metric, dimension, count) values ('2026-10-25'::date, 'dau', '', 6)`,
+    );
+    for (const category of ["civic", "all"]) {
+      const stats = await readStats(db, NOW, { days: 7, category });
+      const tile = stats.tiles.find((item) => item.id === "gatherings");
+      assert.equal(tile?.value, 21, category);
+      assert.notEqual(tile?.change, -2, `${category}: 21 minus the change gives the prior 23`);
+      if (typeof tile?.change === "number") assert.equal(tile.changeApprox, true, category);
+      const csv = await readStatsCsv(db, NOW, { days: 7, category });
+      assert.equal(csv.includes("Gatherings held (7 days) change,,-2\n"), false, category);
+    }
+  } finally {
+    await close();
+  }
+});

@@ -15,6 +15,8 @@ export type StatsTile = {
   approx?: boolean;
   /** Displayed current minus displayed prior. Null when either side is hidden. */
   change: number | null;
+  /** True when either side of the change was rounded. */
+  changeApprox?: boolean;
 };
 
 export const STATS_DAYS = [7, 30, 90] as const;
@@ -424,7 +426,15 @@ export function toStatsCsv(stats: StatsPayload): string {
     lines.push(
       csvLine(["summary", stats.asOf, tile.label, "", approxCell(tile.value, tile.approx)]),
     );
-    lines.push(csvLine(["summary", stats.asOf, `${tile.label} change`, "", tile.change]));
+    lines.push(
+      csvLine([
+        "summary",
+        stats.asOf,
+        `${tile.label} change`,
+        "",
+        tile.changeApprox && tile.change !== null ? `~${tile.change}` : tile.change,
+      ]),
+    );
   }
   for (const row of stats.joins) lines.push(csvLine(["joins", row.date, "joins", "", row.count]));
   for (const row of stats.active) {

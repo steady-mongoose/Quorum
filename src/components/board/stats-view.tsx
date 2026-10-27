@@ -126,7 +126,7 @@ export function StatsView({
           <p className="mt-2 font-display text-[2.5rem] leading-none text-fg tabular-nums">
             <ShownValue value={tile.value} approx={tile.approx} />
           </p>
-          <ChangeLine change={tile.change} days={days} />
+          <ChangeLine change={tile.change} approx={tile.changeApprox} days={days} />
         </article>
       ))}
 
@@ -362,7 +362,15 @@ function Alerts({ alerts }: { alerts: StatsPayload["alerts"] }) {
   );
 }
 
-function ChangeLine({ change, days }: { change: number | null; days: StatsDays }) {
+function ChangeLine({
+  change,
+  approx,
+  days,
+}: {
+  change: number | null;
+  approx?: boolean;
+  days: StatsDays;
+}) {
   if (change === null) {
     return <p className="mt-2 text-[0.85rem] text-muted tabular-nums">—</p>;
   }
@@ -374,9 +382,10 @@ function ChangeLine({ change, days }: { change: number | null; days: StatsDays }
   return (
     <p
       className="mt-2 text-[0.85rem] text-muted tabular-nums"
-      aria-label={`${up ? "up" : "down"} ${abs} versus prior ${days} days`}
+      aria-label={`${up ? "up" : "down"} ${approx ? "about " : ""}${abs} versus prior ${days} days`}
     >
-      {up ? "▲" : "▼"} {abs} vs prior {days} days
+      {up ? "▲" : "▼"} {approx ? "~" : ""}
+      {abs} vs prior {days} days
     </p>
   );
 }
@@ -866,7 +875,7 @@ function cell(value: ShownCount | number | null, approx?: boolean): ReactNode {
 
 /** Whether any count on the page is rounded or hidden as "<5". */
 function anyProtected(stats: StatsPayload): boolean {
-  if (stats.tiles.some((tile) => tile.approx)) return true;
+  if (stats.tiles.some((tile) => tile.approx || tile.changeApprox)) return true;
   if (stats.rooms.weeks.some((row) => row.postsApprox || row.gatheringsApprox)) return true;
   return JSON.stringify(stats).includes('"<5"');
 }

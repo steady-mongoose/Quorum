@@ -65,7 +65,17 @@ export async function readStats(
   const features = featureSeries(stored, today);
   const intent = intentOf(stored, asOf, roll);
   const tiles = asOf
-    ? await tilesOf(db, stored, asOf, filter.days, category, membership, catalog, roomCells)
+    ? await tilesOf(
+        db,
+        stored,
+        asOf,
+        filter.days,
+        category,
+        membership,
+        catalog,
+        roomCells,
+        inCategory,
+      )
     : blankTiles(filter.days);
   const roomsByCategory = asOf
     ? await categoriesOf(
@@ -190,6 +200,7 @@ async function tilesOf(
   membership: Map<string, Set<string>>,
   catalog: CategoryInfo[],
   roomCells: number[] = [],
+  inCategory: string[] | null = null,
 ): Promise<StatsPayload["tiles"]> {
   const labels = tileLabels(days);
   const currentStart = addUtcDays(asOf, -(days - 1));
@@ -222,6 +233,9 @@ async function tilesOf(
     labels.gatherings,
     catalog,
     roomCells,
+    // The prior window's rooms are listed when the window is moved back, so its
+    // total is protected against those cells too.
+    roomGatheringCells(stored, (date) => date >= priorStart && date <= priorEnd, inCategory),
   );
   return [members, invites, rooms, gatherings];
 }
@@ -239,7 +253,7 @@ function roomsTile(
     label,
     value: now.value,
     approx: now.approx,
-    change: shownChange(now.value, publishedBreakdown(prior, category, catalog).value),
+    ...changeOf(now, publishedBreakdown(prior, category, catalog)),
   };
 }
 
@@ -250,6 +264,7 @@ function gatheringsTile(
   label: string,
   catalog: CategoryInfo[],
   roomCells: number[] = [],
+  priorRoomCells: number[] = [],
 ): StatsTile {
   const shown = besideRoomTable(
     publishedBreakdown(current, category, catalog),
@@ -261,7 +276,14 @@ function gatheringsTile(
     label,
     value: shown.value,
     approx: shown.approx,
-    change: shownChange(shown.value, publishedBreakdown(prior, category, catalog).value),
+    ...changeOf(
+      shown,
+      besideRoomTable(
+        publishedBreakdown(prior, category, catalog),
+        categoryTotal(prior, category, catalog),
+        priorRoomCells,
+      ),
+    ),
   };
 }
 
@@ -340,6 +362,19 @@ function protectRoomTotal(total: number, parts: number[]): ProtectedCount {
   return rounded < SMALL_COUNT ? { value: "<5", approx: false } : { value: rounded, approx: true };
 }
 
+/**
+ * The change between two protected values, never the exact counts, so the
+ * change cannot give back a total the tile rounded or hid. Hidden when either
+ * side is "<5"; approximate when either side was rounded.
+ */
+function changeOf(
+  now: ProtectedCount,
+  prior: ProtectedCount,
+): { change: number | null; changeApprox: boolean } {
+  const change = shownChange(now.value, prior.value);
+  return { change, changeApprox: change !== null && (now.approx || prior.approx) };
+}
+
 function compared(
   id: StatsTile["id"],
   label: string,
@@ -353,7 +388,10 @@ function compared(
     label,
     value: now.total,
     approx: now.approx,
-    change: shownChange(now.total, before.total),
+    ...changeOf(
+      { value: now.total, approx: now.approx },
+      { value: before.total, approx: before.approx },
+    ),
   };
 }
 

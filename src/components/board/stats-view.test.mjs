@@ -343,7 +343,7 @@ test("rounded and hidden counts read as about and fewer than, with one privacy n
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const rounded = {
+  const rounded = /** @type {import("../../lib/board/stats.ts").StatsPayload} */ ({
     ...stats,
     tiles: [
       stats.tiles[0],
@@ -351,7 +351,7 @@ test("rounded and hidden counts read as about and fewer than, with one privacy n
       { id: "rooms", label: "Active rooms (30 days)", value: 20, approx: true, change: null },
       stats.tiles[3],
     ],
-  };
+  });
   act(() => {
     root.render(
       createElement(StatsView, {
