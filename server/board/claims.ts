@@ -499,6 +499,11 @@ export async function confirmClaimCode(
     if (!evidence.codeHash || !expires || expires <= input.now.getTime()) {
       return fail(400, "That code has expired.");
     }
+    // Once the right code is in, later guesses neither count nor expire the claim.
+    if (evidence.verifiedAt) {
+      if (hashCode(input.code) === evidence.codeHash) return { ok: true as const, id: row.id };
+      return fail(400, "This claim's code is already confirmed.");
+    }
     const prior = Number.isInteger(evidence.attempts) ? (evidence.attempts ?? 0) : 0;
     if (prior >= CLAIM_CODE_ATTEMPTS) {
       await tx.query(

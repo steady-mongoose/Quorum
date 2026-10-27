@@ -1,6 +1,7 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
   hasHeadcount,
@@ -76,6 +77,12 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** Every category this room is listed in. */
+  categoryIds: string[];
+  /** Set when a steward of this room has pinned it. Absent means alphabetical. */
+  pinOrder?: number | null;
+  /** The signed-in member keeps this room on their list. */
+  joined?: boolean;
   /** Omitted on a local room. Draft and unclaimed stay off the public page. */
   status?: "draft" | "unclaimed" | "active";
   town?: string;
@@ -276,7 +283,7 @@ export const MARK_LABEL: Record<Mark, string> = {
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
-export const ROOMS: Room[] = [
+const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
     id: "county",
     name: "The County",
@@ -388,6 +395,15 @@ export const ROOMS: Room[] = [
     parish: false,
   },
 ];
+
+const SAMPLE_JOINED = new Set(["county", "shop"]);
+
+export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
+  ...entry,
+  categoryIds: [categoryForRoom(entry.id)],
+  pinOrder: null,
+  joined: SAMPLE_JOINED.has(entry.id),
+}));
 
 /** Room ids shipped in code. A group cannot take one, even if the row is missing. */
 export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));

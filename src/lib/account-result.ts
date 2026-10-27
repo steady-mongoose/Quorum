@@ -3,8 +3,7 @@ import { userFacingError } from "./user-facing-error.ts";
 export type AccountUser = { id: string; name: string; email: string };
 
 export type AccountResult =
-  | { ok: true; user: AccountUser | null }
-  | { ok: false; message: string; code?: string };
+  { ok: true; user: AccountUser | null } | { ok: false; message: string; code?: string };
 
 export function parseAccountResult(status: number, body: unknown): AccountResult {
   if (status >= 200 && status < 300) {
@@ -38,4 +37,18 @@ function parseUser(user: unknown): AccountUser | null {
     name: record.name,
     email: typeof record.email === "string" ? record.email : "",
   };
+}
+
+/** Signup worked and the code is spent, but no session came back. */
+export const SIGNED_UP_NO_SESSION = "signed_up_no_session";
+export const SIGNED_UP_NO_SESSION_MESSAGE =
+  "Your account was created and your code is used. Sign in below with the same email and password.";
+
+/** Shown when /api/invites answers 429. */
+export function inviteLimitMessage(retryAfterSeconds: number | null): string {
+  const wait =
+    retryAfterSeconds && retryAfterSeconds > 60
+      ? `Wait ${Math.ceil(retryAfterSeconds / 60)} minutes`
+      : "Wait a minute";
+  return `You can make five codes a minute. ${wait}, then try again. To invite a group, make one code and set how many people can use it, up to 20.`;
 }
