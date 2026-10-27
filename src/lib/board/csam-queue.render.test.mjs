@@ -182,6 +182,16 @@ test("a filed hold is released only with a lawyer's name and reference, confirme
   assert.equal(release.getAttribute("aria-label"), "Release hold for post p1");
   assert.ok(release.className.includes("min-h-[44px]"));
   assert.equal(host.querySelector("#csam-release-hint-h1")?.textContent, queue.RELEASE_HINT);
+  assert.match(queue.RELEASE_HINT, /ends the legal hold/);
+  assert.match(queue.releaseConfirm("A", "B"), /stay sealed and are purged when the one-year preservation ends/);
+  for (const id of ["#csam-lawyer-h1", "#csam-lawyer-ref-h1"]) {
+    const input = /** @type {HTMLElement} */ (host.querySelector(id));
+    assert.equal(input.getAttribute("aria-required"), "true");
+    assert.ok(input.className.includes("min-h-[44px]"));
+    assert.ok((input.closest("label")?.textContent ?? "").includes("(required)"));
+    const hint = /** @type {Node} */ (host.querySelector("#csam-release-hint-h1"));
+    assert.ok(hint.compareDocumentPosition(input) & 4, "the hint comes before the inputs");
+  }
   act(() => release.click());
   await flush();
   const lawyer = /** @type {HTMLInputElement} */ (host.querySelector("#csam-lawyer-h1"));
