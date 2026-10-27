@@ -1,3 +1,4 @@
+import { listAdminRooms, moveRoom } from "./rooms-admin.ts";
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
@@ -171,7 +172,9 @@ function categoryIdsField(body: Record<string, unknown>): { categoryIds?: string
   return {};
 }
 
-function pinField(body: Record<string, unknown>): { pinOrder: number | null } | Record<string, never> {
+function pinField(
+  body: Record<string, unknown>,
+): { pinOrder: number | null } | Record<string, never> {
   if (!("pinOrder" in body)) return {};
   const value = body.pinOrder;
   if (value === null) return { pinOrder: null };
@@ -210,6 +213,7 @@ export async function handleBoard(
     );
   const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
+  const adminRoomMove = /^\/api\/admin\/rooms\/([a-z0-9-]{1,32})\/categories$/.exec(url.pathname);
   const categoryOne = /^\/api\/categories\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const gatheringOne =
@@ -222,6 +226,8 @@ export async function handleBoard(
     (gatheringOne !== null &&
       (request.method === "GET" || request.method === "DELETE" || request.method === "POST")) ||
     (url.pathname === "/api/board" && request.method === "GET") ||
+    (url.pathname === "/api/admin/rooms" && request.method === "GET") ||
+    Boolean(adminRoomMove && request.method === "POST") ||
     (url.pathname === "/api/appeals" && request.method === "GET") ||
     (url.pathname === "/api/home" && request.method === "GET") ||
     (url.pathname === "/api/rooms" && request.method === "POST") ||
@@ -324,6 +330,10 @@ export async function handleBoard(
       const ban = await openBan(deps.db, session.id, now);
       if (ban) return json(403, { error: "banned", ban });
       return fromResult(200, await listHome(deps.db, session.id, now));
+    }
+
+    if (url.pathname === "/api/admin/rooms" && request.method === "GET") {
+      return fromResult(200, await listAdminRooms(deps.db, session.id, now));
     }
 
     if (url.pathname === "/api/categories" && request.method === "GET") {
@@ -467,6 +477,22 @@ export async function handleBoard(
         now,
       });
       return fromResult(201, created);
+    }
+
+    if (adminRoomMove) {
+      return fromResult(
+        200,
+        await moveRoom(deps.db, {
+          userId: session.id,
+          userName: session.name,
+          id: adminRoomMove[1] ?? "",
+          categoryIds: categoryIdsField(body).categoryIds ?? [],
+          ...(Array.isArray(body.expectedBefore)
+            ? { expectedBefore: stringList(body, "expectedBefore") }
+            : {}),
+          now,
+        }),
+      );
     }
 
     if (roomOne && request.method === "PATCH") {

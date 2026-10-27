@@ -5,6 +5,7 @@ import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { RoomsManager } from "@/components/board/rooms-manager";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
@@ -48,7 +49,7 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on, where, and who is going. Press "I\'ll be there" on the ones you will attend.',
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. Only admins see the list. Press "I\'ll be there" on the ones you will attend.',
   },
   {
     title: "After a meeting",
@@ -224,6 +225,7 @@ export function AboutView() {
       ) : null}
 
       {remote && admin ? <DeletionRequestQueue /> : null}
+      {remote && admin ? <RoomsManager /> : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
