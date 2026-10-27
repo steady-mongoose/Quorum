@@ -4,7 +4,7 @@ import test from "node:test";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { joinRoom } from "../board/places-store.ts";
-import { roomCallMember } from "./membership.ts";
+import { roomCallMember, roomMemberStanding } from "./membership.ts";
 import { createApp } from "../http.ts";
 import { readCallsConfig } from "./config.ts";
 import { createCallStore } from "./store.ts";
@@ -187,6 +187,87 @@ test("a revoked member who had posted cannot join or get TURN; a posted-only mem
     assert.equal(res.status, 403);
     assert.equal(JSON.stringify(await res.json()).includes("credential"), false);
     assert.equal(minted, 0, "no relay login for a revoked member");
+  } finally {
+    await close();
+  }
+});
+
+async function log(db: Db, id: string, action: "grant" | "revoke", roomId: string, at: Date, rowId = randomUUID()) {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, 'X', 'member', $3, $4, 'test', 'test', 'test', 'For the test.', $5)`,
+    [rowId, id, roomId, action, at],
+  );
+}
+const t = (s: number) => new Date(now.getTime() + s * 1000);
+
+test("QA repro: a room revoke in shop is not undone by a later grant in other", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const m = await member(db, "Shopper");
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    await log(db, m, "revoke", "shop", t(1));
+    await log(db, m, "grant", "other", t(2));
+    assert.equal((await roomCallMember(db, m, "shop", t(3))).kind, "outsider");
+    await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [m]);
+    assert.equal((await roomCallMember(db, m, "shop", t(3))).kind, "outsider", "posted path too");
+    await log(db, m, "grant", "shop", t(4));
+    assert.equal((await roomCallMember(db, m, "shop", t(5))).kind, "member", "a later shop grant restores");
+  } finally {
+    await close();
+  }
+});
+
+test("a posted member who leaves the room loses call access until they come back", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const m = await member(db, "Leaver");
+    await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [m]);
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    assert.equal((await roomCallMember(db, m, "shop", now)).kind, "member");
+    await joinRoom(db, { userId: m, roomId: "shop", now, leave: true });
+    assert.equal((await roomCallMember(db, m, "shop", now)).kind, "outsider");
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    assert.equal((await roomCallMember(db, m, "shop", now)).kind, "member", "rejoining restores it");
+  } finally {
+    await close();
+  }
+});
+
+test("a grant and a revoke at the same instant: the revoke wins, whatever the ids", async () => {
+  const at = t(1);
+  for (const [g, r] of [["a", "b"], ["b", "a"]]) {
+    assert.equal(
+      roomMemberStanding([
+        { id: g, room_id: "shop", action: "grant", at },
+        { id: r, room_id: "shop", action: "revoke", at },
+      ]),
+      "revoked",
+    );
+  }
+  const { db, close } = await openTestDb();
+  try {
+    const m = await member(db, "Tie");
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    await log(db, m, "grant", "shop", t(1), "00000000-0000-0000-0000-00000000000f");
+    await log(db, m, "revoke", "shop", t(1), "00000000-0000-0000-0000-000000000001");
+    assert.equal((await roomCallMember(db, m, "shop", t(2))).kind, "outsider");
+  } finally {
+    await close();
+  }
+});
+
+test("a site-wide revoke beats a room grant until a later site-wide grant", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const m = await member(db, "Site");
+    await joinRoom(db, { userId: m, roomId: "shop", now });
+    await log(db, m, "revoke", "", t(1));
+    await log(db, m, "grant", "shop", t(2));
+    assert.equal((await roomCallMember(db, m, "shop", t(3))).kind, "outsider");
+    await log(db, m, "grant", "", t(4));
+    assert.equal((await roomCallMember(db, m, "shop", t(5))).kind, "member");
   } finally {
     await close();
   }

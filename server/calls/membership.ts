@@ -50,22 +50,20 @@ export async function roomCallMember(
        select 'saved' as via from room_join where room_id = $1 and user_id = $2`,
       [roomId, userId],
     );
-    // A revoked member grant (site-wide or for this room) refuses the call on
-    // every path: posted, invite, saved or steward. Someone who only posted and
-    // never had a grant has no access_log row and is not refused here.
     const actor = await actorRole(db, userId);
-    if (!actor.member) {
-      const revoked = await db.query<{ action: string }>(
-        `select action from access_log
-         where user_id = $1 and role = 'member' and (room_id = '' or room_id = $2)
-         order by at desc limit 1`,
+    const standing = roomMemberStanding(
+      await db.query<AccessRowLite>(
+        `select id, room_id, action, at from access_log
+         where user_id = $1 and role = 'member' and (room_id = '' or room_id = $2)`,
         [userId, roomId],
-      );
-      if (revoked[0]?.action === "revoke") return { kind: "outsider" };
-    }
+      ),
+    );
+    // A revoke refuses the call on every path: posted, invite, saved or steward.
+    if (standing === "revoked" && !actor.owner) return { kind: "outsider" };
+    const live = actor.admin || standing === "granted";
     if (!rows.some((row) => row.via === "stood")) {
-      // A saved room or a steward grant only counts for a live member.
-      if (!actor.member) return { kind: "outsider" };
+      // A saved room or a steward grant only counts for a live member of this room.
+      if (!live) return { kind: "outsider" };
       const saved = rows.some((row) => row.via === "saved");
       if (!saved && !actor.stewardRooms.includes(roomId)) return { kind: "outsider" };
     }
@@ -83,4 +81,32 @@ export async function roomCallMember(
   } catch {
     return { kind: "unavailable" };
   }
+}
+
+type AccessRowLite = { id: string; room_id: string; action: string; at: Date | string };
+
+function latest(rows: AccessRowLite[]): AccessRowLite | undefined {
+  // Newest first; on a tied timestamp the revoke wins; then by id, so the result is deterministic.
+  return [...rows].sort((x, y) => {
+    const dt = new Date(y.at).getTime() - new Date(x.at).getTime();
+    if (dt) return dt;
+    const rv = Number(y.action === "revoke") - Number(x.action === "revoke");
+    if (rv) return rv;
+    return x.id < y.id ? 1 : x.id > y.id ? -1 : 0;
+  })[0];
+}
+
+/**
+ * Member standing for one room, from the site-wide ('') and this room's rows only.
+ * A grant in another room never restores it. A site-wide revoke wins over any
+ * room grant unless a later site-wide grant restores the member. Otherwise the
+ * latest of the site-wide and this room's rows decides.
+ * "none" means no grant history at all (posted-only people).
+ */
+export function roomMemberStanding(rows: AccessRowLite[]): "granted" | "revoked" | "none" {
+  const site = latest(rows.filter((row) => row.room_id === ""));
+  if (site?.action === "revoke") return "revoked";
+  const last = latest(rows);
+  if (!last) return "none";
+  return last.action === "revoke" ? "revoked" : "granted";
 }
