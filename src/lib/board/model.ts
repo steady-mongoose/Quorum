@@ -314,8 +314,8 @@ export function removalConfirm(
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat:
     "A call for violence, a threat, or a plan or instructions to attack or intimidate someone is removed.",
-  porn: "Pornography is removed and the account is suspended everywhere on Avouch until an admin reviews it (when an admin removes it, the account is closed at once).",
-  csam: "Child sexual abuse material is removed at once, the account is suspended everywhere on Avouch until an admin closes it, and the evidence is held for one year, pending counsel.",
+  porn: "Pornography is removed. A steward's removal suspends the account everywhere on Avouch until an admin reviews it. An admin's removal closes it at once.",
+  csam: "Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A steward's removal suspends the account everywhere on Avouch until an admin closes it. An admin's removal closes it at once.",
   doxxing:
     "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
   blasphemy: "Blasphemy, a post that mocks God or Christ, is removed.",
