@@ -24,6 +24,7 @@ import {
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
+import { watchInviteHash } from "@/lib/board/invite-hash";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { DM_SIGNOUT_HISTORY_WARNING } from "@/lib/e2ee/copy";
 import { browserVaultStore } from "@/lib/e2ee/browser";
@@ -169,6 +170,13 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
       cancel = true;
     };
   }, [server.mode, server.user]);
+
+  // /#invite (Find's invite link, a shared link, or back/forward) opens About at
+  // the invite section. ServerInvite then focuses its heading.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    return watchInviteHash(window, () => setSection("about"));
+  }, [setSection]);
 
   useEffect(() => {
     if (!deskOn && section === "civic") setSection("week");

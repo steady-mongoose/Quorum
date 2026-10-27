@@ -332,9 +332,10 @@ test("an open report blocks the author delete until it is closed", async () => {
     const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
     assert.equal(posted.ok, true);
     if (!posted.ok) return;
-    // An open report from the 0029 queue blocks the author's delete.
+    // 0029's report queue is in the test database now: Maria's post is reported.
     await db.query(
-      `insert into member_report (id, room_id, subject_kind, subject_id, reporter_user_id, reason, status, created_at)
+      `insert into member_report
+         (id, room_id, subject_kind, subject_id, reporter_user_id, reason, status, created_at)
        values ('r1', 'shop', 'post', $1, $2, 'threat', 'open', $3)`,
       [posted.value.id, maria, now],
     );

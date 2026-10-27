@@ -53,3 +53,81 @@ test("both removal dialogs are danger-toned, and a removal moves focus and is an
     assert.match(source, /\.focus\(\)/, file);
   }
 });
+
+test("chat Report and Remove are 44px and named for the message's author", () => {
+  const chat = readFileSync(
+    new URL("../../components/board/room-chat.tsx", import.meta.url),
+    "utf8",
+  );
+  const report = readFileSync(
+    new URL("../../components/board/report-control.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(report, /cn\(btnQuiet, "self-start min-h-\[44px\] px-3"\)/);
+  assert.match(
+    chat,
+    /label=\{itemActionName\("Report", "message", message\.author, whenText\(message\.at\), message\.text\)\}/,
+  );
+  assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\] min-w-\[44px\] px-0"\)/);
+  assert.match(
+    chat,
+    /aria-label=\{itemActionName\("Remove", "message", message\.author, whenText\(message\.at\), message\.text\)\}/,
+  );
+  assert.match(chat, /cn\(btnGhost, "min-h-\[44px\]"\)[\s\S]*Remove: \{RULE_LABEL\[rule\]\}/);
+  assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\]"\)\} onClick=\{\(\) => setRemoving\(null\)\}/);
+});
+
+test("accessible names use the visible time, and same-day items differ by excerpt", async () => {
+  const { formatWhen, itemActionName } = await import("./model.ts");
+  const now = new Date(2026, 9, 29, 14, 0, 0).getTime();
+  const fiveAgo = now - 5 * 60 * 1000;
+  const recent = itemActionName(
+    "Report",
+    "message",
+    "Mark",
+    formatWhen(fiveAgo, now),
+    "See you at the bench",
+  );
+  assert.equal(recent, 'Report message from Mark, 5m ago: "See you at the bench"');
+
+  // Both older than a day, same author, same calendar day: the visible time
+  // reads the same for both, so the excerpt is what tells them apart.
+  const morning = new Date(2026, 9, 26, 9, 15, 4).getTime();
+  const evening = new Date(2026, 9, 26, 18, 40, 51).getTime();
+  const mWhen = formatWhen(morning, now);
+  const eWhen = formatWhen(evening, now);
+  assert.equal(mWhen, eWhen, "the visible time is the same for both");
+  const a = itemActionName("Report", "message", "Mark", mWhen, "See you at the bench");
+  const b = itemActionName("Report", "message", "Mark", eWhen, "Bring the saw");
+  assert.equal(a, `Report message from Mark, ${mWhen}: "See you at the bench"`);
+  assert.notEqual(a, b, "same day: the excerpt differs");
+  assert.doesNotMatch(a, /:\d\d:\d\d/, "no seconds in the name");
+  const removeName = itemActionName("Remove", "message", "Mark", eWhen, "Bring the saw");
+  assert.equal(removeName, `Remove message from Mark, ${eWhen}: "Bring the saw"`);
+  const long = itemActionName("Remove", "message", "Mark", mWhen, "word ".repeat(30));
+  assert.ok(long.length < 120 && long.endsWith('…"'), "long text is cut to a short excerpt");
+  const p1 = itemActionName("Report", "post", "Mark", mWhen, "Fixing the porch Saturday");
+  const p2 = itemActionName("Report", "post", "Mark", eWhen, "Fence repair Sunday");
+  assert.notEqual(p1, p2);
+
+  const chat = readFileSync(
+    new URL("../../components/board/room-chat.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(chat, /const now = useNow\(\);/);
+  assert.match(chat, /formatWhen\(at, now\.getTime\(\)\)/);
+  assert.match(chat, /<When at=\{message\.at\} format=\{formatWhen\} \/>/);
+  const view = readFileSync(
+    new URL("../../components/board/room-view.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(view, /const now = useNow\(\);/);
+  assert.match(
+    view,
+    /postWhen = post\.on \? formatDate\(post\.on\) : now \? formatWhen\(post\.at, now\.getTime\(\)\)/,
+  );
+  assert.match(
+    view,
+    /label=\{itemActionName\("Report", "post", post\.author, postWhen, post\.claim\)\}/,
+  );
+});

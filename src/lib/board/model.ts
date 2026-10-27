@@ -204,6 +204,8 @@ export type RemovalRow = {
   at: number;
   /** A room chat line. A post leaves this off. */
   roomChat?: boolean;
+  /** The server sets this on the viewer's own removals, by user id. */
+  mine?: boolean;
 };
 export type BanRow = {
   id: string;
@@ -608,6 +610,35 @@ export function formatWhen(at: number, now: number): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
+}
+
+/** A short excerpt for an accessible name: first words, up to about 40 characters. */
+export function itemExcerpt(text: string, max = 40): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/**
+ * Accessible name for a per-item action: the visible time (formatWhen, the
+ * same text the row shows) and a short excerpt, so two same-day items from one
+ * person still differ through their words:
+ * "Report message from Mark, 5m ago: \"See you at the bench\"".
+ */
+export function itemActionName(
+  action: "Report" | "Remove",
+  kind: "message" | "post",
+  author: string,
+  when: string,
+  text: string,
+): string {
+  const parts = [`${action} ${kind} from ${author}`];
+  if (when) parts.push(when);
+  const excerpt = itemExcerpt(text);
+  const head = parts.join(", ");
+  return excerpt ? `${head}: "${excerpt}"` : head;
 }
 
 export function newPost(
@@ -1016,7 +1047,10 @@ export function witnessesByTrade(posts: Post[], cards: MeetingCard[]): Map<strin
 export function cardListed(card: MeetingCard, witnesses: Map<string, string[]>): boolean {
   if (card.kind === "trade") return (witnesses.get(card.id)?.length ?? 0) >= 2;
   if (card.kind === "need") return true;
-  if (new Set(card.wentBy).size < 2) return false;
+  // A meeting lists for its room as soon as it is saved. Waiting for a second
+  // "I went" hid it from the only people who could press it.
+  // A seeded brief nobody has visited still waits for two visits.
+  if (card.unverified && new Set(card.wentBy).size < 2) return false;
   const recent = card.lastFour.slice(-2);
   if (recent.length === 2 && recent.every((went) => !went)) return false;
   if (roomById(card.room).requiresNextDate && !card.next) return false;
@@ -1155,7 +1189,10 @@ export function otherIn(thread: DmThread, me: string): string {
  * on this device today (the server never sends them), so this runs where the
  * views assemble their board data.
  */
-export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+export function forViewer(
+  card: MeetingCard,
+  viewer: { admin: boolean; name: string },
+): MeetingCard {
   if (viewer.admin) return card;
   return {
     ...card,
