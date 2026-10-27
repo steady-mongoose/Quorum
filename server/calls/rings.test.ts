@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRingStore, RING_TTL_MS } from "./rings.ts";
+import { createRingStore, MAX_RINGS_PER_RINGER, RING_TTL_MS, RINGER_WINDOW_MS } from "./rings.ts";
 import { handleCalls, type CallsRuntime } from "./routes.ts";
 import { readCallsConfig } from "./config.ts";
 import { createCallStore } from "./store.ts";
@@ -10,6 +10,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 test("ring store: expiry, dismiss only by target, answer, evict", () => {
   const s = createRingStore();
   const r = s.ring({ roomId: "shop", from: "host", fromName: "Host", to: "ada" }, 0);
+  assert.ok(r);
   assert.equal(s.pending("ada", 1).length, 1);
   assert.equal(s.pending("bob", 1).length, 0);
   assert.equal(s.dismiss("bob", r.id), false);
@@ -91,4 +92,66 @@ test("rings are off with the CALLS flag", async () => {
   const r = { ...rt(["host"], ["host", "ada"]), config: readCallsConfig({}) };
   const res = await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
   assert.notEqual(res.status, 200);
+});
+
+test("per-ringer cap, then it resets after the window", () => {
+  const s = createRingStore();
+  for (let i = 0; i < MAX_RINGS_PER_RINGER; i++) {
+    assert.ok(s.ring({ roomId: "shop", from: "host", fromName: "Host", to: `m${i}` }, i));
+  }
+  assert.equal(s.ring({ roomId: "shop", from: "host", fromName: "Host", to: "late" }, 100), null);
+  assert.ok(
+    s.ring({ roomId: "shop", from: "other", fromName: "Other", to: "late" }, 100),
+    "per ringer",
+  );
+  assert.ok(
+    s.ring({ roomId: "shop", from: "host", fromName: "Host", to: "late" }, RINGER_WINDOW_MS + 100),
+  );
+});
+
+test("the ring route answers 429 past the per-ringer cap", async () => {
+  const members = ["host", ...Array.from({ length: 12 }, (_, i) => `m${i}`)];
+  const r = rt(["host"], members);
+  for (let i = 0; i < MAX_RINGS_PER_RINGER; i++) {
+    assert.equal(
+      (await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: `m${i}` })).status,
+      200,
+    );
+  }
+  const over = await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "m11" });
+  assert.equal(over.status, 429);
+});
+
+test("mint only after the membership check; a ban or leave releases TURN", async () => {
+  const minted: string[] = [];
+  const released: string[] = [];
+  const ice = Object.assign(
+    async (_c: unknown, owner: { userId: string; session: string }) => {
+      minted.push(`${owner.userId}@${owner.session}`);
+      return [];
+    },
+    { release: (userId: string, prefix?: string) => released.push(`${userId}:${prefix ?? "*"}`) },
+  ) as unknown as NonNullable<CallsRuntime["ice"]>;
+  const banned = new Set<string>();
+  const r: CallsRuntime = {
+    ...rt([], ["ada"]),
+    ice,
+    roomMember: (async (_db: Db, id: string) =>
+      banned.has(id)
+        ? { kind: "banned", ban: { reason: "x", until: null } }
+        : id === "ada"
+          ? { kind: "member" }
+          : { kind: "outsider" }) as never,
+  };
+  assert.equal((await send(r, "ada", "/api/calls/rooms/shop/join", "POST", {})).status, 200);
+  assert.deepEqual(minted, ["ada@shop#1"]);
+  await send(r, "ada", "/api/calls/rooms/shop?since=0");
+  assert.deepEqual(minted, ["ada@shop#1", "ada@shop#1"], "polls reuse the session key");
+  banned.add("ada");
+  assert.equal((await send(r, "ada", "/api/calls/rooms/shop?since=0")).status, 403);
+  assert.equal(minted.length, 2, "no mint for a banned member");
+  assert.deepEqual(released, ["ada:*"]);
+  assert.equal((await send(r, "eve", "/api/calls/rooms/shop/join", "POST", {})).status, 403);
+  assert.equal(minted.length, 2, "no mint for an outsider");
+  assert.deepEqual(released, ["ada:*", "eve:shop#"]);
 });

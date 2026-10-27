@@ -188,6 +188,11 @@ export function createCallStore() {
       return { ok: true, peers: others(current, user.id), cursor };
     },
 
+    /** The member's join generation in that call, or 0 when not in it. */
+    generationOf(roomId: string, userId: string): number {
+      return rooms.get(roomId)?.peers.get(userId)?.generation ?? 0;
+    },
+
     leave(roomId: string, userId: string): void {
       dropPeer(roomId, userId);
     },

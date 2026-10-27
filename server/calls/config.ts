@@ -1,6 +1,6 @@
 import { parseIceUrl } from "../../src/lib/calls/ice.ts";
 import { mintTurnCredential } from "./turn.ts";
-import { createCloudflareIceCache } from "./cloudflare-turn.ts";
+import { createCloudflareIceCache, type MintOwner } from "./cloudflare-turn.ts";
 
 export type IceServer = {
   urls: string | string[];
@@ -96,27 +96,32 @@ export function coturnIceServers(config: CallsConfig, userId: string, nowMs: num
   return servers;
 }
 
-export type IceSource = (
-  config: CallsConfig,
-  userId: string,
-  nowMs: number,
-) => Promise<IceServer[]>;
+export type IceSource = {
+  (config: CallsConfig, owner: MintOwner, nowMs: number): Promise<IceServer[]>;
+  /** Revoke what was minted: one call (sessionPrefix) or everything for a user. */
+  release(userId: string, sessionPrefix?: string): void;
+};
 
 /**
  * Cloudflare Realtime TURN when TURN_KEY_ID and TURN_KEY_API_TOKEN are set,
- * otherwise the coturn path. A Cloudflare failure falls back to coturn/STUN
- * so a call can still try a direct connection.
+ * otherwise the coturn path. A Cloudflare failure falls back to coturn/STUN.
+ * Expired Cloudflare credentials are never returned.
  */
-export function createIceSource(fetchImpl: typeof fetch = fetch): IceSource {
-  const cache = createCloudflareIceCache(fetchImpl);
-  return async (config, userId, nowMs) => {
+export function createIceSource(
+  fetchImpl: typeof fetch = fetch,
+  log?: (line: Record<string, unknown>) => void,
+): IceSource {
+  const cache = createCloudflareIceCache(fetchImpl, log);
+  const source = (async (config: CallsConfig, owner: MintOwner, nowMs: number) => {
     if (!config.enabled) return [];
     if (config.cloudflare) {
-      const servers = await cache.get(config.cloudflare, config.turnTtlSeconds, nowMs);
+      const servers = await cache.get(config.cloudflare, owner, nowMs);
       if (servers) return servers;
     }
-    return coturnIceServers(config, userId, nowMs);
-  };
+    return coturnIceServers(config, owner.userId, nowMs);
+  }) as IceSource;
+  source.release = (userId, sessionPrefix) => cache.release(userId, sessionPrefix);
+  return source;
 }
 
 /** Kept for callers that only need the coturn result synchronously. */

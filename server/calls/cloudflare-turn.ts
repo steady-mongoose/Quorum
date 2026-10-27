@@ -30,23 +30,77 @@ export function cleanCloudflareIce(body: unknown): IceServer[] | null {
   return out.length > 0 ? out : null;
 }
 
+/** Cloudflare credentials last 15 minutes. A poll re-mints in the last 5. */
+export const CLOUDFLARE_TTL_SECONDS = 15 * 60;
+const REFRESH_LEFT_MS = 5 * 60 * 1000;
+
+export type MintOwner = { userId: string; session: string };
+
+type Minted = {
+  servers: IceServer[];
+  username: string;
+  keyId: string;
+  expiresAt: number;
+  refreshAt: number;
+};
+
+type Logger = (line: Record<string, unknown>) => void;
+const defaultLog: Logger = (line) => console.log(JSON.stringify(line));
+
+function relayUsername(servers: IceServer[]): string {
+  return servers.find((server) => server.username)?.username ?? "";
+}
+
 /**
- * Calls POST /v1/turn/keys/{TURN_KEY_ID}/credentials/generate-ice-servers.
- * The token stays in this process. One credential set is shared until half
- * its TTL is gone, so a poll every 2 s does not hit Cloudflare.
+ * One credential set per member per call session (call key + join
+ * generation), never shared between people. The route mints only after it
+ * has checked the session, membership, and bans on that same request.
+ * Leaving, re-joining, or a ban revokes the set at Cloudflare.
+ * Each mint is logged with the user id, session, and Cloudflare username,
+ * never the credential.
  */
-export function createCloudflareIceCache(fetchImpl: typeof fetch) {
-  let cached: { servers: IceServer[]; refreshAt: number; keyId: string } | null = null;
-  let inflight: Promise<IceServer[] | null> | null = null;
+export function createCloudflareIceCache(fetchImpl: typeof fetch, log: Logger = defaultLog) {
+  const minted = new Map<string, Minted>();
+  const inflight = new Map<string, Promise<IceServer[] | null>>();
+  let lastKey: { keyId: string; apiToken: string } | null = null;
+  const slot = (owner: MintOwner) => `${owner.userId}\u0000${owner.session}`;
+
+  const revokeEntry = (id: string, reason: string) => {
+    const entry = minted.get(id);
+    minted.delete(id);
+    if (!entry || !entry.username || !lastKey || lastKey.keyId !== entry.keyId) return;
+    const key = lastKey;
+    log({ event: "turn-revoke", provider: "cloudflare", username: entry.username, reason });
+    void fetchImpl(
+      `${CLOUDFLARE_TURN_BASE}/${encodeURIComponent(key.keyId)}/credentials/${encodeURIComponent(entry.username)}/revoke`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${key.apiToken}` },
+        signal: AbortSignal.timeout(5000),
+      },
+    ).catch(() => undefined);
+  };
+
   return {
     async get(
       key: { keyId: string; apiToken: string },
-      ttlSeconds: number,
+      owner: MintOwner,
       nowMs: number,
     ): Promise<IceServer[] | null> {
-      if (cached && cached.keyId === key.keyId && nowMs < cached.refreshAt) return cached.servers;
-      if (inflight) return inflight;
-      inflight = (async () => {
+      lastKey = key;
+      const id = slot(owner);
+      const held = minted.get(id);
+      if (held && held.keyId === key.keyId && nowMs < held.refreshAt && nowMs < held.expiresAt) {
+        return held.servers;
+      }
+      // A new session for this user retires the old one.
+      for (const other of [...minted.keys()]) {
+        if (other !== id && other.startsWith(`${owner.userId}\u0000`))
+          revokeEntry(other, "new-session");
+      }
+      const running = inflight.get(id);
+      if (running) return running;
+      const work = (async () => {
         try {
           const response = await fetchImpl(
             `${CLOUDFLARE_TURN_BASE}/${encodeURIComponent(key.keyId)}/credentials/generate-ice-servers`,
@@ -56,22 +110,52 @@ export function createCloudflareIceCache(fetchImpl: typeof fetch) {
                 authorization: `Bearer ${key.apiToken}`,
                 "content-type": "application/json",
               },
-              body: JSON.stringify({ ttl: ttlSeconds }),
+              body: JSON.stringify({ ttl: CLOUDFLARE_TTL_SECONDS }),
               signal: AbortSignal.timeout(5000),
             },
           );
-          if (!response.ok) return cached?.keyId === key.keyId ? cached.servers : null;
-          const servers = cleanCloudflareIce(await response.json());
-          if (!servers) return null;
-          cached = { servers, refreshAt: nowMs + (ttlSeconds * 1000) / 2, keyId: key.keyId };
+          const servers = response.ok ? cleanCloudflareIce(await response.json()) : null;
+          if (!servers) return held && nowMs < held.expiresAt ? held.servers : null;
+          const expiresAt = nowMs + CLOUDFLARE_TTL_SECONDS * 1000;
+          const username = relayUsername(servers);
+          if (held && held.username !== username) revokeEntry(id, "refreshed");
+          minted.set(id, {
+            servers,
+            username,
+            keyId: key.keyId,
+            expiresAt,
+            refreshAt: expiresAt - REFRESH_LEFT_MS,
+          });
+          log({
+            event: "turn-mint",
+            provider: "cloudflare",
+            userId: owner.userId,
+            session: owner.session,
+            username,
+            expiresAt: new Date(expiresAt).toISOString(),
+          });
           return servers;
         } catch {
-          return null;
+          // Unexpired credentials this member already holds are still fine.
+          // Expired or someone else's never are; the caller falls back.
+          return held && nowMs < held.expiresAt ? held.servers : null;
         } finally {
-          inflight = null;
+          inflight.delete(id);
         }
       })();
-      return inflight;
+      inflight.set(id, work);
+      return work;
+    },
+    /** Leave: drop and revoke this member's set for that call. */
+    release(userId: string, sessionPrefix?: string): void {
+      for (const id of [...minted.keys()]) {
+        if (!id.startsWith(`${userId}\u0000`)) continue;
+        if (sessionPrefix && !id.slice(userId.length + 1).startsWith(sessionPrefix)) continue;
+        revokeEntry(id, sessionPrefix ? "left" : "removed");
+      }
+    },
+    size(): number {
+      return minted.size;
     },
   };
 }

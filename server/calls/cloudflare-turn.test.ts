@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanCloudflareIce, createCloudflareIceCache } from "./cloudflare-turn.ts";
+import { CLOUDFLARE_TTL_SECONDS, cleanCloudflareIce } from "./cloudflare-turn.ts";
 import { createIceSource, readCallsConfig } from "./config.ts";
 import { parseIceUrl } from "../../src/lib/calls/ice.ts";
 
@@ -44,56 +44,136 @@ test("half a Cloudflare key keeps calls off", () => {
   });
 });
 
-test("Cloudflare request shape, cache, and coturn fallback", async () => {
-  const calls: { url: string; init: RequestInit }[] = [];
-  let ok = true;
-  const fake = (async (url: string, init: RequestInit) => {
+type Call = { url: string; init: RequestInit };
+function fakeCloudflare() {
+  const calls: Call[] = [];
+  let n = 0;
+  const state = { ok: true };
+  const impl = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    if (!ok) throw new Error("down");
-    return new Response(JSON.stringify(good), { status: 201 });
+    if (!state.ok) throw new Error("down");
+    if (url.endsWith("/revoke")) return new Response(null, { status: 204 });
+    n++;
+    return new Response(
+      JSON.stringify({
+        iceServers: [
+          { urls: ["stun:stun.cloudflare.com:3478"] },
+          {
+            urls: ["turn:turn.cloudflare.com:3478"],
+            username: `user${n}`,
+            credential: `secret${n}`,
+          },
+        ],
+      }),
+      { status: 201 },
+    );
   }) as unknown as typeof fetch;
-  const source = createIceSource(fake);
-  const config = readCallsConfig({
-    CALLS: "on",
-    CALLS_STUN_URLS: "stun:stun.example.com:3478",
-    ...KEY,
-  });
-  const first = await source(config, "ada", 0);
-  assert.equal(first[1]?.credential, "c");
+  return {
+    calls,
+    impl,
+    state,
+    mints: () => calls.filter((c) => c.url.endsWith("generate-ice-servers")),
+  };
+}
+
+const config = readCallsConfig({
+  CALLS: "on",
+  CALLS_STUN_URLS: "stun:stun.example.com:3478",
+  ...KEY,
+});
+const ada = { userId: "ada", session: "shop#1" };
+const bob = { userId: "bob", session: "shop#1" };
+
+test("request shape, short TTL, and a mint log without the secret", async () => {
+  const cf = fakeCloudflare();
+  const logs: Record<string, unknown>[] = [];
+  const source = createIceSource(cf.impl, (line) => logs.push(line));
+  const servers = await source(config, ada, 0);
+  assert.equal(servers[1]?.username, "user1");
+  const mint = cf.mints()[0];
   assert.equal(
-    calls[0]?.url,
+    mint?.url,
     `https://rtc.live.cloudflare.com/v1/turn/keys/${KEY.TURN_KEY_ID}/credentials/generate-ice-servers`,
   );
   assert.equal(
-    (calls[0]?.init.headers as Record<string, string>).authorization,
+    (mint?.init.headers as Record<string, string>).authorization,
     `Bearer ${KEY.TURN_KEY_API_TOKEN}`,
   );
-  assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { ttl: 3600 });
-  await source(config, "bob", 1000);
-  assert.equal(calls.length, 1, "cached");
-
-  ok = false;
-  const fresh = createIceSource(fake);
-  const fallback = await fresh(config, "ada", 0);
-  assert.deepEqual(fallback, [{ urls: ["stun:stun.example.com:3478"] }]);
-
-  const plain = readCallsConfig({ CALLS: "on", CALLS_STUN_URLS: "stun:stun.example.com:3478" });
-  const before = calls.length;
-  await fresh(plain, "ada", 0);
-  assert.equal(calls.length, before, "no Cloudflare call without a key");
+  assert.deepEqual(JSON.parse(String(mint?.init.body)), { ttl: CLOUDFLARE_TTL_SECONDS });
+  assert.equal(CLOUDFLARE_TTL_SECONDS <= 15 * 60, true);
+  const line = logs.find((l) => l.event === "turn-mint");
+  assert.equal(line?.userId, "ada");
+  assert.equal(line?.session, "shop#1");
+  assert.equal(line?.username, "user1");
+  assert.doesNotMatch(JSON.stringify(logs), /secret1|tttt/);
 });
 
-test("cache refetches after half the TTL", async () => {
-  let n = 0;
-  const fake = (async () => {
-    n++;
-    return new Response(JSON.stringify(good), { status: 201 });
+test("credentials are per user and per session, never shared", async () => {
+  const cf = fakeCloudflare();
+  const source = createIceSource(cf.impl, () => {});
+  const a = await source(config, ada, 0);
+  const b = await source(config, bob, 0);
+  assert.notEqual(a[1]?.username, b[1]?.username);
+  assert.equal(
+    (await source(config, ada, 1000))[1]?.username,
+    a[1]?.username,
+    "same session reuses",
+  );
+  assert.equal(cf.mints().length, 2);
+  const next = await source(config, { userId: "ada", session: "shop#2" }, 2000);
+  assert.notEqual(next[1]?.username, a[1]?.username, "a re-join mints fresh");
+  assert.ok(
+    cf.calls.some((c) => c.url.endsWith(`/credentials/${a[1]?.username}/revoke`)),
+    "the old session is revoked",
+  );
+});
+
+test("release revokes, so a removed member's relay stops", async () => {
+  const cf = fakeCloudflare();
+  const source = createIceSource(cf.impl, () => {});
+  const a = await source(config, ada, 0);
+  source.release("ada");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(cf.calls.some((c) => c.url.endsWith(`/credentials/${a[1]?.username}/revoke`)));
+  await source(config, ada, 1000);
+  assert.equal(cf.mints().length, 2, "a fresh mint is needed after release");
+});
+
+test("refresh in the last 5 minutes; expired credentials are never returned", async () => {
+  const cf = fakeCloudflare();
+  const source = createIceSource(cf.impl, () => {});
+  const ttl = CLOUDFLARE_TTL_SECONDS * 1000;
+  await source(config, ada, 0);
+  await source(config, ada, ttl - 5 * 60_000 - 1);
+  assert.equal(cf.mints().length, 1);
+  cf.state.ok = false;
+  // Refresh fails while the old set is still valid: keep it.
+  const stillValid = await source(config, ada, ttl - 60_000);
+  assert.equal(stillValid[1]?.username, "user1");
+  // Refresh fails after expiry: coturn/STUN, never the expired set.
+  const after = await source(config, ada, ttl + 1);
+  assert.deepEqual(after, [{ urls: ["stun:stun.example.com:3478"] }]);
+});
+
+test("a non-OK reply after expiry also falls back", async () => {
+  let first = true;
+  const impl = (async () => {
+    if (first) {
+      first = false;
+      return new Response(JSON.stringify(good), { status: 201 });
+    }
+    return new Response("{}", { status: 500 });
   }) as unknown as typeof fetch;
-  const cache = createCloudflareIceCache(fake);
-  const key = { keyId: KEY.TURN_KEY_ID, apiToken: KEY.TURN_KEY_API_TOKEN };
-  await cache.get(key, 100, 0);
-  await cache.get(key, 100, 49_000);
-  assert.equal(n, 1);
-  await cache.get(key, 100, 51_000);
-  assert.equal(n, 2);
+  const source = createIceSource(impl, () => {});
+  await source(config, ada, 0);
+  const after = await source(config, ada, CLOUDFLARE_TTL_SECONDS * 1000 + 1);
+  assert.deepEqual(after, [{ urls: ["stun:stun.example.com:3478"] }]);
+});
+
+test("no Cloudflare call without a key", async () => {
+  const cf = fakeCloudflare();
+  const source = createIceSource(cf.impl, () => {});
+  const plain = readCallsConfig({ CALLS: "on", CALLS_STUN_URLS: "stun:stun.example.com:3478" });
+  await source(plain, ada, 0);
+  assert.equal(cf.calls.length, 0);
 });

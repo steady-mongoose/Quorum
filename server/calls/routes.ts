@@ -1,6 +1,7 @@
 import type { Db } from "../db.ts";
 import { CALLS_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { createIceSource, publicCallsStatus, type CallsConfig, type IceSource } from "./config.ts";
+import { bindTurnRelease } from "./evict.ts";
 import { canRing, createRingStore, type RingStore } from "./rings.ts";
 import { callDisplayName as ringName } from "./store.ts";
 import { roomCallMember } from "./membership.ts";
@@ -21,6 +22,7 @@ export type CallsRuntime = {
 };
 
 const defaultIce = createIceSource();
+bindTurnRelease((userId, prefix) => defaultIce.release(userId, prefix));
 const defaultRings = createRingStore();
 
 /** A DM call holds exactly the two people in the thread. */
@@ -148,6 +150,7 @@ export async function handleCalls(
   if (member.kind === "banned") {
     runtime.store.evict(session.id);
     rings.evict(session.id);
+    (runtime.ice ?? defaultIce).release(session.id);
     return json(403, { error: "banned", ban: member.ban, record: false });
   }
   if (member.kind === "audience") {
@@ -155,6 +158,7 @@ export async function handleCalls(
   }
   if (member.kind === "outsider") {
     runtime.store.leave(roomId, session.id);
+    (runtime.ice ?? defaultIce).release(session.id, `${roomId}#`);
     return json(403, {
       error: dmMatch
         ? "You can call someone you have been to a meeting with."
@@ -197,7 +201,20 @@ export async function handleCalls(
       if (target.kind !== "member") {
         return json(409, { error: "That member can't join this room's call.", record: false });
       }
-      rings.ring({ roomId: targetId, from: session.id, fromName: ringName(session.name), to }, at);
+      const rung = rings.ring(
+        { roomId: targetId, from: session.id, fromName: ringName(session.name), to },
+        at,
+      );
+      if (!rung) {
+        return json(
+          429,
+          {
+            error: "You've called a lot of people just now. Try again in a few minutes.",
+            record: false,
+          },
+          new Headers({ "retry-after": "600" }),
+        );
+      }
       return json(200, { ok: true, record: false });
     }
     if (action === "/join" && request.method === "POST") {
@@ -213,7 +230,14 @@ export async function handleCalls(
       return json(200, {
         selfId: session.id,
         peers: joined.peers,
-        iceServers: await ice(runtime.config, session.id, at),
+        iceServers: await ice(
+          runtime.config,
+          {
+            userId: session.id,
+            session: `${roomId}#${runtime.store.generationOf(roomId, session.id)}`,
+          },
+          at,
+        ),
         cursor: joined.cursor,
         record: false,
       });
@@ -221,6 +245,7 @@ export async function handleCalls(
     if (action === "/leave" && request.method === "POST") {
       await readJson(request);
       runtime.store.leave(roomId, session.id);
+      ice.release(session.id, `${roomId}#`);
       return json(200, { ok: true, record: false });
     }
     if (action === "/signal" && request.method === "POST") {
@@ -246,7 +271,14 @@ export async function handleCalls(
           kind: signal.kind,
           payload: signal.payload,
         })),
-        iceServers: await ice(runtime.config, session.id, at),
+        iceServers: await ice(
+          runtime.config,
+          {
+            userId: session.id,
+            session: `${roomId}#${runtime.store.generationOf(roomId, session.id)}`,
+          },
+          at,
+        ),
         cursor: polled.cursor,
         record: false,
       });

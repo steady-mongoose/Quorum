@@ -261,7 +261,11 @@ Calls work without coturn when the browsers can reach each other directly. Most 
 
 The API picks one relay per request.
 
-1. **Cloudflare Realtime TURN.** Used when `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` are both set. When a member joins or polls, the API calls `POST https://rtc.live.cloudflare.com/v1/turn/keys/$TURN_KEY_ID/credentials/generate-ice-servers` with `Authorization: Bearer $TURN_KEY_API_TOKEN` and `{"ttl":3600}`. It shares one credential set until half its TTL is gone, so polling doesn't call Cloudflare every two seconds. It passes on only `turn.cloudflare.com` and `stun.cloudflare.com` URLs. The token never leaves the API. Pricing: the first 1,000 GB a month are free, then $0.05/GB. Create the key in the Cloudflare dashboard under Realtime > TURN. This branch does not create one.
+1. **Cloudflare Realtime TURN.** Used when `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` are both set. The API calls `POST https://rtc.live.cloudflare.com/v1/turn/keys/$TURN_KEY_ID/credentials/generate-ice-servers` with `Authorization: Bearer $TURN_KEY_API_TOKEN` and `{"ttl":900}`.
+   - Credentials are minted per member per call session (call + join generation), never shared, and last 15 minutes. A poll re-mints in the last 5 minutes. The route mints only after it has checked the session, room or thread membership, and bans on that same request.
+   - Leaving, re-joining, a ban (`evictCallMember`), or failing the membership check revokes that member's credentials at Cloudflare (`.../credentials/<username>/revoke`).
+   - Each mint logs `{"event":"turn-mint","userId","session","username","expiresAt"}`. The Cloudflare `username` is what shows in Cloudflare's usage, so relay use traces to a member. The credential and the token are never logged.
+   - If Cloudflare fails, the API returns the member's own credentials only while they're unexpired. Otherwise it falls back to coturn/STUN. Only `turn.cloudflare.com` and `stun.cloudflare.com` URLs are passed on. Pricing: the first 1,000 GB a month are free, then $0.05/GB. Create the key in the Cloudflare dashboard under Realtime > TURN. This branch does not create one.
 2. **Coturn (fallback).** Used when the two Cloudflare vars are unset, or when Cloudflare fails or times out (5 s). This is the `CALLS_STUN_URLS` / `CALLS_TURN_URLS` / `CALLS_TURN_SECRET` setup described above.
 
 Setting only one of the two Cloudflare vars keeps calls off (`partial-turn`), just like half of the coturn pair. Cloudflare relays packets. It does not record them. The media is DTLS-SRTP end to end between the browsers.
@@ -279,7 +283,7 @@ A thread in Messages gets a "Video call" button when calls are on. Only the two 
 
 ### Calling a member to a room
 
-The room's host (`room.host_user_id`), a steward of that room, or an admin can call a member from the room call panel. The member sees "X is calling you to a room call" with "Go to the call" and "Not now". A ring lasts one minute and is kept in memory only. Joining the call answers it. A ban clears it. Paths: `GET/POST /api/calls/rooms/<room>/ring`, `GET /api/calls/rings`, `POST /api/calls/rings/<id>/dismiss`. Ring POST shares the join rate limit.
+The room's host (`room.host_user_id`), a steward of that room, or an admin can call a member from the room call panel. The member sees "X is calling you to a room call" with "Go to the call" and "Not now". A ring lasts one minute and is kept in memory only. Joining the call answers it. A ban clears it. Paths: `GET/POST /api/calls/rooms/<room>/ring`, `GET /api/calls/rings`, `POST /api/calls/rings/<id>/dismiss`. Ring POST shares the join rate limit, and one person can ring at most 10 times in 10 minutes (429 after that).
 
 ## What this box does not do
 

@@ -420,7 +420,15 @@ export class RoomCallSession {
   private applyIce(next: CallIceServer[]): void {
     const currentExpiry = this.credentialExpiry(this.iceServers);
     const nextExpiry = this.credentialExpiry(next);
+    const user = (list: CallIceServer[]) => list.map((server) => server.username ?? "").join("|");
+    const changed = user(this.iceServers) !== user(next);
     this.iceServers = next;
+    // Cloudflare usernames are opaque: a new one means fresh credentials.
+    if (currentExpiry === 0 && nextExpiry === 0) {
+      if (changed)
+        for (const slot of this.slots.values()) slot.pc.setConfiguration?.({ iceServers: next });
+      return;
+    }
     const nowSec = Date.now() / 1000;
     if (nextExpiry <= currentExpiry) return;
     if (currentExpiry > 0 && currentExpiry - nowSec > 15 * 60) return;
