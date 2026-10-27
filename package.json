@@ -17,6 +17,7 @@
     "api": "node --experimental-strip-types server/host.ts",
     "media:worker": "node --experimental-strip-types server/media-worker.ts",
     "seed:owner": "node --experimental-strip-types server/seed-owner.ts",
+    "seed:listings": "node --experimental-strip-types server/seed-listings.ts",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
     "preview:restart": "node scripts/preview.mjs restart",
