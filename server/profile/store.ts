@@ -159,6 +159,10 @@ class Rollback extends Error {
 export const GENDER_LOCKED =
   "This is already set. To correct it, send a correction request. An admin reviews it.";
 
+/** The refusal for a direct edit of a birthdate after onboarding. It points to the correction request. */
+export const BIRTHDATE_LOCKED =
+  "Your birthdate is already set. To correct it, send a correction request. An admin reviews it.";
+
 async function applyGender(
   db: Db,
   userId: string,
@@ -273,7 +277,7 @@ export async function saveProfile(
         );
         const current = locked[0]?.birthdate?.slice(0, 10) ?? "";
         if (locked[0]?.onboarded_at && current && current !== next.birthdate) {
-          throw new Rollback(403, GENDER_LOCKED);
+          throw new Rollback(403, BIRTHDATE_LOCKED);
         }
         if (!current || !locked[0]?.onboarded_at) {
           await tx.query(`update members set birthdate = $2::date where user_id = $1`, [

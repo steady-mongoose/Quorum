@@ -239,7 +239,9 @@ test("a birthdate locks after onboarding, and only an approved correction change
     assert.equal(onboarded.status, 200, await onboarded.clone().text());
     const locked = await send(handler, "ann", "/api/profile", "PATCH", { birthdate: "1992-01-01" });
     assert.equal(locked.status, 403);
-    assert.match(await locked.text(), /send a correction request/);
+    const lockedText = await locked.text();
+    assert.match(lockedText, /Your birthdate is already set\. To correct it, send a correction request\./);
+    assert.doesNotMatch(lockedText, /This is already set/);
     const stored = await db.query<{ birthdate: string }>(
       `select to_char(birthdate, 'YYYY-MM-DD') as birthdate from members where user_id = 'ann'`,
     );
