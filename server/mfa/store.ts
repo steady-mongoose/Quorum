@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { consumeLimit } from "../rate-limit.ts";
 import { actorRole } from "../board/access.ts";
+import { openBanOrNone } from "../board/store.ts";
 import {
   MFA_FAIL_LIMIT,
   MFA_LOCK_MS,
@@ -578,6 +579,13 @@ export async function guardRequest(
   return null;
 }
 
+/** An admin with a site-wide bar in force does not act on resets. */
+async function barredAdmin(db: Db, actorId: string, now: Date): Promise<MfaFailure | null> {
+  const ban = await openBanOrNone(db, actorId, now);
+  if (!ban) return null;
+  return fail(403, "banned", "A barred account cannot act on authenticator resets.");
+}
+
 export async function requestReset(
   db: Db,
   actor: SessionRef,
@@ -587,6 +595,10 @@ export async function requestReset(
   const actorRoleRow = await actorRole(db, actor.id);
   if (subjectUserId !== actor.id && !actorRoleRow.admin) {
     return { ok: false, failure: fail(403, "mfa_reset", "An admin asks for that reset.") };
+  }
+  if (subjectUserId !== actor.id) {
+    const barred = await barredAdmin(db, actor.id, new Date());
+    if (barred) return { ok: false, failure: barred };
   }
   const existing = await db.query<{ id: string }>(
     `select id from mfa_reset where user_id = $1 and status = 'pending' limit 1`,
@@ -612,6 +624,8 @@ export async function approveReset(
   if (!actorRoleRow.admin) {
     return { ok: false, failure: fail(403, "mfa_reset", "An admin approves a reset.") };
   }
+  const barred = await barredAdmin(db, actor.id, now);
+  if (barred) return { ok: false, failure: barred };
   const stepped = await guardRequest(db, actor, { stepUp: "mfa-reset" }, now);
   if (stepped) return { ok: false, failure: stepped };
   return db.transaction(async (tx) => {
@@ -695,6 +709,8 @@ export async function listResets(db: Db, actor: SessionRef): Promise<
   if (!actorRoleRow.admin) {
     return { ok: false, failure: fail(403, "mfa_reset", "An admin reads the reset queue.") };
   }
+  const barred = await barredAdmin(db, actor.id, new Date());
+  if (barred) return { ok: false, failure: barred };
   const view = await mfaView(db, actor);
   if (view.mfa === "challenge") {
     return {

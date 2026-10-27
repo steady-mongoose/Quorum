@@ -813,3 +813,56 @@ test("parallel wrong codes cannot beat the five-try lock", async (t) => {
   );
   assert.equal(right.status, 429);
 });
+
+test("a barred admin cannot approve a reset or read the queue", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const database = db;
+  const clock = { now: new Date("2026-10-28T20:00:00Z") };
+  const app = handler(clock);
+  const subject = await user({ name: "Bea", email: "bea.reset@example.com", admin: true });
+  const barred = await user({ name: "Cal", email: "cal.barred@example.com", admin: true });
+  await enroll(app, subject, clock, "198.51.100.70");
+  const barredMfa = await enroll(app, barred, clock, "198.51.100.71");
+  const asked = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/reset/request", {
+      method: "POST",
+      headers: headers(subject, "198.51.100.70"),
+      body: "{}",
+    }),
+  );
+  assert.equal(asked.status, 200);
+  const resetId = ((await asked.json()) as { id: string }).id;
+  clock.now = new Date(clock.now.getTime() + 30_000);
+  const up = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/step-up", {
+      method: "POST",
+      headers: headers(barred, "198.51.100.71"),
+      body: JSON.stringify({ action: "mfa-reset", code: totpAt(barredMfa.plain, clock.now.getTime()) }),
+    }),
+  );
+  assert.equal(up.status, 200);
+  await database.query(
+    `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id)
+     values ($1, $2, 'Cal', 'threat', 'test', 1, '2099-01-01T00:00:00Z', '')`,
+    [randomUUID(), barred.id],
+  );
+  const approve = await app(
+    new Request(`http://127.0.0.1:8787/api/mfa/reset/${resetId}/approve`, {
+      method: "POST",
+      headers: headers(barred, "198.51.100.71"),
+      body: "{}",
+    }),
+  );
+  assert.equal(approve.status, 403);
+  assert.equal(((await approve.json()) as { error?: string }).error, "banned");
+  const approvals = await database.query(`select 1 from mfa_reset_approval where reset_id = $1`, [resetId]);
+  assert.equal(approvals.length, 0);
+  const queue = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/reset", { headers: headers(barred, "198.51.100.71") }),
+  );
+  assert.equal(queue.status, 403);
+  await queue.text();
+});
