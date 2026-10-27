@@ -61,7 +61,6 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       className="plate w-[min(28rem,calc(100%-2rem))] p-5 text-fg backdrop:bg-bg/80"
-      style={{ marginTop: "auto" }}
       onCancel={(event) => {
         event.preventDefault();
         onCancel();
@@ -74,7 +73,7 @@ export function ConfirmDialog({
         onCancel();
       }}
     >
-      <h2 id={titleId} className="illum font-display text-3xl text-fg">
+      <h2 id={titleId} className="illum font-display text-2xl text-fg">
         {title}
       </h2>
       <p id={descriptionId} className="mt-2 max-w-prose text-sm text-muted">

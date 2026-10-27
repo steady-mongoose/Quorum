@@ -18,6 +18,7 @@ import {
   setGroupAdmin,
   setGroupSteward,
 } from "./groups.ts";
+import { setGroupAudience } from "./audience.ts";
 
 function json(status: number, body: unknown, extra?: Headers): Response {
   const headers = extra ?? new Headers();
@@ -63,6 +64,8 @@ function fromResult(status: number, result: Result<unknown>): Response {
       error: result.error,
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
+      ...(result.code ? { code: result.code } : {}),
+      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
     });
   }
   return json(status, result.value);
@@ -78,7 +81,9 @@ export async function handleGroups(
   url: URL,
 ): Promise<Response | null> {
   const groupAction =
-    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log)$/.exec(url.pathname);
+    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log|audience)$/.exec(
+      url.pathname,
+    );
   const groupOne = /^\/api\/groups\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const requestOne = /^\/api\/group-requests\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
   const postAction = /^\/api\/group-posts\/([A-Za-z0-9_-]{1,80})\/(mark|remove|appeal)$/.exec(
@@ -97,7 +102,8 @@ export async function handleGroups(
       action === "leave" ||
       action === "posts" ||
       action === "admins" ||
-      action === "stewards") &&
+      action === "stewards" ||
+      action === "audience") &&
       request.method === "POST") ||
     (requestOne !== null && request.method === "POST") ||
     (postAction !== null && request.method === "POST") ||
@@ -169,6 +175,16 @@ export async function handleGroups(
           action: stringField(body, "action"),
         }),
       );
+    }
+    if (groupAction?.[1] && action === "audience") {
+      const saved = await setGroupAudience(deps.db, {
+        userId: session.id,
+        groupId: groupAction[1],
+        audience: body.audience,
+        now,
+      });
+      if (!saved.ok) return json(saved.status, { error: saved.error });
+      return json(200, saved.value);
     }
     if (groupAction?.[1] && action === "stewards") {
       return fromResult(

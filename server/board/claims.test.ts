@@ -227,7 +227,7 @@ test("draft and unclaimed rooms stay off member reads and public pages", async (
       now,
     });
     assert.equal(post.ok, false);
-    if (!post.ok) assert.equal(post.error, "Choose a room.");
+    if (!post.ok) assert.equal(post.error, "That room is not here.");
 
     const postId = randomUUID();
     await db.query(

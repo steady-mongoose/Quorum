@@ -3,6 +3,7 @@ import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
 import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
+import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
@@ -33,6 +34,7 @@ type Err = {
   status: number;
   error: string;
   ban?: { until: number; strikes: number; reason: BanEntry["reason"] };
+  code?: string;
 };
 export type ChatResult<T> = Ok<T> | Err;
 
@@ -60,6 +62,7 @@ export async function requireRoomMember(
   userId: string,
   roomId: string,
   now: Date,
+  access: { moderate?: boolean; record?: boolean; detail?: string } = {},
 ): Promise<ChatResult<BoardActor>> {
   if (!ROOM_ID.test(roomId)) return fail(400, "That room is not here.");
   const actor = await actorRole(db, userId);
@@ -75,6 +78,24 @@ export async function requireRoomMember(
     [roomId, userId],
   );
   if (!members[0]) return fail(403, "You are not in this room.");
+  const gate = await guardRoomAudience(db, {
+    userId,
+    roomId,
+    now,
+    path: "chat",
+    moderate: access.moderate === true,
+    record: access.record === true,
+    detail: access.detail ?? "",
+    actor,
+  });
+  if (!gate.ok) {
+    return {
+      ok: false,
+      status: gate.status,
+      error: gate.error,
+      ...(gate.code ? { code: gate.code } : {}),
+    };
+  }
   return { ok: true, value: actor };
 }
 
@@ -128,7 +149,10 @@ export async function listChat(
 ): Promise<ChatResult<ChatPage>> {
   const unavailable = await chatAvailable(db);
   if (unavailable) return unavailable;
-  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
+  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now, {
+    moderate: true,
+    detail: "list",
+  });
   if (!gate.ok) return gate;
   const after = input.after ?? null;
   const before = input.before ?? null;
@@ -196,7 +220,9 @@ export async function sendChat(
 ): Promise<ChatResult<ChatMessage>> {
   const unavailable = await chatAvailable(db);
   if (unavailable) return unavailable;
-  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
+  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now, {
+    detail: "send",
+  });
   if (!gate.ok) return gate;
   const body = chatText(input.text);
   if (!body.ok) return fail(400, body.error);
@@ -235,7 +261,11 @@ export async function removeChatMessage(
 ): Promise<ChatResult<{ removal: RemovalEntry; ban: BanEntry | null }>> {
   const unavailable = await chatAvailable(db);
   if (unavailable) return unavailable;
-  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now);
+  const gate = await requireRoomMember(db, input.userId, input.roomId, input.now, {
+    moderate: true,
+    record: true,
+    detail: "remove",
+  });
   if (!gate.ok) return gate;
   if (!stewardsRoom(gate.value, input.roomId)) {
     return fail(

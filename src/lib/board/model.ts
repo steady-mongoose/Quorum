@@ -82,7 +82,17 @@ export type Room = {
   county?: string;
   category?: string;
   sourceUrl?: string;
+  /** Who the room is for. Missing means everyone. */
+  audience?: "all" | "men" | "women";
+  /** The signed-in member may change the audience. */
+  host?: boolean;
 };
+
+export function audienceLabel(audience: string | null | undefined): "Men only" | "Women only" | "" {
+  if (audience === "men") return "Men only";
+  if (audience === "women") return "Women only";
+  return "";
+}
 
 export type Post = {
   id: string;

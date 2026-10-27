@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { AccountDoor } from "@/components/board/account-door";
 import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
@@ -36,12 +36,19 @@ const WEEK = [
 export function Door() {
   const server = useServerSession();
   const redeemInvite = useBoard((state) => state.redeemInvite);
-  const loadSample = useBoard((state) => state.loadSample);
   const rooms = useBoard((state) => state.rooms);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [outcome, setOutcome] = useState<string | null>(null);
   const live = server.mode === "live";
+  const apiDown = server.configured && server.mode === "demo";
+  const [checking, setChecking] = useState(false);
+  const demoNote = server.configured ? null : (
+    <p className="door-demo text-sm text-muted">
+      The server did not answer. This browser is in demo mode. Nothing you type here is saved on
+      the server.
+    </p>
+  );
 
   useEffect(() => {
     const fromUrl = codeFromSearch(window.location.search);
@@ -49,18 +56,31 @@ export function Door() {
   }, []);
 
   return (
-    <div className="grid gap-10 py-6 lg:min-h-[70vh] lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-center lg:gap-16 lg:py-10">
-      <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
-        {live ? <AccountDoor /> : null}
-        {server.mode === "demo" && server.configured ? (
-          <p className="text-sm text-muted">
-            The server did not answer. This browser is in demo mode. Nothing you type here is saved
-            on the server.
-          </p>
+    <div className="door-columns grid gap-10 py-6 lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-start lg:gap-16 lg:py-10">
+      <div className="door-side flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
+        {apiDown ? (
+          <section id="sign-in" className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-6">
+            <h2 className="text-2xl text-fg">Sign in</h2>
+            <p className="text-sm text-muted">Sign-in is unavailable right now.</p>
+            <button
+              type="button"
+              className={cn(btnSignal, "self-start")}
+              disabled={checking}
+              onClick={() => {
+                setChecking(true);
+                void server.recheck().finally(() => setChecking(false));
+              }}
+            >
+              Try again
+            </button>
+          </section>
         ) : null}
-        {live ? null : (
+        {live ? (
+          <AccountDoor />
+        ) : (
           <form
-            className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-5 sm:p-6"
+            id="open-the-door"
+            className="card flex flex-col gap-3 rounded-lg border border-signal bg-surface p-6"
             onSubmit={(event) => {
               event.preventDefault();
               const result = redeemInvite(code, name);
@@ -72,6 +92,7 @@ export function Door() {
               else setOutcome(`You're on the list for ${result.name}, ${formatDate(result.next)}.`);
             }}
           >
+            {demoNote}
             <h2 className="text-2xl text-fg">Open the door</h2>
             <label className="flex flex-col gap-2 text-sm text-muted">
               Your name, as people know you
@@ -100,31 +121,35 @@ export function Door() {
           </form>
         )}
 
-        <section className="card flex flex-col gap-2 p-5">
-          <p className="text-sm text-muted">
-            Just looking? The sample week is six invented members and a week of cards. You become
-            Josh.
-          </p>
-          <button type="button" className={cn(btnGhost, "self-start")} onClick={loadSample}>
-            Load the sample week
-          </button>
-        </section>
       </div>
 
-      <div className="flex max-w-3xl flex-col gap-8">
-        <section className="card flex flex-col gap-3 p-6">
+      <div className="door-main flex max-w-3xl flex-col gap-8">
+        <section className="door-hero card flex flex-col gap-3 p-6">
           <Kicker>Invite only</Kicker>
           <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
             Someone brought you here for one thing.
           </h1>
           <p className="max-w-prose text-base text-muted lg:text-lg">
-            {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a book
-            table, a meal after church. Enter your name and the code, and you are in and on the list
-            for that meeting. There is no sign-up form and nothing to browse until then.
+            {live ? (
+              <>
+                {APP_NAME} is invite only. Have an account? Sign in. New here? A host gives you a
+                code for one meeting: a shop night, a book table, a meal after church. Membership is
+                by invitation only.
+              </>
+            ) : apiDown ? (
+              <>Invite codes can't be checked right now. Try again in a moment.</>
+            ) : (
+              <>
+                {APP_NAME} is invite only. A host gives you a code for one meeting: a shop night, a
+                book table, a meal after church. Enter your name and the code, and you are in and
+                on the list for that meeting. There is no sign-up form and nothing to browse until
+                then.
+              </>
+            )}
           </p>
         </section>
 
-        <section className="card flex flex-col gap-3 p-6">
+        <section className="door-week card flex flex-col gap-3 p-6">
           <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
             {WEEK.map((row) => (
@@ -136,7 +161,7 @@ export function Door() {
           </dl>
         </section>
 
-        <section className="card flex flex-col gap-2 p-6">
+        <section className="door-rooms card flex flex-col gap-2 p-6">
           <h2 className="text-base font-semibold text-fg">The rooms</h2>
           <p className="max-w-prose text-sm text-muted">
             {rooms

@@ -53,12 +53,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   [data-section="week"] .margin-art{--side:var(--art-week-side)}
   [data-section="rooms"] .margin-art{--side:var(--art-rooms-side)}
   [data-section="messages"] .margin-art{--side:var(--art-messages-side)}
-  body::after{content:"";position:fixed;inset:12px;pointer-events:none;z-index:5;border:1px solid color-mix(in srgb,var(--gold) 55%,transparent);outline:1px solid color-mix(in srgb,var(--gold) 25%,transparent);outline-offset:-7px}
+  /* The frame wraps the full page height, not one viewport, so long pages keep it to the bottom. */
+  body{position:relative;min-height:100dvh}
+  body::after{content:"";position:absolute;inset:12px;pointer-events:none;z-index:5;border:1px solid color-mix(in srgb,var(--gold) 55%,transparent);outline:1px solid color-mix(in srgb,var(--gold) 25%,transparent);outline-offset:-7px}
 }
 @media (max-width:1023px){.margin-art{display:none}}
 /* Text only on solid cards */
-.card,.plate{background:var(--card);border:1px solid var(--line);border-radius:6px;position:relative;z-index:1}
-.plate{display:inline-block;padding:14px 22px;margin-top:calc(var(--band-h) * -0.42)}
+.card,.plate{background:var(--card);border:1px solid var(--line);border-radius:6px}
+.card{scroll-margin-bottom:calc(var(--tabbar-h,64px) + env(safe-area-inset-bottom) + 9rem)}
+.card,.plate:not(dialog){position:relative;z-index:1}
+.plate{padding:14px 22px}
+/* The title plate overlaps the band. Every other plate, including a sibling, stays put. */
+.plate--hero{margin-top:calc(var(--band-h) * -0.42)}
 /* Evening warmth: optional */
 [data-evening]{--bg:#17110b}
 @media (prefers-reduced-motion:reduce){[data-section]{background-attachment:scroll}*{animation:none!important;transition-duration:0s!important}}

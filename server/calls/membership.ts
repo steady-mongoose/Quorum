@@ -1,6 +1,7 @@
 import type { Db } from "../db.ts";
 import { actorRole } from "../board/access.ts";
 import { concealedListing, readRoomListing } from "../board/room-visibility.ts";
+import { guardRoomAudience } from "../board/audience.ts";
 import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 
@@ -9,7 +10,9 @@ export type MemberCheck =
   | { kind: "outsider" }
   | { kind: "bad-room" }
   | { kind: "unavailable" }
-  | { kind: "banned"; ban: OpenBan };
+  | { kind: "banned"; ban: OpenBan }
+  | { kind: "audience"; error: string; code: string }
+  | { kind: "hidden" };
 
 /**
  * Read-only. Membership is the row an invite or a post already wrote.
@@ -41,7 +44,18 @@ export async function roomCallMember(
       `select user_id from room_member where room_id = $1 and user_id = $2`,
       [roomId, userId],
     );
-    return rows[0] ? { kind: "member" } : { kind: "outsider" };
+    if (!rows[0]) return { kind: "outsider" };
+    const gate = await guardRoomAudience(db, {
+      userId,
+      roomId,
+      now,
+      path: "calls",
+    });
+    if (!gate.ok) {
+      if (!gate.code) return { kind: "hidden" };
+      return { kind: "audience", error: gate.error, code: gate.code };
+    }
+    return { kind: "member" };
   } catch {
     return { kind: "unavailable" };
   }

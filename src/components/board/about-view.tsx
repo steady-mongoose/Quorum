@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -19,7 +20,6 @@ import {
   boardExportDocument,
   canClearBoard,
   clearPhraseMatches,
-  clearPhraseRequired,
   localBoardOwner,
   useBoard,
 } from "@/lib/board/store";
@@ -97,8 +97,6 @@ export function AboutView() {
   const admin = useBoard((state) => state.admin);
   const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
-  const sample = useBoard((state) => state.sample);
-  const loadSample = useBoard((state) => state.loadSample);
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -112,12 +110,10 @@ export function AboutView() {
   const markLog = useBoard((state) => state.markLog);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearPhrase, setClearPhrase] = useState("");
-  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) });
-  const phraseRequired = clearPhraseRequired(sample);
+  const mayClear = canClearBoard({ admin, owner: localBoardOwner({ founded }) });
   const boardSnapshot = () =>
     boardExportDocument({
       me,
-      sample,
       profile,
       rooms: rooms.map((room) => ({ id: room.id, name: room.name })),
       posts,
@@ -153,7 +149,12 @@ export function AboutView() {
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">What we stand for</h2>
-        <p className="mt-2 text-sm text-muted">[OWNER TO WRITE]</p>
+        <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
+          Avouch exists so you can see what is happening in your community, meet face to face, then
+          log off and go do the work. It is not a replacement for other social media, but a tool to
+          help you get away from the machine. We want to rebuild what our founders assumed and
+          modernity dissolved: the family, the parish, the town, and honest work.
+        </p>
       </section>
 
       <section className="flex flex-col gap-4">
@@ -173,7 +174,9 @@ export function AboutView() {
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {rooms.map((room) => (
             <div key={room.id} className="contents">
-              <dt className="font-semibold text-fg">{room.name}</dt>
+              <dt className="font-semibold text-fg">
+                {room.name} <RoomAudienceMark audience={room.audience} />
+              </dt>
               <dd className="max-w-prose text-muted">{room.what}</dd>
             </div>
           ))}
@@ -202,6 +205,12 @@ export function AboutView() {
       </section>
 
       {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+
+      {remote && admin ? (
+        <section className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5">
+          <MemberGenderForm />
+        </section>
+      ) : null}
 
       {remote && admin ? (
         <AdminTools
@@ -233,15 +242,11 @@ export function AboutView() {
         </div>
         {remote ? (
           <p className="mt-6 max-w-prose text-sm text-muted">
-            Posts, marks, removals, and bans are on the server. The sample week stays in this
-            browser, and only when the server is not configured.
+            Posts, marks, removals, and bans are on the server.
           </p>
         ) : (
           <>
             <div className="mt-6 flex flex-wrap gap-2">
-              <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={loadSample}>
-                Load the sample week
-              </button>
               {mayClear ? (
                 <button
                   type="button"
@@ -257,13 +262,13 @@ export function AboutView() {
             </div>
             <ConfirmDialog
               open={confirmClear}
-              title={sample ? "Clear the sample week?" : "Clear the board?"}
+              title="Clear the board?"
               description="Everything here will be removed."
               confirmLabel="Clear it"
               cancelLabel="Keep it"
-              confirmDisabled={phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)}
+              confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
               onConfirm={() => {
-                if (phraseRequired && !clearPhraseMatches(clearPhrase, APP_NAME)) return;
+                if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
                 setConfirmClear(false);
                 setClearPhrase("");
                 clearLocalBoard();
@@ -273,17 +278,15 @@ export function AboutView() {
                 setClearPhrase("");
               }}
             >
-              {phraseRequired ? (
-                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
-                  Type {APP_NAME} or CLEAR
-                  <input
-                    className={cn(fieldClass, "min-h-[44px]")}
-                    value={clearPhrase}
-                    autoComplete="off"
-                    onChange={(event) => setClearPhrase(event.target.value)}
-                  />
-                </label>
-              ) : null}
+              <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                Type {APP_NAME} or CLEAR
+                <input
+                  className={cn(fieldClass, "min-h-[44px]")}
+                  value={clearPhrase}
+                  autoComplete="off"
+                  onChange={(event) => setClearPhrase(event.target.value)}
+                />
+              </label>
               <p className="mt-3 max-w-prose text-sm text-muted">
                 The file includes the posts, messages, invites, bans, marks, removals, appeals, and
                 reports saved in this browser.
@@ -310,10 +313,6 @@ export function AboutView() {
                 </button>
               </div>
             ) : null}
-            <p className="mt-2 max-w-prose text-sm text-muted">
-              The sample is six invented people and a week of meetings, for trying the app. It
-              replaces whatever is here, and you become "Josh."
-            </p>
           </>
         )}
       </section>
@@ -768,6 +767,7 @@ function AdminTools({
     id: string;
     name: string;
     what: string;
+    audience?: "all" | "men" | "women";
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -775,6 +775,7 @@ function AdminTools({
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
+  const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -817,18 +818,27 @@ function AdminTools({
             onChange={(event) => setWhat(event.target.value)}
           />
         </label>
+        <div className="sm:col-span-2">
+          <AudienceChoice
+            legend="Who can be in this room"
+            name="create-room-audience"
+            value={audience}
+            onChange={setAudience}
+          />
+        </div>
       </div>
       <button
         type="button"
         className={btnSignal}
         onClick={() => {
           setRoomError("");
-          void createRoom({ id, name, what }).then((result) => {
+          void createRoom({ id, name, what, audience }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
               setName("");
               setWhat("");
+              setAudience("all");
             }
           });
         }}

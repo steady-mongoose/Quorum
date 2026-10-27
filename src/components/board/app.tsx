@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { UNDO_BAR_MS, UNDO_TTL_MS, canClearBoard, localBoardOwner, useBoard } from "@/lib/board/store";
+import { userFacingError } from "@/lib/board/errors";
+import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
@@ -30,6 +31,7 @@ import { SessionLine } from "@/components/board/line";
 import { WeekView } from "@/components/board/week-view";
 import { QuorumPanel } from "@/components/quorum/app";
 import { DesktopMore } from "@/components/board/desktop-more";
+import { AppealMark } from "@/components/board/emblem";
 import { PrimaryHaptic } from "@/components/board/haptics";
 import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
@@ -77,9 +79,6 @@ function BoardShell() {
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
-  const sample = useBoard((state) => state.sample);
-  const admin = useBoard((state) => state.admin);
-  const founded = useBoard((state) => state.founded);
   const localEntry = useBoard((state) => state.localEntry);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -92,13 +91,15 @@ function BoardShell() {
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
-  const entered = server.mode === "live" ? Boolean(server.user) || sample || localEntry : member;
+  const entered = server.mode === "live" ? Boolean(server.user) || localEntry : member;
+  const apiDown = server.configured && server.mode === "demo";
+  const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
   const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
     section: shown,
-    signingIn: server.mode === "live" && !entered,
+    signingIn,
   });
   const hero = heroLabel(art);
   const margin = showsHero(art);
@@ -136,11 +137,9 @@ function BoardShell() {
     if (server.mode !== "live" || !server.user) return;
     const name = server.user.name.trim();
     if (!name) return;
-    const state = useBoard.getState();
-    if (state.sample) state.clearBoard();
     const next = useBoard.getState();
-    if (next.me !== name || !next.member || next.sample) {
-      useBoard.setState({ member: true, me: name, sample: false });
+    if (next.me !== name || !next.member) {
+      useBoard.setState({ member: true, me: name });
     }
     let cancel = false;
     setBoardLoading(true);
@@ -157,6 +156,16 @@ function BoardShell() {
   }, [deskOn, section, setSection]);
 
   const openSection = (id: Section) => (id === "profile" ? view(me.trim()) : setSection(id));
+
+  const focusDoorField = (event: MouseEvent<HTMLAnchorElement>) => {
+    const id = event.currentTarget.getAttribute("href")?.slice(1);
+    if (!id) return;
+    window.setTimeout(() => {
+      const root = document.getElementById(id);
+      const field = root?.querySelector<HTMLElement>("input, textarea, select, button");
+      field?.focus();
+    }, 0);
+  };
 
   const page = busy ? (
     <>
@@ -188,70 +197,93 @@ function BoardShell() {
       <PrimaryHaptic />
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
-      <header className="top sticky top-0 z-20 border-b border-line bg-bg">
-        <div className="mx-auto flex w-full max-w-[72rem] flex-col gap-3 px-[clamp(1rem,4vw,2.5rem)] py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
-          <div className="flex shrink-0 items-center gap-3">
-            <img
-              src="/flags/appeal-to-heaven-gold.svg"
-              alt="An Appeal to Heaven flag"
-              width={259}
-              height={381}
-              className="h-[var(--flag-h)] w-auto shrink-0"
-            />
-            <div>
-              <p className="font-display text-3xl leading-none whitespace-nowrap text-fg lg:text-4xl">{APP_NAME}</p>
-              <p className="mt-1 text-sm leading-none text-muted max-xl:hidden xl:whitespace-nowrap">
+      <header className="top mast-bar">
+        <div className="mast" data-entered={entered ? "true" : undefined}>
+          <div className="mast-brand">
+            <AppealMark />
+            <div className="mast-titles">
+              <p className="mast-name">{APP_NAME}</p>
+              <p
+                className={cn(
+                  "mast-tagline",
+                  entered && "max-xl:hidden xl:whitespace-nowrap",
+                )}
+              >
                 {TAGLINE}
               </p>
             </div>
           </div>
-          {entered ? (
-            <div className="topnav shrink-0">
-              <IconNav
-                className="flex-nowrap gap-1"
-                itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
-                iconClassName="max-[1099px]:hidden"
-                items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
-                current={shown}
-                onSelect={openSection}
-                label="Sections"
-              >
-                <DesktopMore
-                  current={shown}
-                  deskOn={deskOn}
-                  onSelect={openSection}
+          <div className="mast-actions">
+            {entered ? (
+              <div className="topnav">
+                <IconNav
+                  className="flex-nowrap gap-1"
                   itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
                   iconClassName="max-[1099px]:hidden"
-                />
-              </IconNav>
-            </div>
-          ) : null}
-          {server.user ? (
-            <button
-              type="button"
-              className="inline-flex min-h-[44px] items-center self-start text-sm text-signal underline"
-              onClick={() => {
-                const leave = () => {
-                  setConfirmSignOut(false);
-                  void server.signOut().finally(() => {
-                    useBoard.getState().disconnectRemote();
-                  });
-                };
-                if (signOutClearsReadHistory(browserVaultStore().read())) {
-                  setConfirmSignOut(true);
-                  return;
-                }
-                leave();
-              }}
-            >
-              Sign out
-            </button>
-          ) : null}
+                  items={desktopNav(deskOn).map((item) => ({ ...item, icon: ICONS[item.id] }))}
+                  current={shown}
+                  onSelect={openSection}
+                  label="Sections"
+                >
+                  <DesktopMore
+                    current={shown}
+                    deskOn={deskOn}
+                    onSelect={openSection}
+                    itemClassName="max-[1099px]:gap-1 max-[1099px]:px-2"
+                    iconClassName="max-[1099px]:hidden"
+                  />
+                </IconNav>
+              </div>
+            ) : (
+              <a
+                className="mast-door"
+                href={signingIn ? "#sign-in" : "#open-the-door"}
+                onClick={focusDoorField}
+              >
+                {signingIn ? "Sign in" : "Open the door"}
+              </a>
+            )}
+            {server.user ? (
+              <button
+                type="button"
+                className="mast-door"
+                onClick={() => {
+                  const leave = () => {
+                    setConfirmSignOut(false);
+                    void server.signOut().finally(() => {
+                      useBoard.getState().disconnectRemote();
+                    });
+                  };
+                  if (signOutClearsReadHistory(browserVaultStore().read())) {
+                    setConfirmSignOut(true);
+                    return;
+                  }
+                  leave();
+                }}
+              >
+                Sign out
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
-      {boardError ? (
-        <div className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
-          <p>{boardError}</p>
+      {boardError && shown !== "find" ? (
+        <div
+          role="alert"
+          className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+            </p>
+            <button
+              type="button"
+              className={cn(btnQuiet, "min-h-[44px]")}
+              onClick={() => useBoard.setState({ boardError: "", failedRemovalNames: [] })}
+            >
+              Dismiss
+            </button>
+          </div>
           {boardError === "This account is barred from the board." && ownAppeals.length > 0 ? (
             <ul className="mt-1 text-muted">
               {ownAppeals.map((row) => (
@@ -263,26 +295,6 @@ function BoardShell() {
             </ul>
           ) : null}
         </div>
-      ) : null}
-      {entered && sample ? (
-        <p className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-muted">
-          <span className="font-semibold text-signal">Sample week.</span> Everyone here (Josh, Tom,
-          Dale, Maria, Luis, Ruth, Pete) and everything they wrote is invented, to show what the app
-          looks like in use.
-          {canClearBoard({ admin, owner: localBoardOwner({ founded, sample }) }) ? (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="inline-flex min-h-[44px] items-center text-signal underline"
-                onClick={() => setSection("about")}
-              >
-                Clear the sample week…
-              </button>{" "}
-              when you are ready to use it for real.
-            </>
-          ) : null}
-        </p>
       ) : null}
       {entered && undoClear && undoBar ? (
         <div className="border-b border-line bg-surface" role="status">

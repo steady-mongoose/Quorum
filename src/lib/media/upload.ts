@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { getDmMediaCrypto } from "./e2e.ts";
 import type { MediaKind } from "./limits.ts";
 import { stripImageMetadata } from "./strip.ts";
@@ -25,7 +26,7 @@ function errorMessage(body: unknown, fallback: string): string {
     typeof body.error === "string" &&
     body.error
   ) {
-    return body.error;
+    return userFacingError(body.error, fallback);
   }
   return fallback;
 }

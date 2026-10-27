@@ -3,6 +3,7 @@ import { ClaimsPanel } from "@/components/board/claims-queue";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
+import { RoomAudienceMark } from "@/components/board/audience";
 
 /**
  * Home is the server's list. Joined rooms, then the ZIP town, then the
@@ -221,6 +222,7 @@ function HomeSectionBlock({
               key={room.id}
               roomId={room.id}
               name={room.name}
+              audience={room.audience}
               joined={section.tier === "joined"}
               onOpen={onOpen}
             />
@@ -232,11 +234,13 @@ function HomeSectionBlock({
 function RoomJoinRow({
   roomId,
   name,
+  audience,
   joined,
   onOpen,
 }: {
   roomId: string;
   name: string;
+  audience?: "men" | "women";
   joined: boolean;
   onOpen: (roomId: string) => void;
 }) {
@@ -252,7 +256,7 @@ function RoomJoinRow({
           className="inline-flex min-h-[44px] items-center text-left text-base text-fg"
           onClick={() => onOpen(roomId)}
         >
-          {name}
+          {name} <RoomAudienceMark audience={audience} />
         </button>
         <button
           type="button"

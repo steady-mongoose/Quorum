@@ -2,6 +2,7 @@
 // A score, a like, or a reshare on the wire is dropped and never used to sort.
 
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { OBJECT_ID, ROOM_ID } from "../media/limits.ts";
 
 export type GroupSummary = {
@@ -10,6 +11,7 @@ export type GroupSummary = {
   about: string;
   joined: boolean;
   admin: boolean;
+  audience?: "men" | "women";
 };
 
 export type GroupPostRow = {
@@ -106,7 +108,14 @@ function summary(value: unknown): GroupSummary | null {
   const about = text(row.about, 600);
   if (!id || !ROOM_ID.test(id) || name === null || !name.trim() || about === null) return null;
   if (typeof row.joined !== "boolean" || typeof row.admin !== "boolean") return null;
-  return { id, name, about, joined: row.joined, admin: row.admin };
+  return {
+    id,
+    name,
+    about,
+    joined: row.joined,
+    admin: row.admin,
+    ...(row.audience === "men" || row.audience === "women" ? { audience: row.audience } : {}),
+  };
 }
 
 /** Keeps server order. Extra rank fields are not copied. */
@@ -261,7 +270,7 @@ function errorText(json: unknown, fallback: string): string {
   if (!error || error === "banned") {
     return error === "banned" ? "You are barred from that group." : fallback;
   }
-  return error;
+  return userFacingError(error, fallback);
 }
 
 async function call(

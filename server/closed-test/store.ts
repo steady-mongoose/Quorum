@@ -113,6 +113,17 @@ export async function mintInvite(
   if (!expiry.ok) return fail(400, expiry.error);
   const note = typeof input.note === "string" ? input.note.trim().slice(0, 200) : "";
   const roomId = typeof input.roomId === "string" ? input.roomId.trim().slice(0, 80) : "";
+  if (roomId) {
+    const { guardRoomAudience } = await import("../board/audience.ts");
+    const gate = await guardRoomAudience(db, {
+      userId: input.userId,
+      roomId,
+      now,
+      path: "invite",
+      detail: "mint",
+    });
+    if (!gate.ok) return fail(gate.status, gate.error, gate.code);
+  }
   const code = generateInviteCode();
   const id = randomUUID();
   await db.query(
@@ -197,12 +208,16 @@ export async function redeemInvite(
         [randomUUID(), account.id, name, reserved.room_id, invitedByName, MEMBER_NOTE],
       );
       if (reserved.room_id) {
-        await tx.query(
-          `insert into room_member (room_id, user_id)
-           select id, $2 from room where id = $1
-           on conflict do nothing`,
-          [reserved.room_id, account.id],
-        );
+        const { roomAudience } = await import("../board/audience.ts");
+        const audience = await roomAudience(tx, reserved.room_id);
+        if (!audience || audience === "all") {
+          await tx.query(
+            `insert into room_member (room_id, user_id)
+             select id, $2 from room where id = $1
+             on conflict do nothing`,
+            [reserved.room_id, account.id],
+          );
+        }
       }
       return { inviteId: reserved.id, invitedBy: reserved.created_by, userId: account.id };
     });
