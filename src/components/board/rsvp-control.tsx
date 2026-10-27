@@ -3,7 +3,7 @@ import { Laurel } from "@/components/board/laurel";
 import { btn } from "@/components/quorum/bits";
 import { gatheringShare } from "@/lib/board/gathering";
 import { cn } from "@/lib/cn";
-import type { MeetingCard } from "@/lib/board/model";
+import { roomById, type MeetingCard } from "@/lib/board/model";
 
 /**
  * "I'll be there" becomes "You're going". The check is not part of the
@@ -48,7 +48,7 @@ export function RsvpControl({
 
 function ShareGathering({ card }: { card: MeetingCard }) {
   const [copied, setCopied] = useState(false);
-  const payload = gatheringShare(card);
+  const payload = gatheringShare({ ...card, town: roomById(card.room).town });
 
   const share = () => {
     const send = navigator.share?.bind(navigator);

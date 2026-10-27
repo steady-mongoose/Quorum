@@ -495,6 +495,11 @@ export async function listHome(
            from board_post p
            join room r on r.id = p.room_id
            where p.id in (${liveIds.map((_, index) => `$${index + 1}`).join(", ")})
+             and p.author_deleted_at is null
+             and not exists (
+               select 1 from "user" u
+               where u.id = p.author_user_id and u.deactivated_at is not null
+             )
              and ${visibleRoomClause(postsReady, String(liveIds.length + 1), "r.status")}`,
           postParams,
         );
@@ -673,10 +678,13 @@ export async function joinRoom(
     }
   }
   if (input.leave) {
-    await db.query(`delete from room_join where user_id = $1 and room_id = $2`, [
-      input.userId,
-      input.roomId,
-    ]);
+    // Leaving ends chat access: drop the join and the room_member row together.
+    // Past messages stay; they are not tied to room_member.
+    await db.query(
+      `with gone as (delete from room_join where user_id = $1 and room_id = $2)
+       delete from room_member where user_id = $1 and room_id = $2`,
+      [input.userId, input.roomId],
+    );
     return { ok: true, value: { roomId: input.roomId, joined: false } };
   }
   await db.query(
