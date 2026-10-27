@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   ADMIN_NOTE,
   FIRST_STEWARD_NOTE,
@@ -14,6 +15,9 @@ import {
   roomHasSteward,
   soleStewardRooms,
   withoutSteward,
+  isReplacementError,
+  replacementBarredError,
+  replacementNotMemberError,
   type LogRow,
 } from "./access-rules.ts";
 
@@ -227,4 +231,31 @@ test("the only steward of a room is found, and a second steward clears it", () =
   const after = withoutSteward(log, "tom", "shop", 9);
   assert.equal(roomHasSteward(after, "shop"), false);
   assert.equal(roomHasSteward(after, "choir"), true);
+});
+
+test("steward-replacement refusals use the exact copy and are recognised for focus", () => {
+  assert.equal(
+    replacementNotMemberError("Sam"),
+    "Sam isn't a member of this room. Name a current member as the new steward.",
+  );
+  assert.equal(
+    replacementBarredError("Sam"),
+    "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+  );
+  assert.equal(isReplacementError(replacementNotMemberError("Ann Lee")), true);
+  assert.equal(isReplacementError(replacementBarredError("Ann Lee")), true);
+  assert.equal(isReplacementError("That role was not changed."), false);
+});
+
+test("a steward-replacement error focuses and marks the new steward field, as the door does", () => {
+  const about = readFileSync(
+    new URL("../../components/board/about-view.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(about, /isReplacementError\(message\)/);
+  assert.match(about, /replacementRef\.current\?\.focus\(\)/);
+  assert.match(about, /stewardRef=\{replacementRef\}/);
+  assert.match(about, /aria-invalid=\{stewardInvalid \? true : undefined\}/);
+  assert.match(about, /aria-describedby=\{stewardInvalid \? stewardErrorId : undefined\}/);
+  assert.match(about, /stewardLabel="New steward email, if needed"/);
 });

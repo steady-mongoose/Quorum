@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { isReplacementError } from "@/lib/board/access-rules";
 import { InviteTracker } from "./invite-tracker";
 import { isMyRemoval } from "@/lib/board/removal-owner";
 
@@ -56,7 +57,7 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. Only admins see the list. Press "I\'ll be there" on the ones you will attend.',
+    text: "The front page is the next seven days: which meetings are on and where. Who's coming stays private. Only admins see the list. Press \"I'll be there\" on the ones you will attend.",
   },
   {
     title: "After a meeting",
@@ -95,7 +96,6 @@ const HOW = [
     text: "Home lists the rooms you joined, then your ZIP town, then your congregation, then farther out. Inside a room, posts stay newest first. A council approval adds the label Council-approved. It does not rank the post.",
   },
 ];
-
 
 export function AboutView() {
   const me = useBoard((state) => state.me);
@@ -667,12 +667,18 @@ function StewardFields({
   onSteward,
   onInviter,
   stewardLabel = "Steward email",
+  stewardRef,
+  stewardInvalid = false,
+  stewardErrorId,
 }: {
   stewardEmail: string;
   inviterEmail: string;
   onSteward: (value: string) => void;
   onInviter: (value: string) => void;
   stewardLabel?: string;
+  stewardRef?: Ref<HTMLInputElement>;
+  stewardInvalid?: boolean;
+  stewardErrorId?: string;
 }) {
   return (
     <>
@@ -683,6 +689,9 @@ function StewardFields({
           type="email"
           value={stewardEmail}
           onChange={(event) => onSteward(event.target.value)}
+          ref={stewardRef}
+          aria-invalid={stewardInvalid ? true : undefined}
+          aria-describedby={stewardInvalid ? stewardErrorId : undefined}
         />
       </label>
       <label className="flex flex-col gap-2 text-sm text-muted">
@@ -768,7 +777,9 @@ function RoleForm({
   };
   return (
     <details className="rounded-md border border-line p-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
+        {title}
+      </summary>
       <form
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
@@ -852,6 +863,8 @@ function useRoleFields(): RoleFields {
   };
 }
 
+const REPLACEMENT_ERROR_ID = "revoke-replacement-error";
+
 function RevokeRole({
   rooms,
   changeAccess,
@@ -868,11 +881,14 @@ function RevokeRole({
   const [notice, setNotice] = useState("");
   const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "revoke">(null);
+  const [replacementInvalid, setReplacementInvalid] = useState(false);
+  const replacementRef = useRef<HTMLInputElement>(null);
   const room = roomTitle(rooms, roomId);
   const who = email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
+    setReplacementInvalid(false);
     void (async () => {
       if (mfaCode.trim()) {
         const stepped = await stepUpMfa("role-grant", mfaCode.trim());
@@ -881,9 +897,22 @@ function RevokeRole({
           return;
         }
       }
-      const result = await changeAccess({ action: "revoke", email, role, roomId, replacementEmail, inviterEmail });
+      const result = await changeAccess({
+        action: "revoke",
+        email,
+        role,
+        roomId,
+        replacementEmail,
+        inviterEmail,
+      });
       if (!result.ok) {
-        setError(result.error ?? "That role was not changed.");
+        const message = result.error ?? "That role was not changed.";
+        setError(message);
+        if (isReplacementError(message)) {
+          // Point at the field to fix, the same way the door does for a bad code.
+          setReplacementInvalid(true);
+          replacementRef.current?.focus();
+        }
         return;
       }
       setNotice("Role revoked.");
@@ -922,9 +951,15 @@ function RevokeRole({
         <StewardFields
           stewardEmail={replacementEmail}
           inviterEmail={inviterEmail}
-          onSteward={setReplacementEmail}
+          onSteward={(value) => {
+            setReplacementEmail(value);
+            setReplacementInvalid(false);
+          }}
           onInviter={setInviterEmail}
           stewardLabel="New steward email, if needed"
+          stewardRef={replacementRef}
+          stewardInvalid={replacementInvalid}
+          stewardErrorId={REPLACEMENT_ERROR_ID}
         />
         <label className="flex flex-col gap-2 text-sm text-muted">
           Authenticator code
@@ -940,7 +975,11 @@ function RevokeRole({
           Revoke
         </button>
         {error ? (
-          <p role="alert" className="text-sm text-danger">
+          <p
+            id={replacementInvalid ? REPLACEMENT_ERROR_ID : undefined}
+            role="alert"
+            className="text-sm text-danger"
+          >
             {error}
           </p>
         ) : null}
@@ -1086,7 +1125,15 @@ function AdminTools({
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({ id, name, what, categoryIds, audience, stewardEmail, inviterEmail }).then((result) => {
+          void createRoom({
+            id,
+            name,
+            what,
+            categoryIds,
+            audience,
+            stewardEmail,
+            inviterEmail,
+          }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");

@@ -13,6 +13,8 @@ import {
   liveStewards,
   withoutSteward,
   LAST_STEWARD_ERROR,
+  replacementBarredError,
+  replacementNotMemberError,
   NO_STEWARD_ERROR,
   REVOKE_NOTE,
   type AccessRole,
@@ -427,16 +429,10 @@ export async function keepStewarded(
     [roomId, replacement.id],
   );
   if (!inRoom[0]) {
-    return fail(
-      409,
-      `${replacement.name} is not in this room right now. The new steward must be a current member of the room.`,
-    );
+    return fail(409, replacementNotMemberError(replacement.name));
   }
   if (!(await standingStewardCandidate(db, replacement.id, roomId, input.now))) {
-    return fail(
-      409,
-      `${replacement.name} is barred, from this room or from Avouch, so they can't be the new steward. Name someone else.`,
-    );
+    return fail(409, replacementBarredError(replacement.name));
   }
   const rows = input.selfLeaving
     ? log

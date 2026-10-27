@@ -289,3 +289,23 @@ export function withoutSteward(
     { id: `pending-${userId}-${roomId}`, userId, role: "steward", roomId, action: "revoke", at },
   ];
 }
+
+/** The new steward named in a revoke is not a current member of the room. */
+export function replacementNotMemberError(name: string): string {
+  return `${name} isn't a member of this room. Name a current member as the new steward.`;
+}
+
+/** The new steward named in a revoke is barred from the room or from Avouch. */
+export function replacementBarredError(name: string): string {
+  return `${name} is barred from this room or from Avouch, so they can't be the new steward. Name someone else.`;
+}
+
+/** True when a refusal is about the named new steward, so the form can point at that field. */
+export function isReplacementError(error: string): boolean {
+  return (
+    / isn't a member of this room\. Name a current member as the new steward\.$/.test(error) ||
+    / is barred from this room or from Avouch, so they can't be the new steward\. Name someone else\.$/.test(
+      error,
+    )
+  );
+}

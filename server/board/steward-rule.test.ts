@@ -159,7 +159,10 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     assert.equal(outsider.ok, false, "the new steward must be in the room");
     if (!outsider.ok) {
       assert.equal(outsider.status, 409);
-      assert.match(outsider.error, /not in this room/);
+      assert.equal(
+        outsider.error,
+        "Sam isn't a member of this room. Name a current member as the new steward.",
+      );
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
 
@@ -192,7 +195,10 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     assert.equal(leftSwap.ok, false, "someone who left the room cannot be named steward");
     if (!leftSwap.ok) {
       assert.equal(leftSwap.status, 409);
-      assert.match(leftSwap.error, /not in this room/);
+      assert.equal(
+        leftSwap.error,
+        "Tom isn't a member of this room. Name a current member as the new steward.",
+      );
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [sam.id]);
 
@@ -256,7 +262,10 @@ test("a barred replacement is refused with the reason", async () => {
     assert.equal(swap.ok, false);
     if (!swap.ok) {
       assert.equal(swap.status, 409);
-      assert.match(swap.error, /barred/);
+      assert.equal(
+        swap.error,
+        "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+      );
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
   } finally {
