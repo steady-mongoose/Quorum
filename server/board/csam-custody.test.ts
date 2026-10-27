@@ -238,3 +238,31 @@ test("0034 upgrades a database that ran the earlier draft without 'hold_released
     await close();
   }
 });
+
+test("0034 upgrades a database that ran the 1b28ef9 draft and keeps its release_requested rows", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const { PGlite } = await import("@electric-sql/pglite");
+  const { isSkipEmbedded } = await import("../../scripts/migration-plan.mjs");
+  const pg = new PGlite();
+  try {
+    await pg.waitReady;
+    const dir = new URL("../../migrations/", import.meta.url);
+    const names = (await readdir(dir)).filter((n) => n.endsWith(".sql") && n.slice(0, 4) <= "0024").sort();
+    for (const name of names) {
+      const sql = await readFile(new URL(name, dir), "utf8");
+      if (!isSkipEmbedded(sql)) await pg.exec(sql);
+    }
+    await pg.exec(await readFile(new URL("./fixtures/0034_csam_custody.1b28ef9.sql", import.meta.url), "utf8"));
+    const id = randomUUID();
+    await pg.query(`insert into csam_access_log (id, hold_id, action) values ($1, 'h', 'release_requested')`, [id]);
+    await pg.exec(await readFile(new URL("../../migrations/0034_csam_custody.sql", import.meta.url), "utf8"));
+    const kept = await pg.query<{ action: string }>(`select action from csam_access_log where id = $1`, [id]);
+    assert.deepEqual(kept.rows.map((r) => r.action), ["release_requested"]);
+    await pg.query(`insert into csam_access_log (id, hold_id, action) values ($1, 'h', 'hold_released')`, [randomUUID()]);
+    await assert.rejects(() =>
+      pg.query(`insert into csam_access_log (id, hold_id, action) values ($1, 'h', 'bogus')`, [randomUUID()]),
+    );
+  } finally {
+    await pg.close();
+  }
+});
