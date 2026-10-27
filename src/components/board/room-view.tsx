@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
@@ -58,6 +59,9 @@ import {
   type Post,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
+import { useRoomsRoute } from "@/components/board/rooms-route";
+import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -70,8 +74,12 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export function RoomView() {
   const room = useBoard((state) => state.room);
+  const browsing = useBoard((state) => state.browsing);
   const armedRoom = useSyncExternalStore(subscribeArmedRoom, getArmedRoom, () => null);
   const setRoom = useBoard((state) => state.setRoom);
+  const setSection = useBoard((state) => state.setSection);
+  const roomsRoute = useRoomsRoute();
+  const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
   const cards = useBoard((state) => state.cards);
   const removals = useBoard((state) => state.removals);
@@ -108,6 +116,9 @@ export function RoomView() {
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
   const [tools, setTools] = useState(false);
+  const focusSlug = roomsRoute?.slug ?? null;
+
+  if (browsing) return <RoomBrowse focusSlug={focusSlug} />;
 
   const shelfBlock = (
     <>
@@ -190,6 +201,18 @@ export function RoomView() {
         </h1>
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
+          onClick={() => {
+            setSection("rooms");
+            void navigate({ to: "/rooms" });
+          }}
+        >
+          All rooms
+        </button>
+        <RoomCategoryFields room={meta} />
         {meta.status === "draft" || meta.status === "unclaimed" ? (
           <p className="max-w-prose text-sm text-muted">
             {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Only stewards can
