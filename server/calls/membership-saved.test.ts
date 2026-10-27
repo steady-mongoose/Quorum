@@ -121,3 +121,73 @@ test("a revoked member who saved the room, or a revoked steward, cannot join or 
     await close();
   }
 });
+
+test("a revoked member who had posted cannot join or get TURN; a posted-only member still can", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const poster = await member(db, "Poster");
+    const plain = randomUUID();
+    await db.query(
+      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ($1, 'Plain', $2, true, $3, $3)`,
+      [plain, `plain-${plain.slice(0, 8)}@example.com`, now],
+    );
+    for (const id of [poster, plain]) {
+      await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [id]);
+    }
+    assert.equal((await roomCallMember(db, poster, "shop", now)).kind, "member");
+    assert.equal((await roomCallMember(db, plain, "shop", now)).kind, "member", "posted-only, no grant row");
+    const later = new Date(now.getTime() + 1000);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Poster', 'member', '', 'revoke', 'test', 'test', 'test', 'Revoked for the test.', $3)`,
+      [randomUUID(), poster, later],
+    );
+    assert.equal((await roomCallMember(db, poster, "shop", later)).kind, "outsider");
+    assert.equal((await roomCallMember(db, plain, "shop", later)).kind, "member");
+
+    let minted = 0;
+    const app = createApp({
+      db,
+      origins: ["http://localhost:8080"],
+      now: () => later,
+      createAccount: async () => ({ id: "unused" }),
+      signIn: async () => ({ ok: false, status: 500, message: "unused" }),
+      readSession: async (headers) => {
+        const id = headers.get("x-user-id");
+        return id ? { id, name: "Poster", email: "poster@example.com" } : null;
+      },
+      forwardAuth: async () => new Response(null, { status: 500 }),
+      calls: {
+        config: readCallsConfig({
+          CALLS: "on",
+          CALLS_STUN_URLS: "stun:turn.example.com:3478",
+          CALLS_TURN_URLS: "turn:turn.example.com:3478?transport=udp",
+          CALLS_TURN_SECRET: "d".repeat(40),
+        }),
+        store: createCallStore(),
+        now: () => later,
+        ice: Object.assign(
+          async () => {
+            minted += 1;
+            return [];
+          },
+          { release() {} },
+        ),
+      },
+    });
+    const res = await app(
+      new Request("http://127.0.0.1:8787/api/calls/rooms/shop/join", {
+        method: "POST",
+        headers: { "x-user-id": poster, "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    assert.equal(res.status, 403);
+    assert.equal(JSON.stringify(await res.json()).includes("credential"), false);
+    assert.equal(minted, 0, "no relay login for a revoked member");
+  } finally {
+    await close();
+  }
+});

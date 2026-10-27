@@ -19,7 +19,8 @@ export type MemberCheck =
  * a saved room (room_join), or a steward grant for this room. The UI
  * offers Join the call in a room the member can open, so the server has
  * to agree with it.
- * An open ban refuses the call even when that row is still there.
+ * An open ban (site-wide or for this room, including a suspension) or a
+ * revoked member grant refuses the call even when that row is still there.
  * This module does not write room or room_member. An admin who has not
  * stood in the room is not in the call.
  */
@@ -49,10 +50,21 @@ export async function roomCallMember(
        select 'saved' as via from room_join where room_id = $1 and user_id = $2`,
       [roomId, userId],
     );
+    // A revoked member grant (site-wide or for this room) refuses the call on
+    // every path: posted, invite, saved or steward. Someone who only posted and
+    // never had a grant has no access_log row and is not refused here.
+    const actor = await actorRole(db, userId);
+    if (!actor.member) {
+      const revoked = await db.query<{ action: string }>(
+        `select action from access_log
+         where user_id = $1 and role = 'member' and (room_id = '' or room_id = $2)
+         order by at desc limit 1`,
+        [userId, roomId],
+      );
+      if (revoked[0]?.action === "revoke") return { kind: "outsider" };
+    }
     if (!rows.some((row) => row.via === "stood")) {
-      // A saved room or a steward grant only counts for a live member:
-      // a revoked or barred member keeps neither call nor TURN access.
-      const actor = await actorRole(db, userId);
+      // A saved room or a steward grant only counts for a live member.
       if (!actor.member) return { kind: "outsider" };
       const saved = rows.some((row) => row.via === "saved");
       if (!saved && !actor.stewardRooms.includes(roomId)) return { kind: "outsider" };
