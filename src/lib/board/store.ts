@@ -571,6 +571,7 @@ export const useBoard = create<BoardState>()(
           remote: true,
           boardError: "",
           rooms,
+          // TODO(rsvp-server): the server board carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
           posts: board.posts,
           markLog: board.marks,
           removals: board.removals,

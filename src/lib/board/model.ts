@@ -264,6 +264,36 @@ export const RULE_LABEL: Record<HardRule, string> = {
   doxxing: "Doxxing",
   blasphemy: "Blasphemy (mocking God or Christ)",
 };
+/**
+ * Wording for the hard-removal confirmation. Every rule asks first, and
+ * Cancel holds focus, so one misclick cannot bar or ban anyone.
+ */
+/** Lowercases only the first letter, so God's name keeps its capital. */
+function lowerFirst(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+export function removalConfirm(
+  rule: HardRule,
+  target: "post" | "message",
+): { title: string; description: string; confirmLabel: string; cancelLabel: string } {
+  const thing = target === "post" ? "post" : "chat message";
+  if (rule === "csam") {
+    return {
+      title: `Remove this ${thing} as child sexual abuse material?`,
+      description:
+        "The account is banned from the whole site at once, and the file is held for the CyberTipline report without anyone opening it. This can't be undone.",
+      confirmLabel: "Remove and ban",
+      cancelLabel: "Cancel",
+    };
+  }
+  return {
+    title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
+    description: `The ${thing} comes down and the author can't post in this room for 30 days. A second removal closes the account. The author can appeal.`,
+    confirmLabel: "Remove",
+    cancelLabel: "Cancel",
+  };
+}
 /** One sentence a steward can apply the same way to every member. */
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat:
@@ -1118,4 +1148,19 @@ export function threadIdFor(a: string, b: string): string {
 
 export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
+}
+
+/**
+ * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
+ * admins see everything; anyone else sees only their own name. The lists live
+ * on this device today (the server never sends them), so this runs where the
+ * views assemble their board data.
+ */
+export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+  if (viewer.admin) return card;
+  return {
+    ...card,
+    going: (card.going ?? []).filter((name) => name === viewer.name),
+    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
+  };
 }
