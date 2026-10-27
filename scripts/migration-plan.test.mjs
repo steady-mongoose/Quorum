@@ -91,6 +91,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0022_stats.sql",
       "0023_mfa.sql",
       "0024_member_profile.sql",
+      "0030_account_removal.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
