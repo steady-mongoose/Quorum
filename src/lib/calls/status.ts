@@ -56,7 +56,7 @@ function iceServer(value: unknown): CallIceServer | null {
   if (
     !urls ||
     urls.length === 0 ||
-    urls.some((item) => typeof item !== "string" || !parseIceUrl(item))
+    urls.some((item) => typeof item !== "string" || !parseIceUrl(item, { allowCloudflare: true }))
   ) {
     return null;
   }

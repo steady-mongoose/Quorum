@@ -115,6 +115,8 @@ function iceFrom(payload: Record<string, unknown>): IceCandidate | null {
  */
 type RoomCallOptions = {
   roomId: string;
+  /** Defaults to `/api/calls/rooms/{roomId}`. DM calls pass `/api/calls/dm/{threadId}`. */
+  basePath?: string;
   selfId: string;
   cursor: number;
   iceServers: CallIceServer[];
@@ -135,8 +137,11 @@ export class RoomCallSession {
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
+  private readonly base: string;
+
   constructor(opts: RoomCallOptions) {
     this.opts = opts;
+    this.base = opts.basePath ?? `/api/calls/rooms/${opts.roomId}`;
     this.cursor = opts.cursor;
     this.iceServers = opts.iceServers;
   }
@@ -180,10 +185,7 @@ export class RoomCallSession {
   async pollOnce(): Promise<void> {
     if (this.closed) return;
     try {
-      const response = await this.request(
-        `/api/calls/rooms/${this.opts.roomId}?since=${this.cursor}`,
-        { method: "GET" },
-      );
+      const response = await this.request(`${this.base}?since=${this.cursor}`, { method: "GET" });
       if (this.closed) return;
       if (this.badRecording(response.body)) return;
       if (response.status === 409) {
@@ -191,7 +193,9 @@ export class RoomCallSession {
         return;
       }
       if (response.status === 401 || response.status === 403) {
-        this.fail("You have not stood in that room.");
+        this.fail(
+          this.opts.basePath ? "You can't join this call." : "You have not stood in that room.",
+        );
         return;
       }
       if (response.status >= 400) return;
@@ -215,7 +219,7 @@ export class RoomCallSession {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     for (const id of [...this.slots.keys()]) this.drop(id);
-    void this.request(`/api/calls/rooms/${this.opts.roomId}/leave`, {
+    void this.request(`${this.base}/leave`, {
       method: "POST",
       body: {},
     }).catch(() => undefined);
@@ -370,7 +374,7 @@ export class RoomCallSession {
     payload: unknown,
   ): Promise<void> {
     if (this.closed) return;
-    const response = await this.request(`/api/calls/rooms/${this.opts.roomId}/signal`, {
+    const response = await this.request(`${this.base}/signal`, {
       method: "POST",
       body: { to, kind, payload },
     });
@@ -379,14 +383,16 @@ export class RoomCallSession {
   }
 
   private async rejoin(): Promise<void> {
-    const response = await this.request(`/api/calls/rooms/${this.opts.roomId}/join`, {
+    const response = await this.request(`${this.base}/join`, {
       method: "POST",
       body: {},
     });
     if (this.badRecording(response.body)) return;
     if (response.status === 429) return;
     if (response.status === 401 || response.status === 403) {
-      this.fail("You have not stood in that room.");
+      this.fail(
+        this.opts.basePath ? "You can't join this call." : "You have not stood in that room.",
+      );
       return;
     }
     const parsed = parseCallJoin(response.body);

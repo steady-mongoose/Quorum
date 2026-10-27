@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { CallRings } from "@/components/board/call-rings";
 import {
   BookOpen,
   CalendarDays,
@@ -75,6 +76,7 @@ export function BoardApp() {
 function BoardShell() {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
+  const setRoom = useBoard((state) => state.setRoom);
   const deskOn = useBoard((state) => state.deskOn);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
@@ -195,6 +197,14 @@ function BoardShell() {
         Skip to content
       </a>
       <PrimaryHaptic />
+      {entered ? (
+        <CallRings
+          onGo={(roomId) => {
+            setSection("rooms");
+            setRoom(roomId as Parameters<typeof setRoom>[0]);
+          }}
+        />
+      ) : null}
       {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top mast-bar">
