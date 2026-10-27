@@ -80,16 +80,17 @@ test("the delete confirm dialog uses the required copy at 390, 768, and 1440", (
       assert.match(dialog.textContent ?? "", /It can't be recovered\./);
       assert.equal(dialog.textContent?.includes("undone"), false);
       const buttons = [...dialog.querySelectorAll("button")];
-      assert.equal(buttons[0]?.textContent, "Delete");
-      assert.equal(buttons[1]?.textContent, "Cancel");
-      assert.match(buttons[0]?.className ?? "", /min-h-\[44px\]/);
-      assert.match(buttons[0]?.className ?? "", /text-danger/);
+      // Cancel comes first (ConfirmDialog order), then the confirm button.
+      assert.equal(buttons[0]?.textContent, "Cancel");
+      assert.equal(buttons[1]?.textContent, "Delete");
       assert.match(buttons[1]?.className ?? "", /min-h-\[44px\]/);
-      act(() => buttons[1]?.click());
+      assert.match(buttons[1]?.className ?? "", /text-danger/);
+      assert.match(buttons[0]?.className ?? "", /min-h-\[44px\]/);
+      act(() => buttons[0]?.click());
       assert.equal(deleted, 0);
       act(() => open?.click());
       const again = document.querySelector("dialog");
-      act(() => again?.querySelector("button")?.click());
+      act(() => [...(again?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Delete")?.click());
       assert.equal(deleted, 1);
     } finally {
       view.cleanup();
@@ -112,7 +113,7 @@ test("a held post does not call delete from the confirm dialog", () => {
   try {
     act(() => view.host.querySelector("button")?.click());
     const dialog = document.querySelector("dialog");
-    act(() => dialog?.querySelector("button")?.click());
+    act(() => [...(dialog?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Delete")?.click());
     assert.equal(deleted, 0);
     assert.match(view.host.textContent ?? "", /This post is held and cannot be deleted\./);
   } finally {
