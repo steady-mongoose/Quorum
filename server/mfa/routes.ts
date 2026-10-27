@@ -187,6 +187,15 @@ export async function enforceMfa(deps: Deps, request: Request, url: URL): Promis
   return failureResponse(gate);
 }
 
+/**
+ * A member route that shows more to an admin (the network-wide invite log)
+ * asks an admin for the authenticator like any privileged route.
+ */
+export async function guardAdminView(deps: Deps, session: SessionUser): Promise<Response | null> {
+  const gate = await guardRequest(deps.db, ref(session), { privileged: true }, deps.now());
+  return gate ? failureResponse(gate) : null;
+}
+
 export async function exportAccount(deps: Deps, request: Request): Promise<Response> {
   const session = await deps.readSession(request.headers);
   if (!session) return json(401, { error: "Sign in first." });

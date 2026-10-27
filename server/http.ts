@@ -15,13 +15,14 @@ import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
+  isAdmin,
   listInviteLog,
   mintInvite,
   redeemInvite,
   type CreateAccount,
   type SignIn,
 } from "./closed-test/store.ts";
-import { annotateAuthBody, enforceMfa, exportAccount, handleMfa } from "./mfa/routes.ts";
+import { annotateAuthBody, enforceMfa, exportAccount, guardAdminView, handleMfa } from "./mfa/routes.ts";
 
 export type SessionUser = { id: string; name: string; email: string; sessionId?: string };
 
@@ -414,6 +415,10 @@ async function route(
     if (!session) return json(401, { error: "Sign in first." });
     const ban = await openBan(deps.db, session.id, deps.now());
     if (ban) return json(403, { error: "banned", ban });
+    if (await isAdmin(deps.db, session.id)) {
+      const blocked = await guardAdminView(deps, session);
+      if (blocked) return blocked;
+    }
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 

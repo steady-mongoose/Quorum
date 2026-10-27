@@ -11,8 +11,10 @@ import { totpAt } from "./totp.ts";
 
 const KEY = "ab".repeat(32);
 const ROOT = process.env.MFA_TEST_DATABASE_URL ?? "postgres://avouch:secret@127.0.0.1:5432/avouch_test";
-const DATABASE = "avouch_mfa_0023";
-const ALONGSIDE = "avouch_mfa_0023_side";
+// A fresh pair of databases per run, so two runs never share or drop each other's.
+const RUN = randomUUID().replace(/-/g, "").slice(0, 16);
+const DATABASE = `avouch_mfa_${RUN}`;
+const ALONGSIDE = `avouch_mfa_${RUN}_side`;
 
 let pool: pg.Pool | null = null;
 let db: Db | null = null;
@@ -288,6 +290,12 @@ async function enroll(app: ReturnType<typeof handler>, person: { id: string; ses
     plain: plain!,
   };
 }
+
+test("each run uses its own random database names", () => {
+  assert.match(DATABASE, /^avouch_mfa_[0-9a-f]{16}$/);
+  assert.equal(ALONGSIDE, `${DATABASE}_side`);
+  assert.notEqual(DATABASE, "avouch_mfa_0023");
+});
 
 test("required roles, replay, lockout, reset, and recovery on Postgres", async (t) => {
   if (skipped || !db) {
@@ -766,6 +774,21 @@ test("an unenrolled admin or steward is refused on every non-member route", asyn
       assert.equal(body.step, "enroll");
     }
   }
+  // The invite log is a member route, but an admin sees the whole network there.
+  const adminLog = await app(
+    new Request("http://127.0.0.1:8787/api/invite-log", { headers: headers(admin, "198.51.100.12") }),
+  );
+  assert.equal(adminLog.status, 403);
+  assert.equal(((await adminLog.json()) as { error?: string }).error, "mfa_required");
+  const stewardLog = await app(
+    new Request("http://127.0.0.1:8787/api/invite-log", { headers: headers(steward, "198.51.100.13") }),
+  );
+  assert.equal(stewardLog.status, 200);
+  await enroll(app, admin, clock, "198.51.100.14");
+  const enrolledLog = await app(
+    new Request("http://127.0.0.1:8787/api/invite-log", { headers: headers(admin, "198.51.100.15") }),
+  );
+  assert.equal(enrolledLog.status, 200);
   // A plain member route still works for them, so the app can show the enroll prompt.
   const board = await app(
     new Request("http://127.0.0.1:8787/api/board", { headers: headers(steward, "198.51.100.11") }),
