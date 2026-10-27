@@ -170,6 +170,11 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     };
   }, [server.mode, server.user]);
 
+  // /#invite (Find's invite link, or a shared link) opens About at the invite section.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#invite") setSection("about");
+  }, [setSection]);
+
   useEffect(() => {
     if (!deskOn && section === "civic") setSection("week");
   }, [deskOn, section, setSection]);

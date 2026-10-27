@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { useServerSession } from "@/lib/server-session-state";
 
-export const COPIED = "Copied.";
+export const COPIED = "Code copied.";
+export const INVITE_HASH = "invite";
 export const COPY_BLOCKED = "Couldn't copy. The code is selected; copy it by hand.";
 
 /** A member makes a server invite. The code is shown once. */
@@ -26,11 +27,34 @@ export function ServerInvite() {
     selection.addRange(range);
   };
 
+  const heading = useRef<HTMLHeadingElement | null>(null);
+  const live = server.mode === "live" && Boolean(server.user);
+
+  // Arriving at /about#invite (from Find) lands focus on this section's heading.
+  useEffect(() => {
+    if (!live || typeof window === "undefined") return;
+    const land = () => {
+      if (window.location.hash !== `#${INVITE_HASH}`) return;
+      heading.current?.focus();
+      heading.current?.scrollIntoView({ block: "start" });
+    };
+    land();
+    // The router sets the hash with pushState, which fires no hashchange; look again next tick.
+    const later = window.setTimeout(land, 50);
+    window.addEventListener("hashchange", land);
+    return () => {
+      window.clearTimeout(later);
+      window.removeEventListener("hashchange", land);
+    };
+  }, [live]);
+
   if (server.mode !== "live" || !server.user) return null;
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Invite someone</h2>
+    <section id={INVITE_HASH} className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+        Invite someone
+      </h2>
       <p className="max-w-prose text-sm text-muted">
         Signed in as {server.user.name}. A code is single-use unless you set a higher limit, up to
         20. The server records who invited whom. The code is shown once.
@@ -74,10 +98,13 @@ export function ServerInvite() {
             aria-label="Copy code"
             aria-describedby="invite-code"
             onClick={() => {
-              const done = () => setCopyNote(COPIED);
+              // Clear first so a second copy is announced again.
+              setCopyNote("");
+              const say = (text: string) => window.setTimeout(() => setCopyNote(text), 50);
+              const done = () => say(COPIED);
               const blocked = () => {
                 selectCode();
-                setCopyNote(COPY_BLOCKED);
+                say(COPY_BLOCKED);
               };
               const clip = typeof navigator === "undefined" ? undefined : navigator.clipboard;
               if (!clip?.writeText) return blocked();

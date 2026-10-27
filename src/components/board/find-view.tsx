@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "@tanstack/react-router";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import {
   btnGhost,
@@ -300,7 +301,21 @@ function TradeRow({ card, witnesses, ...rest }: RowProps & { witnesses: string[]
  * mint a code in the browser only, which the signup door rejected.
  */
 function InviteNote() {
-  return <span className="text-sm text-muted">To invite someone, make a code under About.</span>;
+  const setSection = useBoard((state) => state.setSection);
+  return (
+    <span className="text-sm text-muted">
+      To invite someone,{" "}
+      <Link
+        to="/"
+        hash="invite"
+        className="text-signal underline"
+        onClick={() => setSection("about")}
+      >
+        make a code on the About page
+      </Link>
+      .
+    </span>
+  );
 }
 
 function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
