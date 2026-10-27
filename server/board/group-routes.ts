@@ -1,3 +1,4 @@
+import { onboardingBlock, onboardingResponse } from "../profile/gate.ts";
 import { limitBoard, type BoardDeps } from "./routes.ts";
 import type { Result } from "./store.ts";
 import {
@@ -65,7 +66,9 @@ function fromResult(status: number, result: Result<unknown>): Response {
       ...(result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
       ...(result.code ? { code: result.code } : {}),
-      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
+      ...(result.audience === "men" || result.audience === "women"
+        ? { audience: result.audience }
+        : {}),
     });
   }
   return json(status, result.value);
@@ -116,6 +119,10 @@ export async function handleGroups(
     const kind = request.method === "GET" ? "read" : "write";
     const blocked = await limitBoard(deps.db, request, session.id, kind);
     if (blocked) return blocked;
+    if (request.method !== "GET") {
+      const gate = await onboardingBlock(deps.db, session.id);
+      if (gate) return onboardingResponse(gate);
+    }
     const now = deps.now();
     const who = { userId: session.id, name: session.name, now };
 

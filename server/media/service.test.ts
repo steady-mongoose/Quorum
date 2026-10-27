@@ -6,6 +6,7 @@ import type { Db } from "../db.ts";
 import { PENDING_MS } from "../../src/lib/media/limits.ts";
 import { countJobs } from "./db.ts";
 import { createMemoryStore } from "./memory-store.ts";
+import { markOnboarded } from "../profile/gate.ts";
 import { completeUpload, prepareUpload, readForMember, type MediaServiceDeps } from "./service.ts";
 import { expireStaleUploads } from "./worker.ts";
 
@@ -311,6 +312,7 @@ test("a barred member cannot read a room picture or start a room video", async (
       [maria],
     );
     await db.query(`insert into member_role (user_id, is_admin) values ($1, true)`, [josh]);
+    await markOnboarded(db, josh, "Josh");
     const media = deps(db);
     const prepared = await prepareUpload(media, josh, {
       kind: "image",

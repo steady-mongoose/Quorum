@@ -7,6 +7,7 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { onboardingBlock, onboardingResponse } from "./profile/gate.ts";
 import { handleProfile } from "./profile/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
@@ -376,6 +377,8 @@ async function route(
       );
       if (!emailHit.allowed) return tooMany(emailHit.retryAfter);
     }
+    const gate = await onboardingBlock(deps.db, session.id);
+    if (gate) return onboardingResponse(gate);
     const body = await readJson(request);
     const minted = await mintInvite(
       deps.db,
@@ -421,6 +424,8 @@ async function route(
     if (typeof body.type === "string" && body.type.trim()) {
       const limited = await limitBoardWrite(deps.db, request, session.id);
       if (limited) return limited;
+      const gate = await onboardingBlock(deps.db, session.id);
+      if (gate) return onboardingResponse(gate);
       const filed = await createPost(deps.db, {
         userId: session.id,
         name: session.name,
@@ -436,6 +441,8 @@ async function route(
       }
       return json(201, { post: filed.value });
     }
+    const gate = await onboardingBlock(deps.db, session.id);
+    if (gate) return onboardingResponse(gate);
     const recorded = await registerRoomPost(
       deps.db,
       session.id,

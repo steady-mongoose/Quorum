@@ -2,6 +2,7 @@ import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
+import { onboardingBlock, onboardingResponse } from "../profile/gate.ts";
 import { listChat, removeChatMessage, sendChat, type ChatResult } from "./store.ts";
 
 type SessionUser = { id: string; name: string; email: string };
@@ -114,6 +115,10 @@ export async function handleRoomChat(
     const kind = request.method === "GET" ? "read" : "write";
     const blocked = await limit(deps.db, request, session.id, kind);
     if (blocked) return blocked;
+    if (kind === "write") {
+      const gate = await onboardingBlock(deps.db, session.id);
+      if (gate) return onboardingResponse(gate);
+    }
     const now = deps.now();
 
     if (remove && request.method === "POST") {

@@ -24,6 +24,7 @@ import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
 import { FindView } from "@/components/board/find-view";
+import { MemberProfile, OnboardingWizard, useProfileGate } from "@/components/board/member-profile";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
 import { SectionTabs } from "@/components/board/section-tabs";
@@ -94,7 +95,11 @@ function BoardShell() {
   const entered = server.mode === "live" ? Boolean(server.user) || localEntry : member;
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
-  const busy = waiting || boardLoading;
+  const liveProfile = server.mode === "live" && Boolean(server.user);
+  const profileGate = useProfileGate(liveProfile);
+  const profileHold =
+    liveProfile && profileGate.state !== "needed" && profileGate.state !== "ready";
+  const busy = waiting || boardLoading || profileHold;
   const shown = section === "civic" && !deskOn ? "week" : section;
   const art = artSection({
     entered,
@@ -143,9 +148,12 @@ function BoardShell() {
     }
     let cancel = false;
     setBoardLoading(true);
-    void useBoard.getState().connectRemote().finally(() => {
-      if (!cancel) setBoardLoading(false);
-    });
+    void useBoard
+      .getState()
+      .connectRemote()
+      .finally(() => {
+        if (!cancel) setBoardLoading(false);
+      });
     return () => {
       cancel = true;
     };
@@ -172,6 +180,8 @@ function BoardShell() {
       <p className="sr-only">Checking the server.</p>
       <BoardSkeleton />
     </>
+  ) : profileGate.state === "needed" ? (
+    <OnboardingWizard notice={profileGate.error} onFinished={profileGate.markReady} />
   ) : (
     <>
       {!entered && <Door />}
@@ -181,7 +191,7 @@ function BoardShell() {
       {entered && shown === "find" && <FindView />}
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}
-      {entered && shown === "profile" && <ProfileView />}
+      {entered && shown === "profile" && (liveProfile ? <MemberProfile /> : <ProfileView />)}
       {entered && shown === "about" && <AboutView />}
     </>
   );
@@ -195,7 +205,9 @@ function BoardShell() {
         Skip to content
       </a>
       <PrimaryHaptic />
-      {art === "landing" || art === "signin" ? <div className="plate-ground" aria-hidden="true" /> : null}
+      {art === "landing" || art === "signin" ? (
+        <div className="plate-ground" aria-hidden="true" />
+      ) : null}
       {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
       <header className="top mast-bar">
         <div className="mast" data-entered={entered ? "true" : undefined}>
@@ -203,12 +215,7 @@ function BoardShell() {
             <AppealMark />
             <div className="mast-titles">
               <p className="mast-name">{APP_NAME}</p>
-              <p
-                className={cn(
-                  "mast-tagline",
-                  entered && "max-xl:hidden xl:whitespace-nowrap",
-                )}
-              >
+              <p className={cn("mast-tagline", entered && "max-xl:hidden xl:whitespace-nowrap")}>
                 {TAGLINE}
               </p>
             </div>
@@ -289,7 +296,12 @@ function BoardShell() {
               {ownAppeals.map((row) => (
                 <li key={row.id}>
                   Your {row.kind} appeal is{" "}
-                  {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                  {row.decision === "lift"
+                    ? "lifted"
+                    : row.decision === "uphold"
+                      ? "upheld"
+                      : "open"}
+                  .
                 </li>
               ))}
             </ul>
@@ -338,9 +350,7 @@ function BoardShell() {
         </main>
       </div>
       {entered ? <SessionLine /> : null}
-      {entered ? (
-        <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} />
-      ) : null}
+      {entered ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
       <ConfirmDialog
         open={confirmSignOut}
         title="Sign out"

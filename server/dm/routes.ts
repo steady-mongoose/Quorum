@@ -1,4 +1,5 @@
 import { openBan } from "../board/store.ts";
+import { onboardingBlock, onboardingResponse } from "../profile/gate.ts";
 import type { AppDeps } from "../http.ts";
 import {
   DM_BUNDLE_LIMIT,
@@ -214,6 +215,10 @@ async function dispatch(
 ): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
+  if (method !== "GET" && method !== "HEAD") {
+    const gate = await onboardingBlock(deps.db, userId);
+    if (gate) return onboardingResponse(gate);
+  }
 
   if (path === "/api/dm/devices" && method === "GET") {
     return json(200, { devices: await listOwnDevices(deps.db, userId) });

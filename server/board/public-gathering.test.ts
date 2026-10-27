@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp, type AppDeps } from "../http.ts";
+import { markOnboarded } from "../profile/gate.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { gatheringViewLimitKey } from "./public-gathering.ts";
@@ -30,7 +31,13 @@ async function user(db: Db, name: string): Promise<string> {
   return id;
 }
 
-async function grant(db: Db, userId: string, name: string, role: "member" | "steward", roomId = "") {
+async function grant(
+  db: Db,
+  userId: string,
+  name: string,
+  role: "member" | "steward",
+  roomId = "",
+) {
   await db.query(
     `insert into access_log
      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
@@ -52,13 +59,18 @@ function app(db: Db) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
+      await markOnboarded(db, id, "Dale");
       return { id, name: "Dale", email: "dale@example.com" };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
   } satisfies AppDeps);
 }
 
-async function save(handler: (request: Request) => Promise<Response>, userId: string, body: Record<string, unknown>) {
+async function save(
+  handler: (request: Request) => Promise<Response>,
+  userId: string,
+  body: Record<string, unknown>,
+) {
   return handler(
     new Request("http://127.0.0.1:8787/api/gatherings", {
       method: "POST",
@@ -115,7 +127,11 @@ test("a member cannot publish someone else's gathering or a missing one", async 
       new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-user-id": maria },
-        body: JSON.stringify({ shared: true, title: "Free prize claim now", town: "1010 E Brandon Blvd" }),
+        body: JSON.stringify({
+          shared: true,
+          title: "Free prize claim now",
+          town: "1010 E Brandon Blvd",
+        }),
       }),
     );
     assert.equal(squatted.status, 403);
@@ -193,7 +209,10 @@ test("the public page is the live stored gathering, and sharing loads from the s
     const html = await page.text();
     assert.match(html, /<meta name="robots" content="noindex">/);
     assert.match(html, /property="og:title" content="Saturday lifts"/);
-    assert.match(html, /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.jpg"/);
+    assert.match(
+      html,
+      /property="og:image" content="https:\/\/avouchsocial\.com\/art\/dore-og\.jpg"/,
+    );
     const head = html.slice(0, html.indexOf("</head>"));
     assert.match(head, /<link rel="stylesheet" href="\/gathering\.css">/);
     assert.match(html, /property="og:description" content="October 24, 2026 · 07:00 · Riverview"/);
@@ -231,7 +250,12 @@ test("the public page is the live stored gathering, and sharing loads from the s
     });
     assert.equal(edited.status, 200);
     const live = await handler(new Request(`http://127.0.0.1:8787/api/e/${DALE_ID}`));
-    const liveBody = (await live.json()) as { title: string; time: string; date: string; town: string };
+    const liveBody = (await live.json()) as {
+      title: string;
+      time: string;
+      date: string;
+      town: string;
+    };
     assert.equal(liveBody.title, "Saturday lifts, later");
     assert.equal(liveBody.time, "8:00 a.m.");
     assert.equal(liveBody.date, "2026-10-31");
@@ -369,14 +393,16 @@ test("a removed gathering or a banned host is not public", async () => {
     await grant(db, dale, "Dale", "member");
     const handler = app(db);
     assert.equal(
-      (await save(handler, dale, {
-        id: DALE_ID,
-        roomId: "shop",
-        title: "Saturday lifts",
-        date: "2026-10-24",
-        time: "7 a.m.",
-        place: "Riverview",
-      })).status,
+      (
+        await save(handler, dale, {
+          id: DALE_ID,
+          roomId: "shop",
+          title: "Saturday lifts",
+          date: "2026-10-24",
+          time: "7 a.m.",
+          place: "Riverview",
+        })
+      ).status,
       200,
     );
     assert.equal(

@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp, type AppDeps } from "./http.ts";
+import { markOnboarded } from "./profile/gate.ts";
 import { GENERIC_SIGNUP_ERROR } from "./closed-test/rules.ts";
-import { mintInvite, seatFoundingAdmin, type CreateAccount, type SignIn } from "./closed-test/store.ts";
+import {
+  mintInvite,
+  seatFoundingAdmin,
+  type CreateAccount,
+  type SignIn,
+} from "./closed-test/store.ts";
 import { CLIENT_IP_HEADER } from "./proxy.ts";
 import { ATTEMPT_LIMIT } from "./rate-limit.ts";
 import { openTestDb } from "./closed-test/test-db.ts";
@@ -32,6 +38,7 @@ function app(db: Db, extra: Partial<AppDeps> = {}) {
     readSession: async (headers) => {
       const id = headers.get("x-user-id");
       if (!id) return null;
+      await markOnboarded(db, id, "Josh");
       return { id, name: "Josh", email: headers.get("x-user-email") ?? "josh@example.com" };
     },
     forwardAuth: async () => {
@@ -355,7 +362,10 @@ test("sign-in from an allowed origin is forwarded, and a stranger origin is reje
         body: JSON.stringify({ email: "josh@example.com", password: "correct-horse" }),
       }),
     );
-    assert.equal(forwarded, JSON.stringify({ email: "josh@example.com", password: "correct-horse" }));
+    assert.equal(
+      forwarded,
+      JSON.stringify({ email: "josh@example.com", password: "correct-horse" }),
+    );
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:8080");
     forwarded = "";
@@ -380,7 +390,12 @@ test("signup errors do not say whether the email is registered", async () => {
   try {
     const seated = await seatFoundingAdmin(
       db,
-      { envName: "Josh", email: "josh@example.com", password: "correct-horse", headers: new Headers() },
+      {
+        envName: "Josh",
+        email: "josh@example.com",
+        password: "correct-horse",
+        headers: new Headers(),
+      },
       async (input) => {
         const id = randomUUID();
         await db.query(
@@ -510,12 +525,21 @@ test("a bad email is refused and does not become a rate-limit key", async () => 
     const handler = app(db);
     const huge = `${"a".repeat(190)}@example.com`;
     const response = await handler(
-      attempt("/api/signup", "203.0.113.40", JSON.stringify({ name: "A", email: huge, password: "short" })),
+      attempt(
+        "/api/signup",
+        "203.0.113.40",
+        JSON.stringify({ name: "A", email: huge, password: "short" }),
+      ),
     );
     assert.equal(response.status, 400);
-    const keys = (await db.query<{ key: string }>(`select "key" from "rateLimit"`)).map((row) => row.key);
+    const keys = (await db.query<{ key: string }>(`select "key" from "rateLimit"`)).map(
+      (row) => row.key,
+    );
     assert.deepEqual(keys, ["signup:ip:203.0.113.40"]);
-    assert.equal(keys.some((key) => key.includes(huge)), false);
+    assert.equal(
+      keys.some((key) => key.includes(huge)),
+      false,
+    );
   } finally {
     await close();
   }

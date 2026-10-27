@@ -1,4 +1,5 @@
 import type { Db } from "../db.ts";
+import { onboardingBlock, onboardingResponse } from "../profile/gate.ts";
 import { CALLS_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { iceServersForMember, publicCallsStatus, type CallsConfig } from "./config.ts";
 import { roomCallMember } from "./membership.ts";
@@ -107,6 +108,10 @@ export async function handleCalls(
   if (member.kind === "outsider") {
     runtime.store.leave(roomId, session.id);
     return json(403, { error: "You have not stood in that room.", record: false });
+  }
+  if (request.method !== "GET") {
+    const gate = await onboardingBlock(db, session.id);
+    if (gate) return onboardingResponse(gate);
   }
 
   const at = runtime.now().getTime();

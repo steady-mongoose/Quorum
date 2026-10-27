@@ -3,6 +3,7 @@ import { actorRole } from "../board/access.ts";
 import { HELD_UPLOAD_PREFIX, postIsHeld } from "../board/csam.ts";
 import { openBan } from "../board/store.ts";
 import type { Db } from "../db.ts";
+import { onboardingBlock } from "../profile/gate.ts";
 import { profileView } from "../profile/view.ts";
 import {
   IMAGE_BYTES,
@@ -30,6 +31,8 @@ export type MediaResult<T> =
       ok: false;
       status: number;
       error: string;
+      /** Set when the member still has to finish onboarding. */
+      code?: string;
       ban?: { until: number; strikes: number; reason: string };
     };
 
@@ -78,6 +81,9 @@ export async function prepareUpload(
     if (!role.member) return { ok: false, status: 403, error: "Only a member can do that." };
     const ban = await openBan(deps.db, userId, deps.now());
     if (ban) return { ok: false, status: 403, error: "banned", ban };
+  } else {
+    const gate = await onboardingBlock(deps.db, userId);
+    if (gate) return gate;
   }
   if (plan.scope === "dm" && !(await userExists(deps.db, plan.peerUserId))) {
     return { ok: false, status: 400, error: "Choose the other person." };
@@ -118,6 +124,10 @@ export async function completeUpload(
     return { ok: false, status: 404, error: "That file is not here." };
   if (row.status !== "pending")
     return { ok: false, status: 409, error: "That upload is already in." };
+  if (row.scope !== "profile") {
+    const gate = await onboardingBlock(deps.db, userId);
+    if (gate) return gate;
+  }
   const created = new Date(row.created_at);
   if (deps.now().getTime() - created.getTime() > PENDING_MS) {
     return rejectUpload(deps, id, row.upload_key, "That upload was not finished.");
