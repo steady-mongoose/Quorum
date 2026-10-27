@@ -58,9 +58,11 @@ Object.defineProperty(navigator, "mediaDevices", {
   value: {
     async getUserMedia(c) {
       if (media === "mic-denied") throw new Error("NotAllowedError");
-      if (c.video) throw new Error("NotAllowedError");
-      const tracks = [track("audio")];
-      return { getTracks: () => tracks, getVideoTracks: () => [], getAudioTracks: () => tracks };
+      if (c.video && media !== "camera-ok") throw new Error("NotAllowedError");
+      const audio = [track("audio")];
+      const video = c.video ? [track("video")] : [];
+      const tracks = [...audio, ...video];
+      return { getTracks: () => tracks, getVideoTracks: () => video, getAudioTracks: () => audio };
     },
   },
 });
@@ -146,4 +148,36 @@ test("the Join button takes the id a ring focuses", async () => {
   const { root, button } = mount({ joinId: "room-call-join" });
   assert.equal(button("Join the call").id, "room-call-join");
   await act(async () => root.unmount());
+});
+
+test("the camera button names what it will do next", async () => {
+  media = "camera-ok";
+  // jsdom has no MediaStream; let the self-view take the fake stream.
+  Object.defineProperty(window.HTMLMediaElement.prototype, "srcObject", {
+    configurable: true,
+    get() {
+      return this._src ?? null;
+    },
+    set(v) {
+      this._src = v;
+    },
+  });
+  window.HTMLMediaElement.prototype.play = async () => {};
+  const { root, button } = mount();
+  await act(async () => button("Join the call").click());
+  await flush();
+  assert.ok(button("Turn camera off"), "camera on: offers Turn camera off");
+  await act(async () => button("Turn camera off").click());
+  await flush();
+  assert.equal(button("Turn camera off"), undefined, "no stale Turn camera off");
+  const on = button("Turn camera on");
+  assert.ok(on, "camera off: offers Turn camera on");
+  assert.equal(on.getAttribute("aria-pressed"), "true");
+  await act(async () => on.click());
+  await flush();
+  assert.ok(button("Turn camera off"));
+  await act(async () => button("Leave call").click());
+  await flush();
+  await act(async () => root.unmount());
+  media = "camera-denied";
 });

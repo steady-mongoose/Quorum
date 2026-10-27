@@ -15,7 +15,10 @@ export type MemberCheck =
   | { kind: "hidden" };
 
 /**
- * Read-only. Membership is the row an invite or a post already wrote.
+ * Read-only. Membership is the row an invite or a post already wrote,
+ * a saved room (room_join), or a steward grant for this room. The UI
+ * offers Join the call in a room the member can open, so the server has
+ * to agree with it.
  * An open ban refuses the call even when that row is still there.
  * This module does not write room or room_member. An admin who has not
  * stood in the room is not in the call.
@@ -41,10 +44,16 @@ export async function roomCallMember(
   }
   try {
     const rows = await db.query<{ user_id: string }>(
-      `select user_id from room_member where room_id = $1 and user_id = $2`,
+      `select user_id from room_member where room_id = $1 and user_id = $2
+       union all
+       select user_id from room_join where room_id = $1 and user_id = $2
+       limit 1`,
       [roomId, userId],
     );
-    if (!rows[0]) return { kind: "outsider" };
+    if (!rows[0]) {
+      const actor = await actorRole(db, userId);
+      if (!actor.stewardRooms.includes(roomId)) return { kind: "outsider" };
+    }
     const gate = await guardRoomAudience(db, {
       userId,
       roomId,

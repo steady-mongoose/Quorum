@@ -38,6 +38,7 @@ const appTests = [
   "src/lib/e2ee/media-crypto.test.ts",
   "src/lib/e2ee/media-bridge.test.ts",
   "server/dm/store.test.ts",
+  "server/calls/membership-saved.test.ts",
   "server/dm/mailbox.integration.test.ts",
   "workers/frontend.test.ts",
   "server/origins.test.ts",

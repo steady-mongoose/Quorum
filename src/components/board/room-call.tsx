@@ -66,7 +66,7 @@ export function RoomCall({ roomId }: { roomId: string }) {
       basePath={`/api/calls/rooms/${roomId}`}
       selfId={selfId}
       label="Room call"
-      note="This call is not recorded. Only people who have stood in this room can join."
+      note="This call is not recorded. Only people who have stood in, saved, or steward this room can join."
       joinLabel="Join the call"
       joinId={ROOM_CALL_JOIN_ID}
       extra={<RingMembers roomId={roomId} />}
@@ -424,7 +424,11 @@ export function CallPanel({
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              {cameraDenied ? CAMERA_UNAVAILABLE_LABEL : "Turn camera off"}
+              {cameraDenied
+                ? CAMERA_UNAVAILABLE_LABEL
+                : cameraOn
+                  ? "Turn camera off"
+                  : "Turn camera on"}
             </button>
             <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />
