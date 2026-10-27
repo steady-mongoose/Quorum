@@ -38,6 +38,7 @@ import {
 import { DM_RETENTION_DAYS, formatWhen, otherIn, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
+import { DmReportControl } from "@/components/board/dm-report";
 
 /**
  * Signed-in mailbox. Plaintext is sealed in the browser. This view never
@@ -434,6 +435,7 @@ export function EncryptedMailbox() {
               <p className="mt-1 text-[0.8125rem] text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
+              {message.from !== me.name ? <DmReportControl messageId={message.id} text={message.text} /> : null}
             </li>
           ))}
         </ul>

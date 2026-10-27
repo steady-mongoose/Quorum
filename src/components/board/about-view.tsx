@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { DmReportQueue } from "@/components/board/dm-report";
 import { AudienceChoice, MemberGenderForm, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
@@ -221,6 +222,8 @@ export function AboutView() {
       ) : null}
 
       {remote && admin ? <CsamQueue reports={csamReports} /> : null}
+
+      {remote && admin ? <DmReportQueue /> : null}
 
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>
