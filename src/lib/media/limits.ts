@@ -199,18 +199,18 @@ export function planUpload(
  */
 function planProfile(body: Record<string, unknown>, kind: MediaKind): PlanResult {
   if (kind !== "image") {
-    return { ok: false, status: 400, error: "A profile photo is a picture." };
+    return { ok: false, status: 400, error: "Choose a picture, not a video." };
   }
   const contentType = cleanType(body.contentType);
   if (!(PROFILE_IMAGE_TYPES as readonly string[]).includes(contentType)) {
-    return { ok: false, status: 400, error: "Choose a JPEG, PNG, or WebP." };
+    return { ok: false, status: 400, error: "Choose a JPEG, PNG, or WebP picture." };
   }
   const byteSize = integer(body.byteSize);
   if (byteSize === null || byteSize < 1) {
     return { ok: false, status: 400, error: "That file is empty." };
   }
   if (byteSize > PROFILE_IMAGE_BYTES) {
-    return { ok: false, status: 400, error: "That picture is over 5 MB." };
+    return { ok: false, status: 400, error: "That picture is over 5 MB. Choose a smaller one." };
   }
   const durationRaw = body.durationMs;
   if (durationRaw !== undefined && durationRaw !== null && durationRaw !== 0) {

@@ -165,7 +165,7 @@ test("a profile photo is a JPEG, PNG, or WebP of at most 5 MB", () => {
     scope: "profile",
   });
   assert.equal(over.ok, false);
-  if (!over.ok) assert.equal(over.error, "That picture is over 5 MB.");
+  if (!over.ok) assert.equal(over.error, "That picture is over 5 MB. Choose a smaller one.");
 
   const gif = plan({
     kind: "image",
@@ -174,7 +174,7 @@ test("a profile photo is a JPEG, PNG, or WebP of at most 5 MB", () => {
     scope: "profile",
   });
   assert.equal(gif.ok, false);
-  if (!gif.ok) assert.equal(gif.error, "Choose a JPEG, PNG, or WebP.");
+  if (!gif.ok) assert.equal(gif.error, "Choose a JPEG, PNG, or WebP picture.");
 
   const video = plan({
     kind: "video",
@@ -184,7 +184,7 @@ test("a profile photo is a JPEG, PNG, or WebP of at most 5 MB", () => {
     scope: "profile",
   });
   assert.equal(video.ok, false);
-  if (!video.ok) assert.equal(video.error, "A profile photo is a picture.");
+  if (!video.ok) assert.equal(video.error, "Choose a picture, not a video.");
 
   const room = plan({
     kind: "image",
