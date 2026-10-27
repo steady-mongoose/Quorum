@@ -87,9 +87,12 @@ test("submitting saves the request, sets a 48-hour due time, mails the ID, and l
     if (!saved.ok) return;
     assert.equal(saved.value.mailed, true);
     assert.equal(saved.value.dueAt, now.getTime() + TAKEDOWN_WINDOW_MS);
-    assert.equal(sent.length, 1);
+    assert.equal(sent.length, 2);
     assert.deepEqual(sent[0]!.body.to, ["rae@example.com"]);
     assert.match(sent[0]!.body.text, new RegExp(saved.value.id));
+    assert.deepEqual(sent[1]!.body.to, ["safety@avouchsocial.com"]);
+    assert.match(sent[1]!.body.text, new RegExp(saved.value.id));
+    assert.doesNotMatch(sent[1]!.body.text, /rae@example\.com|Rae/);
     const audit = await db.query<{ action: string; detail: string }>(
       `select action, detail from takedown_audit where request_id = $1 order by action`,
       [saved.value.id],
@@ -265,6 +268,56 @@ test("a new request writes an alert line for the server log with its 48-hour dea
     assert.equal(parsed.dueAt, "2026-10-29T12:00:00.000Z");
   } finally {
     console.log = original;
+    await close();
+  }
+});
+
+test("the admin alert email is metadata only and goes to ADMIN_ALERT_EMAIL when set", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const sent: any[] = [];
+    const fakeFetch = (async (_url: string, init: RequestInit) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const secret = { ...good, description: "SECRET-DESCRIPTION", contentUrl: "https://avouchsocial.com/secret-link" };
+    const saved = await submitTakedown(db, secret, now, {
+      fetch: fakeFetch,
+      env: { RESEND_API_KEY: "k", RESEND_FROM: "a@example.com", ADMIN_ALERT_EMAIL: "ops@example.com" },
+    });
+    assert.equal(saved.ok, true);
+    const alert = sent.find((m) => m.to[0] === "ops@example.com");
+    assert.ok(alert);
+    assert.match(alert.text, /Act by: 2026-10-29T12:00:00.000Z/);
+    for (const field of [alert.text, alert.subject]) {
+      assert.doesNotMatch(field, /SECRET|secret-link|rae@example\.com/);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("a failing or throwing alert email does not stop the request", async () => {
+  const { db, close } = await openTestDb();
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (line: string) => void errors.push(String(line));
+  try {
+    let calls = 0;
+    const fakeFetch = (async () => {
+      calls += 1;
+      if (calls === 1) return new Response("{}", { status: 200 });
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const saved = await submitTakedown(db, good, now, {
+      fetch: fakeFetch,
+      env: { RESEND_API_KEY: "k", RESEND_FROM: "a@example.com" },
+    });
+    assert.equal(saved.ok, true);
+    if (saved.ok) assert.equal(saved.value.mailed, true);
+    assert.ok(errors.some((line) => line.includes("takedown-alert-email-failed")));
+  } finally {
+    console.error = original;
     await close();
   }
 });

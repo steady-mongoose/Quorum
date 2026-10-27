@@ -103,6 +103,55 @@ export function confirmationMail(id: string, dueAt: Date): { subject: string; te
   };
 }
 
+/** Where the admin alert goes. safety@ forwards to Josh. ADMIN_ALERT_EMAIL overrides it. */
+export const TAKEDOWN_ALERT_DEFAULT_TO = "safety@avouchsocial.com";
+
+/** The admin alert. Metadata only: never the requester's description, link, or the image. */
+export function takedownAlertMail(id: string, receivedAt: Date, dueAt: Date): { subject: string; text: string } {
+  return {
+    subject: `Avouch: removal request ${id} is due by ${dueAt.toISOString()}`,
+    text: [
+      "A new intimate image removal request was filed.",
+      `Request: ${id}`,
+      `Received: ${receivedAt.toISOString()}`,
+      `Act by: ${dueAt.toISOString()} (48 hours)`,
+      "Open the removal requests on admin Home to review it.",
+      "This message does not include the request's content.",
+    ].join("\n"),
+  };
+}
+
+/** Best effort. A failure is logged and never stops the request. */
+export async function sendTakedownAlert(
+  id: string,
+  receivedAt: Date,
+  dueAt: Date,
+  mail: MailDeps = {},
+): Promise<boolean> {
+  try {
+    const env = mail.env ?? process.env;
+    const to = env.ADMIN_ALERT_EMAIL?.trim() || TAKEDOWN_ALERT_DEFAULT_TO;
+    const letter = takedownAlertMail(id, receivedAt, dueAt);
+    const sent = await sendTextEmail(
+      { to, subject: letter.subject, text: letter.text, idempotencyKey: `takedown-admin-alert/${id}` },
+      mail,
+    );
+    if (!sent.ok) {
+      console.error(JSON.stringify({ event: "takedown-alert-email-failed", id, message: sent.error }));
+    }
+    return sent.ok;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "takedown-alert-email-failed",
+        id,
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+    return false;
+  }
+}
+
 export function takedownLogLine(id: string, dueAt: Date, mailed: boolean): string {
   return JSON.stringify({
     level: "alert",
@@ -148,7 +197,8 @@ export async function submitTakedown(
   );
   await audit(db, id, "mailed", "", sent.ok ? "sent" : `not sent: ${sent.error}`, now);
   // Admins see it in the app: the open request heads their Home with its 48-hour deadline.
-  // This line is for the server log; no mail goes to admins.
+  // They are also emailed (best effort), and this line goes to the server log.
+  await sendTakedownAlert(id, now, dueAt, mail);
   console.log(takedownLogLine(id, dueAt, sent.ok));
   return { ok: true, value: { id, dueAt: dueAt.getTime(), mailed: sent.ok } };
 }
