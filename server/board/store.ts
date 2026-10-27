@@ -235,7 +235,7 @@ async function audienceBlock(
   };
 }
 
-class Stop extends Error {
+export class Stop extends Error {
   status: number;
   stops?: string[];
   constructor(status: number, message: string, stops?: string[]) {
@@ -879,6 +879,12 @@ export async function listBoard(
   };
 }
 
+/** Pornography flags one steward can raise in an hour before an admin has to look. */
+export const STEWARD_FLAG_LIMIT = 3;
+export const STEWARD_FLAG_WINDOW_MS = 60 * 60 * 1000;
+export const STEWARD_FLAG_LIMIT_ERROR =
+  "You have flagged 3 accounts for pornography in the last hour. An admin has to review those first. Try again later.";
+
 export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
 
 /** A banned admin cannot moderate, decide appeals, or close accounts. */
@@ -996,37 +1002,94 @@ export async function decideBanReview(
     return fail(400, "Make the ban permanent or clear the member.");
   }
   const decision = input.decision;
-  const pending = await db.query<{ user_id: string | null; reason: string }>(
-    `select user_id, reason from ban_review where id = $1 and status = 'open'`,
+  const pending = await db.query<{ user_id: string | null; reason: string; status: string; requested_by_user_id: string | null }>(
+    `select user_id, reason, status, requested_by_user_id from ban_review where id = $1`,
     [input.reviewId],
   );
-  if (!pending[0]) return fail(404, "That review is not open.");
-  if (pending[0].user_id === input.userId) return fail(403, "Another admin decides your own case.");
-  if (decision === "cleared" && pending[0].reason === "csam") {
+  const current = pending[0];
+  if (!current) return fail(404, "That review is not here.");
+  if (current.user_id === input.userId) return fail(403, "Another admin decides your own case.");
+  if (current.requested_by_user_id === input.userId) {
+    return fail(403, "Another admin decides a suspension you asked for.");
+  }
+  if (current.status === decision) return fail(409, "That review already has this decision.");
+  if (decision === "cleared" && current.reason === "csam") {
     return fail(400, "A child sexual abuse material ban is never lifted.");
   }
   const by = input.name?.trim() || "Admin";
   const rows = await db.transaction(async (tx) => {
-    const done = await tx.query<{ ban_id: string | null; user_id: string | null }>(
-      `update ban_review set status = $2, decided_by_user_id = $3, decided_at = $4
-       where id = $1 and status = 'open' returning ban_id, user_id`,
+    // Re-read under a row lock so two admins cannot decide it at once.
+    const locked = await tx.query<{
+      status: string;
+      ban_id: string | null;
+      user_id: string | null;
+      removal_id: string | null;
+      chat_removal_id: string | null;
+    }>(`select status, ban_id, user_id, removal_id, chat_removal_id from ban_review where id = $1 for update`, [
+      input.reviewId,
+    ]);
+    const review = locked[0];
+    if (!review || review.status === decision) return [];
+    await tx.query(
+      `update ban_review set status = $2, decided_by_user_id = $3, decided_at = $4 where id = $1`,
       [input.reviewId, decision, input.userId, input.now],
     );
-    const review = done[0];
-    if (!review?.ban_id) return done;
+    await tx.query(
+      `insert into ban_review_event (id, review_id, decision, previous, by_user_id, at) values ($1, $2, $3, $4, $5, $6)`,
+      [randomUUID(), input.reviewId, decision, review.status, input.userId, input.now],
+    );
+    const posts = review.removal_id
+      ? await tx.query<{ post_id: string }>(`select post_id from board_removal where id = $1`, [review.removal_id])
+      : [];
+    const postId = posts[0]?.post_id ?? null;
     if (decision === "closed") {
-      await tx.query(
-        `update board_ban set until_at = $2, room_id = '', by_user_id = $3, by_name = $4 where id = $1`,
-        [review.ban_id, new Date(input.now.getTime() + CLOSED_MS), input.userId, by],
-      );
+      if (review.ban_id) {
+        await tx.query(
+          `update board_ban set until_at = $2, room_id = '', by_user_id = $3, by_name = $4 where id = $1`,
+          [review.ban_id, new Date(input.now.getTime() + CLOSED_MS), input.userId, by],
+        );
+      }
+      // A reversal of a clearing takes the content down again and counts the strike again.
+      if (review.removal_id) {
+        await tx.query(`update board_removal set cleared_at = null where id = $1`, [review.removal_id]);
+        if (postId) await tx.query(`update board_post set removed = true where id = $1 or parent_id = $1`, [postId]);
+      }
+      if (review.chat_removal_id) {
+        await tx.query(`update room_chat_removal set cleared_at = null where id = $1`, [review.chat_removal_id]);
+        await tx.query(
+          `update room_chat_message set removed = true, removed_at = $2
+           where id = (select message_id from room_chat_removal where id = $1)`,
+          [review.chat_removal_id, input.now],
+        );
+      }
     } else {
-      await tx.query(`update board_ban set until_at = $2 where id = $1`, [review.ban_id, input.now]);
+      if (review.ban_id) await tx.query(`update board_ban set until_at = $2 where id = $1`, [review.ban_id, input.now]);
+      // Cleared: the removed content comes back, and the strike no longer counts.
+      if (review.removal_id) {
+        await tx.query(`update board_removal set cleared_at = $2 where id = $1`, [review.removal_id, input.now]);
+        if (postId) await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [postId]);
+      }
+      if (review.chat_removal_id) {
+        await tx.query(`update room_chat_removal set cleared_at = $2 where id = $1`, [review.chat_removal_id, input.now]);
+        await tx.query(
+          `update room_chat_message set removed = false, removed_at = null
+           where id = (select message_id from room_chat_removal where id = $1)`,
+          [review.chat_removal_id],
+        );
+      }
     }
-    return done;
+    return [{ user_id: review.user_id, previous: review.status }];
   });
-  if (!rows[0]) return fail(404, "That review is not open.");
+  if (!rows[0]) return fail(409, "That review already has this decision.");
   console.log(
-    JSON.stringify({ event: "ban-review-decided", id: input.reviewId, decision, by: input.userId, userId: rows[0].user_id }),
+    JSON.stringify({
+      event: "ban-review-decided",
+      id: input.reviewId,
+      decision,
+      previous: rows[0].previous,
+      by: input.userId,
+      userId: rows[0].user_id,
+    }),
   );
   return { ok: true, value: { id: input.reviewId, decision } };
 }
@@ -1045,6 +1108,8 @@ export async function writeBan(
     roomId: string;
     /** The room whose steward removed it, kept on the admin review even when the bar is site-wide. */
     sourceRoomId?: string;
+    /** A room chat removal's id, so clearing the review restores that line. */
+    chatRemovalId?: string;
     /**
      * The new hard removal is already stored. A room chat line sets this
      * because its row lives in room_chat_removal, not board_removal.
@@ -1061,6 +1126,7 @@ export async function writeBan(
     tx,
     `select strikes from board_ban
      where user_id = $1 and room_id = $2
+       and not exists (select 1 from ban_review v where v.ban_id = board_ban.id and v.status = 'cleared')
      order by created_at desc limit 1`,
     [input.userId, input.roomId],
   );
@@ -1068,17 +1134,17 @@ export async function writeBan(
     ? await tx.query<{ id: string }>(
         `select r.id from board_removal r
          join board_post p on p.id = r.post_id
-         where r.author_user_id = $1 and p.room_id = $2`,
+         where r.author_user_id = $1 and p.room_id = $2 and r.cleared_at is null`,
         [input.userId, input.roomId],
       )
-    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1`, [
+    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1 and cleared_at is null`, [
         input.userId,
       ]);
   const chatRemovals = (await roomChatReady(tx))
     ? await tx.query<{ id: string }>(
         input.roomId
-          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2`
-          : `select id from room_chat_removal where author_user_id = $1`,
+          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2 and cleared_at is null`
+          : `select id from room_chat_removal where author_user_id = $1 and cleared_at is null`,
         input.roomId ? [input.userId, input.roomId] : [input.userId],
       )
     : [];
@@ -1089,6 +1155,21 @@ export async function writeBan(
   // A steward cannot ban for good. Their would-be permanent ban is a site-wide
   // suspension, in force at once, until an admin closes the account or clears it.
   const pendingReview = permanent && input.byAdmin !== true;
+  if (pendingReview && input.reason === "porn" && input.byUserId) {
+    // One steward cannot lock out a room before an admin looks. Serialize this
+    // steward's flags so simultaneous requests are counted, then cap them.
+    // CSAM is never capped: that content must come down at once.
+    await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [`steward-flag:${input.byUserId}`]);
+    const recent = await tx.query<{ n: number | string }>(
+      `select count(*) as n from ban_review
+       where requested_by_user_id = $1 and reason = 'porn' and created_at > $2`,
+      [input.byUserId, new Date(input.now.getTime() - STEWARD_FLAG_WINDOW_MS)],
+    );
+    if (Number(recent[0]?.n ?? 0) >= STEWARD_FLAG_LIMIT) {
+      console.log(JSON.stringify({ event: "steward-flag-limit", stewardId: input.byUserId }));
+      throw new Stop(429, STEWARD_FLAG_LIMIT_ERROR);
+    }
+  }
   const until = new Date(input.now.getTime() + (permanent ? CLOSED_MS : BAN_MS));
   const roomId = pendingReview ? "" : input.roomId;
   const id = randomUUID();
@@ -1113,8 +1194,8 @@ export async function writeBan(
   if (pendingReview) {
     await tx.query(
       `insert into ban_review
-       (id, ban_id, removal_id, user_id, name, reason, strikes, room_id, requested_by_user_id, requested_by_name, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       (id, ban_id, removal_id, user_id, name, reason, strikes, room_id, requested_by_user_id, requested_by_name, created_at, chat_removal_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         randomUUID(),
         id,
@@ -1127,6 +1208,7 @@ export async function writeBan(
         input.byUserId || null,
         input.byName,
         input.now,
+        input.chatRemovalId ?? null,
       ],
     );
   }
@@ -1758,7 +1840,9 @@ export async function banMember(
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
   const siteWide = permanentOnFirst(reason);
-  const ban = await writeBan(db, {
+  let ban: BanEntry;
+  try {
+    ban = await db.transaction((tx) => writeBan(tx, {
     userId: person.id,
     name: person.name,
     reason,
@@ -1768,7 +1852,11 @@ export async function banMember(
     now: input.now,
     roomId: siteWide ? "" : roomId,
     sourceRoomId: roomId,
-  });
+    }));
+  } catch (error) {
+    if (error instanceof Stop) return fail(error.status, error.message);
+    throw error;
+  }
   if (ban.pendingReview || siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };

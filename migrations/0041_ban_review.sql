@@ -22,3 +22,22 @@ create table if not exists ban_review (
 );
 
 create index if not exists ban_review_open_idx on ban_review (created_at) where status = 'open';
+
+-- A chat-line removal has no board_removal row; keep its id so clearing restores the line.
+alter table ban_review add column if not exists chat_removal_id text;
+create index if not exists ban_review_requested_idx on ban_review (requested_by_user_id, created_at);
+
+-- A cleared removal no longer counts as a strike.
+alter table board_removal add column if not exists cleared_at timestamptz;
+alter table room_chat_removal add column if not exists cleared_at timestamptz;
+
+-- Every admin decision on a review, including a reversal, in order.
+create table if not exists ban_review_event (
+  id text primary key,
+  review_id text not null references ban_review (id) on delete cascade,
+  decision text not null check (decision in ('closed', 'cleared')),
+  previous text not null check (previous in ('open', 'closed', 'cleared')),
+  by_user_id text references "user" (id) on delete set null,
+  at timestamptz not null default now()
+);
+create index if not exists ban_review_event_review_idx on ban_review_event (review_id, at);

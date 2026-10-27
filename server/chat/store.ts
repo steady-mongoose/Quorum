@@ -5,7 +5,7 @@ import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../boa
 import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
-import { bannedAdminStop, openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
+import { bannedAdminStop, openBan, Stop, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
@@ -303,7 +303,9 @@ export async function removeChatMessage(
   }
   const by = input.name.trim().slice(0, 80) || "Steward";
   const removalId = randomUUID();
-  const saved = await db.transaction(async (tx) => {
+  let saved;
+  try {
+  saved = await db.transaction(async (tx) => {
     const updated = await tx.query<{ id: string }>(
       `update room_chat_message set removed = true, removed_at = $2
        where id = $1 and removed = false
@@ -341,9 +343,14 @@ export async function removeChatMessage(
       now: input.now,
       roomId: siteWide ? "" : input.roomId,
       sourceRoomId: input.roomId,
+      chatRemovalId: removalId,
     });
     return { ban, siteWide };
   });
+  } catch (error) {
+    if (error instanceof Stop) return fail(error.status, error.message);
+    throw error;
+  }
   if (!saved) return fail(404, "That message is not here.");
   if (message.author_user_id) {
     if (saved.siteWide) evictCallMember(message.author_user_id);
