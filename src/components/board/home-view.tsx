@@ -337,10 +337,10 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={btnSignal} onClick={() => decide("approved")}>
+            <button type="button" className={`${btnSignal} min-h-[44px]`} onClick={() => decide("approved")}>
               Approve
             </button>
-            <button type="button" className={btnGhost} onClick={() => decide("refused")}>
+            <button type="button" className={`${btnGhost} min-h-[44px]`} onClick={() => decide("refused")}>
               Refuse
             </button>
           </div>

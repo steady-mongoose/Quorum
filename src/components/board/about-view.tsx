@@ -922,15 +922,15 @@ function AdminTools({
             );
           })}
         </fieldset>
+        <p className="text-sm text-muted sm:col-span-2">
+          A room needs a steward from the start. You approve; another member vouches.
+        </p>
         <StewardFields
           stewardEmail={stewardEmail}
           inviterEmail={inviterEmail}
           onSteward={setStewardEmail}
           onInviter={setInviterEmail}
         />
-        <p className="text-sm text-muted sm:col-span-2">
-          A room needs a steward from the start. You approve; another member vouches.
-        </p>
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
