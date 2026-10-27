@@ -108,3 +108,23 @@ test("admins-only visibility and the anonymous flag wait for permissions 0025", 
     true,
   );
 });
+
+test("links need a public hostname and a label cannot name another address", () => {
+  for (const url of [
+    "https://localhost/a",
+    "https://127.0.0.1/a",
+    "https://[::1]/a",
+    "https://10.0.0.5/",
+    "https://intranet/",
+    "https://printer.local/",
+    "https://bad_host.com/",
+    "https://-x.com/",
+  ]) {
+    assert.equal(parseHttpsUrl(url).ok, false, url);
+  }
+  assert.equal(parseHttpsUrl("https://bücher.de/").ok, true);
+  assert.equal(parseLinks([{ url: "https://evil.example.com/", label: "https://bank.com" }]).ok, false);
+  assert.equal(parseLinks([{ url: "https://evil.example.com/", label: "bank.com" }]).ok, false);
+  assert.equal(parseLinks([{ url: "https://www.church.org/", label: "church.org" }]).ok, true);
+  assert.equal(parseLinks([{ url: "https://church.org/", label: "Our parish" }]).ok, true);
+});

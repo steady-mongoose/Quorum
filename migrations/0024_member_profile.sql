@@ -177,3 +177,54 @@ alter table gender_audit add constraint gender_audit_action_check check (
     'change-birthdate'
   )
 );
+
+-- Correction requests. After onboarding a member cannot change their own
+-- gender or birthdate. They ask, with a reason, to fix an honest entry
+-- mistake. A different admin approves or refuses. Every step is a
+-- gender_audit row. The requested value is dropped when the account is
+-- deleted, because the row follows the user.
+create table if not exists profile_correction (
+  id text primary key,
+  user_id text not null references "user" (id) on delete cascade,
+  field text not null,
+  requested_value text not null,
+  reason text not null,
+  status text not null default 'pending',
+  decided_by text references "user" (id) on delete set null,
+  decided_note text not null default '',
+  created_at timestamptz not null default now(),
+  decided_at timestamptz
+);
+
+alter table profile_correction drop constraint if exists profile_correction_field_check;
+alter table profile_correction add constraint profile_correction_field_check
+  check (field in ('gender', 'birthdate'));
+alter table profile_correction drop constraint if exists profile_correction_status_check;
+alter table profile_correction add constraint profile_correction_status_check
+  check (status in ('pending', 'approved', 'refused', 'withdrawn'));
+alter table profile_correction drop constraint if exists profile_correction_text_len;
+alter table profile_correction add constraint profile_correction_text_len
+  check (char_length(reason) between 1 and 300
+    and char_length(requested_value) between 1 and 20
+    and char_length(decided_note) <= 300);
+
+-- One open request per field per member.
+create unique index if not exists profile_correction_open_idx
+  on profile_correction (user_id, field) where status = 'pending';
+create index if not exists profile_correction_queue_idx
+  on profile_correction (status, created_at);
+
+alter table gender_audit drop constraint if exists gender_audit_action_check;
+alter table gender_audit add constraint gender_audit_action_check check (
+  action in (
+    'set-gender',
+    'change-gender',
+    'confirm-gender',
+    'set-audience',
+    'audience-override',
+    'set-birthdate',
+    'change-birthdate',
+    'correction-request',
+    'correction-refuse'
+  )
+);
