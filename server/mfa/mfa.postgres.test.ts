@@ -726,3 +726,46 @@ test("a password-only session cannot reach DMs, invites, or account settings", a
     assert.notEqual(response.status, 403, `${method} ${path}`);
   }
 });
+
+test("an unenrolled admin or steward is refused on every non-member route", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const clock = { now: new Date("2026-10-27T19:00:00Z") };
+  const app = handler(clock);
+  const admin = await user({ name: "Plain Admin", email: "plain-admin@example.com", admin: true });
+  const steward = await user({ name: "Plain Steward", email: "plain-steward@example.com", stewardRoom: "shop" });
+  const routes: Array<[string, string]> = [
+    ["DELETE", "/api/gatherings/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+    ["POST", "/api/groups/carpentry/admins"],
+    ["POST", "/api/group-requests/abc"],
+    ["POST", "/api/group-appeals/abc"],
+    ["POST", "/api/zips"],
+    ["GET", "/api/appeals"],
+    ["GET", "/api/group-appeals"],
+    ["GET", "/api/group-requests"],
+    ["GET", "/api/admin/stats"],
+    ["PATCH", "/api/rooms/shop"],
+  ];
+  for (const person of [admin, steward]) {
+    for (const [method, path] of routes) {
+      const response = await app(
+        new Request(`http://127.0.0.1:8787${path}`, {
+          method,
+          headers: headers(person, "198.51.100.10"),
+          ...(method === "GET" ? {} : { body: "{}" }),
+        }),
+      );
+      const body = (await response.json()) as { error?: string; step?: string };
+      assert.equal(response.status, 403, `${person.name} ${method} ${path}`);
+      assert.equal(body.error, "mfa_required", `${person.name} ${method} ${path}`);
+      assert.equal(body.step, "enroll");
+    }
+  }
+  // A plain member route still works for them, so the app can show the enroll prompt.
+  const board = await app(
+    new Request("http://127.0.0.1:8787/api/board", { headers: headers(steward, "198.51.100.11") }),
+  );
+  assert.equal(board.status, 200);
+});

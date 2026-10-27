@@ -36,23 +36,52 @@ export function stepUpAction(pathname: string, method: string): StepUpAction | n
   return null;
 }
 
+const ID = "[A-Za-z0-9_-]{1,80}";
+const ROOM = "[a-z0-9-]{1,32}";
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
 /**
- * Steward, admin, and owner actions that stay closed until an authenticator
- * is on. Role grants, claim approval, and export are step-up instead, and
- * that check includes this enrollment rule.
+ * The routes a plain member uses. Anything not listed here, including any
+ * route added later, any GET of a moderation queue and any PUT or PATCH, is
+ * privileged: an owner, admin or steward needs an authenticator for it.
+ * Members are never required to enroll, so this list does not limit them.
+ */
+const MEMBER_ROUTES: Array<[string, RegExp]> = [
+  ["GET", /^\/api\/(board|home|place|gatherings|groups|claims|invite-log)$/],
+  ["GET", new RegExp(`^/api/groups/${ROOM}$`)],
+  ["GET", new RegExp(`^/api/groups/${ROOM}/log$`)],
+  ["GET", new RegExp(`^/api/rooms/${ROOM}/chat$`)],
+  ["GET", /^\/api\/categories(\/[a-z0-9-]{1,40})?$/],
+  ["GET", new RegExp(`^/api/gatherings/${UUID}$`, "i")],
+  ["GET", /^\/api\/calls(\/.*)?$/],
+  ["GET", /^\/api\/media\/.+$/],
+  ["GET", /^\/api\/dm(\/.*)?$/],
+  ["GET", /^\/api\/profiles?(\/.*)?$/],
+  ["POST", /^\/api\/(place|gender|invites|gatherings|room-requests|claims)$/],
+  ["POST", new RegExp(`^/api/rooms/${ROOM}/(posts|join|leave|chat)$`)],
+  ["POST", new RegExp(`^/api/posts/${ID}/(replies|revise|close|appeal)$`)],
+  ["POST", new RegExp(`^/api/group-posts/${ID}/appeal$`)],
+  ["POST", new RegExp(`^/api/groups/${ROOM}/(join|leave|posts)$`)],
+  ["POST", new RegExp(`^/api/claims/${UUID}/confirm$`, "i")],
+  ["POST", /^\/api\/calls(\/.*)?$/],
+  ["POST", /^\/api\/media\/uploads$/],
+  ["POST", /^\/api\/dm(\/.*)?$/],
+  ["DELETE", /^\/api\/dm(\/.*)?$/],
+];
+
+export function memberRoute(pathname: string, method: string): boolean {
+  return MEMBER_ROUTES.some(([verb, pattern]) => verb === method && pattern.test(pathname));
+}
+
+/**
+ * Deny by default. Every route that is not a plain member route stays closed
+ * to an owner, admin or steward until an authenticator is on. Role grants,
+ * claim approval and export are step-up on top of this.
  */
 export function privilegedPath(pathname: string, method: string): boolean {
-  if (method !== "POST" && method !== "DELETE") return false;
-  if (pathname === "/api/bans" || pathname === "/api/rooms" || pathname === "/api/rooms/seed")
-    return true;
-  if (pathname === "/api/gender/confirm") return true;
-  if (/^\/api\/rooms\/[a-z0-9-]{1,32}\/audience$/.test(pathname)) return true;
-  if (/^\/api\/appeals\/[A-Za-z0-9_-]{1,80}\/decide$/.test(pathname)) return true;
-  if (/^\/api\/csam-holds\/[A-Za-z0-9_-]{1,80}\/filed$/.test(pathname)) return true;
-  if (/^\/api\/room-requests\/[A-Za-z0-9_-]{1,80}\/decide$/.test(pathname)) return true;
-  if (/^\/api\/posts\/[A-Za-z0-9_-]{1,80}\/(mark|remove|council)$/.test(pathname)) return true;
-  if (/^\/api\/group-posts\/[A-Za-z0-9_-]{1,80}\/(mark|remove)$/.test(pathname)) return true;
-  return false;
+  if (method === "OPTIONS") return false;
+  if (mfaExempt(pathname, method)) return false;
+  return !memberRoute(pathname, method);
 }
 
 /** Password is enough for these. Everything else waits on the second step. */

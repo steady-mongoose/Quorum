@@ -180,7 +180,8 @@ export async function enforceMfa(deps: Deps, request: Request, url: URL): Promis
     });
   }
   const session = await deps.readSession(request.headers);
-  if (!session) return json(401, { error: "Sign in first." });
+  // No session, no second factor to ask for: the route answers its own 401.
+  if (!session) return null;
   const gate = await guardRequest(deps.db, ref(session), { stepUp, privileged }, deps.now());
   if (!gate) return null;
   return failureResponse(gate);

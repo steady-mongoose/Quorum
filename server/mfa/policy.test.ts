@@ -59,3 +59,38 @@ test("enrollment is allowed during the grace period and the hall is not", () => 
   assert.equal(privilegedPath("/api/bans", "POST"), true);
   assert.equal(privilegedPath("/api/board", "GET"), false);
 });
+
+test("privileged is deny by default: moderation reads, PUT/PATCH and unknown routes are gated", () => {
+  for (const [method, path] of [
+    ["DELETE", "/api/gatherings/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+    ["POST", "/api/groups/carpentry/admins"],
+    ["POST", "/api/groups/carpentry/stewards"],
+    ["POST", "/api/groups/carpentry/audience"],
+    ["POST", "/api/group-requests/abc"],
+    ["POST", "/api/group-appeals/abc"],
+    ["POST", "/api/zips"],
+    ["GET", "/api/appeals"],
+    ["GET", "/api/group-appeals"],
+    ["GET", "/api/group-requests"],
+    ["GET", "/api/admin/stats"],
+    ["POST", "/api/categories"],
+    ["PATCH", "/api/rooms/baptist"],
+    ["PUT", "/api/anything-new"],
+    ["GET", "/api/some-future-admin-queue"],
+    ["POST", "/api/rooms/shop/chat/abc/remove"],
+    ["POST", "/api/posts/abc/remove"],
+  ]) {
+    assert.equal(privilegedPath(path!, method!), true, `${method} ${path}`);
+  }
+  for (const [method, path] of [
+    ["GET", "/api/board"],
+    ["GET", "/api/home"],
+    ["POST", "/api/rooms/shop/posts"],
+    ["POST", "/api/posts/abc/replies"],
+    ["GET", "/api/dm/threads"],
+    ["GET", "/api/mfa/status"],
+    ["OPTIONS", "/api/bans"],
+  ]) {
+    assert.equal(privilegedPath(path!, method!), false, `${method} ${path}`);
+  }
+});
