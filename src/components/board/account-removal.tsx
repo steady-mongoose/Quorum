@@ -221,7 +221,7 @@ export function DeletionRequestQueue({
         Account deletion requests
       </h2>
       <p className="max-w-prose text-sm text-muted">
-        A member asked for the account to be deleted. Completing a request erases their posts.
+        A member asked for their account to be deleted. Completing a request erases that member's posts and closes the account. Posts under a hold or an open report are kept until that is finished.
       </p>
       <p role="status" className="text-sm text-muted">
         {done}
@@ -249,7 +249,7 @@ export function DeletionRequestQueue({
               </span>
               <button
                 type="button"
-                className={btnGhost}
+                className={cn(btnGhost, "min-h-[44px]")}
                 aria-label={`Complete ${request.name}'s deletion request`}
                 aria-disabled={busy || undefined}
                 onClick={() => !busy && setPending(request)}

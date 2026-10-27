@@ -74,6 +74,8 @@ test("an admin completes a request through a confirm dialog with Cancel first an
     await flush();
     const open = /** @type {HTMLButtonElement} */ ([...view.host.querySelectorAll("button")].find((b) => b.textContent === "Complete"));
     assert.equal(open.getAttribute("aria-label"), "Complete Maria's deletion request");
+    assert.match(open.className, /min-h-\[44px\]/);
+    assert.ok((view.host.textContent ?? "").includes("A member asked for their account to be deleted. Completing a request erases that member's posts and closes the account. Posts under a hold or an open report are kept until that is finished."));
     act(() => open.click());
     await flush();
     const dialog = /** @type {HTMLElement} */ (view.host.querySelector("dialog"));
