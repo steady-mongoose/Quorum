@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TakedownRouteImport } from './routes/takedown'
 import { Route as EIdRouteImport } from './routes/e/$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TakedownRoute = TakedownRouteImport.update({
+  id: '/takedown',
+  path: '/takedown',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EIdRoute = EIdRouteImport.update({
@@ -25,27 +31,31 @@ const EIdRoute = EIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/takedown': typeof TakedownRoute
   '/e/$id': typeof EIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/takedown': typeof TakedownRoute
   '/e/$id': typeof EIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/takedown': typeof TakedownRoute
   '/e/$id': typeof EIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/e/$id'
+  fullPaths: '/' | '/takedown' | '/e/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/e/$id'
-  id: '__root__' | '/' | '/e/$id'
+  to: '/' | '/takedown' | '/e/$id'
+  id: '__root__' | '/' | '/takedown' | '/e/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TakedownRoute: typeof TakedownRoute
   EIdRoute: typeof EIdRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/takedown': {
+      id: '/takedown'
+      path: '/takedown'
+      fullPath: '/takedown'
+      preLoaderRoute: typeof TakedownRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/e/$id': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TakedownRoute: TakedownRoute,
   EIdRoute: EIdRoute,
 }
 export const routeTree = rootRouteImport

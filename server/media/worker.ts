@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { isBlockedHash } from "../takedown/block.ts";
 import type { Db } from "../db.ts";
 import { imageBounds, ImageBoundsError } from "../../src/lib/media/bounds.ts";
 import { VIDEO_MS } from "../../src/lib/media/limits.ts";
@@ -142,6 +144,10 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
     }
     const raw = await deps.store.get(row.upload_key);
     if (!raw) throw new MediaReject("The upload has not arrived.");
+    const sourceSha256 = createHash("sha256").update(raw).digest("hex");
+    if (await isBlockedHash(deps.db, sourceSha256)) {
+      throw new MediaReject("That file was removed from Avouch and cannot be uploaded again.");
+    }
     if (row.kind === "image") {
       let stripped: Uint8Array;
       try {
@@ -171,6 +177,7 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
         fileKey,
         thumbKey,
         now: deps.now(),
+        sourceSha256,
       });
     } else {
       const processed = await deps.tools.processVideo(raw);
@@ -189,6 +196,7 @@ export async function runOneMediaJob(deps: WorkerDeps): Promise<"idle" | "done" 
         fileKey,
         thumbKey,
         now: deps.now(),
+        sourceSha256,
       });
     }
     await finishJob(deps.db, job.id);

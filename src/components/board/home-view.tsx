@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ClaimsPanel } from "@/components/board/claims-queue";
+import { TakedownPanel } from "@/components/takedown/takedown-queue";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
@@ -164,6 +165,7 @@ export function HomePanel() {
       </details>
 
       <ClaimsPanel />
+      <TakedownPanel />
 
       {home.requests.length > 0 ? (
         <details className="rounded-lg border border-line bg-surface p-4" open>

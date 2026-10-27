@@ -1,0 +1,171 @@
+import assert from "node:assert/strict";
+import { register } from "node:module";
+import test from "node:test";
+
+await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
+
+const { GlobalWindow } = await import("happy-dom");
+const window = new GlobalWindow({ url: "http://localhost/", width: 1440, height: 900 });
+const browser = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window));
+for (const key of [
+  "window",
+  "document",
+  "HTMLElement",
+  "HTMLButtonElement",
+  "HTMLFormElement",
+  "HTMLInputElement",
+  "HTMLTextAreaElement",
+  "HTMLLabelElement",
+  "Node",
+  "Element",
+  "DocumentFragment",
+  "MutationObserver",
+  "Event",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+]) {
+  const value = key === "window" ? window : browser[key];
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    writable: true,
+    value: typeof value === "function" ? value.bind(window) : value,
+  });
+}
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+const { createElement, act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { TakedownPage, GOOD_FAITH_STATEMENT } = await import("../../components/takedown/takedown-page.tsx");
+const { TakedownQueue } = await import("../../components/takedown/takedown-queue.tsx");
+const { countdownLabel, isUrgent } = await import("./countdown.ts");
+
+const flush = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  });
+};
+
+/** @param {HTMLElement} host @param {string} label */
+function input(host, label) {
+  const found = [...host.querySelectorAll("label")].find((el) => el.textContent?.includes(label));
+  assert.ok(found, label);
+  return /** @type {HTMLInputElement} */ (found.querySelector("input, textarea"));
+}
+
+test("countdown text and urgency", () => {
+  const now = 0;
+  assert.equal(countdownLabel(48 * 3600_000, now), "48 h 0 min left");
+  assert.equal(countdownLabel(40 * 60_000, now), "40 min left");
+  assert.equal(countdownLabel(-(2 * 3600_000 + 10 * 60_000), now), "Overdue by 2 h 10 min");
+  assert.equal(isUrgent(13 * 3600_000, now), false);
+  assert.equal(isUrgent(11 * 3600_000, now), true);
+});
+
+test("the public page explains the process and shows the request ID after sending", async () => {
+  /** @type {any[]} */
+  const sent = [];
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(TakedownPage, {
+        submit: async (body) => {
+          sent.push(body);
+          return { ok: true, id: "TD-ABCDEFGHJK", mailed: true };
+        },
+      }),
+    );
+  });
+  assert.match(host.textContent ?? "", /Within 48 hours/);
+  assert.ok((host.textContent ?? "").includes(GOOD_FAITH_STATEMENT));
+  for (const [label, value] of [
+    ["Your name", "Rae"],
+    ["Email for our reply", "rae@example.com"],
+    ["Link to the image", "https://avouchsocial.com/m/1"],
+    ["Signature", "Rae"],
+  ]) {
+    input(host, label).value = value;
+  }
+  input(host, "good faith").checked = true;
+  act(() => {
+    /** @type {HTMLFormElement} */ (host.querySelector("form")).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+  });
+  await flush();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].goodFaith, true);
+  assert.equal(sent[0].signature, "Rae");
+  assert.match(host.querySelector('[role="status"]')?.textContent ?? "", /TD-ABCDEFGHJK/);
+  assert.match(host.textContent ?? "", /emailed it to you/);
+  act(() => root.unmount());
+  host.remove();
+});
+
+test("an error from the server is shown and the form stays", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(TakedownPage, {
+        submit: async () => /** @type {const} */ ({ ok: false, error: "Enter your name." }),
+      }),
+    );
+  });
+  act(() => {
+    /** @type {HTMLFormElement} */ (host.querySelector("form")).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+  });
+  await flush();
+  assert.equal(host.querySelector('[role="alert"]')?.textContent, "Enter your name.");
+  assert.ok(host.querySelector("form"));
+  act(() => root.unmount());
+  host.remove();
+});
+
+test("the admin queue shows each open request with its countdown", async () => {
+  const now = Date.UTC(2026, 9, 27, 12);
+  /** @param {string} id @param {number} hoursLeft @returns {any} */
+  const row = (id, hoursLeft) => ({
+    id,
+    requesterName: "Rae",
+    requesterEmail: "rae@example.com",
+    requesterPhone: "",
+    contentUrl: "",
+    description: "In the shop room.",
+    signature: "Rae",
+    status: "open",
+    removedCount: 0,
+    decisionNote: "",
+    createdAt: now,
+    dueAt: now + hoursLeft * 3600_000,
+  });
+  /** @type {any[]} */
+  const removed = [];
+  /** @type {any} */
+  const api = {
+    list: async () => ({ ok: true, rows: [row("TD-AAAAAAAAAA", 40), row("TD-BBBBBBBBBB", -1)] }),
+    remove: async (/** @type {string} */ id, /** @type {string[]} */ media, /** @type {string} */ note) => {
+      removed.push({ id, media, note });
+      return "";
+    },
+    decline: async () => "",
+  };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(createElement(TakedownQueue, { api, now }));
+  });
+  await flush();
+  const counts = [...host.querySelectorAll("[data-countdown]")].map((el) => el.textContent);
+  assert.deepEqual(counts, ["40 h 0 min left", "Overdue by 1 h 0 min"]);
+  const buttons = [...host.querySelectorAll("button")];
+  assert.ok(buttons.some((b) => b.getAttribute("aria-label") === "Remove files for TD-AAAAAAAAAA"));
+  act(() => root.unmount());
+  host.remove();
+});

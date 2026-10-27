@@ -116,12 +116,15 @@ export async function markReady(
     fileKey: string;
     thumbKey: string;
     now: Date;
+    /** SHA-256 of the uploaded bytes, so identical copies can be found. Empty for sealed DM files. */
+    sourceSha256?: string;
   },
 ): Promise<void> {
   await db.query(
     `update media_object
      set status = 'ready', byte_size = $2, content_type = $3, duration_ms = $4,
-         file_key = $5, thumb_key = $6, ready_at = $7, reject_reason = ''
+         file_key = $5, thumb_key = $6, ready_at = $7, reject_reason = '',
+         source_sha256 = $8
      where id = $1`,
     [
       input.id,
@@ -131,6 +134,7 @@ export async function markReady(
       input.fileKey,
       input.thumbKey,
       input.now.toISOString(),
+      input.sourceSha256 ?? "",
     ],
   );
 }
