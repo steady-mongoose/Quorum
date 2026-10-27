@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
 import type {
   AppealRow,
@@ -29,12 +30,18 @@ function failure(json: unknown, fallback: string): BoardFailure {
   };
   const codeText = typeof record.error === "string" ? record.error : "";
   const message = typeof record.message === "string" ? record.message : "";
+  const raw = codeText || fallback;
+  // "banned" stays a code so the board can swap in the barred-account sentence.
   const error =
     (codeText === "mfa_required" || codeText === "mfa_step_up" || codeText === "mfa_locked") && message
       ? message
-      : codeText || fallback;
+      : raw === "banned"
+        ? raw
+        : userFacingError(raw, fallback);
   const stops = Array.isArray(record.stops)
-    ? record.stops.filter((item): item is string => typeof item === "string")
+    ? record.stops
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => userFacingError(item, fallback))
     : undefined;
   const code =
     record.code === "gender-unstated" || record.code === "gender-unconfirmed" ? record.code : undefined;

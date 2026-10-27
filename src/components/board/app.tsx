@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { userFacingError } from "@/lib/board/errors";
 import { UNDO_BAR_MS, UNDO_TTL_MS, useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
@@ -280,9 +281,23 @@ function BoardShell() {
           </div>
         </div>
       </header>
-      {boardError ? (
-        <div className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal">
-          <p>{boardError}</p>
+      {boardError && shown !== "find" ? (
+        <div
+          role="alert"
+          className="border-b border-signal bg-surface px-[clamp(1rem,4vw,4rem)] py-2 text-sm text-signal"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              {userFacingError(boardError, "That did not go through. Please try again in a moment.")}
+            </p>
+            <button
+              type="button"
+              className={cn(btnQuiet, "min-h-[44px]")}
+              onClick={() => useBoard.setState({ boardError: "", failedRemovalNames: [] })}
+            >
+              Dismiss
+            </button>
+          </div>
           {boardError === "This account is barred from the board." && ownAppeals.length > 0 ? (
             <ul className="mt-1 text-muted">
               {ownAppeals.map((row) => (

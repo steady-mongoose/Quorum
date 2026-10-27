@@ -2,6 +2,7 @@
 // A score, a like, or a reshare on the wire is dropped and never used to sort.
 
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { OBJECT_ID, ROOM_ID } from "../media/limits.ts";
 
 export type GroupSummary = {
@@ -269,7 +270,7 @@ function errorText(json: unknown, fallback: string): string {
   if (!error || error === "banned") {
     return error === "banned" ? "You are barred from that group." : fallback;
   }
-  return error;
+  return userFacingError(error, fallback);
 }
 
 async function call(
