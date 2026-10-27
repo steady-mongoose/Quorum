@@ -44,9 +44,14 @@ export function DmReportControl({
   const firstReason = useRef<HTMLInputElement>(null);
   const status = useRef<HTMLParagraphElement>(null);
   const id = useId();
+  const cancelled = useRef(false);
 
   useEffect(() => {
     if (open) firstReason.current?.focus();
+    else if (cancelled.current) {
+      cancelled.current = false;
+      toggle.current?.focus();
+    }
   }, [open]);
   useEffect(() => {
     if (done) status.current?.focus();
@@ -160,13 +165,19 @@ export function DmReportControl({
           type="button"
           className={btnGhost}
           onClick={() => {
+            cancelled.current = true;
             setOpen(false);
             setError("");
           }}
         >
           Cancel
         </button>
-        <button type="submit" className={btnSignal} disabled={busy} aria-busy={busy || undefined}>
+        <button
+          type="submit"
+          className={btnSignal}
+          aria-disabled={busy || undefined}
+          aria-busy={busy || undefined}
+        >
           Send the report
         </button>
       </div>
@@ -175,6 +186,17 @@ export function DmReportControl({
 }
 
 const REASON_LABEL = new Map(DM_REPORT_REASONS.map((item) => [item.value, item.label]));
+
+export const DM_REPORT_CLOSED = "Report closed.";
+
+/** Names which report a repeated button acts on, e.g. "Dismiss Rae's report about Bo". */
+export function dmReportActionLabel(
+  resolution: "resolved" | "dismissed",
+  row: Pick<DmReportRow, "reporterName" | "reportedName" | "at">,
+): string {
+  const verb = resolution === "resolved" ? "Mark resolved:" : "Dismiss:";
+  return `${verb} ${row.reporterName}'s report about ${row.reportedName}, ${new Date(row.at).toLocaleString()}`;
+}
 
 /** Admins only: open DM reports, most severe first. */
 export function DmReportQueue({
@@ -186,6 +208,12 @@ export function DmReportQueue({
 }) {
   const [rows, setRows] = useState<DmReportRow[] | null>(null);
   const [error, setError] = useState("");
+  const [announce, setAnnounce] = useState("");
+  const [closedCount, setClosedCount] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (closedCount) heading.current?.focus();
+  }, [closedCount]);
   useEffect(() => {
     let live = true;
     void load().then((result) => {
@@ -199,7 +227,12 @@ export function DmReportQueue({
   }, [load]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h3 className="text-lg text-fg">Message reports</h3>
+      <h3 ref={heading} tabIndex={-1} className="text-lg text-fg">
+        Message reports
+      </h3>
+      <p role="status" className="text-sm text-muted">
+        {announce}
+      </p>
       <p className="max-w-prose text-sm text-muted">
         Messages are encrypted. You see only the text a reporter chose to share, as they shared it.
         A reported message is kept until you close the report.
@@ -233,10 +266,18 @@ export function DmReportQueue({
                     key={resolution}
                     type="button"
                     className={btnGhost}
+                    aria-label={dmReportActionLabel(resolution, row)}
                     onClick={() => {
+                      setAnnounce("");
                       void close(row.id, resolution).then((result) => {
-                        if (!result.ok) setError(result.error);
-                        else setRows((current) => (current ?? []).filter((item) => item.id !== row.id));
+                        if (!result.ok) {
+                          setError(result.error);
+                          return;
+                        }
+                        setError("");
+                        setRows((current) => (current ?? []).filter((item) => item.id !== row.id));
+                        setAnnounce(DM_REPORT_CLOSED);
+                        setClosedCount((n) => n + 1);
                       });
                     }}
                   >

@@ -148,3 +148,61 @@ test("the admin message-report queue shows shared text and closes a report", asy
     view.cleanup();
   }
 });
+
+test("design review: Cancel returns focus, Send uses aria-disabled, queue buttons name the report, closing announces", async () => {
+  /** @type {(value: any) => void} */
+  let finish = () => {};
+  const view = mount(
+    createElement(DmReportControl, /** @type {any} */ ({
+      messageId: "m1",
+      text: "hi",
+      send: () => new Promise((resolve) => { finish = resolve; }),
+    })),
+  );
+  try {
+    act(() => button(view.host, copy.DM_REPORT_BUTTON).click());
+    await flush();
+    act(() => button(view.host, "Cancel").click());
+    await flush();
+    assert.equal(document.activeElement?.textContent, copy.DM_REPORT_BUTTON);
+
+    act(() => button(view.host, copy.DM_REPORT_BUTTON).click());
+    await flush();
+    const radio = /** @type {HTMLInputElement} */ (view.host.querySelector('input[type="radio"]'));
+    act(() => radio.click());
+    const send = button(view.host, "Send the report");
+    act(() => { /** @type {HTMLFormElement} */ (view.host.querySelector("form")).requestSubmit(); });
+    await flush();
+    assert.equal(send.disabled, false);
+    assert.equal(send.getAttribute("aria-disabled"), "true");
+    finish({ ok: true, value: { id: "r1" } });
+    await flush();
+  } finally {
+    view.cleanup();
+  }
+
+  const rows = [
+    { id: "a", reason: "threat", note: "", sharedText: "", reporterName: "Ann", reportedName: "Ben", messageSentAt: 1, messageKept: true, at: 1 },
+    { id: "b", reason: "threat", note: "", sharedText: "", reporterName: "Cal", reportedName: "Dee", messageSentAt: 1, messageKept: true, at: 2 },
+  ];
+  const queue = mount(
+    createElement(DmReportQueue, /** @type {any} */ ({
+      load: async () => ({ ok: true, value: rows }),
+      close: async () => ({ ok: true, value: { ok: true } }),
+    })),
+  );
+  try {
+    await flush();
+    const names = [...queue.host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? "");
+    assert.equal(new Set(names).size, 4, "every button has its own name");
+    assert.ok(names.some((name) => name.startsWith("Dismiss: Cal's report about Dee")));
+    assert.ok(names.some((name) => name.startsWith("Mark resolved: Ann's report about Ben")));
+    const dismiss = [...queue.host.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Dismiss: Cal"));
+    act(() => /** @type {HTMLButtonElement} */ (dismiss).click());
+    await flush();
+    assert.equal(queue.host.querySelector('[role="status"]')?.textContent, "Report closed.");
+    assert.equal(document.activeElement?.textContent?.trim(), "Message reports");
+  } finally {
+    queue.cleanup();
+  }
+});
