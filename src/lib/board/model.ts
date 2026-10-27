@@ -1,6 +1,7 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
   hasHeadcount,
@@ -76,6 +77,12 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** Every category this room is listed in. */
+  categoryIds: string[];
+  /** Set when a steward of this room has pinned it. Absent means alphabetical. */
+  pinOrder?: number | null;
+  /** The signed-in member keeps this room on their list. */
+  joined?: boolean;
   /** Omitted on a local room. Draft and unclaimed stay off the public page. */
   status?: "draft" | "unclaimed" | "active";
   town?: string;
@@ -257,6 +264,36 @@ export const RULE_LABEL: Record<HardRule, string> = {
   doxxing: "Doxxing",
   blasphemy: "Mocking God or Christ",
 };
+/**
+ * Wording for the hard-removal confirmation. Every rule asks first, and
+ * Cancel holds focus, so one misclick cannot bar or ban anyone.
+ */
+/** Lowercases only the first letter, so God's name keeps its capital. */
+function lowerFirst(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+export function removalConfirm(
+  rule: HardRule,
+  target: "post" | "message",
+): { title: string; description: string; confirmLabel: string; cancelLabel: string } {
+  const thing = target === "post" ? "post" : "chat message";
+  if (rule === "csam") {
+    return {
+      title: `Remove this ${thing} as child sexual abuse material?`,
+      description:
+        "The account is banned from the whole site at once, and the file is held for the CyberTipline report without anyone opening it. This can't be undone.",
+      confirmLabel: "Remove and ban",
+      cancelLabel: "Cancel",
+    };
+  }
+  return {
+    title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
+    description: `The ${thing} comes down and the author can't post in this room for 30 days. A second removal closes the account. The author can appeal.`,
+    confirmLabel: "Remove",
+    cancelLabel: "Cancel",
+  };
+}
 /** One sentence a steward can apply the same way to every member. */
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat: "A threat of violence is removed.",
@@ -275,7 +312,7 @@ export const MARK_LABEL: Record<Mark, string> = {
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
-export const ROOMS: Room[] = [
+const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
     id: "county",
     name: "The County",
@@ -387,6 +424,15 @@ export const ROOMS: Room[] = [
     parish: false,
   },
 ];
+
+const SAMPLE_JOINED = new Set(["county", "shop"]);
+
+export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
+  ...entry,
+  categoryIds: [categoryForRoom(entry.id)],
+  pinOrder: null,
+  joined: SAMPLE_JOINED.has(entry.id),
+}));
 
 /** Room ids shipped in code. A group cannot take one, even if the row is missing. */
 export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));
@@ -1101,4 +1147,19 @@ export function threadIdFor(a: string, b: string): string {
 
 export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
+}
+
+/**
+ * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
+ * admins see everything; anyone else sees only their own name. The lists live
+ * on this device today (the server never sends them), so this runs where the
+ * views assemble their board data.
+ */
+export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+  if (viewer.admin) return card;
+  return {
+    ...card,
+    going: (card.going ?? []).filter((name) => name === viewer.name),
+    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
+  };
 }

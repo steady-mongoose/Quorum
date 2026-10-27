@@ -33,3 +33,13 @@ test("evictCallMember is the hook a ban or a removal calls", () => {
     );
   assert.equal(store.poll("county", "ada", 0, 1).ok, false);
 });
+
+test("a ban revokes minted TURN credentials too", async () => {
+  const { bindTurnRelease, evictCallMember } = await import("./evict.ts");
+  const seen: string[] = [];
+  bindTurnRelease((userId, prefix) => seen.push(`${userId}:${prefix ?? "*"}`));
+  evictCallMember("ada");
+  evictCallMember("bob", ["shop"]);
+  bindTurnRelease(null);
+  assert.deepEqual(seen, ["ada:*", "bob:shop#"]);
+});

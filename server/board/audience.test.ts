@@ -193,6 +193,7 @@ test("a restricted room is enforced on every path, and a steward override is log
       id: "bench",
       name: "The bench",
       what: "A room for the men who work the bench.",
+      categoryIds: ["men"],
       audience: "men",
       now,
     });
@@ -603,6 +604,7 @@ test("an inviter can set a gender, and confirmation is required only when the po
       id: "brothers",
       name: "Brothers",
       what: "A room that waits for a confirmed gender.",
+      categoryIds: ["men"],
       audience: "men",
       now,
     });
@@ -822,6 +824,7 @@ test("a group follows its room live, and a group with no source room can be set 
       id: "brothers",
       name: "Brothers",
       what: "A room for the men.",
+      categoryIds: ["men"],
       audience: "men",
       now,
     });
@@ -884,6 +887,7 @@ test("a gathering in a restricted room is not created, read, shared, or attended
       id: "sisters",
       name: "Sisters",
       what: "A room for the women.",
+      categoryIds: ["women"],
       audience: "women",
       now,
     });
