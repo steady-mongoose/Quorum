@@ -57,7 +57,7 @@ const HOW = [
   },
   {
     title: "The week",
-    text: "The front page is the next seven days: which meetings are on and where. Who's coming stays private. Only admins see the list. Press \"I'll be there\" on the ones you will attend.",
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. Only admins see the list. Press "I\'ll be there" on the ones you will attend.',
   },
   {
     title: "After a meeting",
@@ -96,6 +96,7 @@ const HOW = [
     text: "Home lists the rooms you joined, then your ZIP town, then your congregation, then farther out. Inside a room, posts stay newest first. A council approval adds the label Council-approved. It does not rank the post.",
   },
 ];
+
 
 export function AboutView() {
   const me = useBoard((state) => state.me);
@@ -777,9 +778,7 @@ function RoleForm({
   };
   return (
     <details className="rounded-md border border-line p-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">
-        {title}
-      </summary>
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-base text-fg">{title}</summary>
       <form
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
@@ -1125,15 +1124,7 @@ function AdminTools({
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({
-            id,
-            name,
-            what,
-            categoryIds,
-            audience,
-            stewardEmail,
-            inviterEmail,
-          }).then((result) => {
+          void createRoom({ id, name, what, categoryIds, audience, stewardEmail, inviterEmail }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
