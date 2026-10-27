@@ -275,7 +275,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       userId: tom,
       name: "Tom",
       postId: again.value.id,
-      reason: "porn",
+      reason: "threat",
       now: later,
     });
     assert.equal(second.ok, true);
@@ -965,7 +965,7 @@ test("a room bar drops that room's call, and an admin bar drops every live call"
       userId: steward,
       name: "Tom",
       email: "ruth-call@example.com",
-      reason: "porn",
+      reason: "threat",
       roomId: "shop",
       now,
     });
@@ -1398,6 +1398,49 @@ test("a CSAM removal is never room-scoped", async () => {
     if (board.ok) return;
     assert.equal(board.error, "banned");
     assert.equal(board.ban?.reason, "csam");
+  } finally {
+    await close();
+  }
+});
+
+test("pornography closes the account site-wide on the first removal; a threat is 30 days in the room", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const sam = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-porn@example.com");
+    await user(db, sam, "Sam", "sam-threat@example.com");
+    await user(db, tom, "Tom", "tom-porn@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, sam, "Sam", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    for (const [who, name, reason] of [
+      [maria, "Maria", "porn"],
+      [sam, "Sam", "threat"],
+    ] as const) {
+      const posted = await createPost(db, { userId: who, name, roomId: "shop", body: did, now });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason, now });
+      assert.equal(removed.ok, true, JSON.stringify(removed));
+    }
+    const rows = await db.query<{ user_id: string; room_id: string; strikes: number; until_at: Date }>(
+      `select user_id, room_id, strikes, until_at from board_ban where user_id in ($1, $2)`,
+      [maria, sam],
+    );
+    const porn = rows.find((row) => row.user_id === maria)!;
+    const threat = rows.find((row) => row.user_id === sam)!;
+    assert.equal(porn.room_id, "");
+    assert.equal(porn.strikes, 1);
+    const years = (new Date(porn.until_at).getTime() - now.getTime()) / (365 * 24 * 3600 * 1000);
+    assert.ok(years > 99, `porn bar lasts ${years} years`);
+    assert.equal(threat.room_id, "shop");
+    const days = (new Date(threat.until_at).getTime() - now.getTime()) / (24 * 3600 * 1000);
+    assert.equal(Math.round(days), 30);
+    const county = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now });
+    assert.equal(county.ok, false);
   } finally {
     await close();
   }

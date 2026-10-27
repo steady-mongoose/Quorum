@@ -244,20 +244,21 @@ export type DmMessage = {
 };
 
 export const RULE_LABEL: Record<HardRule, string> = {
-  threat: "Threat of violence",
+  threat: "Calls for violence, threats, or plans to attack or intimidate",
   porn: "Pornography",
   csam: "Child sexual abuse material",
   doxxing: "Doxxing",
-  blasphemy: "Mocking God or Christ",
+  blasphemy: "Blasphemy (mocking God or Christ)",
 };
 /** One sentence a steward can apply the same way to every member. */
 export const RULE_SENTENCE: Record<HardRule, string> = {
-  threat: "A threat of violence is removed.",
-  porn: "Pornography is removed.",
-  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel.",
+  threat:
+    "A call for violence, a threat, or a plan or instructions to attack or intimidate someone is removed.",
+  porn: "Pornography is removed and the account is closed for good the first time.",
+  csam: "Child sexual abuse material is removed at once, the account is closed for good the first time, and the evidence is held for one year, pending counsel.",
   doxxing:
     "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
-  blasphemy: "A post that mocks God or Christ is removed.",
+  blasphemy: "Blasphemy, a post that mocks God or Christ, is removed.",
 };
 export const MARK_LABEL: Record<Mark, string> = {
   sloppy: "Sloppy",

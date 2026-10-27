@@ -52,3 +52,16 @@ test("posts are English", () => {
   assert.equal(isEnglish("Слышал это в сети."), false);
   assert.equal(isEnglish("道路が閉まっている。"), false);
 });
+
+test("the removal list names every rule, and porn and CSAM are permanent on the first offense", async () => {
+  const { PERMANENT_ON_FIRST, permanentOnFirst } = await import("./text.ts");
+  const { RULE_LABEL, RULE_SENTENCE } = await import("./model.ts");
+  assert.deepEqual([...PERMANENT_ON_FIRST], ["porn", "csam"]);
+  assert.equal(permanentOnFirst("porn"), true);
+  assert.equal(permanentOnFirst("csam"), true);
+  for (const rule of ["threat", "doxxing", "blasphemy"]) assert.equal(permanentOnFirst(rule), false);
+  assert.match(RULE_LABEL.threat, /Calls for violence, threats, or plans to attack or intimidate/);
+  assert.match(RULE_LABEL.blasphemy, /^Blasphemy/);
+  assert.match(RULE_SENTENCE.porn, /closed for good the first time/);
+  assert.match(RULE_SENTENCE.csam, /closed for good the first time/);
+});

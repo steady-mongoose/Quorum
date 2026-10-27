@@ -43,6 +43,17 @@ export function looksLikeBlasphemy(value: string): boolean {
 }
 
 export const HARD_RULES = ["threat", "porn", "csam", "doxxing", "blasphemy"] as const;
+
+/**
+ * Pornography and child sexual abuse material close the account on the first
+ * offense, site-wide. Every other rule is a 30-day bar first and closes the
+ * account on a second removal.
+ */
+export const PERMANENT_ON_FIRST = ["porn", "csam"] as const;
+
+export function permanentOnFirst(value: string): boolean {
+  return value === "porn" || value === "csam";
+}
 export type HardRuleValue = (typeof HARD_RULES)[number];
 
 export function isHardRule(value: unknown): value is HardRuleValue {

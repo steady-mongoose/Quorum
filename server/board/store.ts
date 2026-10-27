@@ -3,7 +3,13 @@ import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
-import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
+import {
+  isEnglish,
+  isHardRule,
+  isMarkValue,
+  permanentOnFirst,
+  type MarkValue,
+} from "../../src/lib/board/text.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
 import { actorRole, councilFlags, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
@@ -826,7 +832,7 @@ export async function writeBan(
   const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
   const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
   const until = new Date(
-    input.now.getTime() + (input.reason === "csam" || strikes >= 2 ? CLOSED_MS : BAN_MS),
+    input.now.getTime() + (permanentOnFirst(input.reason) || strikes >= 2 ? CLOSED_MS : BAN_MS),
   );
   const id = randomUUID();
   await tx.query(
@@ -1334,7 +1340,7 @@ export async function removePost(
           input.now,
         ],
       );
-      const siteWide = actor.admin || reason === "csam";
+      const siteWide = actor.admin || permanentOnFirst(reason);
       return writeBan(tx, {
         userId: post.author_user_id,
         name: post.author_name,
@@ -1350,7 +1356,7 @@ export async function removePost(
     heldKeys.length = 0;
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
+    if (actor.admin || permanentOnFirst(reason)) evictCallMember(post.author_user_id);
     else
       evictCallMember(post.author_user_id, [
         post.room_id,
@@ -1462,7 +1468,7 @@ export async function banMember(
   if (!(await offendedInRoom(db, person.id, roomId))) {
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
-  const siteWide = reason === "csam";
+  const siteWide = permanentOnFirst(reason);
   const ban = await writeBan(db, {
     userId: person.id,
     name: person.name,

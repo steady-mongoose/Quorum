@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
+import { isEnglish, isHardRule, permanentOnFirst } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
@@ -325,7 +325,7 @@ export async function removeChatMessage(
       ],
     );
     if (!message.author_user_id) return { ban: null, siteWide: false };
-    const siteWide = gate.value.admin || reason === "csam";
+    const siteWide = gate.value.admin || permanentOnFirst(reason);
     const ban = await writeBan(tx, {
       userId: message.author_user_id,
       name: message.author_name,

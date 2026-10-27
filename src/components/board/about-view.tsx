@@ -77,7 +77,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal closes the account. Pornography closes the account for good the first time, everywhere on Avouch. Child sexual abuse material is removed at once, the account is closed for good, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -195,7 +195,8 @@ export function AboutView() {
         </dl>
         <p className="max-w-prose text-sm text-muted">
           Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}. A second
-          removal closes the account. Child sexual abuse material closes it the first time.
+          removal closes the account. Pornography and child sexual abuse material close it the first
+          time, everywhere on Avouch.
         </p>
         <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
           {RULES.map((rule) => (
