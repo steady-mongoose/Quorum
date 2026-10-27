@@ -30,5 +30,6 @@ test("About finds your removals by user id on the server, not by name", () => {
   const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(about, /row\.author === authorName\(me\)/);
   assert.match(about, /isMyRemoval\(row, \{ remote, name: authorName\(me\) \}\)/);
-  assert.match(about, /viewer\.remote \? row\.mine === true : row\.author === viewer\.name/);
+  const owner = readFileSync(new URL("./removal-owner.ts", import.meta.url), "utf8");
+  assert.match(owner, /viewer\.remote \? row\.mine === true : row\.author === viewer\.name/);
 });
