@@ -235,6 +235,14 @@ test("a chat flag shows the line's id, room and time, never its text", async () 
   assert.match(text, /Room shop/);
   assert.match(text, /sent /);
   assert.equal(/post\s*$/.test(text), false);
-  assert.ok(host.querySelector('[aria-label="Preserve and remove chat line c42"]'));
+  const remove = /** @type {HTMLButtonElement} */ (host.querySelector('[aria-label="Preserve and remove chat line c42"]'));
+  assert.ok(remove.className.includes("min-h-[44px]"));
+  act(() => remove.click());
+  await flush();
+  assert.ok((host.textContent ?? "").includes(queue.REMOVE_FLAGGED_CHAT_CONFIRM));
+  assert.equal((host.textContent ?? "").includes(queue.REMOVE_FLAGGED_CONFIRM), false);
+  act(() => dialogConfirm(host).click());
+  await flush();
+  assert.equal(host.querySelector('[role="status"]')?.textContent, queue.REMOVE_FLAGGED_CHAT_DONE);
   done();
 });

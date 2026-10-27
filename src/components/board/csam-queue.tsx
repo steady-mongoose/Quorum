@@ -21,6 +21,10 @@ export const LEGAL_HOLD_NOTE_LABEL = "Who asked for the hold, and why";
 export const LEGAL_HOLD_NOTE_ERROR = "Say who asked for the hold, and why.";
 export const REMOVE_FLAGGED_CONFIRM =
   "Preserve and remove this post? Its files are sealed unopened for NCMEC and the post comes down.";
+export const REMOVE_FLAGGED_CHAT_CONFIRM =
+  "Preserve and remove this chat line? Its record is sealed unopened for NCMEC and the line comes down.";
+export const REMOVE_FLAGGED_DONE = "Post preserved and removed.";
+export const REMOVE_FLAGGED_CHAT_DONE = "Chat line preserved and removed.";
 export const RELEASE_LAWYER_LABEL = "Lawyer who signed off (required)";
 export const RELEASE_REFERENCE_LABEL = "Lawyer's reference (required)";
 export const RELEASE_HINT =
@@ -39,7 +43,7 @@ type Pending =
   | { kind: "file"; holdId: string; reportId: string }
   | { kind: "release"; holdId: string; lawyer: string; reference: string }
   | { kind: "grant" | "revoke"; userId: string; name: string }
-  | { kind: "remove"; flagId: string };
+  | { kind: "remove"; flagId: string; chat: boolean };
 
 function when(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -101,7 +105,10 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
     if (pending.kind === "file") void run(() => api.file(pending.holdId, pending.reportId), true);
     else if (pending.kind === "release")
       void run(() => api.releaseHold(pending.holdId, pending.lawyer, pending.reference), true, RELEASE_DONE);
-    else if (pending.kind === "remove") void run(() => api.removeFlagged(pending.flagId), true);
+    else if (pending.kind === "remove") {
+      const { flagId, chat } = pending;
+      void run(() => api.removeFlagged(flagId), true, chat ? REMOVE_FLAGGED_CHAT_DONE : REMOVE_FLAGGED_DONE);
+    }
     else void run(() => api.custodian(pending.userId, pending.kind === "grant"));
   };
 
@@ -115,7 +122,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
           : pending?.kind === "revoke"
             ? { title: "CSAM custodian", text: revokeConfirm(pending.name), label: "Remove custodian" }
             : pending?.kind === "remove"
-              ? { title: "Preserve and remove", text: REMOVE_FLAGGED_CONFIRM, label: "Preserve and remove" }
+              ? { title: "Preserve and remove", text: pending.chat ? REMOVE_FLAGGED_CHAT_CONFIRM : REMOVE_FLAGGED_CONFIRM, label: "Preserve and remove" }
               : null;
 
   return (
@@ -153,7 +160,7 @@ export function CsamQueue({ api = csamApi }: { api?: CsamApi }) {
                   key={flag.id}
                   flag={flag}
                   busy={busy}
-                  onRemove={() => setPending({ kind: "remove", flagId: flag.id })}
+                  onRemove={() => setPending({ kind: "remove", flagId: flag.id, chat: Boolean(flag.chatMessageId) })}
                 />
               ))}
             </ul>
@@ -271,7 +278,7 @@ function FlagRow({
       <Files ids={flag.fileIds} />
       <button
         type="button"
-        className={`${btnSignal} mt-2`}
+        className={cn(btnSignal, "mt-2 min-h-[44px]")}
         aria-label={`Preserve and remove ${flag.chatMessageId ? `chat line ${flag.chatMessageId}` : `post ${flag.postId}`}`}
         aria-disabled={busy || undefined}
         onClick={() => !busy && onRemove()}
