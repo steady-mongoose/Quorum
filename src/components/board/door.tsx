@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { AccountDoor } from "@/components/board/account-door";
 import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
@@ -36,7 +36,6 @@ const WEEK = [
 export function Door() {
   const server = useServerSession();
   const redeemInvite = useBoard((state) => state.redeemInvite);
-  const loadSample = useBoard((state) => state.loadSample);
   const rooms = useBoard((state) => state.rooms);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -122,18 +121,9 @@ export function Door() {
           </form>
         )}
 
-        <section className="card flex flex-col gap-2 p-5">
-          <p className="text-sm text-muted">
-            Just looking? The sample week is six invented members and a week of cards. You become
-            Josh.
-          </p>
-          <button type="button" className={cn(btnGhost, "self-start")} onClick={loadSample}>
-            Load the sample week
-          </button>
-        </section>
       </div>
 
-      <div className="flex max-w-3xl flex-col gap-8">
+      <div className="door-main flex max-w-3xl flex-col gap-8">
         <section className="door-hero card flex flex-col gap-3 p-6">
           <Kicker>Invite only</Kicker>
           <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
@@ -159,7 +149,7 @@ export function Door() {
           </p>
         </section>
 
-        <section className="card flex flex-col gap-3 p-6">
+        <section className="door-week card flex flex-col gap-3 p-6">
           <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
             {WEEK.map((row) => (
@@ -171,7 +161,7 @@ export function Door() {
           </dl>
         </section>
 
-        <section className="card flex flex-col gap-2 p-6">
+        <section className="door-rooms card flex flex-col gap-2 p-6">
           <h2 className="text-base font-semibold text-fg">The rooms</h2>
           <p className="max-w-prose text-sm text-muted">
             {rooms

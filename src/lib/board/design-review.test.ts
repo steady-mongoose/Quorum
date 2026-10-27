@@ -242,6 +242,5 @@ test("the week, the door, and the fields use the review's markup", () => {
     rooms,
     /inline-flex min-h-\[44px\] items-center gap-2 self-end[\s\S]*className="size-5"/,
   );
-  assert.equal(source("./sample.ts").includes("[CHURCH HALL]"), false);
-  assert.match(source("./sample.ts"), /Riverview church hall/);
+  assert.equal(source("./seed-cards.ts").includes("[CHURCH HALL]"), false);
 });

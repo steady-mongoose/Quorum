@@ -1,5 +1,6 @@
 import { apiFetch } from "../api-base.ts";
 import { categoryForRoom, type BrowseRoom, type RoomCategory } from "./categories.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
 import type {
   AppealRow,
@@ -33,9 +34,13 @@ function categoryIdsFrom(row: Record<string, unknown>, roomId: string): string[]
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
   const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
-  const error = typeof record.error === "string" && record.error ? record.error : fallback;
+  const raw = typeof record.error === "string" && record.error ? record.error : fallback;
+  // "banned" stays a code so the board can swap in the barred-account sentence.
+  const error = raw === "banned" ? raw : userFacingError(raw, fallback);
   const stops = Array.isArray(record.stops)
-    ? record.stops.filter((item): item is string => typeof item === "string")
+    ? record.stops
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => userFacingError(item, fallback))
     : undefined;
   const code =
     record.code === "gender-unstated" || record.code === "gender-unconfirmed" ? record.code : undefined;

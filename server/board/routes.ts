@@ -132,8 +132,10 @@ function fromResult(status: number, result: Result<unknown> | CategoryResult<unk
       error: result.error,
       ...("stops" in result && result.stops ? { stops: result.stops } : {}),
       ...(result.ban ? { ban: result.ban } : {}),
-      ...(result.code ? { code: result.code } : {}),
-      ...(result.audience === "men" || result.audience === "women" ? { audience: result.audience } : {}),
+      ...("code" in result && result.code ? { code: result.code } : {}),
+      ...("audience" in result && (result.audience === "men" || result.audience === "women")
+        ? { audience: result.audience }
+        : {}),
     });
   }
   return json(status, result.value);

@@ -346,3 +346,18 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 #open-the-door,#sign-in{scroll-margin-top:6rem}
 /* The door column starts with Invite only, rather than sitting in the vertical centre. */
 .door-columns{align-items:start}
+/* Desktop door: the art and the page-height gold frame wrap the whole door grid, and "The rooms" sits under
+   Open the door so both columns end together. Phones keep the DOM order (door, hero, week, rooms). */
+@media (min-width:1024px){
+  body:has(.door-columns){position:relative}
+  body:has(.door-columns) .plate-ground{position:absolute;inset:0;height:auto;margin-bottom:0;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
+  body:has(.door-columns) .scrim{position:absolute}
+  .door-columns{grid-template-areas:"hero side" "week side" "week rooms";grid-template-rows:auto 1fr auto;row-gap:2rem}
+  .door-main{display:contents}
+  .door-side{grid-area:side;position:static;align-self:start}
+  .door-hero{grid-area:hero;align-self:start}
+  .door-week{grid-area:week;align-self:start}
+  .door-rooms{grid-area:rooms;align-self:start}
+}
+/* The rooms list on the door reads at body size. */
+.door-rooms p{font-size:0.95rem;line-height:1.6}
