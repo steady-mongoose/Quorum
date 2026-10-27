@@ -242,7 +242,7 @@ export function DmReportQueue({
           {error}
         </p>
       ) : null}
-      {rows === null && !error ? <p className="text-sm text-muted">Loading.</p> : null}
+      {rows === null && !error ? <p className="text-sm text-muted">Loading message reports…</p> : null}
       {rows && rows.length === 0 ? <p className="text-sm text-muted">No open message reports.</p> : null}
       {rows && rows.length > 0 ? (
         <ul className="flex flex-col gap-3">
@@ -265,7 +265,7 @@ export function DmReportQueue({
                   <button
                     key={resolution}
                     type="button"
-                    className={btnGhost}
+                    className={cn(btnGhost, "min-h-[44px]")}
                     aria-label={dmReportActionLabel(resolution, row)}
                     onClick={() => {
                       setAnnounce("");

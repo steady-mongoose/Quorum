@@ -195,6 +195,8 @@ test("design review: Cancel returns focus, Send uses aria-disabled, queue button
     await flush();
     const names = [...queue.host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? "");
     assert.equal(new Set(names).size, 4, "every button has its own name");
+    for (const b of queue.host.querySelectorAll("button")) assert.match(b.className, /min-h-\[44px\]/);
+    assert.equal(copy.DM_REPORT_SHARE_LABEL, "Share the text of this message with admins");
     assert.ok(names.some((name) => name.startsWith("Dismiss: Cal's report about Dee")));
     assert.ok(names.some((name) => name.startsWith("Mark resolved: Ann's report about Ben")));
     const dismiss = [...queue.host.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Dismiss: Cal"));

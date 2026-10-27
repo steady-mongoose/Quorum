@@ -3,7 +3,7 @@ import type { HardRuleValue } from "../board/text.ts";
 /** Copy for "Report this message". DMs are encrypted, so sharing the text is the reporter's choice. */
 export const DM_REPORT_BUTTON = "Report this message";
 export const DM_REPORT_HEADING = "Report this message";
-export const DM_REPORT_SHARE_LABEL = "Share this message's text with the admins";
+export const DM_REPORT_SHARE_LABEL = "Share the text of this message with admins";
 export const DM_REPORT_SHARE_HINT =
   "Messages are encrypted, so admins cannot read them unless you share the text. They see it as you shared it.";
 export const DM_REPORT_CSAM_HINT =
