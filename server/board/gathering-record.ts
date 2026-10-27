@@ -59,7 +59,12 @@ function toRecord(row: Row, userId: string): GatheringRecord {
 }
 
 /** Participation. A steward who does not match is refused, the same as any member. */
-async function gatheringAudience(db: Db, userId: string, roomId: string, now: Date): Promise<Fail | null> {
+async function gatheringAudience(
+  db: Db,
+  userId: string,
+  roomId: string,
+  now: Date,
+): Promise<Fail | null> {
   const gate = await guardRoomAudience(db, {
     userId,
     roomId,
@@ -288,13 +293,16 @@ export async function listGatheringsFor(
   input: { userId: string; now: Date },
 ): Promise<GatheringRecord[]> {
   const actor = await actorRole(db, input.userId);
-  const rooms = actor.admin ? [] : actor.stewardRooms;
+  if (!actor.member && !actor.steward) return [];
+  // A gathering is for its room's audience, not only its host. Every member
+  // who can read the room sees it, so they can RSVP, mark "I went", and meet
+  // the host. A member barred from the room does not.
   const rows = await db.query<Row>(
     `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id
      from public_gathering
-     where removed = false and (host_user_id = $1 or $2::boolean or room_id = any($3::text[]))
-     order by updated_at desc`,
-    [input.userId, actor.admin, rooms],
+     where removed = false
+     order by updated_at desc
+     limit 500`,
   );
   const visible: GatheringRecord[] = [];
   for (const row of rows) {
@@ -302,6 +310,11 @@ export async function listGatheringsFor(
     const listed = await readRoomListing(db, row.room_id);
     if (!listed || !canReadRoom(listed.status, actor)) continue;
     if (await gatheringAudience(db, input.userId, row.room_id, input.now)) continue;
+    if (
+      row.host_user_id !== input.userId &&
+      (await openBan(db, input.userId, input.now, row.room_id))
+    )
+      continue;
     visible.push(toRecord(row, input.userId));
   }
   return visible;
