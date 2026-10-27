@@ -181,7 +181,11 @@ export function RoomChat({ roomId }: { roomId: string }) {
                         onClick={() => {
                           void removeRoomChat(roomId, message.id, rule).then((result) => {
                             if (!result.ok) {
-                              setNote(result.error);
+                              setNote(
+                                result.error === "banned"
+                                  ? "This account is barred from the room."
+                                  : result.error,
+                              );
                               if (lostRoom(result.error)) {
                                 setMessages([]);
                                 setOlder(null);

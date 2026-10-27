@@ -78,7 +78,6 @@ export function RoomView() {
   const bans = useBoard((state) => state.bans);
   const appeals = useBoard((state) => state.appeals);
   const rooms = useBoard((state) => state.rooms);
-  const boardError = useBoard((state) => state.boardError);
   const remote = useBoard((state) => state.remote);
   const older = useBoard(
     (state) => state.roomPages.find((page) => page.room === room)?.next ?? null,
@@ -191,6 +190,18 @@ export function RoomView() {
         </h1>
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
+        {meta.status === "draft" || meta.status === "unclaimed" ? (
+          <p className="max-w-prose text-sm text-muted">
+            {meta.status === "draft" ? "Draft listing." : "Unclaimed listing."} Only stewards can
+            see this listing until a host claims it.
+          </p>
+        ) : null}
+        {meta.town || meta.county || meta.category ? (
+          <p className="text-sm text-muted">
+            {[meta.town, meta.county, meta.category].filter(Boolean).join(", ")}
+          </p>
+        ) : null}
+        {meta.sourceUrl ? <p className="text-sm break-all text-muted">{meta.sourceUrl}</p> : null}
         {meta.host ? (
           <RoomAudienceEditor
             key={`${meta.id}-${meta.audience ?? "all"}`}
@@ -202,10 +213,7 @@ export function RoomView() {
         <RoomChat roomId={room} />
       </section>
 
-      <nav
-        className="relative z-10 flex flex-wrap gap-2 pb-1"
-        aria-label="Rooms"
-      >
+      <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
         {rooms.map((item) => (
           <button
             key={item.id}
@@ -226,11 +234,6 @@ export function RoomView() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:hidden">{shelfBlock}</div>
 
-          {boardError ? (
-            <p className="text-sm text-danger" role="alert">
-              {boardError}
-            </p>
-          ) : null}
           {ban ? (
             <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
               {ban.reason === "csam"
@@ -846,7 +849,9 @@ const PostCard = memo(function PostCard({
   const [settle] = useState(takeFreshPost);
 
   return (
-    <article className={cn("card py-5 first:pt-0", post.mark && "opacity-60", settle && "post-new")}>
+    <article
+      className={cn("card py-5 first:pt-0", post.mark && "opacity-60", settle && "post-new")}
+    >
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">{type.label}</span>
         <span className="text-muted">

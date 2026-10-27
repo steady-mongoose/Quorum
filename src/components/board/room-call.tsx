@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
+import { userFacingError } from "@/lib/user-facing-error";
 import { callsAreAvailable, parseCallJoin } from "@/lib/calls/status";
 import { RoomCallSession, type RemotePeer } from "@/lib/calls/session";
 import { useServerSession } from "@/lib/server-session-state";
@@ -129,11 +130,12 @@ function RoomCallPanel({ roomId, selfId }: { roomId: string; selfId: string }) {
       stream.getTracks().forEach((track) => track.stop());
       remember(null);
       setPhase("idle");
+      const fallback = "The call did not start.";
       const message =
         body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
           ? (body as { error: string }).error
-          : "The call did not start.";
-      setError(message);
+          : fallback;
+      setError(userFacingError(message, fallback));
       return;
     }
     const session = new RoomCallSession({

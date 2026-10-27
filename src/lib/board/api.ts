@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
 import type {
   AppealRow,
@@ -21,9 +22,13 @@ const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 function failure(json: unknown, fallback: string): BoardFailure {
   if (!json || typeof json !== "object") return { ok: false, error: fallback };
   const record = json as { error?: unknown; stops?: unknown; code?: unknown; audience?: unknown };
-  const error = typeof record.error === "string" && record.error ? record.error : fallback;
+  const raw = typeof record.error === "string" && record.error ? record.error : fallback;
+  // "banned" stays a code so the board can swap in the barred-account sentence.
+  const error = raw === "banned" ? raw : userFacingError(raw, fallback);
   const stops = Array.isArray(record.stops)
-    ? record.stops.filter((item): item is string => typeof item === "string")
+    ? record.stops
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => userFacingError(item, fallback))
     : undefined;
   const code =
     record.code === "gender-unstated" || record.code === "gender-unconfirmed" ? record.code : undefined;
@@ -147,6 +152,13 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    ...(row.status === "draft" || row.status === "unclaimed" || row.status === "active"
+      ? { status: row.status }
+      : {}),
+    ...(typeof row.town === "string" && row.town ? { town: row.town } : {}),
+    ...(typeof row.county === "string" && row.county ? { county: row.county } : {}),
+    ...(typeof row.category === "string" && row.category ? { category: row.category } : {}),
+    ...(typeof row.sourceUrl === "string" && row.sourceUrl ? { sourceUrl: row.sourceUrl } : {}),
     ...(row.audience === "men" || row.audience === "women" || row.audience === "all"
       ? { audience: row.audience }
       : {}),
@@ -309,7 +321,9 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
     tradeId: draft.tradeId,
     attested: draft.attested,
     mediaCount: draft.media.length,
-    ...(draft.subject === "candidate" || draft.subject === "business" ? { subject: draft.subject } : {}),
+    ...(draft.subject === "candidate" || draft.subject === "business"
+      ? { subject: draft.subject }
+      : {}),
     ...(extra?.campaignId ? { campaignId: extra.campaignId } : {}),
   };
 }
