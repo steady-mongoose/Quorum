@@ -91,6 +91,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0022_stats.sql",
       "0023_mfa.sql",
       "0024_member_profile.sql",
+      "0029_member_reports.sql",
       "0030_account_removal.sql",
       "0032_dm_report.sql",
       "0036_post_erasure.sql",

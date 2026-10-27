@@ -7,9 +7,11 @@
 import { spawn } from "node:child_process";
 
 const appTests = [
+  "src/lib/board/find-invite.test.ts",
   "server/board/removal-mine.test.ts",
   "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
+  "server/board/steward-rule.test.ts",
   "src/lib/board/appeal-a11y.test.ts",
   "src/lib/board/ux-copy-nav.test.ts",
   "src/lib/api-base.test.ts",
@@ -124,6 +126,9 @@ const appTests = [
   "server/board/alert-mail.test.ts",
   "server/board/places-store.test.ts",
   "server/board/http.test.ts",
+  "server/board/reports.test.ts",
+  "src/lib/board/report-control.render.test.mjs",
+  "src/lib/board/moderation-queue.render.test.mjs",
   "server/board/categories.test.ts",
   "server/board/categories.postgres.test.ts",
   "server/board/rooms-admin.test.ts",
@@ -131,6 +136,7 @@ const appTests = [
   "server/board/claims.test.ts",
   "server/board/public-fetch.test.ts",
   "server/board/claim-attempts.pg.test.ts",
+  "server/board/steward-race.pg.test.ts",
   "server/board/public-gathering.test.ts",
   "server/board/gathering-visibility.test.ts",
   "server/board/groups.test.ts",
