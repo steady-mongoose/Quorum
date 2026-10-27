@@ -131,3 +131,34 @@ test("turning off a legal hold and naming a custodian both confirm first", async
   assert.deepEqual(calls, [["legalHold", "h1", false, ""], ["custodian", "ann", true]]);
   done();
 });
+
+test("design review: file list wraps, buttons name the post, note error is tied, focus moves", async () => {
+  const { api, calls } = fakeApi({
+    custodian: true, owner: false, reports: [hold()],
+    flags: [{ id: "f1", postId: "p2", source: "report", reporter: "rae", reason: "A child.", uploader: "bo", fileIds: ["m2"], at: 0 }],
+    admins: [],
+  });
+  const { host, done } = await mount(api);
+  for (const list of host.querySelectorAll("ul.font-mono")) assert.ok(list.className.includes("break-all"));
+  assert.equal(button(host, "Record filing").getAttribute("aria-label"), "Record filing for post p1");
+  assert.equal(button(host, "Preserve and remove").getAttribute("aria-label"), "Preserve and remove post p2");
+  assert.equal(button(host, "Turn on legal hold").getAttribute("aria-label"), "Turn on legal hold for post p1");
+
+  act(() => button(host, "Turn on legal hold").click());
+  await flush();
+  const note = /** @type {HTMLInputElement} */ (host.querySelector("#csam-note-h1"));
+  const errorId = note.getAttribute("aria-describedby");
+  assert.ok(errorId);
+  assert.equal(note.getAttribute("aria-invalid"), "true");
+  assert.equal(host.querySelector(`#${errorId}`)?.textContent, queue.LEGAL_HOLD_NOTE_ERROR);
+  assert.deepEqual(calls, []);
+
+  act(() => button(host, "Preserve and remove").click());
+  await flush();
+  act(() => dialogConfirm(host).click());
+  await flush();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+  assert.deepEqual(calls, [["remove", "f1"]]);
+  assert.equal(document.activeElement?.id, "csam-queue-heading");
+  done();
+});
