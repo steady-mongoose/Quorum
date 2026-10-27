@@ -8,11 +8,18 @@ export const READ_SECONDS = 120;
 export const KEY_ENVELOPE_MAX = 4096;
 export const PENDING_MS = 15 * 60 * 1000;
 
+/** A profile photo is smaller than a room picture and is not a GIF. */
+export const PROFILE_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Square file and thumbnail, in pixels. The worker crops to these edges. */
+export const PROFILE_EDGE = 512;
+export const PROFILE_THUMB = 128;
+
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 export const VIDEO_TYPES = ["video/mp4", "video/webm"] as const;
+export const PROFILE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
 export type MediaKind = "image" | "video";
-export type MediaScope = "room" | "dm";
+export type MediaScope = "room" | "dm" | "profile";
 export type MediaEncryption = "server-processed" | "client-e2e";
 
 export type UploadPlan = {
@@ -45,6 +52,9 @@ export function mediaLimits() {
     readSeconds: READ_SECONDS,
     imageTypes: IMAGE_TYPES,
     videoTypes: VIDEO_TYPES,
+    profileImageBytes: PROFILE_IMAGE_BYTES,
+    profileImageTypes: PROFILE_IMAGE_TYPES,
+    profileEdges: [PROFILE_EDGE, PROFILE_THUMB] as const,
   };
 }
 
@@ -68,6 +78,7 @@ export function planUpload(
 ): PlanResult {
   const kind = body.kind === "image" || body.kind === "video" ? body.kind : null;
   if (!kind) return { ok: false, status: 400, error: "Choose a picture or a video." };
+  if (body.scope === "profile") return planProfile(body, kind);
   if (kind === "video" && !options.videoEnabled) {
     return { ok: false, status: 403, error: "Video is off." };
   }
@@ -176,6 +187,60 @@ export function planUpload(
       keyEnvelope,
       encryption: "client-e2e",
       uploadContentType: "application/octet-stream",
+    },
+  };
+}
+
+/**
+ * A profile photo is a JPEG, PNG, or WebP of at most 5 MB.
+ * There is no face rule. GIF and video are refused. It is not a room post
+ * and it is not a message, so the room, post, peer, and wrapped key stay empty.
+ * The 5 MB cap is applied here, before the 8 MB room-picture cap.
+ */
+function planProfile(body: Record<string, unknown>, kind: MediaKind): PlanResult {
+  if (kind !== "image") {
+    return { ok: false, status: 400, error: "Choose a picture, not a video." };
+  }
+  const contentType = cleanType(body.contentType);
+  if (!(PROFILE_IMAGE_TYPES as readonly string[]).includes(contentType)) {
+    return { ok: false, status: 400, error: "Choose a JPEG, PNG, or WebP picture." };
+  }
+  const byteSize = integer(body.byteSize);
+  if (byteSize === null || byteSize < 1) {
+    return { ok: false, status: 400, error: "That file is empty." };
+  }
+  if (byteSize > PROFILE_IMAGE_BYTES) {
+    return { ok: false, status: 400, error: "That picture is over 5 MB. Choose a smaller one." };
+  }
+  const durationRaw = body.durationMs;
+  if (durationRaw !== undefined && durationRaw !== null && durationRaw !== 0) {
+    return { ok: false, status: 400, error: "A picture does not have a length." };
+  }
+  const roomId = typeof body.roomId === "string" ? body.roomId : "";
+  const postId = typeof body.postId === "string" ? body.postId : "";
+  const peerUserId = typeof body.peerUserId === "string" ? body.peerUserId : "";
+  const keyEnvelope = typeof body.keyEnvelope === "string" ? body.keyEnvelope : "";
+  if (roomId || postId || peerUserId || keyEnvelope) {
+    return {
+      ok: false,
+      status: 400,
+      error: "A profile photo is not a room post or a message.",
+    };
+  }
+  return {
+    ok: true,
+    plan: {
+      kind,
+      contentType,
+      byteSize,
+      durationMs: null,
+      scope: "profile",
+      roomId: "",
+      postId: "",
+      peerUserId: "",
+      keyEnvelope: "",
+      encryption: "server-processed",
+      uploadContentType: contentType,
     },
   };
 }

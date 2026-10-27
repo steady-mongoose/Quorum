@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clearDmMediaCrypto, registerDmMediaCrypto } from "./e2e.ts";
-import { runUpload, uploadDmCipher } from "./upload.ts";
+import { runUpload, uploadDmCipher, uploadProfilePhoto } from "./upload.ts";
 
 function jpegWithGps(): Uint8Array {
   const payload = new TextEncoder().encode("Exif\0\0GPSLatitude");
@@ -148,4 +148,36 @@ test("a refusal from the server is returned in plain words", async () => {
     resolveUrl: (path) => path,
   });
   assert.deepEqual(result, { ok: false, error: "Video is off." });
+});
+
+test("a profile photo upload refuses a GIF before it asks the server", async () => {
+  const gif = await uploadProfilePhoto({
+    bytes: Uint8Array.of(1, 2, 3),
+    contentType: "image/gif",
+    fetchImpl: async () => {
+      throw new Error("should not upload");
+    },
+    resolveUrl: (path) => path,
+  });
+  assert.equal(gif.ok, false);
+  if (gif.ok) return;
+  assert.match(gif.error, /JPEG, PNG, or WebP/);
+
+  const calls: string[] = [];
+  const jpeg = await uploadProfilePhoto({
+    bytes: Uint8Array.of(1, 2, 3),
+    contentType: "image/jpeg",
+    fetchImpl: async (url: string) => {
+      calls.push(url);
+      if (url === "/api/media/uploads") {
+        const body = { id: "pic", upload: { url: "https://objects.example/a", headers: {} } };
+        return new Response(JSON.stringify(body), { status: 201 });
+      }
+      return new Response(JSON.stringify({ status: "processing" }), { status: 200 });
+    },
+    putImpl: async () => new Response(null, { status: 200 }),
+    resolveUrl: (path) => path,
+  });
+  assert.equal(jpeg.ok, true);
+  assert.equal(calls[0], "/api/media/uploads");
 });

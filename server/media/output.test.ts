@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import test from "node:test";
 import { MediaReject } from "./errors.ts";
 import { createFfmpegTools } from "./ffmpeg.ts";
-import { assertKeptJpeg, assertKeptMp4 } from "./output.ts";
+import { assertKeptJpeg, assertKeptMp4, assertKeptWebp } from "./output.ts";
 
 function bytesOf(values: number[]): Uint8Array {
   return Uint8Array.from(values);
@@ -228,4 +228,57 @@ test("a sandbox success cannot bypass the output re-check", async () => {
     return { code: 0, stdout: "", stderr: "" };
   });
   await assert.rejects(() => dirtyThumb.processVideo(header), /location/);
+});
+
+function le32(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, true);
+  return bytes;
+}
+
+function webpChunk(type: string, payload: Uint8Array): Uint8Array {
+  const pad = payload.length % 2 === 1 ? Uint8Array.of(0) : new Uint8Array();
+  return concat(ascii(type), le32(payload.length), payload, pad);
+}
+
+function squareWebp(edge: number, extra: Uint8Array[] = [], flags = 0): Uint8Array {
+  const canvas = new Uint8Array(10);
+  canvas[0] = flags;
+  const width = edge - 1;
+  const height = edge - 1;
+  canvas[4] = width & 0xff;
+  canvas[5] = (width >> 8) & 0xff;
+  canvas[6] = (width >> 16) & 0xff;
+  canvas[7] = height & 0xff;
+  canvas[8] = (height >> 8) & 0xff;
+  canvas[9] = (height >> 16) & 0xff;
+  const body = concat(ascii("WEBP"), webpChunk("VP8X", canvas), ...extra);
+  return concat(ascii("RIFF"), le32(body.length), body);
+}
+
+test("a kept profile photo is a square WebP with no EXIF, XMP, or ICCP", () => {
+  assert.deepEqual(assertKeptWebp(squareWebp(512), 5 * 1024 * 1024, 512), {
+    width: 512,
+    height: 512,
+  });
+  assert.deepEqual(assertKeptWebp(squareWebp(128, [], 0x10), 5 * 1024 * 1024, 128), {
+    width: 128,
+    height: 128,
+  });
+  assert.throws(() => assertKeptWebp(squareWebp(100), 5 * 1024 * 1024, 512), /profile size/);
+  assert.throws(
+    () => assertKeptWebp(squareWebp(512, [webpChunk("EXIF", ascii("Exif"))]), 5 * 1024 * 1024, 512),
+    /location data/,
+  );
+  assert.throws(
+    () => assertKeptWebp(squareWebp(512, [webpChunk("XMP ", ascii("<x"))]), 5 * 1024 * 1024, 512),
+    /location data/,
+  );
+  assert.throws(
+    () => assertKeptWebp(squareWebp(512, [webpChunk("ICCP", ascii("icc"))]), 5 * 1024 * 1024, 512),
+    /location data/,
+  );
+  assert.throws(() => assertKeptWebp(squareWebp(512, [], 0x08), 5 * 1024 * 1024, 512), /location/);
+  assert.throws(() => assertKeptWebp(squareWebp(512, [], 0x02), 5 * 1024 * 1024, 512), /location/);
+  assert.throws(() => assertKeptWebp(new Uint8Array(20), 5 * 1024 * 1024, 512), /WebP/);
 });

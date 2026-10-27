@@ -140,6 +140,64 @@ test("a message picture is ciphertext on the wire", () => {
   assert.equal(result.plan.keyEnvelope, "wrapped-key");
 });
 
+test("a profile photo is a JPEG, PNG, or WebP of at most 5 MB", () => {
+  const five = 5 * 1024 * 1024;
+  const accepted = plan({
+    kind: "image",
+    contentType: "image/webp",
+    byteSize: five,
+    scope: "profile",
+  });
+  assert.equal(accepted.ok, true);
+  if (!accepted.ok) return;
+  assert.equal(accepted.plan.scope, "profile");
+  assert.equal(accepted.plan.roomId, "");
+  assert.equal(accepted.plan.postId, "");
+  assert.equal(accepted.plan.peerUserId, "");
+  assert.equal(accepted.plan.keyEnvelope, "");
+  assert.equal(accepted.plan.encryption, "server-processed");
+  assert.equal(accepted.plan.durationMs, null);
+
+  const over = plan({
+    kind: "image",
+    contentType: "image/jpeg",
+    byteSize: five + 1,
+    scope: "profile",
+  });
+  assert.equal(over.ok, false);
+  if (!over.ok) assert.equal(over.error, "That picture is over 5 MB. Choose a smaller one.");
+
+  const gif = plan({
+    kind: "image",
+    contentType: "image/gif",
+    byteSize: 100,
+    scope: "profile",
+  });
+  assert.equal(gif.ok, false);
+  if (!gif.ok) assert.equal(gif.error, "Choose a JPEG, PNG, or WebP picture.");
+
+  const video = plan({
+    kind: "video",
+    contentType: "video/mp4",
+    byteSize: 100,
+    durationMs: 1000,
+    scope: "profile",
+  });
+  assert.equal(video.ok, false);
+  if (!video.ok) assert.equal(video.error, "Choose a picture, not a video.");
+
+  const room = plan({
+    kind: "image",
+    contentType: "image/png",
+    byteSize: 100,
+    scope: "profile",
+    roomId: "shop",
+    postId: "post-1",
+  });
+  assert.equal(room.ok, false);
+  if (!room.ok) assert.equal(room.error, "A profile photo is not a room post or a message.");
+});
+
 test("a wrapped key that is too long is refused", () => {
   const result = plan({
     kind: "image",

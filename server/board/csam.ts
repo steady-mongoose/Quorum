@@ -1,4 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, randomUUID } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  hkdfSync,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
 import type { Db } from "../db.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { actorRole } from "./access.ts";
@@ -233,7 +240,11 @@ export function reportFromRow(row: {
   filed_by_name?: string | null;
 }): CsamReport {
   const filedAt = row.filed_at ? atMs(row.filed_at) : null;
-  const status = filedAt ? "filed" : row.seal_status === "pending_seal" ? "pending_seal" : "prepared";
+  const status = filedAt
+    ? "filed"
+    : row.seal_status === "pending_seal"
+      ? "pending_seal"
+      : "prepared";
   return {
     id: row.id,
     postId: row.post_id,
@@ -306,7 +317,8 @@ async function relocateFiles(
         // Record the copy before any later statement can roll the database back.
         heldKeys.push(dest);
       }
-      for (const key of sources) relocated.push({ from: key, to: payload && key === from ? dest : "" });
+      for (const key of sources)
+        relocated.push({ from: key, to: payload && key === from ? dest : "" });
     }
     return relocated;
   } catch (error) {
@@ -482,16 +494,123 @@ export async function sealCsamHold(
 }
 
 /**
+ * The same hold as a room picture, for a profile photo.
+ * `post_id` is the media id. There is no board post. `room_id` stays blank.
+ * The caller clears `members.photo_media_id` in the same transaction, then
+ * deletes the public object keys after the commit.
+ */
+export async function sealProfilePhotoHold(
+  tx: Db,
+  store: ObjectStore | null,
+  mediaId: string,
+  now: Date,
+  heldKeys: string[] = [],
+): Promise<{ files: RelocatedFile[]; alert: HoldAlert }> {
+  const rows = await tx.query<
+    StoredFile & { owner_user_id: string; author_name: string; upload_key: string }
+  >(
+    `select o.id, o.kind, o.content_type, o.byte_size, o.file_key, o.upload_key, o.thumb_key,
+            o.owner_user_id, u.name as author_name
+     from media_object o
+     join "user" u on u.id = o.owner_user_id
+     where o.id = $1 and o.scope = 'profile' and o.deleted_at is null`,
+    [mediaId],
+  );
+  const file = rows[0];
+  if (!file || file.upload_key.startsWith(HELD_UPLOAD_PREFIX)) {
+    throw new Error("That picture is not here.");
+  }
+  const holdId = randomUUID();
+  const encrypt = holdKeyError() === null;
+  const relocated = await relocateFiles(store, holdId, [file], encrypt, heldKeys);
+  const withKey = await holdKeyColumn(tx);
+  const keyId = encrypt && withKey ? holdKeyId() : "";
+  const contentType = file.content_type || "";
+  const bytes = Number(file.byte_size);
+  const held: HeldBody = {
+    claim: "Profile photo",
+    reason: "",
+    replies: [],
+    files: [
+      {
+        id: file.id,
+        kind: file.kind,
+        contentType,
+        byteSize: bytes,
+        fileKey: sealedObjectKey(holdId, file.id),
+      },
+    ],
+  };
+  const sealed = encrypt ? sealHold(held) : JSON.stringify(held);
+  const sealStatus = encrypt ? "sealed" : "pending_seal";
+  const kind = encrypt ? "csam_hold" : "csam_pending_seal";
+  const alertId = randomUUID();
+  const authorName = file.author_name.trim() || "Member";
+  const holdValues = [
+    holdId,
+    file.id,
+    [file.id],
+    "",
+    file.owner_user_id,
+    authorName,
+    sealed,
+    sealStatus,
+    1,
+    bytes,
+    contentType ? [contentType] : [],
+    now,
+    new Date(now.getTime() + holdMs()),
+  ];
+  if (withKey) {
+    await tx.query(
+      `insert into board_csam_hold
+       (id, post_id, post_ids, room_id, author_user_id, author_name, sealed, seal_status,
+        media_count, byte_size, media_types, created_at, retain_until, key_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [...holdValues, keyId],
+    );
+  } else {
+    await tx.query(
+      `insert into board_csam_hold
+       (id, post_id, post_ids, room_id, author_user_id, author_name, sealed, seal_status,
+        media_count, byte_size, media_types, created_at, retain_until)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      holdValues,
+    );
+  }
+  await tx.query(
+    `insert into board_admin_alert (id, kind, hold_id, created_at) values ($1, $2, $3, $4)`,
+    [alertId, kind, holdId, now],
+  );
+  await tx.query(
+    `update media_object
+     set file_key = '', upload_key = $2 || id, thumb_key = ''
+     where id = $1 and deleted_at is null`,
+    [file.id, HELD_UPLOAD_PREFIX],
+  );
+  console.log(
+    JSON.stringify({
+      event: "csam-admin-alert",
+      kind,
+      holdId,
+      roomId: "",
+      postId: file.id,
+    }),
+  );
+  return {
+    files: relocated,
+    alert: { id: alertId, kind, holdId, roomId: "", postId: file.id },
+  };
+}
+
+/**
  * Encrypt holds that were stored as plaintext because the key was missing.
  * A second run does nothing. A missing key does nothing. Routes do not call this.
  * A session advisory lock keeps two processes from resealing the same rows.
  * `key_id` is committed before the file bytes change, so a later key will not
  * seal those bytes again.
  */
-export async function reencryptPendingHolds(
-  db: Db,
-  store: ObjectStore | null,
-): Promise<number> {
+export async function reencryptPendingHolds(db: Db, store: ObjectStore | null): Promise<number> {
   if (holdKeyError() !== null) return 0;
   const run = (conn: Db) => resealPending(conn, store);
   if (db.session) return db.session(run);
@@ -568,10 +687,7 @@ async function resealPending(db: Db, store: ObjectStore | null): Promise<number>
   }
 }
 
-export async function dropObjectKeys(
-  store: ObjectStore | null,
-  keys: string[],
-): Promise<void> {
+export async function dropObjectKeys(store: ObjectStore | null, keys: string[]): Promise<void> {
   if (!store) return;
   for (const key of keys) {
     if (!key) continue;
@@ -694,7 +810,8 @@ export async function fileCsamReport(
   input: { userId: string; name: string; holdId: string; reportId: string; now: Date },
 ): Promise<{ ok: true; value: CsamReport } | { ok: false; status: number; error: string }> {
   const actor = await actorRole(db, input.userId);
-  if (!actor.admin) return { ok: false, status: 403, error: "Only an admin can record a CyberTipline filing." };
+  if (!actor.admin)
+    return { ok: false, status: 403, error: "Only an admin can record a CyberTipline filing." };
   const reportId = input.reportId.trim();
   if (!REPORT_ID.test(reportId)) {
     return { ok: false, status: 400, error: "Enter the CyberTipline report id." };

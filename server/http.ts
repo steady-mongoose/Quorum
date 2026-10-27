@@ -397,7 +397,7 @@ async function route(
     return json(201, minted.value);
   }
 
-  const profile = await handleProfile(deps, request, url);
+  const profile = await handleProfile({ ...deps, store: media.store }, request, url);
   if (profile) return profile;
 
   if (url.pathname === "/api/invite-log" && request.method === "GET") {

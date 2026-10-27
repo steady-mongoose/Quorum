@@ -3,10 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { imageBounds, ImageBoundsError, MAX_EDGE, MAX_PIXELS } from "../../src/lib/media/bounds.ts";
-import { IMAGE_BYTES, VIDEO_BYTES, VIDEO_MS } from "../../src/lib/media/limits.ts";
+import {
+  IMAGE_BYTES,
+  PROFILE_EDGE,
+  PROFILE_IMAGE_BYTES,
+  PROFILE_IMAGE_TYPES,
+  PROFILE_THUMB,
+  VIDEO_BYTES,
+  VIDEO_MS,
+} from "../../src/lib/media/limits.ts";
 import { sniffVideo, type VideoContainer } from "../../src/lib/media/sniff.ts";
 import { MediaReject } from "./errors.ts";
-import { assertKeptJpeg, assertKeptMp4 } from "./output.ts";
+import { assertKeptJpeg, assertKeptMp4, assertKeptWebp } from "./output.ts";
 
 export type CommandResult = {
   code: number;
@@ -81,6 +89,35 @@ export function imageFileArgs(input: string, output: string, format: string): st
     "1",
     "-vf",
     "scale='min(1280,iw)':-2",
+    "-threads",
+    "1",
+    "-fs",
+    String(FFMPEG_FILE_BYTES),
+    "-update",
+    "1",
+    output,
+  ];
+}
+
+/** Square WebP. Metadata is dropped. The crop uses the center of the scaled frame. */
+export function profileImageArgs(
+  input: string,
+  output: string,
+  format: string,
+  edge: number,
+): string[] {
+  return [
+    ...inputGuard(format, input),
+    "-map",
+    "0:v:0",
+    "-map_metadata",
+    "-1",
+    "-frames:v",
+    "1",
+    "-vf",
+    `scale=${edge}:${edge}:force_original_aspect_ratio=increase,crop=${edge}:${edge}`,
+    "-c:v",
+    "libwebp",
     "-threads",
     "1",
     "-fs",
@@ -247,6 +284,11 @@ export type VideoResult = ImageResult & { durationMs: number };
 export type MediaTools = {
   processImage(bytes: Uint8Array, contentType: string): Promise<ImageResult>;
   processVideo(bytes: Uint8Array): Promise<VideoResult>;
+  /**
+   * Profile photos only. Optional so a room-picture tool does not have to
+   * implement it. The worker refuses a profile job when this is missing.
+   */
+  processProfileImage?(bytes: Uint8Array, contentType: string): Promise<ImageResult>;
 };
 
 function scratchDir(): string {
@@ -411,6 +453,56 @@ export function createFfmpegTools(runner: CommandRunner = unavailableRunner): Me
         throw new MediaReject("That picture could not be prepared.");
       }
       return { file, fileType: "image/jpeg", thumb, thumbType: "image/jpeg" };
+    },
+    async processProfileImage(bytes, contentType) {
+      if (!(PROFILE_IMAGE_TYPES as readonly string[]).includes(contentType)) {
+        throw new MediaReject("Choose a JPEG, PNG, or WebP.");
+      }
+      let bounds;
+      try {
+        bounds = imageBounds(bytes, contentType);
+      } catch (error) {
+        throw new MediaReject(
+          error instanceof ImageBoundsError
+            ? error.message
+            : "That file is not a picture we can keep.",
+        );
+      }
+      if (bounds.width * bounds.height > FFMPEG_MAX_PIXELS) {
+        throw new MediaReject("That picture is too large.");
+      }
+      const image = IMAGE_INPUT[contentType];
+      if (!image) throw new MediaReject("Choose a JPEG, PNG, or WebP.");
+      await requireTool("picture");
+      let file = new Uint8Array();
+      let thumb = new Uint8Array();
+      await withTemp(image.extension, bytes, async (input, dir) => {
+        const filePath = join(dir, "file.webp");
+        const thumbPath = join(dir, "thumb.webp");
+        const fileRun = await runner(
+          "ffmpeg",
+          profileImageArgs(input, filePath, image.demuxer, PROFILE_EDGE),
+        );
+        if (fileRun.sandboxDown) throw new MediaReject("The media sandbox is unavailable.");
+        if (fileRun.missing) throw new MediaReject("Picture processing needs ffmpeg on the box.");
+        if (fileRun.code !== 0) {
+          throw new Error(ffmpegFailure("ffmpeg could not prepare that picture.", fileRun.stderr));
+        }
+        const thumbRun = await runner(
+          "ffmpeg",
+          profileImageArgs(input, thumbPath, image.demuxer, PROFILE_THUMB),
+        );
+        if (thumbRun.sandboxDown) throw new MediaReject("The media sandbox is unavailable.");
+        if (thumbRun.code !== 0) throw new Error("ffmpeg could not make a thumbnail.");
+        file = new Uint8Array(await readFile(filePath));
+        thumb = new Uint8Array(await readFile(thumbPath));
+        assertKeptWebp(file, PROFILE_IMAGE_BYTES, PROFILE_EDGE);
+        assertKeptWebp(thumb, PROFILE_IMAGE_BYTES, PROFILE_THUMB);
+      });
+      if (file.byteLength < 1 || sameBytes(file, bytes)) {
+        throw new MediaReject("That picture could not be prepared.");
+      }
+      return { file, fileType: "image/webp", thumb, thumbType: "image/webp" };
     },
     async processVideo(bytes) {
       const container = sniffVideo(bytes);
