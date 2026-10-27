@@ -25,8 +25,8 @@ import { isGatheringId, publicGatheringHtml } from "../src/lib/board/public-gath
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' https://static.cloudflareinsights.com",
-  "style-src 'self' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self'",
+  "font-src 'self'",
   "img-src 'self' data: blob:",
   "connect-src 'self' https://api.avouchsocial.com https://cloudflareinsights.com",
   "object-src 'none'",

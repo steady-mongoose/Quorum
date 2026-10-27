@@ -152,6 +152,13 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    ...(row.status === "draft" || row.status === "unclaimed" || row.status === "active"
+      ? { status: row.status }
+      : {}),
+    ...(typeof row.town === "string" && row.town ? { town: row.town } : {}),
+    ...(typeof row.county === "string" && row.county ? { county: row.county } : {}),
+    ...(typeof row.category === "string" && row.category ? { category: row.category } : {}),
+    ...(typeof row.sourceUrl === "string" && row.sourceUrl ? { sourceUrl: row.sourceUrl } : {}),
     ...(row.audience === "men" || row.audience === "women" || row.audience === "all"
       ? { audience: row.audience }
       : {}),
@@ -314,7 +321,9 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
     tradeId: draft.tradeId,
     attested: draft.attested,
     mediaCount: draft.media.length,
-    ...(draft.subject === "candidate" || draft.subject === "business" ? { subject: draft.subject } : {}),
+    ...(draft.subject === "candidate" || draft.subject === "business"
+      ? { subject: draft.subject }
+      : {}),
     ...(extra?.campaignId ? { campaignId: extra.campaignId } : {}),
   };
 }
