@@ -184,6 +184,7 @@ function roomFrom(value: unknown): Room | null {
     pinOrder:
       typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
     joined: row.joined === true,
+    member: row.member === true,
     ...(row.status === "draft" || row.status === "unclaimed" || row.status === "active"
       ? { status: row.status }
       : {}),

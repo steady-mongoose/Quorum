@@ -244,7 +244,6 @@ function RoomJoinRow({
   joined: boolean;
   onOpen: (roomId: string) => void;
 }) {
-  const joinRoom = useBoard((state) => state.joinRoom);
   const leaveRoom = useBoard((state) => state.leaveRoom);
   const [error, setError] = useState("");
 
@@ -258,19 +257,21 @@ function RoomJoinRow({
         >
           {name} <RoomAudienceMark audience={audience} />
         </button>
-        <button
-          type="button"
-          className={btnGhost}
-          aria-pressed={joined}
-          onClick={() => {
-            setError("");
-            void (joined ? leaveRoom(roomId) : joinRoom(roomId)).then((result) => {
-              if (!result.ok) setError(result.error ?? "That was not saved.");
-            });
-          }}
-        >
-          {joined ? "Joined ✓" : "Join"}
-        </button>
+        {joined ? (
+          <button
+            type="button"
+            className={btnGhost}
+            aria-label={`Leave ${name}`}
+            onClick={() => {
+              setError("");
+              void leaveRoom(roomId).then((result) => {
+                if (!result.ok) setError(result.error ?? "That was not saved.");
+              });
+            }}
+          >
+            Leave
+          </button>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="text-sm text-danger">

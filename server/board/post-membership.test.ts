@@ -5,8 +5,8 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { roomCallMember } from "../calls/membership.ts";
 import { requireRoomMember } from "../chat/store.ts";
-import { joinRoom } from "./places-store.ts";
-import { createPost, replyToPost } from "./store.ts";
+import { ROOM_INVITE_ONLY, joinRoom } from "./places-store.ts";
+import { createPost, listBoard, replyToPost } from "./store.ts";
 
 const now = new Date("2026-10-27T12:00:00.000Z");
 const did = {
@@ -45,7 +45,10 @@ async function stood(db: Db, userId: string, roomId: string): Promise<boolean> {
 test("a member who joined can post and reply; a member who never joined is refused", async () => {
   const { db, close } = await openTestDb();
   try {
-    const joined = await person(db, "Joiner");
+    const joined = await person(db, "Joiner", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
     const outsider = await person(db, "Outsider");
     assert.equal((await joinRoom(db, { userId: joined, roomId: "shop", now })).ok, true);
     const post = await createPost(db, {
@@ -75,7 +78,7 @@ test("a member who joined can post and reply; a member who never joined is refus
     });
     assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [
       403,
-      "Join this room to post.",
+      "Only members of this room can post here.",
     ]);
     const refusedReply = await replyToPost(db, {
       userId: outsider,
@@ -86,7 +89,7 @@ test("a member who joined can post and reply; a member who never joined is refus
     });
     assert.deepEqual(refusedReply.ok ? null : [refusedReply.status, refusedReply.error], [
       403,
-      "Join this room to post.",
+      "Only members of this room can post here.",
     ]);
     assert.equal(await stood(db, outsider, "shop"), false);
   } finally {
@@ -97,8 +100,14 @@ test("a member who joined can post and reply; a member who never joined is refus
 test("after leaving, a post or reply is refused and call and chat access stay revoked", async () => {
   const { db, close } = await openTestDb();
   try {
-    const leaver = await person(db, "Leaver");
-    const other = await person(db, "Other");
+    const leaver = await person(db, "Leaver", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
+    const other = await person(db, "Other", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
     await joinRoom(db, { userId: other, roomId: "shop", now });
     const parent = await createPost(db, {
       userId: other,
@@ -130,7 +139,10 @@ test("after leaving, a post or reply is refused and call and chat access stay re
       body: did,
       now,
     });
-    assert.deepEqual(post.ok ? null : [post.status, post.error], [403, "Join this room to post."]);
+    assert.deepEqual(post.ok ? null : [post.status, post.error], [
+      403,
+      "Only members of this room can post here.",
+    ]);
     const reply = await replyToPost(db, {
       userId: leaver,
       name: "Leaver",
@@ -140,7 +152,7 @@ test("after leaving, a post or reply is refused and call and chat access stay re
     });
     assert.deepEqual(reply.ok ? null : [reply.status, reply.error], [
       403,
-      "Join this room to post.",
+      "Only members of this room can post here.",
     ]);
 
     // Nothing put them back in the room.
@@ -196,8 +208,166 @@ test("a steward of the room and an admin may post without joining", async () => 
     });
     assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [
       403,
-      "Join this room to post.",
+      "Only members of this room can post here.",
     ]);
+  } finally {
+    await close();
+  }
+});
+
+test("the board tells the viewer whether they are in each room, so the composer can hide", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const memberOf = async (userId: string) => {
+      const board = await listBoard(db, userId, now);
+      assert.equal(board.ok, true);
+      if (!board.ok) return undefined;
+      return board.value.rooms.find((room) => room.id === "shop")?.member;
+    };
+    const viewer = await person(db, "Viewer", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
+    assert.equal(await memberOf(viewer), false);
+    await joinRoom(db, { userId: viewer, roomId: "shop", now });
+    assert.equal(await memberOf(viewer), true);
+    await joinRoom(db, { userId: viewer, roomId: "shop", now, leave: true });
+    assert.equal(await memberOf(viewer), false);
+  } finally {
+    await close();
+  }
+});
+
+test("joining a room needs an invite to it; stewards and admins are exempt; leaving still works", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const uninvited = await person(db, "Uninvited");
+    const refused = await joinRoom(db, { userId: uninvited, roomId: "shop", now });
+    assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [403, ROOM_INVITE_ONLY]);
+    assert.equal(
+      ROOM_INVITE_ONLY,
+      "Only members of this room can post here. Ask a member of the room for an invite.",
+    );
+
+    const invited = await person(db, "Invited", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
+    assert.equal((await joinRoom(db, { userId: invited, roomId: "shop", now })).ok, true);
+    assert.equal(
+      (await joinRoom(db, { userId: invited, roomId: "shop", now, leave: true })).ok,
+      true,
+    );
+    // The invite still stands after leaving, so they can come back.
+    assert.equal((await joinRoom(db, { userId: invited, roomId: "shop", now })).ok, true);
+
+    // An invite to another room does not open this one.
+    const elsewhere = await person(db, "Elsewhere", [
+      ["member", ""],
+      ["member", "other-room"],
+    ]);
+    assert.equal((await joinRoom(db, { userId: elsewhere, roomId: "shop", now })).ok, false);
+
+    // A revoked room invite refuses the join.
+    const revoked = await person(db, "Revoked", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Revoked', 'member', 'shop', 'revoke', 'test', 'test', 'test', 'Revoked for the test.', $3)`,
+      [randomUUID(), revoked, new Date(now.getTime() + 1000)],
+    );
+    assert.equal((await joinRoom(db, { userId: revoked, roomId: "shop", now })).ok, false);
+
+    const steward = await person(db, "Steward", [
+      ["member", ""],
+      ["steward", "shop"],
+    ]);
+    assert.equal((await joinRoom(db, { userId: steward, roomId: "shop", now })).ok, true);
+    const admin = await person(db, "Admin", [
+      ["member", ""],
+      ["admin", ""],
+    ]);
+    assert.equal((await joinRoom(db, { userId: admin, roomId: "shop", now })).ok, true);
+
+    // Leaving works even without an invite.
+    assert.equal(
+      (await joinRoom(db, { userId: uninvited, roomId: "shop", now, leave: true })).ok,
+      true,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("an exempt post never puts an admin or steward in the room or opens chat and calls", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    // An admin who stood in the room, left, and then posts stays out.
+    const admin = await person(db, "Admin", [
+      ["member", ""],
+      ["admin", ""],
+    ]);
+    assert.equal((await joinRoom(db, { userId: admin, roomId: "shop", now })).ok, true);
+    assert.equal(
+      (await joinRoom(db, { userId: admin, roomId: "shop", now, leave: true })).ok,
+      true,
+    );
+    const adminPost = await createPost(db, {
+      userId: admin,
+      name: "Admin",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(adminPost.ok, true);
+    if (!adminPost.ok) return;
+    const adminReply = await replyToPost(db, {
+      userId: admin,
+      name: "Admin",
+      postId: adminPost.value.id,
+      claim: "Checked again on Friday.",
+      now,
+    });
+    assert.equal(adminReply.ok, true);
+    assert.equal(await stood(db, admin, "shop"), false);
+    assert.equal((await roomCallMember(db, admin, "shop", now)).kind, "outsider");
+    assert.equal((await requireRoomMember(db, admin, "shop", now)).ok, false);
+
+    // A steward who posts and then loses the role has no access afterwards.
+    const stew = await person(db, "Stew", [
+      ["member", ""],
+      ["steward", "shop"],
+    ]);
+    const stewPost = await createPost(db, {
+      userId: stew,
+      name: "Stew",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(stewPost.ok, true);
+    assert.equal(await stood(db, stew, "shop"), false);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Stew', 'steward', 'shop', 'revoke', 'test', 'test', 'test', 'Revoked for the test.', $3)`,
+      [randomUUID(), stew, new Date(now.getTime() + 1000)],
+    );
+    const later = new Date(now.getTime() + 2000);
+    assert.equal(await stood(db, stew, "shop"), false);
+    assert.equal((await roomCallMember(db, stew, "shop", later)).kind, "outsider");
+    assert.equal((await requireRoomMember(db, stew, "shop", later)).ok, false);
+    const after = await createPost(db, {
+      userId: stew,
+      name: "Stew",
+      roomId: "shop",
+      body: did,
+      now: later,
+    });
+    assert.equal(after.ok, false);
   } finally {
     await close();
   }

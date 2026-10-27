@@ -106,6 +106,7 @@ const appTests = [
   "src/lib/board/council.test.ts",
   "server/board/account.test.ts",
   "src/lib/board/delete-post.render.test.mjs",
+  "src/lib/board/member-gate.render.test.mjs",
   "src/lib/board/claim-policy.test.ts",
   "src/lib/board/claim-design.test.ts",
   "src/lib/board/public-page.test.ts",

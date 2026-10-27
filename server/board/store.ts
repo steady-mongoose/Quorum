@@ -98,6 +98,8 @@ export type BoardRoom = {
   regionId: string;
   pinOrder?: number | null;
   joined?: boolean;
+  /** The viewer is in the room (saved it or stood there), so they may post. */
+  member?: boolean;
   status: "draft" | "unclaimed" | "active";
   town: string;
   county: string;
@@ -278,6 +280,7 @@ type RoomRow = {
   region_id?: string;
   pin_order?: number | null;
   joined?: boolean;
+  member?: boolean;
   status?: string;
   town_name?: string;
   county?: string;
@@ -327,6 +330,7 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     regionId: row.region_id ?? "",
     pinOrder: row.pin_order == null ? null : Number(row.pin_order),
     joined: Boolean(row.joined),
+    member: Boolean(row.member),
     status: row.status === "draft" || row.status === "unclaimed" ? row.status : "active",
     town: row.town_name ?? "",
     county: row.county ?? "",
@@ -417,7 +421,11 @@ async function roomById(
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $2
-            ) as joined
+            ) as joined,
+            (
+              exists (select 1 from room_join j where j.room_id = room.id and j.user_id = $2)
+              or exists (select 1 from room_member m where m.room_id = room.id and m.user_id = $2)
+            ) as member
      from room where id = $1`,
     [id, who.id],
   );
@@ -589,22 +597,22 @@ async function postsInRoom(
   return Boolean(rows[0]);
 }
 
-const JOIN_TO_POST = "Join this room to post.";
+const JOIN_TO_POST = "Only members of this room can post here.";
 
 /**
  * A post or a reply records that this member stood in that one room, but only
  * when they are already in it (saved it or stood there). It never re-adds a
- * member who left. Stewards and admins are recorded as before.
+ * member who left. A steward's or admin's post never adds them either:
+ * posting is exempt, but it never grants chat or call access.
  */
-async function standInRoom(db: Db, userId: string, roomId: string, exempt = false): Promise<void> {
+async function standInRoom(db: Db, userId: string, roomId: string): Promise<void> {
   await db.query(
     `insert into room_member (room_id, user_id)
      select $1, $2
-     where $3::boolean
-        or exists (select 1 from room_join where room_id = $1 and user_id = $2)
+     where exists (select 1 from room_join where room_id = $1 and user_id = $2)
         or exists (select 1 from room_member where room_id = $1 and user_id = $2)
      on conflict do nothing`,
-    [roomId, userId, exempt],
+    [roomId, userId],
   );
 }
 
@@ -646,7 +654,11 @@ export async function listBoard(
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $1
-            ) as joined
+            ) as joined,
+            (
+              exists (select 1 from room_join j where j.room_id = room.id and j.user_id = $1)
+              or exists (select 1 from room_member m where m.room_id = room.id and m.user_id = $1)
+            ) as member
      from room where name <> '' and ${visibleRoomClause(ready, "2")}
      order by sort_order asc, name asc`,
     ready ? [userId, seeHidden] : [userId],
@@ -1080,7 +1092,7 @@ export async function createPost(
   const author = input.name.trim() || "Member";
   try {
     const row = await db.transaction(async (tx) => {
-      await standInRoom(tx, input.userId, room.id, stewardsRoom(actor, room.id));
+      await standInRoom(tx, input.userId, room.id);
       const reserved = await tx.query<{ room_id: string; author_user_id: string }>(
         `select room_id, author_user_id from room_post where id = $1`,
         [id],
@@ -1222,7 +1234,7 @@ export async function replyToPost(
   );
   const row = inserted[0];
   if (!row) return fail(500, "The reply was not filed.");
-  await standInRoom(db, input.userId, parent.room_id, stewardsRoom(actor, room.id));
+  await standInRoom(db, input.userId, parent.room_id);
   return { ok: true, value: await withCouncil(db, toPost(row)) };
 }
 
