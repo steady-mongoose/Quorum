@@ -14,6 +14,7 @@ import {
   weekFor,
   witnessesByTrade,
   type MeetingCard,
+  forViewer,
 } from "@/lib/board/model";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { HomePanel } from "@/components/board/home-view";
@@ -30,7 +31,13 @@ import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/mo
  * says so and points at the rooms.
  */
 export function WeekView() {
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);

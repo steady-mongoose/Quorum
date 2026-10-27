@@ -30,6 +30,7 @@ import {
   type CardKind,
   type MeetingCard,
   type RoomId,
+  forViewer,
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
@@ -38,7 +39,13 @@ import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);
   const me = useBoard((state) => authorName(state.me));

@@ -57,6 +57,7 @@ import {
   type Mark,
   type MeetingCard,
   type Post,
+  forViewer,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
@@ -81,7 +82,13 @@ export function RoomView() {
   const roomsRoute = useRoomsRoute();
   const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
   const appeals = useBoard((state) => state.appeals);
@@ -386,7 +393,13 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const admin = useBoard((state) => state.admin);
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
   const rooms = useBoard((state) => state.rooms);
@@ -693,7 +706,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                     <span>
                       {admin
                         ? "Nobody said they would come. Say how it went and set the next date."
-                        : "Only admins see who said they would come. Say how it went and set the next date."}
+                        : "Say how it went, and set the next date."}
                     </span>
                   )}
                 </fieldset>
