@@ -54,7 +54,7 @@ test("coturn is a calls profile that docker compose up does not start", () => {
 
 test("call membership is a read, and the module does not write the room tables", () => {
   const membership = readFileSync(join(root, "server/calls/membership.ts"), "utf8");
-  assert.match(membership, /select user_id from room_member/);
+  assert.match(membership, /select .stood. as via from room_member where room_id/);
   assert.equal(/insert into|update |delete from/i.test(membership), false);
   const routes = readFileSync(join(root, "server/calls/routes.ts"), "utf8");
   assert.match(routes, /record: false/);

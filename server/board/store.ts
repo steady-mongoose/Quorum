@@ -541,6 +541,11 @@ async function pagePosts(
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
      from board_post
      where removed = false
+       and author_deleted_at is null
+       and not exists (
+         select 1 from "user" u
+         where u.id = board_post.author_user_id and u.deactivated_at is not null
+       )
        and room_id = $1
        and (
          $2::timestamptz is null
