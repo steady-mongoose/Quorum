@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { AGE_INVITE_ERROR, AGE_INVITE_LABEL } from "@/lib/board/age";
@@ -11,6 +11,8 @@ export function ServerInvite() {
   const [code, setCode] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [attestAdult, setAttestAdult] = useState(false);
+  const [ageError, setAgeError] = useState(false);
+  const ageRef = useRef<HTMLInputElement>(null);
 
   if (server.mode !== "live" || !server.user) return null;
 
@@ -34,11 +36,22 @@ export function ServerInvite() {
         <input
           type="checkbox"
           className="size-5 shrink-0"
+          ref={ageRef}
           checked={attestAdult}
-          onChange={(event) => setAttestAdult(event.target.checked)}
+          aria-invalid={ageError ? true : undefined}
+          aria-describedby="invite-age-error"
+          onChange={(event) => {
+            setAttestAdult(event.target.checked);
+            if (event.target.checked) setAgeError(false);
+          }}
         />
         {AGE_INVITE_LABEL}
       </label>
+      {ageError ? (
+        <p id="invite-age-error" role="alert" className="text-sm text-danger">
+          {AGE_INVITE_ERROR}
+        </p>
+      ) : null}
       <button
         type="button"
         className={cn(btnSignal, "self-start")}
@@ -46,9 +59,11 @@ export function ServerInvite() {
           setOutcome(null);
           if (!attestAdult) {
             setCode(null);
-            setOutcome(AGE_INVITE_ERROR);
+            setAgeError(true);
+            ageRef.current?.focus();
             return;
           }
+          setAgeError(false);
           const parsed = Number(maxUses);
           void server.createInvite({ maxUses: parsed, attestAdult: true }).then((result) => {
             if (!result.ok) {

@@ -38,7 +38,7 @@ const { createRoot } = await import("react-dom/client");
 const { AccountDoor } = await import("../../components/board/account-door.tsx");
 const { ServerInvite } = await import("../../components/board/server-invite.tsx");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
-const { AGE_INVITE_LABEL, AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } = await import("./age.ts");
+const { AGE_INVITE_ERROR, AGE_INVITE_LABEL, AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } = await import("./age.ts");
 
 const WIDTHS = [390, 768, 1440];
 
@@ -115,7 +115,13 @@ test("signup shows an unticked 18+ checkbox at 390, 768, and 1440 and will not s
         form.requestSubmit();
       });
       assert.equal(sent.length, 0, String(width));
-      assert.match(view.host.textContent ?? "", new RegExp(AGE_SIGNUP_ERROR));
+      const ageError = view.host.querySelector("#age-error");
+      assert.equal(ageError?.getAttribute("role"), "alert");
+      assert.equal(ageError?.textContent, AGE_SIGNUP_ERROR);
+      assert.equal(label?.nextElementSibling, ageError, "the error sits right after the checkbox label");
+      assert.equal(box.getAttribute("aria-invalid"), "true");
+      assert.equal(box.getAttribute("aria-describedby"), "age-error");
+      assert.equal(document.activeElement, box);
       act(() => {
         box.click();
       });
@@ -169,9 +175,17 @@ test("the invite form requires the inviter's 18+ attestation at each width", () 
         button.click();
       });
       assert.equal(sent.length, 0);
+      const inviteError = view.host.querySelector("#invite-age-error");
+      assert.equal(inviteError?.getAttribute("role"), "alert");
+      assert.equal(inviteError?.textContent, AGE_INVITE_ERROR);
+      assert.equal(label?.nextElementSibling, inviteError);
+      assert.equal(box.getAttribute("aria-invalid"), "true");
+      assert.equal(box.getAttribute("aria-describedby"), "invite-age-error");
+      assert.equal(document.activeElement, box);
       act(() => {
         box.click();
       });
+      assert.equal(view.host.querySelector("#invite-age-error"), null);
       act(() => {
         button.click();
       });

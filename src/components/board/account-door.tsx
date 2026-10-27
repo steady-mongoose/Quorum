@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
@@ -21,6 +21,8 @@ export function AccountDoor() {
   const [outcome, setOutcome] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [adult, setAdult] = useState(false);
+  const [ageError, setAgeError] = useState(false);
+  const ageRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -42,10 +44,12 @@ export function AccountDoor() {
           return;
         }
         if (mode === "sign-up" && !adult) {
-          setOutcome(AGE_SIGNUP_ERROR);
+          setAgeError(true);
+          ageRef.current?.focus();
           return;
         }
         setCodeError(null);
+        setAgeError(false);
         setPending(true);
         const run =
           mode === "sign-in"
@@ -123,11 +127,22 @@ export function AccountDoor() {
             <input
               type="checkbox"
               className="size-5 shrink-0"
+              ref={ageRef}
               checked={adult}
-              onChange={(event) => setAdult(event.target.checked)}
+              aria-invalid={ageError ? true : undefined}
+              aria-describedby="age-error"
+              onChange={(event) => {
+                setAdult(event.target.checked);
+                if (event.target.checked) setAgeError(false);
+              }}
             />
             {AGE_SIGNUP_LABEL}
           </label>
+          {ageError ? (
+            <p id="age-error" role="alert" className="text-sm text-danger">
+              {AGE_SIGNUP_ERROR}
+            </p>
+          ) : null}
         </>
       ) : null}
       <button type="submit" className={cn(btnSignal, "self-start")} disabled={pending}>
