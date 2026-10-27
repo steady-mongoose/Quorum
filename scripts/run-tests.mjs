@@ -91,6 +91,7 @@ const appTests = [
   "server/board/http.test.ts",
   "server/board/reports.test.ts",
   "src/lib/board/report-control.render.test.mjs",
+  "src/lib/board/moderation-queue.render.test.mjs",
   "server/board/public-gathering.test.ts",
   "server/board/groups.test.ts",
   "server/board/audience.test.ts",
