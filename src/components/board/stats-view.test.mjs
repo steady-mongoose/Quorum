@@ -299,7 +299,10 @@ test("the category select truncates at phone width and the header link is a 44px
   const route = readFileSync(new URL("../../routes/admin/stats.tsx", import.meta.url), "utf8");
   assert.match(view, /w-full max-w-full truncate .*sm:w-auto sm:max-w-\[20rem\]/);
   assert.match(view, /title=\{selectedLabel\}/);
-  assert.match(route, /<Link to="\/" className="inline-flex min-h-\[44px\] items-center text-sm text-muted">/);
+  assert.match(
+    route,
+    /<Link to="\/" className="inline-flex min-h-\[44px\] items-center text-sm text-muted">/,
+  );
 });
 
 test("the category filter lists Not yet sorted last, after a separator", async () => {
@@ -332,6 +335,81 @@ test("the category filter lists Not yet sorted last, after a separator", async (
     node.tagName === "HR" ? "---" : (node.textContent ?? ""),
   );
   assert.deepEqual(children, ["All", "Churches", "Parish choir", "---", "Not yet sorted"]);
+  act(() => root.unmount());
+  host.remove();
+});
+
+test("rounded and hidden counts read as about and fewer than, with one privacy note", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const rounded = {
+    ...stats,
+    tiles: [
+      stats.tiles[0],
+      stats.tiles[1],
+      { id: "rooms", label: "Active rooms (30 days)", value: 20, approx: true, change: null },
+      stats.tiles[3],
+    ],
+  };
+  act(() => {
+    root.render(
+      createElement(StatsView, {
+        stats: rounded,
+        days: 30,
+        category: "all",
+        onDays: () => {},
+        onCategory: () => {},
+        onCsv: () => {},
+        csvError: "",
+      }),
+    );
+  });
+  const tiles = [...host.querySelectorAll("article")];
+  const rooms = tiles.find((tile) => tile.textContent?.startsWith("Active rooms"));
+  assert.ok(rooms);
+  const shown = rooms.querySelector('[aria-hidden="true"]');
+  assert.equal(shown?.textContent, "~20");
+  assert.equal(rooms.querySelector(".sr-only")?.textContent, "about 20");
+  const members = tiles.find((tile) => tile.textContent?.startsWith("Members"));
+  assert.equal(members?.querySelector(".sr-only"), null);
+  const notes = [...host.querySelectorAll("p")].filter(
+    (node) => node.textContent === "Small counts are rounded to protect privacy.",
+  );
+  assert.equal(notes.length, 1);
+  const tableButton = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "View as table",
+  );
+  act(() => tableButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  const cells = [...host.querySelectorAll("td")].filter((td) => td.textContent?.startsWith("<5"));
+  assert.ok(cells.length > 0);
+  for (const td of cells) {
+    assert.equal(td.querySelector('[aria-hidden="true"]')?.textContent, "<5");
+    assert.equal(td.querySelector(".sr-only")?.textContent, "fewer than 5");
+  }
+  act(() => root.unmount());
+  host.remove();
+});
+
+test("with every count exact, there is no privacy note", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const exact = JSON.parse(JSON.stringify(stats).replaceAll('"<5"', "6"));
+  act(() => {
+    root.render(
+      createElement(StatsView, {
+        stats: exact,
+        days: 30,
+        category: "all",
+        onDays: () => {},
+        onCategory: () => {},
+        onCsv: () => {},
+        csvError: "",
+      }),
+    );
+  });
+  assert.equal((host.textContent ?? "").includes("Small counts are rounded"), false);
   act(() => root.unmount());
   host.remove();
 });

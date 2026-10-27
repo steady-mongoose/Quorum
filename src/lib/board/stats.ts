@@ -4,10 +4,15 @@ export const SMALL_COUNT = 5;
 
 export type ShownCount = number | "<5";
 
+/** A published count, with whether a number was rounded to protect a small one. */
+export type ProtectedCount = { value: ShownCount; approx: boolean };
+
 export type StatsTile = {
   id: "members" | "invites" | "rooms" | "gatherings";
   label: string;
   value: ShownCount | null;
+  /** True when value is a number rounded to protect a small count. */
+  approx?: boolean;
   /** Displayed current minus displayed prior. Null when either side is hidden. */
   change: number | null;
 };
@@ -59,6 +64,9 @@ export type TotalWeek = {
   week: string;
   posts: ShownCount;
   gatherings: ShownCount;
+  /** True when that total is rounded to protect a small room count. */
+  postsApprox?: boolean;
+  gatheringsApprox?: boolean;
 };
 
 export type RoomWeek = {
@@ -134,14 +142,14 @@ function isSmallCell(part: number, rule: BreakdownRule = {}): boolean {
 export function protectBreakdown(
   parts: number[],
   rule: BreakdownRule = {},
-): { parts: ShownCount[]; total: ShownCount } {
+): { parts: ShownCount[]; total: ShownCount; approx: boolean } {
   const total = parts.reduce((sum, part) => sum + part, 0);
   const shownParts = parts.map((part) => (rule.emptyShown && part === 0 ? 0 : showCount(part)));
   if (!parts.some((part) => isSmallCell(part, rule))) {
-    return { parts: shownParts, total: showCount(total) };
+    return { parts: shownParts, total: showCount(total), approx: false };
   }
-  if (!roundedTotalIsSafe(parts, rule)) return { parts: shownParts, total: "<5" };
-  return { parts: shownParts, total: roundToFive(total) };
+  if (!roundedTotalIsSafe(parts, rule)) return { parts: shownParts, total: "<5", approx: false };
+  return { parts: shownParts, total: roundToFive(total), approx: true };
 }
 
 /**
@@ -179,13 +187,15 @@ export function roundedTotalIsSafe(
  * shown cells cannot recover a hidden one. An empty cell (0) names no one, as
  * with category buckets, so a total that only shows a cell was empty stays exact.
  */
-export function protectTotalOverCells(total: number, cells: number[]): ShownCount {
+export function protectTotalOverCells(total: number, cells: number[]): ProtectedCount {
   const rule = { emptyShown: true } as const;
-  if (!cells.some((cell) => isSmallCell(cell, rule))) return showCount(total);
+  if (!cells.some((cell) => isSmallCell(cell, rule))) {
+    return { value: showCount(total), approx: false };
+  }
   const extra = Math.max(0, total - cells.reduce((sum, cell) => sum + cell, 0));
-  if (!roundedTotalIsSafe(cells, rule, extra)) return "<5";
+  if (!roundedTotalIsSafe(cells, rule, extra)) return { value: "<5", approx: false };
   const rounded = roundToFive(total);
-  return rounded < SMALL_COUNT ? "<5" : rounded;
+  return rounded < SMALL_COUNT ? { value: "<5", approx: false } : { value: rounded, approx: true };
 }
 
 /**
@@ -396,6 +406,11 @@ function csvCell(value: string | number | null): string {
   return guarded;
 }
 
+/** A rounded count keeps its "~" in the csv, so it is not read as exact. */
+function approxCell(value: ShownCount | null, approx: boolean | undefined): string | number | null {
+  return approx && typeof value === "number" ? `~${value}` : value;
+}
+
 function csvLine(cells: (string | number | null)[]): string {
   return cells.map(csvCell).join(",");
 }
@@ -406,7 +421,9 @@ export function toStatsCsv(stats: StatsPayload): string {
   lines.push(csvLine(["filter", "", "days", String(stats.days), ""]));
   lines.push(csvLine(["filter", "", "category", stats.category, ""]));
   for (const tile of stats.tiles) {
-    lines.push(csvLine(["summary", stats.asOf, tile.label, "", tile.value]));
+    lines.push(
+      csvLine(["summary", stats.asOf, tile.label, "", approxCell(tile.value, tile.approx)]),
+    );
     lines.push(csvLine(["summary", stats.asOf, `${tile.label} change`, "", tile.change]));
   }
   for (const row of stats.joins) lines.push(csvLine(["joins", row.date, "joins", "", row.count]));
@@ -420,8 +437,16 @@ export function toStatsCsv(stats: StatsPayload): string {
     lines.push(csvLine(["roll", row.date, "attendance", "", row.attendance]));
   }
   for (const row of stats.rooms.weeks) {
-    lines.push(csvLine(["rooms", row.week, "posts", "", row.posts]));
-    lines.push(csvLine(["rooms", row.week, "gatherings", "", row.gatherings]));
+    lines.push(csvLine(["rooms", row.week, "posts", "", approxCell(row.posts, row.postsApprox)]));
+    lines.push(
+      csvLine([
+        "rooms",
+        row.week,
+        "gatherings",
+        "",
+        approxCell(row.gatherings, row.gatheringsApprox),
+      ]),
+    );
   }
   lines.push(csvLine(["rooms", stats.asOf, "rooms_steady", "", stats.rooms.steady]));
   for (const row of stats.rooms.rows) {

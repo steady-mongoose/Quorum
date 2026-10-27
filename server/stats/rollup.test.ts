@@ -8,6 +8,7 @@ import {
   endpointGroup,
   parseStatsQuery,
   protectBreakdown,
+  protectTotalOverCells,
   hiddenCellRanges,
   recoverableHidden,
   showCount,
@@ -649,7 +650,7 @@ test("gathering filters cannot be subtracted back to a hidden category", async (
       const churchesCsv = await readStatsCsv(db, NOW, { days, category: "churches" });
       assert.equal(csv.includes(`Gatherings held (${days} days),,${hidden}`), false);
       assert.equal(churchesCsv.includes(`Gatherings held (${days} days),,${hidden}`), false);
-      assert.match(csv, new RegExp(`Gatherings held \\(${days} days\\),,${whole}`));
+      assert.match(csv, new RegExp(`Gatherings held \\(${days} days\\),,~?${whole}\\n`));
       assert.match(churchesCsv, new RegExp(`Gatherings held \\(${days} days\\),,${churchesCount}`));
     }
   } finally {
@@ -769,7 +770,7 @@ test("published totals do not let a hidden count be subtracted back", async () =
     assert.notEqual(oct23?.wau, 5);
     const csv = await readStatsCsv(db, NOW);
     assert.equal(csv.includes("rooms,2026-10-12,posts,,12"), false);
-    assert.match(csv, /rooms,2026-10-12,posts,,10/);
+    assert.match(csv, /rooms,2026-10-12,posts,,~10\n/);
     assert.match(csv, /rooms,2026-10-12,posts,Big Room,10/);
     assert.match(csv, /rooms,2026-10-12,posts,Small Room,<5/);
     assert.equal(csv.includes("Members,,7"), false);
@@ -962,7 +963,10 @@ test("rooms not yet sorted are listed last, labeled plainly, and hidden at zero"
     const before = await readStats(db, NOW, { days: 30, category: "all" });
     assert.equal(before.categories?.at(-1)?.id, "uncategorized");
     assert.equal(before.categories?.at(-1)?.label, "Not yet sorted");
-    assert.equal(before.categories?.some((row) => row.label === "Uncategorized"), false);
+    assert.equal(
+      before.categories?.some((row) => row.label === "Uncategorized"),
+      false,
+    );
     const unsortedBefore = before.roomsByCategory.find((row) => row.id === "uncategorized");
     assert.equal(unsortedBefore, undefined, JSON.stringify(before.roomsByCategory));
 
@@ -1004,7 +1008,8 @@ function pinnedHidden(parts: number[], rule: { emptyShown?: boolean }): boolean 
       left -= v;
     }
     const out = protectBreakdown(trial, rule);
-    if (out.total === shown.total && out.parts.every((p, i) => p === shown.parts[i])) sums.push(sum);
+    if (out.total === shown.total && out.parts.every((p, i) => p === shown.parts[i]))
+      sums.push(sum);
   }
   const values = new Set<number>();
   for (const sum of sums) {
@@ -1111,4 +1116,38 @@ test("the gatherings tile cannot be differenced against the per-room weekly tabl
   } finally {
     await close();
   }
+});
+
+test("a protected total says whether it was rounded", () => {
+  assert.deepEqual(protectTotalOverCells(23, [10, 13]), { value: 23, approx: false });
+  assert.deepEqual(protectTotalOverCells(3, [3]), { value: "<5", approx: false });
+  const rounded = protectTotalOverCells(41, [10, 10, 10, 9, 2]);
+  if (typeof rounded.value === "number") {
+    assert.equal(rounded.approx, true);
+    assert.equal(rounded.value % 5, 0);
+  } else {
+    assert.equal(rounded.approx, false);
+  }
+  assert.equal(protectBreakdown([10, 12]).approx, false);
+  const broken = protectBreakdown([10, 10, 10, 9, 2]);
+  assert.equal(broken.approx, typeof broken.total === "number");
+});
+
+test("the csv keeps a rounded count marked with ~ and a hidden one as <5", () => {
+  const stats = emptyStats();
+  stats.tiles[2] = {
+    id: "rooms",
+    label: "Active rooms (30 days)",
+    value: 20,
+    approx: true,
+    change: null,
+  };
+  stats.rooms.weeks = [
+    { week: "2026-10-19", posts: 15, gatherings: "<5", postsApprox: true, gatheringsApprox: false },
+  ];
+  const csv = toStatsCsv(stats);
+  assert.match(csv, /summary,[^\n]*,Active rooms \(30 days\),,~20/);
+  assert.match(csv, /rooms,2026-10-19,posts,,~15/);
+  assert.match(csv, /rooms,2026-10-19,gatherings,,<5/);
+  assert.match(csv, /Members,,<5/);
 });

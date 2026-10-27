@@ -110,6 +110,11 @@ export function StatsView({
           Category shows only rooms in that category and their gatherings. A room in more than one
           category appears under each, but totals count it once.
         </p>
+        {anyProtected(stats) ? (
+          <p className="max-w-prose text-[0.85rem] text-muted">
+            Small counts are rounded to protect privacy.
+          </p>
+        ) : null}
       </div>
 
       {stats.tiles.map((tile) => (
@@ -119,7 +124,7 @@ export function StatsView({
         >
           <p className="text-[0.85rem] tracking-[.04em] text-muted">{tile.label}</p>
           <p className="mt-2 font-display text-[2.5rem] leading-none text-fg tabular-nums">
-            {show(tile.value)}
+            <ShownValue value={tile.value} approx={tile.approx} />
           </p>
           <ChangeLine change={tile.change} days={days} />
         </article>
@@ -143,7 +148,7 @@ export function StatsView({
           <CountTable
             caption="Active rooms by category"
             columns={["Category", "Rooms"]}
-            rows={stats.roomsByCategory.map((row) => [row.label, show(row.count)])}
+            rows={stats.roomsByCategory.map((row) => [row.label, cell(row.count)])}
           />
         }
       />
@@ -164,7 +169,7 @@ export function StatsView({
             columns={["Step", "Count"]}
             rows={stats.funnel.map((step) => [
               step.label,
-              step.count === null ? "Not collected" : show(step.count),
+              step.count === null ? "Not collected" : cell(step.count),
             ])}
           />
         }
@@ -185,7 +190,7 @@ export function StatsView({
           <CountTable
             caption="Joins over time"
             columns={["Date", "Joins"]}
-            rows={stats.joins.map((row) => [formatDay(row.date), show(row.count)])}
+            rows={stats.joins.map((row) => [formatDay(row.date), cell(row.count)])}
           />
         }
       />
@@ -204,7 +209,7 @@ export function StatsView({
           <CountTable
             caption="Rolls filed"
             columns={["Date", "Rolls"]}
-            rows={stats.roll.map((row) => [formatDay(row.date), show(row.roll)])}
+            rows={stats.roll.map((row) => [formatDay(row.date), cell(row.roll)])}
           />
         }
       />
@@ -223,7 +228,7 @@ export function StatsView({
           <CountTable
             caption="Attendance"
             columns={["Date", "Attendance"]}
-            rows={stats.roll.map((row) => [formatDay(row.date), show(row.attendance)])}
+            rows={stats.roll.map((row) => [formatDay(row.date), cell(row.attendance)])}
           />
         }
       />
@@ -231,7 +236,7 @@ export function StatsView({
         id="stats-posts"
         showTable={table}
         title="Posts"
-        note={`Rooms that met in at least 3 of the last 4 weeks: ${show(stats.rooms.steady)}`}
+        note={`Rooms that met in at least 3 of the last 4 weeks: ${words(stats.rooms.steady)}`}
         chart={
           <LineChart
             label="Posts per week"
@@ -243,7 +248,7 @@ export function StatsView({
           <RoomTable
             caption="Posts per room per week"
             columns={["Room", "Week", "Posts"]}
-            rows={roomRows.map((row) => [row.room, formatDay(row.week), show(row.posts)])}
+            rows={roomRows.map((row) => [row.room, formatDay(row.week), cell(row.posts)])}
           />
         }
       />
@@ -265,7 +270,7 @@ export function StatsView({
           <RoomTable
             caption="Gatherings per room per week"
             columns={["Room", "Week", "Gatherings"]}
-            rows={roomRows.map((row) => [row.room, formatDay(row.week), show(row.gatherings)])}
+            rows={roomRows.map((row) => [row.room, formatDay(row.week), cell(row.gatherings)])}
           />
         }
       />
@@ -293,7 +298,7 @@ export function StatsView({
           <CountTable
             caption="Feature use"
             columns={["Feature", "Uses"]}
-            rows={stats.features.map((row) => [row.label, show(row.count)])}
+            rows={stats.features.map((row) => [row.label, cell(row.count)])}
           />
         }
       />
@@ -317,7 +322,7 @@ export function StatsView({
           <CountTable
             caption="Attendance"
             columns={["Date", "Attendance"]}
-            rows={stats.intent.attendance.map((row) => [formatDay(row.date), show(row.count)])}
+            rows={stats.intent.attendance.map((row) => [formatDay(row.date), cell(row.count)])}
           />
         }
       />
@@ -408,9 +413,9 @@ function ActiveMembers({ stats, showTable }: { stats: StatsPayload; showTable: b
           columns={["Date", "That day", "7 days", "30 days"]}
           rows={stats.active.map((row) => [
             formatDay(row.date),
-            show(row.dau),
-            show(row.wau),
-            show(row.mau),
+            cell(row.dau),
+            cell(row.wau),
+            cell(row.mau),
           ])}
         />
       ) : (
@@ -716,7 +721,7 @@ function CountTable({
 }: {
   caption: string;
   columns: string[];
-  rows: string[][];
+  rows: ReactNode[][];
 }) {
   if (rows.length === 0) return <p className="text-sm text-muted">Nothing in this window.</p>;
   return (
@@ -734,10 +739,10 @@ function CountTable({
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={`${row.join("-")}-${index}`} className="border-b border-line">
-              {row.map((cell, cellIndex) => (
-                <td key={`${columns[cellIndex]}-${cell}-${index}`} className="px-2 py-2 text-fg">
-                  {cell}
+            <tr key={`${String(row[0])}-${index}`} className="border-b border-line">
+              {row.map((value, cellIndex) => (
+                <td key={`${columns[cellIndex]}-${index}`} className="px-2 py-2 text-fg">
+                  {value}
                 </td>
               ))}
             </tr>
@@ -755,7 +760,7 @@ function RoomTable({
 }: {
   caption: string;
   columns: string[];
-  rows: string[][];
+  rows: ReactNode[][];
 }) {
   const [rest, setRest] = useState(false);
   const shown = rest ? rows : rows.slice(0, ROOM_PAGE);
@@ -784,11 +789,15 @@ function IntentFacts({ stats }: { stats: StatsPayload }) {
       </div>
       <div className="flex justify-between gap-4">
         <dt>Active in two or more rooms</dt>
-        <dd className="font-semibold tabular-nums">{show(stats.intent.crossRoomMembers)}</dd>
+        <dd className="font-semibold tabular-nums">
+          <ShownValue value={stats.intent.crossRoomMembers} />
+        </dd>
       </div>
       <div className="flex justify-between gap-4">
         <dt>Vouches across rooms</dt>
-        <dd className="font-semibold tabular-nums">{show(stats.intent.crossRoomVouches)}</dd>
+        <dd className="font-semibold tabular-nums">
+          <ShownValue value={stats.intent.crossRoomVouches} />
+        </dd>
       </div>
     </dl>
   );
@@ -814,9 +823,57 @@ function show(value: ShownCount | number | null): string {
   return String(value);
 }
 
-function inPerson(stats: StatsPayload): string {
+/** A count in words, for sentences: "<5" reads as "fewer than 5". */
+function words(value: ShownCount | number | null): string {
+  if (value === "<5") return "fewer than 5";
+  return show(value);
+}
+
+/**
+ * A shown count. "<5" and a rounded "~20" keep their symbol on screen, but a
+ * screen reader hears "fewer than 5" and "about 20".
+ */
+export function ShownValue({
+  value,
+  approx,
+}: {
+  value: ShownCount | number | null;
+  approx?: boolean;
+}) {
+  if (value === null) return <>—</>;
+  if (value === "<5") {
+    return (
+      <>
+        <span aria-hidden="true">&lt;5</span>
+        <span className="sr-only">fewer than 5</span>
+      </>
+    );
+  }
+  if (approx) {
+    return (
+      <>
+        <span aria-hidden="true">~{value}</span>
+        <span className="sr-only">about {value}</span>
+      </>
+    );
+  }
+  return <>{value}</>;
+}
+
+function cell(value: ShownCount | number | null, approx?: boolean): ReactNode {
+  return <ShownValue value={value} approx={approx} />;
+}
+
+/** Whether any count on the page is rounded or hidden as "<5". */
+function anyProtected(stats: StatsPayload): boolean {
+  if (stats.tiles.some((tile) => tile.approx)) return true;
+  if (stats.rooms.weeks.some((row) => row.postsApprox || row.gatheringsApprox)) return true;
+  return JSON.stringify(stats).includes('"<5"');
+}
+
+function inPerson(stats: StatsPayload): ReactNode {
   if (stats.intent.inPersonPercent !== null) return `${stats.intent.inPersonPercent}%`;
-  return show(stats.intent.inPersonCount);
+  return <ShownValue value={stats.intent.inPersonCount} />;
 }
 
 function featureNote(most: string | null, least: string | null): string {

@@ -7,6 +7,7 @@ import {
   endpointLabel,
   roundedTotalIsSafe,
   protectTotalOverCells,
+  type ProtectedCount,
   protectBreakdown,
   roundToFive,
   showCount,
@@ -232,14 +233,13 @@ function roomsTile(
   label: string,
   catalog: CategoryInfo[],
 ): StatsTile {
+  const now = publishedBreakdown(current, category, catalog);
   return {
     id: "rooms",
     label,
-    value: publishedBreakdown(current, category, catalog),
-    change: shownChange(
-      publishedBreakdown(current, category, catalog),
-      publishedBreakdown(prior, category, catalog),
-    ),
+    value: now.value,
+    approx: now.approx,
+    change: shownChange(now.value, publishedBreakdown(prior, category, catalog).value),
   };
 }
 
@@ -251,7 +251,7 @@ function gatheringsTile(
   catalog: CategoryInfo[],
   roomCells: number[] = [],
 ): StatsTile {
-  const value = besideRoomTable(
+  const shown = besideRoomTable(
     publishedBreakdown(current, category, catalog),
     categoryTotal(current, category, catalog),
     roomCells,
@@ -259,8 +259,9 @@ function gatheringsTile(
   return {
     id: "gatherings",
     label,
-    value,
-    change: shownChange(value, publishedBreakdown(prior, category, catalog)),
+    value: shown.value,
+    approx: shown.approx,
+    change: shownChange(shown.value, publishedBreakdown(prior, category, catalog).value),
   };
 }
 
@@ -281,11 +282,15 @@ function categoryTotal(
  * tile minus the shown room cells would give back a hidden "<5" cell, so the
  * tile is also protected against those cells.
  */
-function besideRoomTable(shown: ShownCount, exact: number, roomCells: number[]): ShownCount {
-  if (typeof shown !== "number" || exact === 0) return shown;
+function besideRoomTable(
+  shown: ProtectedCount,
+  exact: number,
+  roomCells: number[],
+): ProtectedCount {
+  if (typeof shown.value !== "number" || exact === 0) return shown;
   const overCells = protectTotalOverCells(exact, roomCells);
-  if (typeof overCells !== "number") return "<5";
-  return shown === exact ? overCells : shown;
+  if (typeof overCells.value !== "number") return { value: "<5", approx: false };
+  return shown.approx ? shown : overCells;
 }
 
 /** Every gatherings cell the per-room weekly table shows for this window and category. */
@@ -314,23 +319,25 @@ function publishedBreakdown(
   snapshot: CategorySnapshot,
   category: string,
   catalog: CategoryInfo[],
-): ShownCount {
+): ProtectedCount {
   const protectedParts = protectBreakdown(snapshot.parts, CATEGORY_RULE);
   if (category === "all") return protectRoomTotal(snapshot.total, snapshot.parts);
   const index = catalog.findIndex((item) => item.id === category);
-  if (index < 0) return "<5";
-  return protectedParts.parts[index] ?? "<5";
+  if (index < 0) return { value: "<5", approx: false };
+  return { value: protectedParts.parts[index] ?? "<5", approx: false };
 }
 
 /** Category buckets: an empty one (0) is not a small cell, so it cannot hide a full total. */
 const CATEGORY_RULE = { emptyShown: true } as const;
 
-function protectRoomTotal(total: number, parts: number[]): ShownCount {
-  if (!parts.some((part) => part > 0 && part < SMALL_COUNT)) return showCount(total);
+function protectRoomTotal(total: number, parts: number[]): ProtectedCount {
+  if (!parts.some((part) => part > 0 && part < SMALL_COUNT)) {
+    return { value: showCount(total), approx: false };
+  }
   // Decided from public facts only (shown cells, hidden count), never the hidden values.
-  if (!roundedTotalIsSafe(parts, CATEGORY_RULE)) return "<5";
+  if (!roundedTotalIsSafe(parts, CATEGORY_RULE)) return { value: "<5", approx: false };
   const rounded = roundToFive(total);
-  return rounded < SMALL_COUNT ? "<5" : rounded;
+  return rounded < SMALL_COUNT ? { value: "<5", approx: false } : { value: rounded, approx: true };
 }
 
 function compared(
@@ -341,7 +348,13 @@ function compared(
 ): StatsTile {
   const now = protectBreakdown(current);
   const before = protectBreakdown(prior);
-  return { id, label, value: now.total, change: shownChange(now.total, before.total) };
+  return {
+    id,
+    label,
+    value: now.total,
+    approx: now.approx,
+    change: shownChange(now.total, before.total),
+  };
 }
 
 function comparedCounts(
@@ -439,7 +452,13 @@ function roomSeries(
     rooms.sort((a, b) => roomLabel(names, a.roomId).localeCompare(roomLabel(names, b.roomId)));
     const posts = protectBreakdown(rooms.map((room) => room.posts));
     const gatherings = protectBreakdown(rooms.map((room) => room.gatherings));
-    weeks.push({ week, posts: posts.total, gatherings: gatherings.total });
+    weeks.push({
+      week,
+      posts: posts.total,
+      gatherings: gatherings.total,
+      postsApprox: posts.approx,
+      gatheringsApprox: gatherings.approx,
+    });
     rooms.forEach((room, index) => {
       rows.push({
         week,
