@@ -571,7 +571,11 @@ export async function listPeers(db: Db, userId: string): Promise<{ id: string; n
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
-export async function sharesMeeting(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
+export async function sharesMeeting(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
   const rows = await db.query<{ meeting_id: string }>(
