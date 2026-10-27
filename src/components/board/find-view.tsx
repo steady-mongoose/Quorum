@@ -30,6 +30,7 @@ import {
   type CardKind,
   type MeetingCard,
   type RoomId,
+  forViewer,
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
@@ -38,7 +39,13 @@ import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
 
 export function FindView() {
-  const cards = useBoard((state) => state.cards);
+  const boardCards = useBoard((state) => state.cards);
+  const viewerAdmin = useBoard((state) => state.admin);
+  const viewerName = useBoard((state) => authorName(state.me));
+  const cards = useMemo(
+    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
+    [boardCards, viewerAdmin, viewerName],
+  );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);
   const me = useBoard((state) => authorName(state.me));
@@ -89,8 +96,8 @@ export function FindView() {
             <strong className="font-semibold text-fg">I'll be there</strong> for next time, or{" "}
             <strong className="font-semibold text-fg">I went</strong> after you have been. A meeting
             shows in the main list once two people have been to it, and drops off after it is missed
-            twice. If you host something, this is where you write it up afterwards and get invite
-            codes to hand out.
+            twice. If you host something, this is where you write it up afterwards, and its card
+            has an Invite someone button. The general invite code is under More, on About.
           </p>
         </section>
 
@@ -190,7 +197,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
   if (!host || (!showError && !removal.removed)) return null;
   if (showError) {
     return createPortal(
-      <div className={cn(TOAST_CLASS, "border-danger text-danger")} role="alert" style={themeVars(themeById(OWNER_THEME))}>
+      <div
+        className={cn(TOAST_CLASS, "border-danger text-danger")}
+        role="alert"
+        style={themeVars(themeById(OWNER_THEME))}
+      >
         <p className="text-sm">{errorText}</p>
         <button
           type="button"
@@ -204,7 +215,8 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
             {appeals.map((row) => (
               <li key={row.id}>
                 Your {row.kind} appeal is{" "}
-                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}.
+                {row.decision === "lift" ? "lifted" : row.decision === "uphold" ? "upheld" : "open"}
+                .
               </li>
             ))}
           </ul>
@@ -214,7 +226,11 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
     );
   }
   return createPortal(
-    <div className={cn(TOAST_CLASS, "border-line text-muted")} role="status" style={themeVars(themeById(OWNER_THEME))}>
+    <div
+      className={cn(TOAST_CLASS, "border-line text-muted")}
+      role="status"
+      style={themeVars(themeById(OWNER_THEME))}
+    >
       <p className="text-sm">Removed {removal.removed.name}.</p>
       <button type="button" className={cn(btnGhost, "min-h-[44px]")} onClick={removal.undo}>
         Undo
@@ -328,6 +344,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
+  const admin = useBoard((state) => state.admin);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
@@ -373,8 +390,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             title={went ? "happened" : "missed"}
           />
         ))}
-        <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span>
-        {card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
+        {admin ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
+        {admin && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -458,7 +475,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {card.going.length > 0 ? (
+              {admin && card.going.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {card.going.map((name) => (
@@ -602,9 +619,9 @@ function AddCard({ me }: { me: string }) {
     <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">List a card</h2>
       <p className="mt-1 text-sm text-muted">
-        You count as the first visit. It lists after a second person marks "I went." A trade lists
-        after two members name its work. A parish need is posted by whoever is organizing it, with
-        the family's say-so.
+        You count as the first visit. It shows to the room's members as soon as you save it, so they
+        can say they'll be there. A trade lists after two members name its work. A parish need is
+        posted by whoever is organizing it, with the family's say-so.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">

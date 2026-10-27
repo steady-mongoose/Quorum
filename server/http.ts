@@ -1,4 +1,5 @@
 import type { Db } from "./db.ts";
+import { handleInviteTracker } from "./admin/invite-tracker-routes.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "./proxy.ts";
 import { handleCalls, type CallsRuntime } from "./calls/routes.ts";
 import { readCallsConfig } from "./calls/config.ts";
@@ -7,6 +8,9 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { noteAuthenticatedRequest } from "./stats/activity.ts";
+import { handleStats } from "./stats/routes.ts";
+import { handleProfile } from "./profile/routes.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
@@ -15,14 +19,16 @@ import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
 import {
+  isAdmin,
   listInviteLog,
   mintInvite,
   redeemInvite,
   type CreateAccount,
   type SignIn,
 } from "./closed-test/store.ts";
+import { annotateAuthBody, enforceMfa, exportAccount, guardAdminView, handleMfa } from "./mfa/routes.ts";
 
-export type SessionUser = { id: string; name: string; email: string };
+export type SessionUser = { id: string; name: string; email: string; sessionId?: string };
 
 export type AppDeps = {
   db: Db;
@@ -186,6 +192,33 @@ function clientIp(request: Request): string {
   return rateLimitIp(value || "local");
 }
 
+function memoSession(deps: AppDeps, headers: Headers): AppDeps {
+  let pending: Promise<SessionUser | null> | undefined;
+  return {
+    ...deps,
+    readSession: (incoming) => {
+      if (incoming !== headers) return deps.readSession(incoming);
+      pending ??= deps.readSession(incoming);
+      return pending;
+    },
+  };
+}
+
+async function touchActivity(deps: AppDeps, request: Request, url: URL): Promise<void> {
+  try {
+    const session = await deps.readSession(request.headers);
+    if (!session) return;
+    await noteAuthenticatedRequest(deps.db, session.id, deps.now(), url.pathname);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "stats-activity-failed",
+        message: error instanceof Error ? error.message : "unknown",
+      }),
+    );
+  }
+}
+
 function tooMany(retryAfter: number): Response {
   return json(
     429,
@@ -207,8 +240,12 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
   return async (request) => {
     const url = new URL(request.url);
+    const scoped = memoSession(deps, request.headers);
     try {
-      const response = await route(deps, media, calls, request, url);
+      const response = await route(scoped, media, calls, request, url);
+      if (response.ok && request.method !== "OPTIONS" && url.pathname !== "/api/health") {
+        await touchActivity(scoped, request, url);
+      }
       return withCors(request, response, deps.origins);
     } catch (error) {
       if (error instanceof HttpError)
@@ -283,6 +320,12 @@ async function route(
     });
   }
 
+  // Deny by default: every route except the sign-in, sign-up, sign-out,
+  // session read and the /api/mfa steps waits on the second factor. This
+  // runs before the auth forward, DMs and invites so none of them skip it.
+  const mfaBlocked = await enforceMfa(deps, request, url);
+  if (mfaBlocked) return mfaBlocked;
+
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
     const text = await readBody(request);
     let email = "";
@@ -301,7 +344,13 @@ async function route(
     );
     if (blocked) return blocked;
     if (parseError) throw parseError;
-    return deps.forwardAuth(replay(request, text));
+    const forwarded = await deps.forwardAuth(replay(request, text));
+    return annotateAuthBody(deps, forwarded, "sign-in");
+  }
+
+  if (url.pathname === "/api/auth/get-session" && request.method === "GET") {
+    const forwarded = await deps.forwardAuth(request);
+    return annotateAuthBody(deps, forwarded, "session", request.headers);
   }
 
   if (url.pathname.startsWith("/api/auth/")) {
@@ -345,7 +394,7 @@ async function route(
         result.code ? { error: result.error, code: result.code } : { error: result.error },
       );
     }
-    if (result.value.user.response) return result.value.user.response;
+    if (result.value.user.response) return annotateAuthBody(deps, result.value.user.response, "sign-in");
     return json(200, {
       user: {
         id: result.value.user.id,
@@ -396,17 +445,33 @@ async function route(
     return json(201, minted.value);
   }
 
+  const profile = await handleProfile(deps, request, url);
+  if (profile) return profile;
+
   if (url.pathname === "/api/invite-log" && request.method === "GET") {
     const session = await deps.readSession(request.headers);
     if (!session) return json(401, { error: "Sign in first." });
     const ban = await openBan(deps.db, session.id, deps.now());
     if (ban) return json(403, { error: "banned", ban });
+    if (await isAdmin(deps.db, session.id)) {
+      const blocked = await guardAdminView(deps, session);
+      if (blocked) return blocked;
+    }
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
-  if (url.pathname.startsWith("/api/dm")) {
+  if (url.pathname.startsWith("/api/dm") || url.pathname.startsWith("/api/admin/dm-reports")) {
     const response = await handleDm(deps, request, url);
     if (response) return response;
+  }
+
+  if (url.pathname.startsWith("/api/mfa")) {
+    const mfaResponse = await handleMfa(deps, request, url);
+    if (mfaResponse) return mfaResponse;
+  }
+
+  if (url.pathname === "/api/admin/export" && request.method === "GET") {
+    return exportAccount(deps, request);
   }
 
   const roomPost = /^\/api\/rooms\/([a-z0-9-]{1,32})\/posts$/.exec(url.pathname);
@@ -451,6 +516,9 @@ async function route(
   const chat = await handleRoomChat(deps, request, url);
   if (chat) return chat;
 
+  const inviteTracker = await handleInviteTracker(deps, request, url);
+  if (inviteTracker) return inviteTracker;
+
   const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;
 
@@ -479,6 +547,9 @@ async function route(
 
   const gathering = await handlePublicGathering(deps, request, url);
   if (gathering) return gathering;
+
+  const stats = await handleStats(deps, request, url);
+  if (stats) return stats;
 
   if (url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
   return json(404, { error: "Not found." });

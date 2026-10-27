@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  GENDER_CORRECTION_ERROR,
   GENDER_POLICY,
   audienceDecision,
   genderWriteDecision,
@@ -49,7 +50,7 @@ test("audience decisions name the refusal and let a steward override", () => {
   assert.equal(waiting.code, "gender-unconfirmed");
 });
 
-test("a first gender follows who may set it, and a later change is an admin", () => {
+test("a first gender follows who may set it, and no one changes it later", () => {
   const base = {
     actorIsInviter: false,
     actorHasNoInviter: true,
@@ -88,7 +89,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(changed.ok, false);
   if (changed.ok) return;
-  assert.equal(changed.error, "You cannot change this yourself.");
+  assert.equal(changed.error, GENDER_CORRECTION_ERROR);
   const steward = genderWriteDecision({
     ...base,
     current: "man",
@@ -99,7 +100,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(steward.ok, false);
   if (steward.ok) return;
-  assert.equal(steward.error, "An admin changes this after it is set.");
+  assert.equal(steward.error, GENDER_CORRECTION_ERROR);
   const adminSelf = genderWriteDecision({
     ...base,
     current: "man",
@@ -109,7 +110,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
   });
   assert.equal(adminSelf.ok, false);
   if (adminSelf.ok) return;
-  assert.equal(adminSelf.error, "You cannot change this yourself.");
+  assert.equal(adminSelf.error, GENDER_CORRECTION_ERROR);
   const admin = genderWriteDecision({
     ...base,
     current: "man",
@@ -117,7 +118,7 @@ test("a first gender follows who may set it, and a later change is an admin", ()
     actorIsSubject: false,
     actorIsAdmin: true,
   });
-  assert.deepEqual(admin, { ok: true, kind: "change" });
+  assert.equal(admin.ok, false, "an admin cannot edit a member's gender");
 
   const invited = {
     GENDER_SET_BY: "inviter" as const,
@@ -171,4 +172,15 @@ test("the host is the person who created the room, or an admin when it was seede
   assert.equal(isRoomHost({ createdBy: "josh", userId: "ida", admin: true }), false);
   assert.equal(isRoomHost({ createdBy: null, userId: "ida", admin: true }), true);
   assert.equal(isRoomHost({ createdBy: "", userId: "maria", admin: false }), false);
+});
+
+test("the direct gender edit is gone from the app: no admin form, no client call, no change kind", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+  assert.equal(read("../src/components/board/audience.tsx").includes("MemberGenderForm"), false);
+  assert.equal(read("../src/components/board/about-view.tsx").includes("MemberGenderForm"), false);
+  assert.equal(read("../src/lib/board/store.ts").includes("setMemberGender"), false);
+  assert.equal(read("./board/audience.ts").includes('"change" ?'), false);
+  assert.match(GENDER_CORRECTION_ERROR, /correction request/);
+  assert.match(GENDER_CORRECTION_ERROR, /admin reviews/);
 });

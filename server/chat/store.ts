@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
+import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
@@ -54,7 +55,8 @@ function seqOf(value: unknown): number {
 
 /**
  * Session membership, checked on every read and every send.
- * This does not write room_member. A missing row, or an open ban, refuses.
+ * This does not write room_member. A join (room_join) or a room_member row lets
+ * the member in; neither row, or an open ban, refuses.
  */
 export async function requireRoomMember(
   db: Db,
@@ -66,14 +68,18 @@ export async function requireRoomMember(
   if (!ROOM_ID.test(roomId)) return fail(400, "That room is not here.");
   const actor = await actorRole(db, userId);
   if (!actor.member) return fail(403, "Only a member can read this room.");
+  const listed = await readRoomListing(db, roomId);
+  if (!listed || !listed.name || !canReadRoom(listed.status, actor)) {
+    return fail(400, "That room is not here.");
+  }
   const ban = await openBan(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
-  const rooms = await db.query<{ id: string }>(`select id from room where id = $1 and name <> ''`, [
-    roomId,
-  ]);
-  if (!rooms[0]) return fail(404, "That room is not here.");
+  // Joining (room_join) lets a member in, as does having stood in the room (room_member).
   const members = await db.query<{ user_id: string }>(
-    `select user_id from room_member where room_id = $1 and user_id = $2`,
+    `select user_id from room_member where room_id = $1 and user_id = $2
+     union all
+     select user_id from room_join where room_id = $1 and user_id = $2
+     limit 1`,
     [roomId, userId],
   );
   if (!members[0]) return fail(403, "You are not in this room.");

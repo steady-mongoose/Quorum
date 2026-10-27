@@ -1,8 +1,8 @@
 import { actorRole, stewardsRoom } from "./access.ts";
+import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibility.ts";
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
-import { townOf } from "../../src/lib/board/gathering.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   acceptPublicGathering,
@@ -58,7 +58,12 @@ function toRecord(row: Row, userId: string): GatheringRecord {
 }
 
 /** Participation. A steward who does not match is refused, the same as any member. */
-async function gatheringAudience(db: Db, userId: string, roomId: string, now: Date): Promise<Fail | null> {
+async function gatheringAudience(
+  db: Db,
+  userId: string,
+  roomId: string,
+  now: Date,
+): Promise<Fail | null> {
   const gate = await guardRoomAudience(db, {
     userId,
     roomId,
@@ -76,8 +81,13 @@ async function roomIsOpen(db: Db, roomId: string): Promise<boolean> {
 }
 
 async function roomExists(db: Db, roomId: string): Promise<boolean> {
-  const rows = await db.query<{ id: string }>(`select id from room where id = $1`, [roomId]);
-  return rows.length > 0;
+  const room = await readRoomListing(db, roomId);
+  return Boolean(room);
+}
+
+async function publicRoom(db: Db, roomId: string): Promise<boolean> {
+  const room = await readRoomListing(db, roomId);
+  return Boolean(room && isPublicRoomStatus(room.status));
 }
 
 async function hidden(db: Db, row: Row, now: Date): Promise<boolean> {
@@ -96,21 +106,36 @@ async function loadRow(db: Db, id: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * The public town comes only from structured data: the town a town room is
+ * scoped to. A free-text place line never reaches the public page, so a
+ * street name can't leak. Any other room shows no town.
+ */
+async function structuredTown(db: Db, roomId: string): Promise<string> {
+  const rows = await db.query<{ name: string }>(
+    `select t.name from room r join town t on t.id = r.town_id
+     where r.id = $1 and r.scope_kind = 'town'`,
+    [roomId],
+  );
+  return rows[0]?.name?.trim() ?? "";
+}
+
 function fieldsOf(input: {
   title: unknown;
   date: unknown;
   time: unknown;
   place: unknown;
+  town: string;
 }): { ok: true; gathering: PublicGathering; place: string } | Fail {
   const place = typeof input.place === "string" ? input.place.trim() : "";
   if (!place || place.length > 240 || !isEnglish(place)) {
-    return fail(400, "Say where it meets. The public page will keep only the town.");
+    return fail(400, "Say where it meets. The public page shows only the room's town, never the place line.");
   }
   const accepted = acceptPublicGathering({
     title: input.title,
     date: input.date,
     time: input.time,
-    town: townOf(place),
+    town: input.town,
   });
   if (!accepted.ok) return fail(400, accepted.error);
   return { ok: true, gathering: accepted.gathering, place };
@@ -143,31 +168,57 @@ export async function saveGathering(
   if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
   if (!actor.member && !actor.steward) return fail(403, "You are not a member.");
+  const listed = await readRoomListing(db, roomId);
+  if (!listed || !canReadRoom(listed.status, actor)) {
+    return fail(400, "That room is not on the board.");
+  }
   if (await openBan(db, input.userId, input.now, roomId)) return fail(404, "Not found.");
-  const fields = fieldsOf(input);
+  const fields = fieldsOf({ ...input, town: await structuredTown(db, roomId) });
   if (!fields.ok) return fields;
 
   const existing = await loadRow(db, id);
   if (existing) {
     if (await hidden(db, existing, input.now)) return fail(404, "Not found.");
-    const allowed =
-      existing.host_user_id === input.userId || stewardsRoom(actor, existing.room_id);
+    const existingRoom = await readRoomListing(db, existing.room_id);
+    if (!existingRoom || !canReadRoom(existingRoom.status, actor)) return fail(404, "Not found.");
+    const allowed = existing.host_user_id === input.userId || stewardsRoom(actor, existing.room_id);
     if (!allowed) return fail(403, "Only the organizer can change this gathering.");
-    if (existing.room_id !== roomId && !stewardsRoom(actor, roomId) && existing.host_user_id !== input.userId) {
+    if (
+      existing.room_id !== roomId &&
+      !stewardsRoom(actor, roomId) &&
+      existing.host_user_id !== input.userId
+    ) {
       return fail(403, "Only the organizer can change this gathering.");
     }
     await db.query(
       `update public_gathering
        set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7, updated_at = now()
        where id = $1 and removed = false`,
-      [id, fields.gathering.title, fields.gathering.date, fields.gathering.time, fields.gathering.town, fields.place, roomId],
+      [
+        id,
+        fields.gathering.title,
+        fields.gathering.date,
+        fields.gathering.time,
+        fields.gathering.town,
+        fields.place,
+        roomId,
+      ],
     );
   } else {
     await db.query(
       `insert into public_gathering
        (id, title, gather_on, gather_time, town, place, room_id, shared, removed, host_user_id)
        values ($1, $2, $3, $4, $5, $6, $7, false, false, $8)`,
-      [id, fields.gathering.title, fields.gathering.date, fields.gathering.time, fields.gathering.town, fields.place, roomId, input.userId],
+      [
+        id,
+        fields.gathering.title,
+        fields.gathering.date,
+        fields.gathering.time,
+        fields.gathering.town,
+        fields.place,
+        roomId,
+        input.userId,
+      ],
     );
   }
   const saved = await loadRow(db, id);
@@ -190,10 +241,15 @@ export async function setGatheringShared(
   const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
   if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
+  const listedRoom = await readRoomListing(db, row.room_id);
+  if (!listedRoom || !canReadRoom(listedRoom.status, actor)) return fail(404, "Not found.");
   const host = row.host_user_id === input.userId;
   const steward = stewardsRoom(actor, row.room_id);
   if (input.shared) {
     if (!host) return fail(403, "Only the organizer can share this gathering.");
+    if (!(await publicRoom(db, row.room_id))) {
+      return fail(403, "Sharing stays off until this room is claimed.");
+    }
     if (!(await roomIsOpen(db, row.room_id))) {
       return fail(403, "A public page is only for a room everyone can join.");
     }
@@ -218,6 +274,8 @@ export async function removeGathering(
   const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
   if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
+  const listedRoom = await readRoomListing(db, row.room_id);
+  if (!listedRoom || !canReadRoom(listedRoom.status, actor)) return fail(404, "Not found.");
   const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
   if (!allowed) return fail(403, "Only the organizer can change this gathering.");
   await db.query(
@@ -237,6 +295,8 @@ export async function readGatheringFor(
   const blocked = await gatheringAudience(db, input.userId, row.room_id, input.now);
   if (blocked) return blocked;
   const actor = await actorRole(db, input.userId);
+  const listed = await readRoomListing(db, row.room_id);
+  if (!listed || !canReadRoom(listed.status, actor)) return fail(404, "Not found.");
   const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
   if (!allowed) return fail(404, "Not found.");
   return { ok: true, gathering: toRecord(row, input.userId) };
@@ -247,18 +307,28 @@ export async function listGatheringsFor(
   input: { userId: string; now: Date },
 ): Promise<GatheringRecord[]> {
   const actor = await actorRole(db, input.userId);
-  const rooms = actor.admin ? [] : actor.stewardRooms;
+  if (!actor.member && !actor.steward) return [];
+  // A gathering is for its room's audience, not only its host. Every member
+  // who can read the room sees it, so they can RSVP, mark "I went", and meet
+  // the host. A member barred from the room does not.
   const rows = await db.query<Row>(
     `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id
      from public_gathering
-     where removed = false and (host_user_id = $1 or $2::boolean or room_id = any($3::text[]))
-     order by updated_at desc`,
-    [input.userId, actor.admin, rooms],
+     where removed = false
+     order by updated_at desc
+     limit 500`,
   );
   const visible: GatheringRecord[] = [];
   for (const row of rows) {
     if (await hidden(db, row, input.now)) continue;
+    const listed = await readRoomListing(db, row.room_id);
+    if (!listed || !canReadRoom(listed.status, actor)) continue;
     if (await gatheringAudience(db, input.userId, row.room_id, input.now)) continue;
+    if (
+      row.host_user_id !== input.userId &&
+      (await openBan(db, input.userId, input.now, row.room_id))
+    )
+      continue;
     visible.push(toRecord(row, input.userId));
   }
   return visible;
@@ -273,6 +343,7 @@ export async function loadSharedGathering(
   if (!isGatheringId(id)) return null;
   const row = await loadRow(db, id);
   if (!row || !row.shared || (await hidden(db, row, now))) return null;
+  if (!(await publicRoom(db, row.room_id))) return null;
   if (!(await roomIsOpen(db, row.room_id))) return null;
   return { title: row.title, date: row.gather_on, time: row.gather_time, town: row.town };
 }

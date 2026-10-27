@@ -1,6 +1,7 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
   hasHeadcount,
@@ -32,7 +33,8 @@ export type RoomId =
   | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
-export type Section = "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
+export type Section =
+  "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
 export type HardRule = HardRuleValue;
 
@@ -75,6 +77,18 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** Every category this room is listed in. */
+  categoryIds: string[];
+  /** Set when a steward of this room has pinned it. Absent means alphabetical. */
+  pinOrder?: number | null;
+  /** The signed-in member keeps this room on their list. */
+  joined?: boolean;
+  /** Omitted on a local room. Draft and unclaimed stay off the public page. */
+  status?: "draft" | "unclaimed" | "active";
+  town?: string;
+  county?: string;
+  category?: string;
+  sourceUrl?: string;
   /** Who the room is for. Missing means everyone. */
   audience?: "all" | "men" | "women";
   /** The signed-in member may change the audience. */
@@ -190,6 +204,8 @@ export type RemovalRow = {
   at: number;
   /** A room chat line. A post leaves this off. */
   roomChat?: boolean;
+  /** The server sets this on the viewer's own removals, by user id. */
+  mine?: boolean;
 };
 export type BanRow = {
   id: string;
@@ -250,6 +266,36 @@ export const RULE_LABEL: Record<HardRule, string> = {
   doxxing: "Doxxing",
   blasphemy: "Mocking God or Christ",
 };
+/**
+ * Wording for the hard-removal confirmation. Every rule asks first, and
+ * Cancel holds focus, so one misclick cannot bar or ban anyone.
+ */
+/** Lowercases only the first letter, so God's name keeps its capital. */
+function lowerFirst(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+export function removalConfirm(
+  rule: HardRule,
+  target: "post" | "message",
+): { title: string; description: string; confirmLabel: string; cancelLabel: string } {
+  const thing = target === "post" ? "post" : "chat message";
+  if (rule === "csam") {
+    return {
+      title: `Remove this ${thing} as child sexual abuse material?`,
+      description:
+        "The account is banned from the whole site at once, and the file is held for the CyberTipline report without anyone opening it. This can't be undone.",
+      confirmLabel: "Remove and ban",
+      cancelLabel: "Cancel",
+    };
+  }
+  return {
+    title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
+    description: `The ${thing} comes down and the author can't post in this room for 30 days. A second removal closes the account. The author can appeal.`,
+    confirmLabel: "Remove",
+    cancelLabel: "Cancel",
+  };
+}
 /** One sentence a steward can apply the same way to every member. */
 export const RULE_SENTENCE: Record<HardRule, string> = {
   threat: "A threat of violence is removed.",
@@ -268,7 +314,7 @@ export const MARK_LABEL: Record<Mark, string> = {
 const MEMBER: PostType[] = ["did", "asked", "hosted"];
 const SERVICE: PostType[] = ["hosted"];
 
-export const ROOMS: Room[] = [
+const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
     id: "county",
     name: "The County",
@@ -380,6 +426,15 @@ export const ROOMS: Room[] = [
     parish: false,
   },
 ];
+
+const SAMPLE_JOINED = new Set(["county", "shop"]);
+
+export const ROOMS: Room[] = ROOM_SEED.map((entry) => ({
+  ...entry,
+  categoryIds: [categoryForRoom(entry.id)],
+  pinOrder: null,
+  joined: SAMPLE_JOINED.has(entry.id),
+}));
 
 /** Room ids shipped in code. A group cannot take one, even if the row is missing. */
 export const CODE_ROOM_IDS: ReadonlySet<string> = new Set(ROOMS.map((room) => room.id));
@@ -963,7 +1018,10 @@ export function witnessesByTrade(posts: Post[], cards: MeetingCard[]): Map<strin
 export function cardListed(card: MeetingCard, witnesses: Map<string, string[]>): boolean {
   if (card.kind === "trade") return (witnesses.get(card.id)?.length ?? 0) >= 2;
   if (card.kind === "need") return true;
-  if (new Set(card.wentBy).size < 2) return false;
+  // A meeting lists for its room as soon as it is saved. Waiting for a second
+  // "I went" hid it from the only people who could press it.
+  // A seeded brief nobody has visited still waits for two visits.
+  if (card.unverified && new Set(card.wentBy).size < 2) return false;
   const recent = card.lastFour.slice(-2);
   if (recent.length === 2 && recent.every((went) => !went)) return false;
   if (roomById(card.room).requiresNextDate && !card.next) return false;
@@ -1002,7 +1060,11 @@ export type WeekDay = { iso: string; cards: MeetingCard[] };
  * out. A named weekday is placed on that weekday. A stored date is a local
  * calendar day, not a UTC instant.
  */
-export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
+export function weekFor(
+  cards: MeetingCard[],
+  witnesses: Map<string, string[]>,
+  today: string,
+): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
@@ -1012,7 +1074,12 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
         cancelled: card.cancelled,
         until: card.until,
       });
-      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+      return (
+        occurs.includes(iso) &&
+        card.kind !== "trade" &&
+        card.kind !== "need" &&
+        cardListed(card, witnesses)
+      );
     });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
@@ -1085,4 +1152,19 @@ export function threadIdFor(a: string, b: string): string {
 
 export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
+}
+
+/**
+ * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
+ * admins see everything; anyone else sees only their own name. The lists live
+ * on this device today (the server never sends them), so this runs where the
+ * views assemble their board data.
+ */
+export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+  if (viewer.admin) return card;
+  return {
+    ...card,
+    going: (card.going ?? []).filter((name) => name === viewer.name),
+    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
+  };
 }

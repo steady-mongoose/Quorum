@@ -571,7 +571,11 @@ export async function listPeers(db: Db, userId: string): Promise<{ id: string; n
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
-async function sharesMeeting(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
+export async function sharesMeeting(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
   const rows = await db.query<{ meeting_id: string }>(
@@ -962,11 +966,22 @@ const SWEEP_GAP_MS = 60 * 60 * 1000;
 
 /** Delete expired messages in batches. Not called from the message list itself. */
 export async function sweepExpired(db: Db, now: Date): Promise<number> {
+  // A message under an open report is kept until the report closes. The check is
+  // skipped on a database where migration 0032 has not been applied yet.
+  const ready = await db.query<{ ready: string | null }>(
+    `select to_regclass('public.dm_report')::text as ready`,
+  );
+  const held = ready[0]?.ready
+    ? `and not exists (
+         select 1 from dm_report r where r.message_id = m.id and r.status = 'open'
+       )`
+    : "";
   let removed = 0;
   for (let batch = 0; batch < 20; batch += 1) {
     const rows = await db.query<{ id: string }>(
       `delete from dm_message where id in (
-         select id from dm_message where expires_at <= $1 order by expires_at limit 200
+         select m.id from dm_message m where m.expires_at <= $1 ${held}
+         order by m.expires_at limit 200
        ) returning id`,
       [now],
     );

@@ -223,3 +223,22 @@ test("a CyberTipline row keeps metadata and drops the post itself", () => {
   assert.equal("sealed" in (board.csamReports[1] ?? {}), false);
   assert.equal("claim" in (board.appeals[0] ?? {}), false);
 });
+
+test("an author's own removed post keeps the server's mine flag, so Appeal shows", async () => {
+  const { isMyRemoval } = await import("./removal-owner.ts");
+  const board = parseBoard({
+    me: { member: true, steward: false, admin: false, ban: null },
+    rooms: [],
+    posts: [],
+    removals: [
+      { id: "r1", postId: "p1", author: "Dale", reason: "porn", at: 1, mine: true },
+      { id: "r2", postId: "p2", author: "Ruth", reason: "porn", at: 2 },
+    ],
+  });
+  assert.ok(board);
+  const [own, other] = board.removals;
+  assert.equal(own.mine, true);
+  assert.equal(other.mine, undefined);
+  assert.equal(isMyRemoval(own, { remote: true, name: "Someone else" }), true);
+  assert.equal(isMyRemoval(other, { remote: true, name: "Ruth" }), false);
+});
