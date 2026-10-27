@@ -60,7 +60,7 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
   assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);
-  assert.match(app, /\{signingIn \? "Sign in" : "Enter invite code"\}/);
+  assert.match(app, /\{signingIn \? "Sign in" : "Enter your invite code"\}/);
   assert.match(app, /onClick=\{focusDoorField\}/);
   assert.match(app, /querySelector<HTMLElement>\("input, textarea, select, button"\)/);
   assert.match(app, /field\?\.focus\(\)/);
@@ -99,7 +99,13 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.match(door, /server\.recheck\(\)/);
   assert.match(door, /server\.configured && server\.mode === "demo"/);
   assert.match(door, /id="sign-in"/);
-  assert.match(door, /Membership is\s+by invitation only/);
+  // Design review: one term, "invite-only", and the live hero does not repeat it.
+  assert.doesNotMatch(door, /invitation only/);
+  assert.doesNotMatch(door, /Invite only/);
+  assert.match(door, /<Kicker>Invite-only<\/Kicker>/);
+  assert.match(door, /Enter your invite code/);
+  assert.match(door, /Invite code\s+<input/);
+  assert.doesNotMatch(door, /The code\s+<input/);
   assert.match(door, /There is no sign-up form and nothing to browse until\s+then/);
   assert.match(door, /Invite codes can't be checked right now\. Try again in a moment\./);
   assert.match(door, /const demoNote = server\.configured \? null : \(/);

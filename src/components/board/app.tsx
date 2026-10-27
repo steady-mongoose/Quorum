@@ -240,7 +240,7 @@ function BoardShell() {
                 href={signingIn ? "#sign-in" : "#open-the-door"}
                 onClick={focusDoorField}
               >
-                {signingIn ? "Sign in" : "Enter invite code"}
+                {signingIn ? "Sign in" : "Enter your invite code"}
               </a>
             )}
             {server.user ? (
