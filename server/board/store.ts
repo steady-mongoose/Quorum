@@ -776,7 +776,7 @@ export async function listBoard(
       legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
-    if (custodian) csamFlags = await listCsamFlags(db);
+    if (custodian) csamFlags = await listCsamFlags(db, userId);
     if (custodian && reportRows.length > 0) {
       await logHoldAccess(db, {
         actorUserId: userId,

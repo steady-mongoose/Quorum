@@ -5,7 +5,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { createMemoryStore } from "../media/memory-store.ts";
 import { isCustodian, setCustodian } from "./csam-custody.ts";
-import { FLAG_RECEIVED, confirmFlagRelease, flagCsam, mediaIsBlocked, memberFlagCsam, requestFlagRelease } from "./csam-flag.ts";
+import { FLAG_RECEIVED, confirmFlagRelease, flagCsam, listCsamFlags, mediaIsBlocked, memberFlagCsam, requestFlagRelease } from "./csam-flag.ts";
 import { createPost } from "./store.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
@@ -121,6 +121,10 @@ test("releasing a false flag is blind, needs a written reason and a second custo
 
     const reason = "Scanner matched a stock photo of a cat.";
     assert.equal((await requestFlagRelease(db, { userId: "ann", flagId, reason, now })).ok, true);
+    const forAnn = (await listCsamFlags(db, "ann")).find((flag) => flag.id === flagId);
+    const forOwner = (await listCsamFlags(db, "owner")).find((flag) => flag.id === flagId);
+    assert.equal(forAnn?.releaseRequestedByMe, true);
+    assert.equal(forOwner?.releaseRequestedByMe, false);
     const self = await confirmFlagRelease(db, { userId: "ann", flagId, now });
     assert.deepEqual(self, { ok: false, status: 403, error: "A second custodian must confirm the release." });
     assert.equal(await mediaIsBlocked(db, { id: mediaId, post_id: postId }), true, "still blocked until confirmed");

@@ -187,7 +187,7 @@ export async function readCsamQueue(
   const { CSAM_QUEUE_SQL, reportFromRow } = await import("./csam.ts");
   const { listCsamFlags } = await import("./csam-flag.ts");
   const rows = await db.query<Parameters<typeof reportFromRow>[0]>(CSAM_QUEUE_SQL);
-  const flags = await listCsamFlags(db);
+  const flags = await listCsamFlags(db, input.userId);
   await logHoldAccess(db, {
     actorUserId: input.userId,
     action: "list",
