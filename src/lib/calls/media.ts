@@ -1,10 +1,11 @@
 export const MIC_DENIED =
   "Avouch can't use your microphone. Allow it in your browser's site settings, then choose Join the call again.";
+export const CAMERA_UNAVAILABLE_LABEL = "Camera unavailable";
 export const CAMERA_DENIED = "Your camera isn't available, so you joined with sound only.";
 export const RECORDING_LEFT =
   "This call tried to start recording, so you left it. Avouch calls are never recorded.";
 export const MALFORMED_LEFT =
-  "The call stopped because the server sent a reply Avouch couldn't read.";
+  "The call stopped because of a problem on our end. Try joining again.";
 
 /** The polite live line under the call. */
 export function liveLine(micOn: boolean, cameraOn: boolean): string {

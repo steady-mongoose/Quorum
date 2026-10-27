@@ -1,5 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { CAMERA_DENIED, MIC_DENIED, liveLine, openMedia } from "@/lib/calls/media";
+import {
+  CAMERA_DENIED,
+  CAMERA_UNAVAILABLE_LABEL,
+  MIC_DENIED,
+  liveLine,
+  openMedia,
+} from "@/lib/calls/media";
 import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { userFacingError } from "@/lib/user-facing-error";
@@ -412,7 +418,7 @@ export function CallPanel({
               ) : (
                 <VideoOff className="size-4" aria-hidden="true" />
               )}
-              Turn camera off
+              {cameraDenied ? CAMERA_UNAVAILABLE_LABEL : "Turn camera off"}
             </button>
             <button type="button" className={cn(btnSignal, "min-h-[44px]")} onClick={leave}>
               <PhoneOff className="size-4" aria-hidden="true" />

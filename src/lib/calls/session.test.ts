@@ -168,8 +168,7 @@ test("the larger id offers, the smaller id answers, and neither records", async 
     createConnection: () => new FakeConnection(),
   });
   await odd.pollOnce();
-  assert.doesNotMatch(stoppedOdd, /recording/);
-  assert.match(stoppedOdd, /couldn't read/);
+  assert.equal(stoppedOdd, "The call stopped because of a problem on our end. Try joining again.");
   ada.close();
   bob.close();
 });

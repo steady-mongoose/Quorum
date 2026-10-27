@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PhoneCall } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { btnGhost } from "@/components/quorum/bits";
@@ -13,6 +13,7 @@ import { parseRings, type IncomingRing } from "@/lib/calls/rings";
 export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   const { enabled } = useCallsEnabled();
   const [rings, setRings] = useState<IncomingRing[]>([]);
+  const returnTo = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -44,6 +45,11 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
   if (!ring) return null;
 
   const dismiss = (id: string) => {
+    const target = returnTo.current;
+    returnTo.current = null;
+    requestAnimationFrame(() =>
+      (target?.isConnected ? target : document.getElementById("main"))?.focus(),
+    );
     setRings((list) => list.filter((item) => item.id !== id));
     void apiFetch(`/api/calls/rings/${id}/dismiss`, {
       method: "POST",
@@ -58,6 +64,12 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
       role="status"
       aria-live="polite"
       aria-label="Incoming call"
+      onFocus={(event) => {
+        const from = event.relatedTarget;
+        if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
+          returnTo.current = from;
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();

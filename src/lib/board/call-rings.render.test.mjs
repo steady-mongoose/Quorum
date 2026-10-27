@@ -23,6 +23,7 @@ for (const key of [
   "Event",
   "MouseEvent",
   "KeyboardEvent",
+  "FocusEvent",
   "navigator",
   "getComputedStyle",
   "requestAnimationFrame",
@@ -109,4 +110,71 @@ test("incoming call banner: polite status, ghost buttons, no autofocus, Escape d
   assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/dismiss")));
   assert.deepEqual(gone, []);
   await act(async () => root.unmount());
+});
+
+async function mountBanner() {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      createElement(
+        SessionContext.Provider,
+        {
+          value: {
+            ...EMPTY_SERVER_SESSION,
+            configured: true,
+            mode: "live",
+            user: { id: "ada", name: "Ada" },
+          },
+        },
+        createElement(CallRings, { onGo: () => {} }),
+      ),
+    );
+  });
+  await flush();
+  const banner = host.querySelector("section");
+  assert.ok(banner);
+  return { host, root, banner };
+}
+
+async function enterFrom(banner, from) {
+  from.focus();
+  const into = banner.querySelector("button");
+  into.focus();
+  into.dispatchEvent(new FocusEvent("focusin", { bubbles: true, relatedTarget: from }));
+  into.dispatchEvent(new FocusEvent("focus", { relatedTarget: from }));
+}
+
+test("Not now returns focus to where it came from", async () => {
+  const before = document.createElement("button");
+  before.textContent = "Elsewhere";
+  document.body.append(before);
+  const { root, banner } = await mountBanner();
+  await act(async () => enterFrom(banner, before));
+  const notNow = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Not now");
+  await act(async () => notNow.click());
+  await flush();
+  assert.equal(document.activeElement, before);
+  await act(async () => root.unmount());
+  before.remove();
+});
+
+test("Escape falls back to #main when the old target is gone", async () => {
+  const main = document.createElement("main");
+  main.id = "main";
+  main.tabIndex = -1;
+  document.body.append(main);
+  const before = document.createElement("button");
+  document.body.append(before);
+  const { root, banner } = await mountBanner();
+  await act(async () => enterFrom(banner, before));
+  before.remove();
+  await act(async () => {
+    banner.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await flush();
+  assert.equal(document.activeElement, main);
+  await act(async () => root.unmount());
+  main.remove();
 });

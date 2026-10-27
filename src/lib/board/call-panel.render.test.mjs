@@ -101,7 +101,7 @@ test("camera denied: sound only, camera button disabled, Mute focused, Join focu
   await act(async () => button("Join the call").click());
   await flush();
   const mute = button("Mute");
-  const cam = button("Turn camera off");
+  const cam = button("Camera unavailable");
   assert.ok(mute && cam, "fixed labels");
   assert.equal(document.activeElement, mute, "Mute focused when live");
   assert.equal(cam.disabled, true);

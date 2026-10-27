@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { liveLine, openMedia } from "./media.ts";
+import { CAMERA_UNAVAILABLE_LABEL, MALFORMED_LEFT, liveLine, openMedia } from "./media.ts";
 import { claimsRecording } from "./status.ts";
 
 const fake = (video: number) =>
@@ -42,4 +42,12 @@ test("recording copy only for an explicit record: true", () => {
   assert.equal(claimsRecording({ record: "yes" }), false);
   assert.equal(claimsRecording(null), false);
   assert.equal(claimsRecording({}), false);
+});
+
+test("fixed copy", () => {
+  assert.equal(
+    MALFORMED_LEFT,
+    "The call stopped because of a problem on our end. Try joining again.",
+  );
+  assert.equal(CAMERA_UNAVAILABLE_LABEL, "Camera unavailable");
 });

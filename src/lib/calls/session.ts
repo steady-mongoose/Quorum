@@ -203,7 +203,7 @@ export class RoomCallSession {
       if (response.status >= 400) return;
       const parsed = parseCallPoll(response.body);
       if (!parsed) {
-        this.fail("The call server sent something this page will not use.");
+        this.fail(MALFORMED_LEFT);
         return;
       }
       if (parsed.iceServers) this.applyIce(parsed.iceServers);
@@ -399,7 +399,7 @@ export class RoomCallSession {
     }
     const parsed = parseCallJoin(response.body);
     if (!parsed || parsed.selfId !== this.opts.selfId) {
-      this.fail("The call server sent something this page will not use.");
+      this.fail(MALFORMED_LEFT);
       return;
     }
     this.cursor = parsed.cursor;
