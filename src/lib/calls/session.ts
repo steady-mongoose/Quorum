@@ -1,8 +1,10 @@
 import { apiFetch } from "../api-base.ts";
+import { MALFORMED_LEFT, RECORDING_LEFT } from "./media.ts";
 import { ignoreRemoteOffer, isPolitePeer, needsRollback } from "./negotiate.ts";
 import {
   parseCallJoin,
   parseCallPoll,
+  claimsRecording,
   refusesRecording,
   type CallIceServer,
   type CallPeerRow,
@@ -115,6 +117,8 @@ function iceFrom(payload: Record<string, unknown>): IceCandidate | null {
  */
 type RoomCallOptions = {
   roomId: string;
+  /** Defaults to `/api/calls/rooms/{roomId}`. DM calls pass `/api/calls/dm/{threadId}`. */
+  basePath?: string;
   selfId: string;
   cursor: number;
   iceServers: CallIceServer[];
@@ -135,8 +139,11 @@ export class RoomCallSession {
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
+  private readonly base: string;
+
   constructor(opts: RoomCallOptions) {
     this.opts = opts;
+    this.base = opts.basePath ?? `/api/calls/rooms/${opts.roomId}`;
     this.cursor = opts.cursor;
     this.iceServers = opts.iceServers;
   }
@@ -180,10 +187,7 @@ export class RoomCallSession {
   async pollOnce(): Promise<void> {
     if (this.closed) return;
     try {
-      const response = await this.request(
-        `/api/calls/rooms/${this.opts.roomId}?since=${this.cursor}`,
-        { method: "GET" },
-      );
+      const response = await this.request(`${this.base}?since=${this.cursor}`, { method: "GET" });
       if (this.closed) return;
       if (this.badRecording(response.body)) return;
       if (response.status === 409) {
@@ -191,13 +195,15 @@ export class RoomCallSession {
         return;
       }
       if (response.status === 401 || response.status === 403) {
-        this.fail("You have not stood in that room.");
+        this.fail(
+          this.opts.basePath ? "You can't join this call." : "You have not stood in that room.",
+        );
         return;
       }
       if (response.status >= 400) return;
       const parsed = parseCallPoll(response.body);
       if (!parsed) {
-        this.fail("The call server sent something this page will not use.");
+        this.fail(MALFORMED_LEFT);
         return;
       }
       if (parsed.iceServers) this.applyIce(parsed.iceServers);
@@ -215,7 +221,7 @@ export class RoomCallSession {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     for (const id of [...this.slots.keys()]) this.drop(id);
-    void this.request(`/api/calls/rooms/${this.opts.roomId}/leave`, {
+    void this.request(`${this.base}/leave`, {
       method: "POST",
       body: {},
     }).catch(() => undefined);
@@ -370,7 +376,7 @@ export class RoomCallSession {
     payload: unknown,
   ): Promise<void> {
     if (this.closed) return;
-    const response = await this.request(`/api/calls/rooms/${this.opts.roomId}/signal`, {
+    const response = await this.request(`${this.base}/signal`, {
       method: "POST",
       body: { to, kind, payload },
     });
@@ -379,19 +385,21 @@ export class RoomCallSession {
   }
 
   private async rejoin(): Promise<void> {
-    const response = await this.request(`/api/calls/rooms/${this.opts.roomId}/join`, {
+    const response = await this.request(`${this.base}/join`, {
       method: "POST",
       body: {},
     });
     if (this.badRecording(response.body)) return;
     if (response.status === 429) return;
     if (response.status === 401 || response.status === 403) {
-      this.fail("You have not stood in that room.");
+      this.fail(
+        this.opts.basePath ? "You can't join this call." : "You have not stood in that room.",
+      );
       return;
     }
     const parsed = parseCallJoin(response.body);
     if (!parsed || parsed.selfId !== this.opts.selfId) {
-      this.fail("The call server sent something this page will not use.");
+      this.fail(MALFORMED_LEFT);
       return;
     }
     this.cursor = parsed.cursor;
@@ -412,7 +420,15 @@ export class RoomCallSession {
   private applyIce(next: CallIceServer[]): void {
     const currentExpiry = this.credentialExpiry(this.iceServers);
     const nextExpiry = this.credentialExpiry(next);
+    const user = (list: CallIceServer[]) => list.map((server) => server.username ?? "").join("|");
+    const changed = user(this.iceServers) !== user(next);
     this.iceServers = next;
+    // Cloudflare usernames are opaque: a new one means fresh credentials.
+    if (currentExpiry === 0 && nextExpiry === 0) {
+      if (changed)
+        for (const slot of this.slots.values()) slot.pc.setConfiguration?.({ iceServers: next });
+      return;
+    }
     const nowSec = Date.now() / 1000;
     if (nextExpiry <= currentExpiry) return;
     if (currentExpiry > 0 && currentExpiry - nowSec > 15 * 60) return;
@@ -423,7 +439,7 @@ export class RoomCallSession {
 
   private badRecording(body: unknown): boolean {
     if (!refusesRecording(body)) return false;
-    this.fail("This call is not recorded, so it was left.");
+    this.fail(claimsRecording(body) ? RECORDING_LEFT : MALFORMED_LEFT);
     return true;
   }
 
