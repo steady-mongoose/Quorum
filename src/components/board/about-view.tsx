@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { InviteTracker } from "./invite-tracker";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
@@ -231,6 +232,8 @@ export function AboutView() {
 
       {remote && admin ? <DmReportQueue /> : null}
 
+      {remote && admin ? <InviteTracker /> : null}
+
       <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <h2 className="text-2xl text-fg">You</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -290,6 +293,7 @@ export function AboutView() {
               <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
                 Type {APP_NAME} or CLEAR
                 <input
+                  aria-label={`Type ${APP_NAME} or CLEAR`}
                   className={cn(fieldClass, "min-h-[44px]")}
                   value={clearPhrase}
                   autoComplete="off"
@@ -615,7 +619,7 @@ function EmailField({ value, onChange }: { value: string; onChange: (value: stri
 function RoomField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
-      Room id
+      Room
       <input
         className={fieldClass}
         value={value}
@@ -892,7 +896,7 @@ function AdminTools({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Room id
+          Room
           <input
             className={fieldClass}
             value={id}
