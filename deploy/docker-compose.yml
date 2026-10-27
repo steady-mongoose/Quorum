@@ -80,11 +80,14 @@ services:
     environment:
       API_HOST: ${API_HOST:-api.avouchsocial.com}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+      MEDIA_HOST: ${MEDIA_HOST:-media.avouchsocial.com}
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Cloudflare Origin CA certificate for MEDIA_HOST. Placed by hand; not in git.
+      - ./origin:/etc/caddy/origin:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

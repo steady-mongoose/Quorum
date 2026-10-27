@@ -49,3 +49,20 @@ test("Caddy limits the closed-test POSTs and is built with the rate limit module
   assert.match(workflow, /api-image:/);
   assert.match(workflow, /scripts\/api-image-smoke\.sh/);
 });
+
+test("media host uses a Cloudflare Origin CA certificate and serves only the media API", () => {
+  const root = projectRoot();
+  const caddyfile = readFileSync(join(root, "deploy/Caddyfile"), "utf8");
+  const block = caddyfile.slice(caddyfile.indexOf("{$MEDIA_HOST:media.avouchsocial.com}"));
+  assert.ok(block.length > 40);
+  assert.match(block, /tls \/etc\/caddy\/origin\/media-origin\.pem \/etc\/caddy\/origin\/media-origin\.key/);
+  assert.match(block, /@media path \/api\/media \/api\/media\/\*/);
+  assert.match(block, /reverse_proxy api:8787/);
+  assert.match(block, /respond `\{"error":"Not found\."\}` 404/);
+  assert.match(block, /X-Content-Type-Options nosniff/);
+  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
+  assert.match(compose, /MEDIA_HOST: \$\{MEDIA_HOST:-media\.avouchsocial\.com\}/);
+  assert.match(compose, /- \.\/origin:\/etc\/caddy\/origin:ro/);
+  const ignore = readFileSync(join(root, ".gitignore"), "utf8");
+  assert.match(ignore, /^deploy\/origin\/$/m);
+});

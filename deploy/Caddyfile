@@ -56,3 +56,29 @@
 		}
 	}
 }
+
+# media.avouchsocial.com is proxied by Cloudflare (orange cloud). Caddy cannot
+# finish an ACME challenge behind that proxy reliably, and with no certificate
+# Cloudflare's "Full (strict)" mode fails the handshake (error 525). So this
+# site uses a Cloudflare Origin CA certificate instead of Let's Encrypt. The
+# certificate and key are placed on the server by hand (see deploy/README.md,
+# "Media host behind Cloudflare"); they are not in this repository.
+# Only the existing media API is served here: /api/media/*. Everything else is
+# 404. No stored file bytes are served from this host; members still get the
+# two-minute signed storage link, and the storage host stays off avouchsocial.com.
+{$MEDIA_HOST:media.avouchsocial.com} {
+	tls /etc/caddy/origin/media-origin.pem /etc/caddy/origin/media-origin.key
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	@media path /api/media /api/media/*
+	handle @media {
+		reverse_proxy api:8787
+	}
+	handle {
+		respond `{"error":"Not found."}` 404
+	}
+}
