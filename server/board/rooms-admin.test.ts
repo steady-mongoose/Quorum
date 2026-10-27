@@ -195,3 +195,72 @@ test("a move writes room_admin_log once migration 0039 is applied", async () => 
     await close();
   }
 });
+
+test("an admin with an open ban is refused on both routes", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const { admin, steward } = await people(db);
+    await db.query(
+      `insert into board_ban
+       (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id)
+       values ($1, $2, 'Ada', 'threat', $3, 'Tom', 1, '2027-01-01T00:00:00Z', '')`,
+      [randomUUID(), admin, steward],
+    );
+    const handler = app(db);
+    const list = await handler(
+      new Request("http://127.0.0.1:8787/api/admin/rooms", { headers: { "x-user-id": admin } }),
+    );
+    assert.equal(list.status, 403);
+    assert.equal(((await list.json()) as { error: string }).error, "banned");
+    const moved = await handler(move("shop", admin, ["civic"]));
+    assert.equal(moved.status, 403);
+    const links = await db.query<{ category_id: string }>(
+      `select category_id from room_categories where room_id = 'shop'`,
+    );
+    assert.deepEqual(
+      links.map((link) => link.category_id),
+      ["business-trades"],
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Not yet sorted cannot be combined with another category", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const { admin } = await people(db);
+    const handler = app(db);
+    assert.equal((await handler(move("shop", admin, ["uncategorized", "civic"]))).status, 400);
+    const alone = await handler(move("shop", admin, ["uncategorized"]));
+    assert.equal(alone.status, 200);
+  } finally {
+    await close();
+  }
+});
+
+test("a stale expectedBefore returns 409 and changes nothing", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const { admin } = await people(db);
+    const handler = app(db);
+    const stale = await handler(
+      new Request("http://127.0.0.1:8787/api/admin/rooms/shop/categories", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": admin },
+        body: JSON.stringify({ categoryIds: ["civic"], expectedBefore: ["county"] }),
+      }),
+    );
+    assert.equal(stale.status, 409);
+    const fresh = await handler(
+      new Request("http://127.0.0.1:8787/api/admin/rooms/shop/categories", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": admin },
+        body: JSON.stringify({ categoryIds: ["civic"], expectedBefore: ["business-trades"] }),
+      }),
+    );
+    assert.equal(fresh.status, 200);
+  } finally {
+    await close();
+  }
+});

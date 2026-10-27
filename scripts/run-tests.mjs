@@ -107,6 +107,7 @@ const appTests = [
   "server/board/categories.test.ts",
   "server/board/categories.postgres.test.ts",
   "server/board/rooms-admin.test.ts",
+  "server/board/rooms-admin.postgres.test.ts",
   "server/board/claims.test.ts",
   "server/board/public-fetch.test.ts",
   "server/board/claim-attempts.pg.test.ts",

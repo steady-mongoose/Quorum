@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { actorRole } from "./access.ts";
-import { checkedCategoryIds, replaceRoomCategories, type Result } from "./store.ts";
+import { checkedCategoryIds, openBan, replaceRoomCategories, type Result } from "./store.ts";
+import { UNCATEGORIZED_SLUG } from "../../src/lib/board/categories.ts";
 
 /** One row in the admin Rooms manager. */
 export type AdminRoomRow = {
@@ -68,9 +69,25 @@ async function stewardsByRoom(db: Db): Promise<Map<string, string[]>> {
   return out;
 }
 
-export async function listAdminRooms(db: Db, userId: string): Promise<Result<AdminRoomList>> {
+/** Admin, and no open site ban. The same ban check the other admin routes use. */
+async function adminGate(db: Db, userId: string, now: Date, denied: string): Promise<Result<null>> {
   const actor = await actorRole(db, userId);
-  if (!actor.admin) return fail(403, "Only an admin can manage rooms.");
+  if (!actor.admin) return fail(403, denied);
+  const ban = await openBan(db, userId, now);
+  if (ban) return { ok: false, status: 403, error: "banned", ban };
+  return { ok: true, value: null };
+}
+
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && [...a].sort().every((slug, i) => slug === [...b].sort()[i]);
+
+export async function listAdminRooms(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<Result<AdminRoomList>> {
+  const gate = await adminGate(db, userId, now, "Only an admin can manage rooms.");
+  if (!gate.ok) return gate;
   const rows = await db.query<{
     id: string;
     name: string;
@@ -111,24 +128,41 @@ export async function listAdminRooms(db: Db, userId: string): Promise<Result<Adm
  */
 export async function moveRoom(
   db: Db,
-  input: { userId: string; userName: string; id: string; categoryIds: string[]; now: Date },
+  input: {
+    userId: string;
+    userName: string;
+    id: string;
+    categoryIds: string[];
+    /** The categories the admin saw. A mismatch returns 409. */
+    expectedBefore?: string[];
+    now: Date;
+  },
 ): Promise<Result<AdminRoomRow>> {
-  const actor = await actorRole(db, input.userId);
-  if (!actor.admin) return fail(403, "Only an admin can move a room.");
+  const gate = await adminGate(db, input.userId, input.now, "Only an admin can move a room.");
+  if (!gate.ok) return gate;
   const id = input.id.trim().toLowerCase();
   const found = await db.query<{ id: string }>(`select id from room where id = $1`, [id]);
   if (!found[0]) return fail(404, "That room is not here.");
   const checked = await checkedCategoryIds(db, input.categoryIds);
   if (!Array.isArray(checked)) return checked;
-  const before = await db.query<{ category_id: string }>(
-    `select category_id from room_categories where room_id = $1 order by category_id`,
-    [id],
-  );
-  const from = before.map((row) => row.category_id);
+  if (checked.includes(UNCATEGORIZED_SLUG) && checked.length > 1) {
+    return fail(400, "Not yet sorted can't be combined with another category.");
+  }
   const to = [...checked].sort();
-  const detail = `Categories ${from.join(", ") || "none"} → ${to.join(", ")}.`;
   const logReady = await roomLogReady(db);
-  await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx): Promise<Result<string>> => {
+    // Lock the room so two admins saving at once run one after the other.
+    await tx.query(`select id from room where id = $1 for update`, [id]);
+    const before = await tx.query<{ category_id: string }>(
+      `select category_id from room_categories where room_id = $1 order by category_id`,
+      [id],
+    );
+    const from = before.map((row) => row.category_id);
+    if (input.expectedBefore && !sameList(input.expectedBefore, from)) {
+      return fail(409, "Someone else changed this room's categories. Reload and try again.");
+    }
+    const detail = `Categories ${from.join(", ") || "none"} → ${to.join(", ")}.`;
+    await tx.query(`delete from room_categories where room_id = $1`, [id]);
     await replaceRoomCategories(tx, id, checked);
     if (logReady) {
       await tx.query(
@@ -137,7 +171,9 @@ export async function moveRoom(
         [randomUUID(), id, input.userId, input.userName, detail, input.now],
       );
     }
+    return { ok: true, value: detail };
   });
+  if (!outcome.ok) return outcome;
   if (!logReady) {
     console.info(
       JSON.stringify({
@@ -145,12 +181,13 @@ export async function moveRoom(
         action: "move",
         roomId: id,
         actorUserId: input.userId,
-        detail,
+        actorName: input.userName,
+        detail: outcome.value,
         at: input.now.toISOString(),
       }),
     );
   }
-  const list = await listAdminRooms(db, input.userId);
+  const list = await listAdminRooms(db, input.userId, input.now);
   if (!list.ok) return list;
   const row = list.value.rooms.find((room) => room.id === id);
   if (!row) return fail(500, "The room was not saved.");

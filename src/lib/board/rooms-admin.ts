@@ -125,12 +125,13 @@ export async function loadAdminRooms(): Promise<
 export async function saveRoomCategories(
   id: string,
   categoryIds: string[],
+  expectedBefore?: string[],
 ): Promise<{ ok: true; room: AdminRoom } | { ok: false; error: string }> {
   const response = await apiFetch(`/api/admin/rooms/${encodeURIComponent(id)}/categories`, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ categoryIds }),
+    body: JSON.stringify(expectedBefore ? { categoryIds, expectedBefore } : { categoryIds }),
   });
   const json = await readJson(response);
   if (!response.ok) return { ok: false, error: errorFrom(json, "That move was not saved.") };

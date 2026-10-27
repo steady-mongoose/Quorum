@@ -35,6 +35,8 @@ export function RoomsManager() {
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [announced, setAnnounced] = useState("");
+  const statusRef = useRef<HTMLParagraphElement>(null);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -81,7 +83,7 @@ export function RoomsManager() {
   async function confirmMove() {
     if (!editingRoom) return;
     setSaving(true);
-    const result = await saveRoomCategories(editingRoom.id, picked);
+    const result = await saveRoomCategories(editingRoom.id, picked, editingRoom.categoryIds);
     setSaving(false);
     if (!result.ok) {
       setConfirming(false);
@@ -93,11 +95,45 @@ export function RoomsManager() {
     );
     setNote(`${result.room.name}'s categories saved.`);
     reloadCategories();
-    closeEditor(editing);
+    const from = editing;
+    const roomId = result.room.id;
+    setEditing(null);
+    setConfirming(false);
+    // After the list re-renders: stay on the same button if the room is still
+    // in that group, else its row in the new group, else the status line.
+    requestAnimationFrame(() => {
+      const buttons = moveButtons.current;
+      const same = from ? buttons.get(from) : undefined;
+      const moved = [...buttons.entries()].find(([key]) => key.endsWith(`:${roomId}`))?.[1];
+      const target = same ?? moved;
+      if (target) target.focus();
+      else statusRef.current?.focus();
+    });
   }
+
+  useEffect(() => {
+    // Announce the match count only after typing, and only once typing pauses.
+    if (!query.trim() || rooms === null) {
+      setAnnounced("");
+      return;
+    }
+    const timer = setTimeout(
+      () => setAnnounced(searchSummary(filterRooms(rooms, query).length)),
+      500,
+    );
+    return () => clearTimeout(timer);
+  }, [query, rooms]);
 
   const matches = rooms ? filterRooms(rooms, query) : [];
   const groups = rooms ? groupRooms(matches, categories) : [];
+  const seen = new Set<string>();
+  const listedTwice = new Set<string>();
+  for (const group of groups) {
+    for (const room of group.rooms) {
+      if (seen.has(room.id)) listedTwice.add(room.id);
+      seen.add(room.id);
+    }
+  }
 
   return (
     <section
@@ -119,14 +155,14 @@ export function RoomsManager() {
           className={cn(fieldClass, "min-h-[44px]")}
           value={query}
           placeholder="Name or slug"
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setNote("");
+            setQuery(event.target.value);
+          }}
         />
       </label>
-      <p role="status" aria-live="polite" className="text-sm text-muted">
-        {rooms === null ? "" : searchSummary(matches.length)}
-      </p>
-      <p role="status" className="text-sm text-fg">
-        {note}
+      <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className="text-sm text-fg">
+        {note || announced}
       </p>
       {error ? (
         <p role="alert" className="text-sm text-danger">
@@ -172,10 +208,15 @@ export function RoomsManager() {
                       type="button"
                       ref={(node) => {
                         if (node) moveButtons.current.set(key, node);
+                        else moveButtons.current.delete(key);
                       }}
                       className={cn(btnGhost, "min-h-[44px]")}
                       aria-expanded={open}
-                      aria-label={`Change categories for ${room.name}`}
+                      aria-label={
+                        listedTwice.has(room.id)
+                          ? `Change categories for ${room.name} (in ${group.name})`
+                          : `Change categories for ${room.name}`
+                      }
                       onClick={() => (open ? closeEditor(key) : startMove(room, key))}
                     >
                       Categories

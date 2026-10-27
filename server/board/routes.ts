@@ -310,7 +310,7 @@ export async function handleBoard(
     }
 
     if (url.pathname === "/api/admin/rooms" && request.method === "GET") {
-      return fromResult(200, await listAdminRooms(deps.db, session.id));
+      return fromResult(200, await listAdminRooms(deps.db, session.id, now));
     }
 
     if (url.pathname === "/api/categories" && request.method === "GET") {
@@ -440,6 +440,9 @@ export async function handleBoard(
           userName: session.name,
           id: adminRoomMove[1] ?? "",
           categoryIds: categoryIdsField(body).categoryIds ?? [],
+          ...(Array.isArray(body.expectedBefore)
+            ? { expectedBefore: stringList(body, "expectedBefore") }
+            : {}),
           now,
         }),
       );

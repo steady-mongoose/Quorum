@@ -78,12 +78,15 @@ test("the Rooms manager keeps Design's a11y and copy", () => {
   assert.equal(/\sdisabled=\{/.test(view), false);
   assert.match(view, /aria-disabled=\{picked\.length === 0 \|\| undefined\}/);
   assert.match(view, /aria-describedby=\{picked\.length === 0 \? hintId : undefined\}/);
-  assert.match(view, /aria-label=\{`Change categories for \$\{room\.name\}`\}/);
+  assert.match(view, /`Change categories for \$\{room\.name\}`/);
   assert.match(view, />\s*Categories\s*</);
   assert.match(view, />\s*Save categories\s*</);
   assert.match(view, /Change where \$\{editingRoom\.name\} is listed\?/);
   assert.match(view, /'s categories saved\./);
   assert.match(view, /aria-live="polite"/);
+  assert.equal((view.match(/role="status"/g) ?? []).length, 1);
+  assert.match(view, /setTimeout\([\s\S]*?500,?\s*\)/);
+  assert.match(view, /\(in \$\{group\.name\}\)/);
   assert.match(view, /Archive and delete are coming soon\./);
   assert.equal(view.includes("<section key={group.slug}"), false);
   assert.ok((view.match(/min-h-\[44px\]/g) ?? []).length >= 4);
