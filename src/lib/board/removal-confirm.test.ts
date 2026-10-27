@@ -58,9 +58,28 @@ test("chat Report and Remove are 44px and named for the message's author", () =>
   const chat = readFileSync(new URL("../../components/board/room-chat.tsx", import.meta.url), "utf8");
   const report = readFileSync(new URL("../../components/board/report-control.tsx", import.meta.url), "utf8");
   assert.match(report, /cn\(btnQuiet, "self-start min-h-\[44px\] px-3"\)/);
-  assert.match(chat, /label=\{`Report message from \$\{message\.author\}`\}/);
+  assert.match(chat, /label=\{itemActionName\("Report", "message", message\.author, whenText\(message\.at\)\)\}/);
   assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\] min-w-\[44px\] px-0"\)/);
-  assert.match(chat, /aria-label=\{`Remove message from \$\{message\.author\}`\}/);
+  assert.match(chat, /aria-label=\{itemActionName\("Remove", "message", message\.author, whenText\(message\.at\)\)\}/);
   assert.match(chat, /cn\(btnGhost, "min-h-\[44px\]"\)[\s\S]*Remove: \{RULE_LABEL\[rule\]\}/);
   assert.match(chat, /cn\(btnQuiet, "min-h-\[44px\]"\)\} onClick=\{\(\) => setRemoving\(null\)\}/);
+});
+
+test("two messages or posts from the same author get distinct accessible names", async () => {
+  const { itemActionName, formatWhen } = await import("./model.ts");
+  const now = Date.UTC(2026, 9, 27, 17, 0);
+  const a = itemActionName("Report", "message", "Mark", formatWhen(now - 2 * 60_000, now));
+  const b = itemActionName("Report", "message", "Mark", formatWhen(now - 9 * 60_000, now));
+  assert.equal(a, "Report message from Mark, 2m ago");
+  assert.notEqual(a, b);
+  const r1 = itemActionName("Remove", "message", "Mark", formatWhen(now - 2 * 60_000, now));
+  const r2 = itemActionName("Remove", "message", "Mark", formatWhen(now - 3 * 3_600_000, now));
+  assert.equal(r2, "Remove message from Mark, 3h ago");
+  assert.notEqual(r1, r2);
+  const p1 = itemActionName("Report", "post", "Mark", formatWhen(now - 5 * 60_000, now));
+  const p2 = itemActionName("Report", "post", "Mark", formatWhen(now - 2 * 3_600_000, now));
+  assert.equal(p1, "Report post from Mark, 5m ago");
+  assert.notEqual(p1, p2);
+  const view = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  assert.match(view, /label=\{itemActionName\("Report", "post", post\.author, postWhen\)\}/);
 });

@@ -22,6 +22,7 @@ import {
   fieldClass,
   Kicker,
   pill,
+  useNow,
   When,
 } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -41,6 +42,7 @@ import {
   draftHasWriting,
   formatDate,
   formatWhen,
+  itemActionName,
   needsFor,
   postButtonLabel,
   readingLine,
@@ -887,6 +889,8 @@ const PostCard = memo(function PostCard({
   canMessage: boolean;
   steward: boolean;
 }) {
+  const now = useNow();
+  const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
@@ -1062,7 +1066,7 @@ const PostCard = memo(function PostCard({
         ) : null}
         {!mine ? (
           <ReportControl
-            label="Report this post"
+            label={itemActionName("Report", "post", post.author, postWhen)}
             onSubmit={(input) => {
               if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
               return sendReport({

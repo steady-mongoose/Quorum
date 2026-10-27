@@ -610,6 +610,20 @@ export function formatWhen(at: number, now: number): string {
   return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
 }
 
+/**
+ * Accessible name for a per-item action, unique per item by its visible
+ * timestamp: "Report message from Mark, 5m ago".
+ */
+export function itemActionName(
+  action: "Report" | "Remove",
+  kind: "message" | "post",
+  author: string,
+  when: string,
+): string {
+  const base = `${action} ${kind} from ${author}`;
+  return when ? `${base}, ${when}` : base;
+}
+
 export function newPost(
   fields: Pick<Post, "room" | "type" | "claim" | "author"> & Partial<Post>,
 ): Post {
