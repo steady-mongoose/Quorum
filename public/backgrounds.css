@@ -77,6 +77,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .btn:active{transform:translateY(1px);box-shadow:inset 0 2px 3px rgba(0,0,0,.35)}
 .btn.btn-primary{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+/* Dark surfaces (Tailwind bg-bg, bg-surface, bg-raised stay dark in every palette, including the sign-in card) always take the light ring. */
+.bg-bg,.bg-surface,.bg-raised,[data-palette="parchment"] .bg-bg,[data-palette="parchment"] .bg-surface,[data-palette="parchment"] .bg-raised{--focus:#f0e7d3}
 .illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;padding-right:.03em}
 .rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:7.5rem}
 .rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0);transition:transform 360ms var(--ease-press)}
