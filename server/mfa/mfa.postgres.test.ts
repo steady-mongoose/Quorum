@@ -769,3 +769,47 @@ test("an unenrolled admin or steward is refused on every non-member route", asyn
   );
   assert.equal(board.status, 200);
 });
+
+test("parallel wrong codes cannot beat the five-try lock", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const database = db;
+  const clock = { now: new Date("2026-10-27T20:00:00Z") };
+  const app = handler(clock);
+  const person = await user({ name: "Racer", email: "racer@example.com" });
+  const enrolled = await enroll(app, person, clock, "198.51.100.20");
+  const halfway = await secondSession(person);
+  const statuses: number[] = [];
+  const burst = Array.from({ length: 12 }, (_, n) =>
+    app(
+      new Request("http://127.0.0.1:8787/api/mfa/challenge", {
+        method: "POST",
+        // Spread over IPs so only the per-account lock is under test.
+        headers: headers(halfway, `198.51.100.${30 + n}`),
+        body: JSON.stringify({ code: "000000" }),
+      }),
+    ).then(async (response) => {
+      statuses.push(response.status);
+      await response.text();
+    }),
+  );
+  await Promise.all(burst);
+  const lock = await database.query<{ fail_count: number; locked_until: Date | null }>(
+    `select fail_count, locked_until from mfa_lock where user_id = $1`,
+    [person.id],
+  );
+  assert.ok(lock[0]?.locked_until, "the account is locked");
+  assert.ok(Number(lock[0]!.fail_count) >= 5);
+  // At most five codes were graded; the rest were refused as locked.
+  assert.ok(statuses.filter((status) => status !== 429).length <= 5, statuses.join(","));
+  const right = await app(
+    new Request("http://127.0.0.1:8787/api/mfa/challenge", {
+      method: "POST",
+      headers: headers(halfway, "198.51.100.99"),
+      body: JSON.stringify({ code: totpAt(enrolled.plain, clock.now.getTime()) }),
+    }),
+  );
+  assert.equal(right.status, 429);
+});

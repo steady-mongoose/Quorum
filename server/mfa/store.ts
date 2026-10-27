@@ -146,49 +146,64 @@ export async function noteSignIn(
   return { mfa: view.mfa, mfaEnrolled: view.enrolled };
 }
 
-async function lockState(
+function lockedFailure(until: Date, now: Date): MfaFailure {
+  const retryAfter = Math.max(1, Math.ceil((until.getTime() - now.getTime()) / 1000));
+  return fail(429, "mfa_locked", "Too many attempts. Wait and try again.", { retryAfter });
+}
+
+/**
+ * Takes one attempt atomically before the code is graded. Parallel requests
+ * each get their own count from the same row, so no more than
+ * MFA_FAIL_LIMIT codes are ever graded before the lock. An expired lock
+ * starts a fresh count.
+ */
+async function reserveAttempt(
   db: Db,
   userId: string,
   now: Date,
-): Promise<{ failCount: number; lockedUntil: Date | null }> {
-  const rows = await db.query<{ fail_count: number; locked_until: Date | string | null }>(
-    `select fail_count, locked_until from mfa_lock where user_id = $1`,
-    [userId],
+): Promise<{ ok: true; count: number } | { ok: false; failure: MfaFailure }> {
+  const rows = await db.query<{ fail_count: number | string; locked_until: Date | string | null }>(
+    `insert into mfa_lock (user_id, fail_count, locked_until)
+     values ($1, 1, null)
+     on conflict (user_id) do update set
+       fail_count = case
+         when mfa_lock.locked_until is not null and mfa_lock.locked_until <= $2 then 1
+         else mfa_lock.fail_count + 1
+       end,
+       locked_until = case
+         when mfa_lock.locked_until is not null and mfa_lock.locked_until <= $2 then null
+         else mfa_lock.locked_until
+       end
+     returning fail_count, locked_until`,
+    [userId, now],
   );
-  const row = rows[0];
-  if (!row) return { failCount: 0, lockedUntil: null };
-  const lockedUntil = row.locked_until ? new Date(row.locked_until) : null;
-  if (lockedUntil && lockedUntil.getTime() <= now.getTime()) {
-    await db.query(`update mfa_lock set fail_count = 0, locked_until = null where user_id = $1`, [
-      userId,
-    ]);
-    return { failCount: 0, lockedUntil: null };
+  const count = Number(rows[0]?.fail_count ?? 1);
+  const lockedUntil = rows[0]?.locked_until ? new Date(rows[0].locked_until) : null;
+  if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
+    return { ok: false, failure: lockedFailure(lockedUntil, now) };
   }
-  return { failCount: Number(row.fail_count), lockedUntil };
+  if (count > MFA_FAIL_LIMIT) {
+    const until = await setLock(db, userId, now);
+    return { ok: false, failure: lockedFailure(until, now) };
+  }
+  return { ok: true, count };
 }
 
-async function recordFailure(db: Db, userId: string, now: Date): Promise<MfaFailure | null> {
-  const current = await lockState(db, userId, now);
-  const next = current.failCount + 1;
-  if (next >= MFA_FAIL_LIMIT) {
-    const until = new Date(now.getTime() + MFA_LOCK_MS);
-    await db.query(
-      `insert into mfa_lock (user_id, fail_count, locked_until)
-       values ($1, $2, $3)
-       on conflict (user_id) do update set fail_count = $2, locked_until = $3`,
-      [userId, next, until],
-    );
-    return fail(429, "mfa_locked", "Too many attempts. Wait and try again.", {
-      retryAfter: Math.ceil(MFA_LOCK_MS / 1000),
-    });
-  }
-  await db.query(
-    `insert into mfa_lock (user_id, fail_count, locked_until)
-     values ($1, $2, null)
-     on conflict (user_id) do update set fail_count = $2, locked_until = null`,
-    [userId, next],
+async function setLock(db: Db, userId: string, now: Date): Promise<Date> {
+  const until = new Date(now.getTime() + MFA_LOCK_MS);
+  const rows = await db.query<{ locked_until: Date | string }>(
+    `update mfa_lock set locked_until = coalesce(locked_until, $2)
+     where user_id = $1 returning locked_until`,
+    [userId, until],
   );
-  return null;
+  return rows[0] ? new Date(rows[0].locked_until) : until;
+}
+
+/** The attempt was already counted. The one that reaches the limit sets the lock. */
+async function recordFailure(db: Db, userId: string, now: Date, count: number): Promise<MfaFailure | null> {
+  if (count < MFA_FAIL_LIMIT) return null;
+  const until = await setLock(db, userId, now);
+  return lockedFailure(until, now);
 }
 
 async function clearLock(db: Db, userId: string): Promise<void> {
@@ -224,14 +239,8 @@ async function checkCode(
 ): Promise<CodeCheck> {
   const limited = await rateLimited(db, userId, ip, now);
   if (limited) return { ok: false, failure: limited };
-  const locked = await lockState(db, userId, now);
-  if (locked.lockedUntil) {
-    const retryAfter = Math.max(1, Math.ceil((locked.lockedUntil.getTime() - now.getTime()) / 1000));
-    return {
-      ok: false,
-      failure: fail(429, "mfa_locked", "Too many attempts. Wait and try again.", { retryAfter }),
-    };
-  }
+  const attempt = await reserveAttempt(db, userId, now);
+  if (!attempt.ok) return { ok: false, failure: attempt.failure };
   const factor = await liveFactor(db, userId, "active");
   const row = factor;
   if (!row) {
@@ -258,7 +267,7 @@ async function checkCode(
       [row.id, totp.step.toString()],
     );
     if (!updated[0]) {
-      const lock = await recordFailure(db, userId, now);
+      const lock = await recordFailure(db, userId, now, attempt.count);
       return {
         ok: false,
         failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
@@ -268,7 +277,7 @@ async function checkCode(
     return { ok: true, step: totp.step, recoveryId: null, factorId: row.id };
   }
   if (totp.reason === "replay") {
-    const lock = await recordFailure(db, userId, now);
+    const lock = await recordFailure(db, userId, now, attempt.count);
     return {
       ok: false,
       failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
@@ -289,7 +298,7 @@ async function checkCode(
         [matched.id, now],
       );
       if (!spent[0]) {
-        const lock = await recordFailure(db, userId, now);
+        const lock = await recordFailure(db, userId, now, attempt.count);
         return {
           ok: false,
           failure: lock ?? fail(401, "mfa_replay", "That code was already used."),
@@ -300,7 +309,7 @@ async function checkCode(
       return { ok: true, step: null, recoveryId: matched.id, factorId: factor.id };
     }
   }
-  const lock = await recordFailure(db, userId, now);
+  const lock = await recordFailure(db, userId, now, attempt.count);
   return {
     ok: false,
     failure: lock ?? fail(401, "mfa_invalid", "That code is not valid."),
@@ -382,14 +391,8 @@ export async function confirmEnroll(
   }
   const limited = await rateLimited(db, user.id, ip, now);
   if (limited) return { ok: false, failure: limited };
-  const locked = await lockState(db, user.id, now);
-  if (locked.lockedUntil) {
-    const retryAfter = Math.max(1, Math.ceil((locked.lockedUntil.getTime() - now.getTime()) / 1000));
-    return {
-      ok: false,
-      failure: fail(429, "mfa_locked", "Too many attempts. Wait and try again.", { retryAfter }),
-    };
-  }
+  const attempt = await reserveAttempt(db, user.id, now);
+  if (!attempt.ok) return { ok: false, failure: attempt.failure };
   const secret = plainSecret(pending);
   if (!secret) {
     return {
@@ -399,7 +402,7 @@ export async function confirmEnroll(
   }
   const totp = verifyTotp(secret, code, now.getTime(), lastStep(pending));
   if (!totp.ok) {
-    const lock = await recordFailure(db, user.id, now);
+    const lock = await recordFailure(db, user.id, now, attempt.count);
     return {
       ok: false,
       failure:
