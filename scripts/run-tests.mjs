@@ -108,6 +108,7 @@ const appTests = [
   "server/gender-policy.test.ts",
   "server/board/groups-http.test.ts",
   "server/chat/store.test.ts",
+  "server/chat/join-chat.test.ts",
   "server/chat/http.test.ts",
 ];
 
