@@ -47,6 +47,8 @@ const appTests = [
   "server/closed-test/store.test.ts",
   "server/closed-test/schema.test.ts",
   "server/closed-test/auth.integration.test.ts",
+  "server/closed-test/signup-limit.integration.test.ts",
+  "src/lib/signup-feedback.test.ts",
   "server/media/limits.test.ts",
   "server/media/config.test.ts",
   "server/media/s3.test.ts",
