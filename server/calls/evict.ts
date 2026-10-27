@@ -11,6 +11,14 @@ export function bindCallEviction(store: CallStore): void {
   bound = store;
 }
 
+type TurnRelease = (userId: string, sessionPrefix?: string) => void;
+let releaseTurn: TurnRelease | null = null;
+
+/** The calls routes bind this so a ban also revokes minted TURN credentials. */
+export function bindTurnRelease(release: TurnRelease | null): void {
+  releaseTurn = release;
+}
+
 /**
  * Drop a person from live calls on this API process.
  *
@@ -26,7 +34,10 @@ export function bindCallEviction(store: CallStore): void {
  * connection when the id disappears from the roster.
  */
 export function evictCallMember(userId: string, roomIds?: readonly string[]): number {
-  if (!userId || !bound) return 0;
+  if (!userId) return 0;
+  if (roomIds) for (const roomId of roomIds) releaseTurn?.(userId, `${roomId}#`);
+  else releaseTurn?.(userId);
+  if (!bound) return 0;
   if (roomIds) {
     for (const roomId of roomIds) bound.leave(roomId, userId);
     return roomIds.length;
