@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useNow, When } from "@/components/quorum/bits";
 import { ReportControl } from "@/components/board/report-control";
 import { cn } from "@/lib/cn";
 import {
@@ -48,6 +48,8 @@ function mergeChat(
 
 /** One transcript per room. The server checks membership on every poll and every send. */
 export function RoomChat({ roomId }: { roomId: string }) {
+  const now = useNow();
+  const whenText = (at: number) => (now ? formatWhen(at, now.getTime()) : "");
   const remote = useBoard((state) => state.remote);
   const admin = useBoard((state) => state.admin);
   const stewardRooms = useBoard((state) => state.stewardRooms);
@@ -276,7 +278,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
             {message.author !== me ? (
               <div className="mt-2">
                 <ReportControl
-                  label={itemActionName("Report", "message", message.author, message.at, message.text)}
+                  label={itemActionName("Report", "message", message.author, whenText(message.at), message.text)}
                   onSubmit={(input) =>
                     sendReport({
                       roomId,
@@ -311,7 +313,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
                   <button
                     type="button"
                     className={cn(btnQuiet, "min-h-[44px] min-w-[44px] px-0")}
-                    aria-label={itemActionName("Remove", "message", message.author, message.at, message.text)}
+                    aria-label={itemActionName("Remove", "message", message.author, whenText(message.at), message.text)}
                     onClick={() => setRemoving(message.id)}
                   >
                     <Trash2 className="size-4" aria-hidden="true" />

@@ -612,14 +612,6 @@ export function formatWhen(at: number, now: number): string {
   return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
 }
 
-const EXACT_TIME: Intl.DateTimeFormatOptions = {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  second: "2-digit",
-};
-
 /** A short excerpt for an accessible name: first words, up to about 40 characters. */
 export function itemExcerpt(text: string, max = 40): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -630,21 +622,20 @@ export function itemExcerpt(text: string, max = 40): string {
 }
 
 /**
- * Accessible name for a per-item action, unique per item by its exact time
- * (to the second) and a short excerpt, never the rounded display time:
- * "Report message from Mark, Oct 26, 3:42:17 PM: \"See you at the bench\"".
+ * Accessible name for a per-item action: the visible time (formatWhen, the
+ * same text the row shows) and a short excerpt, so two same-day items from one
+ * person still differ through their words:
+ * "Report message from Mark, 5m ago: \"See you at the bench\"".
  */
 export function itemActionName(
   action: "Report" | "Remove",
   kind: "message" | "post",
   author: string,
-  at: number,
+  when: string,
   text: string,
 ): string {
   const parts = [`${action} ${kind} from ${author}`];
-  if (Number.isFinite(at) && at > 0) {
-    parts.push(new Date(at).toLocaleString("en-US", EXACT_TIME));
-  }
+  if (when) parts.push(when);
   const excerpt = itemExcerpt(text);
   const head = parts.join(", ");
   return excerpt ? `${head}: "${excerpt}"` : head;

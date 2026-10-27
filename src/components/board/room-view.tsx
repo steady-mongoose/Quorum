@@ -23,6 +23,7 @@ import {
   fieldClass,
   Kicker,
   pill,
+  useNow,
   When,
 } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -889,6 +890,8 @@ const PostCard = memo(function PostCard({
   canMessage: boolean;
   steward: boolean;
 }) {
+  const now = useNow();
+  const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
@@ -1073,7 +1076,7 @@ const PostCard = memo(function PostCard({
         ) : null}
         {!mine ? (
           <ReportControl
-            label={itemActionName("Report", "post", post.author, post.at, post.claim)}
+            label={itemActionName("Report", "post", post.author, postWhen, post.claim)}
             onSubmit={(input) => {
               if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
               return sendReport({
