@@ -1,4 +1,6 @@
 import type { Db } from "../db.ts";
+import { actorRole } from "../board/access.ts";
+import { concealedListing, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
@@ -25,6 +27,12 @@ export async function roomCallMember(
   now: Date,
 ): Promise<MemberCheck> {
   if (!userId || !ROOM_ID.test(roomId)) return { kind: "bad-room" };
+  try {
+    const listed = await readRoomListing(db, roomId);
+    if (concealedListing(listed, await actorRole(db, userId))) return { kind: "bad-room" };
+  } catch {
+    return { kind: "unavailable" };
+  }
   try {
     const ban = await openBanOrNone(db, userId, now, roomId);
     if (ban) return { kind: "banned", ban };

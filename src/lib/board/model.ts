@@ -32,7 +32,8 @@ export type RoomId =
   | (string & {});
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
-export type Section = "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
+export type Section =
+  "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
 export type CardKind = "meeting" | "candidate" | "trade" | "need";
 export type HardRule = HardRuleValue;
 
@@ -75,6 +76,12 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** Omitted on a local room. Draft and unclaimed stay off the public page. */
+  status?: "draft" | "unclaimed" | "active";
+  town?: string;
+  county?: string;
+  category?: string;
+  sourceUrl?: string;
   /** Who the room is for. Missing means everyone. */
   audience?: "all" | "men" | "women";
   /** The signed-in member may change the audience. */
@@ -1002,7 +1009,11 @@ export type WeekDay = { iso: string; cards: MeetingCard[] };
  * out. A named weekday is placed on that weekday. A stored date is a local
  * calendar day, not a UTC instant.
  */
-export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, today: string): WeekDay[] {
+export function weekFor(
+  cards: MeetingCard[],
+  witnesses: Map<string, string[]>,
+  today: string,
+): WeekDay[] {
   const days: WeekDay[] = [];
   for (let i = 0; i < WEEK_DAYS; i++) {
     const iso = addDays(today, i);
@@ -1012,7 +1023,12 @@ export function weekFor(cards: MeetingCard[], witnesses: Map<string, string[]>, 
         cancelled: card.cancelled,
         until: card.until,
       });
-      return occurs.includes(iso) && card.kind !== "trade" && card.kind !== "need" && cardListed(card, witnesses);
+      return (
+        occurs.includes(iso) &&
+        card.kind !== "trade" &&
+        card.kind !== "need" &&
+        cardListed(card, witnesses)
+      );
     });
     if (dated.length > 0) days.push({ iso, cards: dated });
   }
