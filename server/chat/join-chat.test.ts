@@ -47,9 +47,23 @@ test("join, then chat lets you in, and leaving shuts it again", async () => {
 
     const left = await joinRoom(db, { userId: josh, roomId: "shop", now, leave: true });
     assert.equal(left.ok, true);
-    // He posted, so he has stood in the room (room_member) and can still read it.
     const gone = await db.query(`select 1 from room_join where user_id = $1`, [josh]);
     assert.equal(gone.length, 0);
+    const member = await db.query(`select 1 from room_member where user_id = $1`, [josh]);
+    assert.equal(member.length, 0);
+
+    // Leaving ends chat access, even for someone who has posted.
+    const refused = await listChat(db, { userId: josh, roomId: "shop", now });
+    assert.equal(refused.ok, false);
+    if (!refused.ok) assert.equal(refused.error, "You are not in this room.");
+    const resend = await sendChat(db, { userId: josh, name: "Josh", roomId: "shop", text: "Still here?", now });
+    assert.equal(resend.ok, false);
+
+    // His past message stays in the room.
+    const kept = await db.query<{ body: string }>(
+      `select body from room_chat_message where room_id = 'shop' and body = 'Is the bench free tonight?'`,
+    );
+    assert.equal(kept.length, 1);
   } finally {
     await close();
   }
