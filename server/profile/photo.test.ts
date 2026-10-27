@@ -99,7 +99,7 @@ async function readyPhoto(db: Db, store: ReturnType<typeof createMemoryStore>, u
     scope: "profile",
   });
   assert.equal(prepared.ok, true);
-  if (!prepared.ok) throw new Error(prepared.error);
+  if (!prepared.ok) throw new Error("upload was refused");
   const key = prepared.body.upload.url.replace("https://media.test/", "");
   await store.put(key, Uint8Array.of(1, 2, 3, 4), "image/jpeg");
   const done = await completeUpload(media, userId, prepared.body.id);
