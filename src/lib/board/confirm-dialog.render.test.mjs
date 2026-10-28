@@ -84,9 +84,16 @@ test("sibling plates sit flat and the hero plate still pulls up", () => {
     '<section class="plate" id="two">Two</section>',
   ].join("");
   document.body.append(host);
-  const hero = getComputedStyle(document.getElementById("hero"));
-  const one = getComputedStyle(document.getElementById("one"));
-  const two = getComputedStyle(document.getElementById("two"));
+  /** @param {string} id */
+  const plate = (id) => {
+    const element = document.getElementById(id);
+    assert.ok(element, `#${id} is on the page`);
+    return getComputedStyle(element);
+  };
+  const hero = plate("hero");
+  const one = plate("one");
+  const two = plate("two");
+  /** @param {string} value */
   const flat = (value) => value === "" || value === "0" || value === "0px";
   assert.equal(flat(one.marginTop), true);
   assert.equal(flat(two.marginTop), true);
