@@ -6,7 +6,8 @@ import type { Db } from "../db.ts";
 import { createMemoryStore } from "../media/memory-store.ts";
 import { readCsamQueue, setCustodian } from "./csam-custody.ts";
 import { flagCsam, removeFlagged } from "./csam-flag.ts";
-import { createPost, listBoard } from "./store.ts";
+import { listBoard } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
 const now = new Date("2026-10-27T12:00:00Z");
