@@ -24,7 +24,7 @@ const HOW = [
   },
   {
     term: "Messages",
-    what: "You can message people you've shared a room with. No one else can message you.",
+    what: "You can message people you've been at a gathering with. No one else can message you.",
   },
   {
     term: "No feed",
