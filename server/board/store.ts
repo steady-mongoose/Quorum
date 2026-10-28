@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { autoCloseReports } from "./report-close.ts";
 import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
@@ -11,6 +12,7 @@ import {
   permanentOnFirst,
   type MarkValue,
 } from "../../src/lib/board/text.ts";
+import { NO_STEWARD_ERROR } from "../../src/lib/board/access-rules.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
 import {
@@ -35,7 +37,16 @@ import {
   type AudiencePath,
 } from "./audience.ts";
 import { genderPolicyPayload, isRoomHost, parseAudience } from "../gender-policy.ts";
-import { councilMarks, type CouncilMark } from "./places-store.ts";
+import {
+  councilMarks,
+  keepStewarded,
+  stewardSnapshot,
+  confirmStewardsLeft,
+  readAccessLog,
+  seatSteward,
+  StewardStop,
+  type CouncilMark,
+} from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
 import {
@@ -104,6 +115,8 @@ export type BoardRoom = {
   regionId: string;
   pinOrder?: number | null;
   joined?: boolean;
+  /** The viewer is in the room (saved it or stood there), so they may post. */
+  member?: boolean;
   status: "draft" | "unclaimed" | "active";
   town: string;
   county: string;
@@ -289,6 +302,7 @@ type RoomRow = {
   region_id?: string;
   pin_order?: number | null;
   joined?: boolean;
+  member?: boolean;
   status?: string;
   town_name?: string;
   county?: string;
@@ -338,6 +352,7 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     regionId: row.region_id ?? "",
     pinOrder: row.pin_order == null ? null : Number(row.pin_order),
     joined: Boolean(row.joined),
+    member: Boolean(row.member),
     status: row.status === "draft" || row.status === "unclaimed" ? row.status : "active",
     town: row.town_name ?? "",
     county: row.county ?? "",
@@ -428,7 +443,11 @@ async function roomById(
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $2
-            ) as joined
+            ) as joined,
+            (
+              exists (select 1 from room_join j where j.room_id = room.id and j.user_id = $2)
+              or exists (select 1 from room_member m where m.room_id = room.id and m.user_id = $2)
+            ) as member
      from room where id = $1`,
     [id, who.id],
   );
@@ -578,10 +597,43 @@ async function pagePosts(
   };
 }
 
-/** A post or a reply records that this member stood in that one room. A read does not. */
+/**
+ * Posting needs the member to be in the room: a saved room (room_join) or a
+ * room_member row. Stewards of the room and admins are exempt. Someone who left
+ * has neither row, so they are refused instead of being put back in.
+ */
+async function postsInRoom(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  roomId: string,
+): Promise<boolean> {
+  if (stewardsRoom(actor, roomId)) return true;
+  const rows = await db.query<{ user_id: string }>(
+    `select user_id from room_member where room_id = $1 and user_id = $2
+     union all
+     select user_id from room_join where room_id = $1 and user_id = $2
+     limit 1`,
+    [roomId, userId],
+  );
+  return Boolean(rows[0]);
+}
+
+const JOIN_TO_POST = "Only members of this room can post here.";
+
+/**
+ * A post or a reply records that this member stood in that one room, but only
+ * when they are already in it (saved it or stood there). It never re-adds a
+ * member who left. A steward's or admin's post never adds them either:
+ * posting is exempt, but it never grants chat or call access.
+ */
 async function standInRoom(db: Db, userId: string, roomId: string): Promise<void> {
   await db.query(
-    `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
+    `insert into room_member (room_id, user_id)
+     select $1, $2
+     where exists (select 1 from room_join where room_id = $1 and user_id = $2)
+        or exists (select 1 from room_member where room_id = $1 and user_id = $2)
+     on conflict do nothing`,
     [roomId, userId],
   );
 }
@@ -624,7 +676,11 @@ export async function listBoard(
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $1
-            ) as joined
+            ) as joined,
+            (
+              exists (select 1 from room_join j where j.room_id = room.id and j.user_id = $1)
+              or exists (select 1 from room_member m where m.room_id = room.id and m.user_id = $1)
+            ) as member
      from room where name <> '' and ${visibleRoomClause(ready, "2")}
      order by sort_order asc, name asc`,
     ready ? [userId, seeHidden] : [userId],
@@ -1275,6 +1331,7 @@ export async function createPost(
   if (!room || !canReadRoom(room.status, actor)) return fail(404, "That room is not here.");
   const ban = await openBan(db, input.userId, input.now, room.id);
   if (ban) return fail(403, "This account cannot post right now.");
+  if (!(await postsInRoom(db, actor, input.userId, room.id))) return fail(403, JOIN_TO_POST);
   const blocked = await audienceBlock(db, {
     userId: input.userId,
     roomId: room.id,
@@ -1434,6 +1491,7 @@ export async function replyToPost(
   if (!room || !canReadRoom(room.status, actor)) return fail(404, "That post is not here.");
   if (await openBan(db, input.userId, input.now, room.id))
     return fail(403, "This account cannot post right now.");
+  if (!(await postsInRoom(db, actor, input.userId, room.id))) return fail(403, JOIN_TO_POST);
   const blocked = await audienceBlock(db, {
     userId: input.userId,
     roomId: room.id,
@@ -1727,6 +1785,12 @@ export async function removePost(
         `update board_post set removed = true where (id = $1 or parent_id = $1) and removed = false returning id`,
         [post.id],
       );
+      await autoCloseReports(tx, {
+        subjectKind: "post",
+        subjectIds: taken.map((row) => row.id),
+        actorUserId: input.userId,
+        now: input.now,
+      });
       await tx.query(
         `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at, post_ids)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -1809,6 +1873,64 @@ async function offendedInRoom(db: Db, userId: string, roomId: string): Promise<b
   return Boolean(lines[0]);
 }
 
+/**
+ * Bar someone without leaving a room stewardless: lock the rooms they steward,
+ * hand on any room they solely steward, write the bar, then check again.
+ */
+async function banKeepingStewards(
+  db: Db,
+  input: {
+    actorId: string;
+    person: { id: string; name: string };
+    rooms: "all" | string[];
+    replacementEmail: string;
+    inviterEmail: string;
+    reason: Parameters<typeof writeBan>[1]["reason"];
+    byName: string;
+    roomId: string;
+    sourceRoomId?: string;
+    byAdmin?: boolean;
+    now: Date;
+  },
+) {
+  try {
+    return await db.transaction(async (tx) => {
+      const snapshot = await stewardSnapshot(tx, input.person.id, input.rooms);
+      const kept = await keepStewarded(tx, {
+        actorId: input.actorId,
+        outgoingId: input.person.id,
+        rooms: input.rooms,
+        replacementEmail: input.replacementEmail,
+        inviterEmail: input.inviterEmail,
+        now: input.now,
+      });
+      if (kept) return kept;
+      const ban = await writeBan(tx, {
+        userId: input.person.id,
+        name: input.person.name,
+        reason: input.reason,
+        byUserId: input.actorId,
+        byName: input.byName,
+        removalId: null,
+        now: input.now,
+        roomId: input.roomId,
+        sourceRoomId: input.sourceRoomId,
+        byAdmin: input.byAdmin,
+      });
+      await confirmStewardsLeft(tx, {
+        outgoingId: input.person.id,
+        roomIds: snapshot,
+        removed: true,
+        now: input.now,
+      });
+      return { ok: true as const, value: ban };
+    });
+  } catch (error) {
+    if (error instanceof StewardStop || error instanceof Stop) return fail(error.status, error.message);
+    throw error;
+  }
+}
+
 export async function banMember(
   db: Db,
   input: {
@@ -1817,6 +1939,8 @@ export async function banMember(
     email: string;
     reason: string;
     roomId?: string;
+    replacementEmail?: string;
+    inviterEmail?: string;
     now: Date;
   },
 ): Promise<Result<BanEntry>> {
@@ -1842,19 +1966,21 @@ export async function banMember(
   if (stopped) return fail(403, stopped);
   const byName = input.name.trim() || "Steward";
   if (actor.admin) {
-    const ban = await writeBan(db, {
+    const banned = await banKeepingStewards(db, {
+      actorId: input.userId,
+      person,
+      rooms: "all",
+      replacementEmail: input.replacementEmail ?? "",
+      inviterEmail: input.inviterEmail ?? "",
       byAdmin: true,
-      userId: person.id,
-      name: person.name,
       reason,
-      byUserId: input.userId,
       byName,
-      removalId: null,
-      now: input.now,
       roomId: "",
+      now: input.now,
     });
+    if (!banned.ok) return banned;
     evictCallMember(person.id);
-    return { ok: true, value: ban };
+    return banned;
   }
   const roomId = input.roomId?.trim() ?? "";
   if (!roomId) return fail(400, "Name the room this bar is for.");
@@ -1876,23 +2002,20 @@ export async function banMember(
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
   const siteWide = permanentOnFirst(reason);
-  let ban: BanEntry;
-  try {
-    ban = await db.transaction((tx) => writeBan(tx, {
-    userId: person.id,
-    name: person.name,
+  const banned = await banKeepingStewards(db, {
+    actorId: input.userId,
+    person,
+    rooms: siteWide ? "all" : [roomId],
+    replacementEmail: input.replacementEmail ?? "",
+    inviterEmail: input.inviterEmail ?? "",
     reason,
-    byUserId: input.userId,
     byName,
-    removalId: null,
-    now: input.now,
     roomId: siteWide ? "" : roomId,
     sourceRoomId: roomId,
-    }));
-  } catch (error) {
-    if (error instanceof Stop) return fail(error.status, error.message);
-    throw error;
-  }
+    now: input.now,
+  });
+  if (!banned.ok) return banned;
+  const ban = banned.value;
   if (ban.pendingReview || siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
@@ -2324,7 +2447,11 @@ export async function checkedCategoryIds(
   return slugs;
 }
 
-export async function replaceRoomCategories(db: Db, roomId: string, categoryIds: string[]): Promise<void> {
+export async function replaceRoomCategories(
+  db: Db,
+  roomId: string,
+  categoryIds: string[],
+): Promise<void> {
   await db.query(
     `delete from room_categories where room_id = $1 and not (category_id = any($2::text[]))`,
     [roomId, categoryIds],
@@ -2347,6 +2474,8 @@ export async function createRoom(
     categoryIds: string[];
     now: Date;
     audience?: unknown;
+    stewardEmail?: string;
+    inviterEmail?: string;
   },
 ): Promise<Result<BoardRoom>> {
   const actor = await actorRole(db, input.userId);
@@ -2366,6 +2495,9 @@ export async function createRoom(
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
+  if (!input.stewardEmail?.trim() || !input.inviterEmail?.trim()) {
+    return fail(400, NO_STEWARD_ERROR);
+  }
   try {
     await db.transaction(async (tx) => {
       await tx.query(
@@ -2397,8 +2529,18 @@ export async function createRoom(
           now: input.now,
         });
       }
+      const seated = await seatSteward(tx, {
+        actorId: input.userId,
+        roomId: id,
+        stewardEmail: input.stewardEmail ?? "",
+        inviterEmail: input.inviterEmail ?? "",
+        rows: await readAccessLog(tx),
+        now: input.now,
+      });
+      if (!seated.ok) throw new StewardStop(seated.status, seated.error);
     });
   } catch (error) {
+    if (error instanceof StewardStop) return fail(error.status, error.message);
     if (isUniqueViolation(error)) return fail(409, "That room already exists.");
     throw error;
   }

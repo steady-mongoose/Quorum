@@ -17,6 +17,8 @@ export const CALLS_LIMIT = { windowMs: 10_000, max: 60 };
 
 /** Private messages, separate from the sign-in attempt cap. */
 export const DM_SEND_LIMIT = { windowMs: 10 * 60 * 1000, max: 30 };
+/** DM reports per member. Enough for a real problem, not enough to flood the queue. */
+export const DM_REPORT_LIMIT = { windowMs: 60 * 60 * 1000, max: 20 };
 export const DM_BUNDLE_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
 /** Per recipient, so one account cannot empty another member's one-time keys. */
 export const DM_BUNDLE_TARGET_LIMIT = { windowMs: 10 * 60 * 1000, max: 4 };

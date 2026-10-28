@@ -4,7 +4,11 @@ import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { DeletePostControl, dropOwnPost } from "@/components/board/delete-post";
 import { AttachPicture, SharedMediaFigure } from "@/components/board/media-share";
 import { RoomCall } from "@/components/board/room-call";
+import { ModerationQueue } from "@/components/board/moderation-queue";
+import { ReportControl } from "@/components/board/report-control";
 import { RoomChat } from "@/components/board/room-chat";
+import { MemberGate } from "@/components/board/member-gate";
+import { canPostInRoom } from "@/lib/board/member-gate";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -21,6 +25,7 @@ import {
   fieldClass,
   Kicker,
   pill,
+  useNow,
   When,
 } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -40,6 +45,7 @@ import {
   draftHasWriting,
   formatDate,
   formatWhen,
+  itemActionName,
   needsFor,
   postButtonLabel,
   readingLine,
@@ -62,6 +68,7 @@ import {
   forViewer,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
+import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
@@ -136,6 +143,13 @@ export function RoomView() {
   const known = rooms.find((item) => item.id === room);
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
+  const stewardRooms = useBoard((state) => state.stewardRooms);
+  const canPost = canPostInRoom({
+    remote,
+    member: meta.member === true,
+    admin,
+    stewardOfRoom: stewardRooms.includes(room),
+  });
   const [tools, setTools] = useState(false);
   const focusSlug = roomsRoute?.slug ?? null;
 
@@ -265,6 +279,7 @@ export function RoomView() {
         ) : null}
         <RoomCall roomId={room} />
         <RoomChat roomId={room} />
+        <ModerationQueue roomId={room} />
       </section>
 
       <nav className="relative z-10 flex flex-wrap gap-2 pb-1" aria-label="Rooms">
@@ -296,6 +311,8 @@ export function RoomView() {
                   ? "This account is closed. Second hard removal."
                   : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
             </p>
+          ) : !canPost ? (
+            <MemberGate allowed={false}>{null}</MemberGate>
           ) : canFile ? (
             <Composer me={me} steward={steward} />
           ) : (
@@ -324,6 +341,7 @@ export function RoomView() {
                 mine={post.author === me}
                 canMessage={peers.has(post.author)}
                 steward={steward && tools}
+                canPost={canPost}
               />
             ))}
             {remote && older ? (
@@ -336,7 +354,12 @@ export function RoomView() {
               </button>
             ) : (
               <p className="py-6 text-sm text-muted" role="status">
-                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+                {/* A non-member's empty room already shows the invite line above. */}
+                {feed.length === 0
+                  ? canPost
+                    ? "Nothing posted here yet."
+                    : ""
+                  : "That is everything."}
               </p>
             )}
           </section>
@@ -875,6 +898,7 @@ const PostCard = memo(function PostCard({
   mine,
   canMessage,
   steward,
+  canPost,
 }: {
   post: Post;
   replies: Post[];
@@ -883,7 +907,10 @@ const PostCard = memo(function PostCard({
   mine: boolean;
   canMessage: boolean;
   steward: boolean;
+  canPost: boolean;
 }) {
+  const now = useNow();
+  const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
@@ -1013,7 +1040,9 @@ const PostCard = memo(function PostCard({
       ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {replying ? (
+        {!canPost ? (
+          <MemberGate allowed={false}>{null}</MemberGate>
+        ) : replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <input
               className={fieldClass}
@@ -1066,6 +1095,21 @@ const PostCard = memo(function PostCard({
             <CheckIcon className="size-4" aria-hidden="true" />
             Answered
           </button>
+        ) : null}
+        {!mine ? (
+          <ReportControl
+            label={itemActionName("Report", "post", post.author, postWhen, post.claim)}
+            onSubmit={(input) => {
+              if (!remote) return Promise.resolve({ ok: false, error: "Sign in to report this." });
+              return sendReport({
+                roomId: post.room,
+                subjectKind: "post",
+                subjectId: post.id,
+                reason: input.reason,
+                note: input.note,
+              });
+            }}
+          />
         ) : null}
         {mine && post.mark ? (
           <button type="button" className={cn(btnQuiet, "px-0")} onClick={() => setEditing(true)}>

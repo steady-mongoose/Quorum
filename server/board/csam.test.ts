@@ -27,7 +27,6 @@ import {
   withHoldKey,
 } from "./csam.ts";
 import {
-  createPost,
   decideAppeal,
   fileAppeal,
   listBoard,
@@ -36,6 +35,7 @@ import {
   removePost,
   setRemovePostAfterSaveForTests,
 } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 
 process.env.CSAM_HOLD_KEY = "test-hold-key-value";
 

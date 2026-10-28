@@ -208,6 +208,13 @@ test("draft and unclaimed rooms stay off member reads and public pages", async (
     if (!memberHome.ok) return;
     assert.equal(roomIdsOf(memberHome.value.sections).includes("grace-hall"), false);
 
+    // Rooms are joined by invitation: a room invite for grace-hall.
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Invited', 'member', 'grace-hall', 'grant', 'test', 'test', 'test', 'Invited for the test.', $3)`,
+      [randomUUID(), lee, now],
+    );
     const joined = await joinRoom(db, { userId: lee, roomId: "grace-hall", now });
     assert.equal(joined.ok, true);
     const stewardHome = await listHome(db, lee, now);

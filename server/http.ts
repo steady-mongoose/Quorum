@@ -460,7 +460,7 @@ async function route(
     return json(200, { entries: await listInviteLog(deps.db, session.id) });
   }
 
-  if (url.pathname.startsWith("/api/dm")) {
+  if (url.pathname.startsWith("/api/dm") || url.pathname.startsWith("/api/admin/dm-reports")) {
     const response = await handleDm(deps, request, url);
     if (response) return response;
   }

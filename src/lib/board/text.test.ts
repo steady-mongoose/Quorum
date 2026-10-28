@@ -10,7 +10,8 @@ test("a mark reason is one English sentence", () => {
   );
   assert.equal(oneSentence("No."), null);
   assert.equal(oneSentence("One sentence. And then another."), null);
-  assert.equal(oneSentence("This has no stop"), null);
+  assert.equal(oneSentence("This has no stop"), "This has no stop.");
+  assert.equal(oneSentence("Two lines. Then more"), null);
 });
 
 test("unsupported is labeled No legs, and the stored value stays", () => {

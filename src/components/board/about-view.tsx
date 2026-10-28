@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { isReplacementError } from "@/lib/board/access-rules";
 import { InviteTracker } from "./invite-tracker";
 import { isMyRemoval } from "@/lib/board/removal-owner";
 
@@ -9,6 +10,7 @@ import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
+import { DmReportQueue } from "@/components/board/dm-report";
 import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
@@ -97,8 +99,7 @@ const HOW = [
   },
 ];
 
-
-export function AboutView() {
+export function AboutView({ publicView = false }: { publicView?: boolean }) {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
@@ -150,7 +151,7 @@ export function AboutView() {
 
   return (
     <div className="flex flex-col gap-10">
-      <ServerInvite />
+      {publicView ? null : <ServerInvite />}
       <section className="flex flex-col gap-3">
         <Kicker>About</Kicker>
         <h1 className="illum max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
@@ -222,10 +223,10 @@ export function AboutView() {
         </ul>
       </section>
 
-      {remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
-      {remote && admin ? <MfaResetQueue /> : null}
+      {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
+      {!publicView && remote && admin ? <MfaResetQueue /> : null}
 
-      {remote && admin ? (
+      {!publicView && remote && admin ? (
         <p>
           <a className={btnGhost} href="/admin/stats">
             Stats
@@ -233,7 +234,7 @@ export function AboutView() {
         </p>
       ) : null}
 
-      {remote && admin ? (
+      {!publicView && remote && admin ? (
         <AdminTools
           createRoom={createRoom}
           correctZip={correctZip}
@@ -241,143 +242,147 @@ export function AboutView() {
         />
       ) : null}
 
-      {remote && admin ? <DeletionRequestQueue /> : null}
-      {remote && admin ? <RoomsManager /> : null}
+      {!publicView && remote && admin ? <DeletionRequestQueue /> : null}
+      {!publicView && remote && admin ? <RoomsManager /> : null}
 
-      {remote && admin ? <CsamQueue reports={csamReports} /> : null}
-      {remote && admin ? <BanReviewQueue /> : null}
+      {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
+      {!publicView && remote && admin ? <BanReviewQueue /> : null}
 
-      {remote && admin ? <InviteTracker /> : null}
+      {!publicView && remote && admin ? <DmReportQueue /> : null}
 
-      <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <h2 className="text-2xl text-fg">You</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Your name, as it appears on your posts
-            <input
-              className={fieldClass}
-              value={me}
-              placeholder="Your name"
-              onChange={(event) => setMe(event.target.value)}
-            />
-          </label>
-          <p className="self-end text-sm text-muted">
-            {steward
-              ? "You are a steward of a room. You can post notices and mark a post. A mark dims it."
-              : "A steward needs the inviter and a steward of that room. The first steward of a room needs the inviter and the council chair."}
-          </p>
-        </div>
-        {remote ? (
-          <p className="mt-6 max-w-prose text-sm text-muted">
-            Posts, marks, removals, and bans are on the server.
-          </p>
-        ) : (
-          <>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {mayClear ? (
-                <button
-                  type="button"
-                  className={cn(btnGhost, "min-h-[44px]")}
-                  onClick={() => {
-                    setClearPhrase("");
-                    setConfirmClear(true);
-                  }}
-                >
-                  Clear the board
-                </button>
-              ) : null}
-            </div>
-            <ConfirmDialog
-              open={confirmClear}
-              title="Clear the board?"
-              description="Everything here will be removed."
-              confirmLabel="Clear it"
-              cancelLabel="Keep it"
-              confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
-              onConfirm={() => {
-                if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
-                setConfirmClear(false);
-                setClearPhrase("");
-                clearLocalBoard();
-              }}
-              onCancel={() => {
-                setConfirmClear(false);
-                setClearPhrase("");
-              }}
-            >
-              <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
-                Type {APP_NAME} or CLEAR
-                <input
-                  aria-label={`Type ${APP_NAME} or CLEAR`}
-                  className={cn(fieldClass, "min-h-[44px]")}
-                  value={clearPhrase}
-                  autoComplete="off"
-                  onChange={(event) => setClearPhrase(event.target.value)}
-                />
-              </label>
-              <p className="mt-3 max-w-prose text-sm text-muted">
-                The file includes the posts, messages, invites, bans, marks, removals, appeals, and
-                reports saved in this browser.
-              </p>
-              <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
-                Authenticator code, if yours is on
-                <input
-                  className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
-                  value={exportCode}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  onChange={(event) => setExportCode(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                className={cn(btnGhost, "mt-3 min-h-[44px]")}
-                onClick={() => {
-                  void (async () => {
-                    setExportError("");
-                    if (server.mode === "live" && (server.mfaEnrolled || server.mfa === "enroll")) {
-                      const stepped = await stepUpMfa("data-export", exportCode.trim());
-                      if (!stepped.ok) {
-                        setExportError(stepped.message);
-                        return;
-                      }
-                      const remote = await fetchAccountExport();
-                      if (!remote.ok) {
-                        setExportError(remote.message);
-                        return;
-                      }
-                    }
-                    downloadBoardExport(boardSnapshot());
-                  })();
+      {!publicView && remote && admin ? <InviteTracker /> : null}
+
+      {publicView ? null : (
+        <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+          <h2 className="text-2xl text-fg">You</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Your name, as it appears on your posts
+              <input
+                className={fieldClass}
+                value={me}
+                placeholder="Your name"
+                onChange={(event) => setMe(event.target.value)}
+              />
+            </label>
+            <p className="self-end text-sm text-muted">
+              {steward
+                ? "You are a steward of a room. You can post notices and mark a post. A mark dims it."
+                : "A steward needs the inviter and a steward of that room. The first steward of a room needs the inviter and the council chair."}
+            </p>
+          </div>
+          {remote ? (
+            <p className="mt-6 max-w-prose text-sm text-muted">
+              Posts, marks, removals, and bans are on the server.
+            </p>
+          ) : (
+            <>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {mayClear ? (
+                  <button
+                    type="button"
+                    className={cn(btnGhost, "min-h-[44px]")}
+                    onClick={() => {
+                      setClearPhrase("");
+                      setConfirmClear(true);
+                    }}
+                  >
+                    Clear the board
+                  </button>
+                ) : null}
+              </div>
+              <ConfirmDialog
+                open={confirmClear}
+                title="Clear the board?"
+                description="Everything here will be removed."
+                confirmLabel="Clear it"
+                cancelLabel="Keep it"
+                confirmDisabled={!clearPhraseMatches(clearPhrase, APP_NAME)}
+                onConfirm={() => {
+                  if (!clearPhraseMatches(clearPhrase, APP_NAME)) return;
+                  setConfirmClear(false);
+                  setClearPhrase("");
+                  clearLocalBoard();
+                }}
+                onCancel={() => {
+                  setConfirmClear(false);
+                  setClearPhrase("");
                 }}
               >
-                Export first
-              </button>
-              {exportError ? (
-                <p role="alert" className="mt-2 text-sm text-danger">
-                  {exportError}
+                <label className="mt-4 flex flex-col gap-2 text-sm text-muted">
+                  Type {APP_NAME} or CLEAR
+                  <input
+                    aria-label={`Type ${APP_NAME} or CLEAR`}
+                    className={cn(fieldClass, "min-h-[44px]")}
+                    value={clearPhrase}
+                    autoComplete="off"
+                    onChange={(event) => setClearPhrase(event.target.value)}
+                  />
+                </label>
+                <p className="mt-3 max-w-prose text-sm text-muted">
+                  The file includes the posts, messages, invites, bans, marks, removals, appeals, and
+                  reports saved in this browser.
                 </p>
-              ) : null}
-            </ConfirmDialog>
-            {undoClear ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <p className="max-w-prose text-sm text-muted">
-                  The board was cleared. You can still put it back.
-                </p>
+                <label className="mt-3 flex flex-col gap-2 text-sm text-muted">
+                  Authenticator code, if yours is on
+                  <input
+                    className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+                    value={exportCode}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    onChange={(event) => setExportCode(event.target.value)}
+                  />
+                </label>
                 <button
                   type="button"
-                  className={cn(btnGhost, "min-h-[44px]")}
-                  onClick={() => undoClearBoard()}
+                  className={cn(btnGhost, "mt-3 min-h-[44px]")}
+                  onClick={() => {
+                    void (async () => {
+                      setExportError("");
+                      if (server.mode === "live" && (server.mfaEnrolled || server.mfa === "enroll")) {
+                        const stepped = await stepUpMfa("data-export", exportCode.trim());
+                        if (!stepped.ok) {
+                          setExportError(stepped.message);
+                          return;
+                        }
+                        const remote = await fetchAccountExport();
+                        if (!remote.ok) {
+                          setExportError(remote.message);
+                          return;
+                        }
+                      }
+                      downloadBoardExport(boardSnapshot());
+                    })();
+                  }}
                 >
-                  Put the board back
+                  Export first
                 </button>
-              </div>
-            ) : null}
-          </>
-        )}
-      </section>
+                {exportError ? (
+                  <p role="alert" className="mt-2 text-sm text-danger">
+                    {exportError}
+                  </p>
+                ) : null}
+              </ConfirmDialog>
+              {undoClear ? (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <p className="max-w-prose text-sm text-muted">
+                    The board was cleared. You can still put it back.
+                  </p>
+                  <button
+                    type="button"
+                    className={cn(btnGhost, "min-h-[44px]")}
+                    onClick={() => undoClearBoard()}
+                  >
+                    Put the board back
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      )}
 
-      {removals.length > 0 ? (
+      {!publicView && removals.length > 0 ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-2xl text-fg">
             {steward || admin ? "Hard removals" : "Your removals"}
@@ -665,6 +670,52 @@ function RoleTools({
   );
 }
 
+function StewardFields({
+  stewardEmail,
+  inviterEmail,
+  onSteward,
+  onInviter,
+  stewardLabel = "Steward email",
+  stewardRef,
+  stewardInvalid = false,
+  stewardErrorId,
+}: {
+  stewardEmail: string;
+  inviterEmail: string;
+  onSteward: (value: string) => void;
+  onInviter: (value: string) => void;
+  stewardLabel?: string;
+  stewardRef?: Ref<HTMLInputElement>;
+  stewardInvalid?: boolean;
+  stewardErrorId?: string;
+}) {
+  return (
+    <>
+      <label className="flex flex-col gap-2 text-sm text-muted">
+        {stewardLabel}
+        <input
+          className={cn(fieldClass, "min-h-[44px]")}
+          type="email"
+          value={stewardEmail}
+          onChange={(event) => onSteward(event.target.value)}
+          ref={stewardRef}
+          aria-invalid={stewardInvalid ? true : undefined}
+          aria-describedby={stewardInvalid ? stewardErrorId : undefined}
+        />
+      </label>
+      <label className="flex flex-col gap-2 text-sm text-muted">
+        Email of the member who vouches for them
+        <input
+          className={cn(fieldClass, "min-h-[44px]")}
+          type="email"
+          value={inviterEmail}
+          onChange={(event) => onInviter(event.target.value)}
+        />
+      </label>
+    </>
+  );
+}
+
 function EmailField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-muted">
@@ -819,6 +870,8 @@ function useRoleFields(): RoleFields {
   };
 }
 
+const REPLACEMENT_ERROR_ID = "revoke-replacement-error";
+
 function RevokeRole({
   rooms,
   changeAccess,
@@ -829,15 +882,20 @@ function RevokeRole({
   const [email, setEmail] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<NonNullable<AccessInput["role"]>>("steward");
+  const [replacementEmail, setReplacementEmail] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mfaCode, setMfaCode] = useState("");
   const [pending, setPending] = useState<null | "revoke">(null);
+  const [replacementInvalid, setReplacementInvalid] = useState(false);
+  const replacementRef = useRef<HTMLInputElement>(null);
   const room = roomTitle(rooms, roomId);
   const who = email.trim() || "this person";
   const send = () => {
     setError("");
     setNotice("");
+    setReplacementInvalid(false);
     void (async () => {
       if (mfaCode.trim()) {
         const stepped = await stepUpMfa("role-grant", mfaCode.trim());
@@ -846,9 +904,22 @@ function RevokeRole({
           return;
         }
       }
-      const result = await changeAccess({ action: "revoke", email, role, roomId });
+      const result = await changeAccess({
+        action: "revoke",
+        email,
+        role,
+        roomId,
+        replacementEmail,
+        inviterEmail,
+      });
       if (!result.ok) {
-        setError(result.error ?? "That role was not changed.");
+        const message = result.error ?? "That role was not changed.";
+        setError(message);
+        if (isReplacementError(message)) {
+          // Point at the field to fix, the same way the door does for a bad code.
+          setReplacementInvalid(true);
+          replacementRef.current?.focus();
+        }
         return;
       }
       setNotice("Role revoked.");
@@ -880,6 +951,23 @@ function RevokeRole({
             <option value="admin">Admin</option>
           </select>
         </label>
+        <p className="max-w-prose text-sm text-muted">
+          A room always has a steward. If this person is the only steward of the room, name the new
+          steward here.
+        </p>
+        <StewardFields
+          stewardEmail={replacementEmail}
+          inviterEmail={inviterEmail}
+          onSteward={(value) => {
+            setReplacementEmail(value);
+            setReplacementInvalid(false);
+          }}
+          onInviter={setInviterEmail}
+          stewardLabel="New steward email, if needed"
+          stewardRef={replacementRef}
+          stewardInvalid={replacementInvalid}
+          stewardErrorId={REPLACEMENT_ERROR_ID}
+        />
         <label className="flex flex-col gap-2 text-sm text-muted">
           Authenticator code
           <input
@@ -894,7 +982,11 @@ function RevokeRole({
           Revoke
         </button>
         {error ? (
-          <p role="alert" className="text-sm text-danger">
+          <p
+            id={replacementInvalid ? REPLACEMENT_ERROR_ID : undefined}
+            role="alert"
+            className="text-sm text-danger"
+          >
             {error}
           </p>
         ) : null}
@@ -931,6 +1023,8 @@ function AdminTools({
     what: string;
     categoryIds: string[];
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -941,6 +1035,8 @@ function AdminTools({
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const categories = browseCategories(useCategories(), false);
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
+  const [stewardEmail, setStewardEmail] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -1009,6 +1105,15 @@ function AdminTools({
             );
           })}
         </fieldset>
+        <p className="text-sm text-muted sm:col-span-2">
+          A room needs a steward from the start. You approve; another member vouches.
+        </p>
+        <StewardFields
+          stewardEmail={stewardEmail}
+          inviterEmail={inviterEmail}
+          onSteward={setStewardEmail}
+          onInviter={setInviterEmail}
+        />
         <div className="sm:col-span-2">
           <AudienceChoice
             legend="Who can be in this room"
@@ -1027,7 +1132,7 @@ function AdminTools({
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({ id, name, what, categoryIds, audience }).then((result) => {
+          void createRoom({ id, name, what, categoryIds, audience, stewardEmail, inviterEmail }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
@@ -1035,6 +1140,8 @@ function AdminTools({
               setWhat("");
               setCategoryIds([]);
               setAudience("all");
+              setStewardEmail("");
+              setInviterEmail("");
             }
           });
         }}

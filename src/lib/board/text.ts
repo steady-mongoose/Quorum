@@ -96,9 +96,10 @@ export function oneSentence(value: string): string | null {
   if (text.length < 8 || text.length > 200) return null;
   if (!isEnglish(text)) return null;
   if (/[.!?]["']?\s+\p{L}/u.test(text)) return null;
-  if (!/[.!?]$/.test(text)) return null;
   if (!/\p{Script=Latin}/u.test(text)) return null;
-  return text;
+  // The closing stop is added for the writer. Refusing a sentence over a
+  // missing period, after Save, was friction with no purpose.
+  return /[.!?]["']?$/.test(text) ? text : `${text}.`;
 }
 
-export const SENTENCE_ERROR = "Write one sentence, ending with a period.";
+export const SENTENCE_ERROR = "Write one sentence, 8 to 200 characters.";
