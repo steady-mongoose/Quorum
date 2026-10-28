@@ -26,6 +26,7 @@ import { mayNameAnotherGender } from "../gender-policy.ts";
 import {
   deactivateAccount,
   deleteOwnPost,
+  completeAccountDeletion,
   listDeletionRequests,
   reactivateAccount,
   readAccount,
@@ -253,6 +254,8 @@ export async function handleBoard(
     Boolean(reportClose && request.method === "POST") ||
     (url.pathname === "/api/account" && request.method === "GET") ||
     (url.pathname === "/api/account/deletion-requests" && request.method === "GET") ||
+    (/^\/api\/account\/deletion-requests\/[^/]+\/complete$/.test(url.pathname) &&
+      request.method === "POST") ||
     (url.pathname === "/api/account/deactivate" && request.method === "POST") ||
     (url.pathname === "/api/account/reactivate" && request.method === "POST") ||
     (url.pathname === "/api/account/deletion-request" && request.method === "POST") ||
@@ -334,8 +337,20 @@ export async function handleBoard(
       return fromResult(200, await readAccount(deps.db, session.id));
     }
 
+    const completing = url.pathname.match(/^\/api\/account\/deletion-requests\/([^/]+)\/complete$/);
+    if (completing && request.method === "POST") {
+      const completed = await completeAccountDeletion(deps.db, {
+        adminUserId: session.id,
+        requestId: decodeURIComponent(completing[1]),
+        now,
+        store: deps.store ?? null,
+      });
+      if (!completed.ok) return json(completed.status, { error: completed.error });
+      return json(200, completed.value);
+    }
+
     if (url.pathname === "/api/account/deletion-requests" && request.method === "GET") {
-      const listed = await listDeletionRequests(deps.db, session.id);
+      const listed = await listDeletionRequests(deps.db, session.id, now);
       if (!listed.ok) return json(listed.status, { error: listed.error });
       return json(200, { requests: listed.value });
     }

@@ -98,3 +98,18 @@ export async function loadDeletionRequests(): Promise<{ ok: true; requests: Dele
   }
   return { ok: true, requests };
 }
+
+export async function completeDeletionRequest(
+  id: string,
+): Promise<{ ok: true; erased: number; kept: number } | Failure> {
+  const sent = await send(`/api/account/deletion-requests/${encodeURIComponent(id)}/complete`, {});
+  if (!sent.ok || !sent.json || typeof sent.json !== "object") {
+    return { ok: false, error: errorOf(sent.json, "The request could not be completed.") };
+  }
+  const body = sent.json as { erased?: unknown; kept?: unknown };
+  return {
+    ok: true,
+    erased: typeof body.erased === "number" ? body.erased : 0,
+    kept: typeof body.kept === "number" ? body.kept : 0,
+  };
+}

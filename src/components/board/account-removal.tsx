@@ -1,7 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import {
+  COMPLETE_DELETION_BODY,
+  COMPLETE_DELETION_CANCEL,
+  COMPLETE_DELETION_CONFIRM,
+  DELETION_REQUEST_COPY,
+  completeDeletionDone,
+  completeDeletionTitle,
+} from "@/lib/board/account-copy";
 import { btnGhost, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
+  completeDeletionRequest,
   deactivateAccount,
   loadDeletionRequests,
   reactivateAccount,
@@ -37,9 +47,7 @@ export function AccountRemovalPanel({
       <p className="max-w-prose text-sm text-muted">
         Deactivation hides your profile and posts. You can turn it back on.
       </p>
-      {deactivated ? (
-        <p className="text-sm text-fg">Your profile and posts are hidden.</p>
-      ) : null}
+      {deactivated ? <p role="status" className="text-sm text-fg">Your profile and posts are hidden.</p> : null}
       {deactivated ? (
         <button type="button" className={cn(btnGhost, "self-start")} aria-disabled={pending || undefined} onClick={() => !pending && onReactivate()}>
           Reactivate account
@@ -49,10 +57,7 @@ export function AccountRemovalPanel({
           Deactivate account
         </button>
       )}
-      <p className="max-w-prose text-sm text-muted">
-        A deletion request is queued for an admin and written to the audit log. It does not delete
-        the account now.
-      </p>
+      <p className="max-w-prose text-sm text-muted">{DELETION_REQUEST_COPY}</p>
       <label className="flex max-w-prose flex-col gap-2 text-sm text-muted">
         Note for the admin, optional
         <textarea
@@ -106,7 +111,10 @@ export function AccountRemoval({ live }: { live: boolean }) {
 
   if (!live) return null;
 
-  async function run(action: () => Promise<{ ok: true } | { ok: false; error: string }>, after: () => void) {
+  async function run(
+    action: () => Promise<{ ok: true } | { ok: false; error: string }>,
+    after: () => void,
+  ) {
     setPending(true);
     setError("");
     const result = await action();
@@ -142,13 +150,49 @@ export function AccountRemoval({ live }: { live: boolean }) {
   );
 }
 
-export function DeletionRequestQueue() {
+export function DeletionRequestQueue({
+  load = loadDeletionRequests,
+  complete = completeDeletionRequest,
+}: {
+  load?: typeof loadDeletionRequests;
+  complete?: typeof completeDeletionRequest;
+} = {}) {
   const [requests, setRequests] = useState<DeletionRequest[] | null>(null);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<DeletionRequest | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+  const [focusTick, setFocusTick] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!focusTick) return;
+    const timer = setTimeout(() => heading.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [focusTick]);
+
+  const confirm = () => {
+    const request = pending;
+    if (!request || busy) return;
+    setBusy(true);
+    setDone("");
+    void complete(request.id).then((result) => {
+      setBusy(false);
+      setPending(null);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setError("");
+      setRequests((current) => (current ?? []).filter((item) => item.id !== request.id));
+      setDone(completeDeletionDone(result.erased, result.kept));
+      setFocusTick((n) => n + 1);
+    });
+  };
 
   useEffect(() => {
     let cancel = false;
-    void loadDeletionRequests().then((result) => {
+    void load().then((result) => {
       if (cancel) return;
       if (!result.ok) {
         setError(result.error);
@@ -159,13 +203,18 @@ export function DeletionRequestQueue() {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [load]);
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Account deletion requests</h2>
+      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+        Account deletion requests
+      </h2>
       <p className="max-w-prose text-sm text-muted">
-        A member asked for the account to be deleted. This list does not delete it.
+        A member asked for their account to be deleted. Completing a request erases that member's posts, with their photos and videos, and closes the account. Posts under a hold, an open report, or a pending appeal are kept, with their files, until that is finished.
+      </p>
+      <p role="status" className="text-sm text-muted">
+        {done}
       </p>
       {error ? (
         <p role="alert" className="text-sm text-danger">
@@ -178,15 +227,41 @@ export function DeletionRequestQueue() {
       {requests && requests.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {requests.map((request) => (
-            <li key={request.id} className="rounded-md border border-line px-3 py-2 text-sm text-muted">
-              <span className="text-fg">{request.name}</span>
-              {" · "}
-              {new Date(request.at).toLocaleString()}
-              {request.note ? ` · ${request.note}` : ""}
+            <li
+              key={request.id}
+              className="flex flex-wrap items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-muted"
+            >
+              <span>
+                <span className="text-fg">{request.name}</span>
+                {" · "}
+                {new Date(request.at).toLocaleString()}
+                {request.note ? ` · ${request.note}` : ""}
+              </span>
+              <button
+                type="button"
+                className={cn(btnGhost, "min-h-[44px]")}
+                aria-label={`Complete ${request.name}'s deletion request`}
+                aria-disabled={busy || undefined}
+                onClick={() => !busy && setPending(request)}
+              >
+                Complete
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending ? completeDeletionTitle(pending.name) : ""}
+        description={COMPLETE_DELETION_BODY}
+        confirmLabel={COMPLETE_DELETION_CONFIRM}
+        cancelLabel={COMPLETE_DELETION_CANCEL}
+        tone="danger"
+        cancelFirst
+        confirmDisabled={busy}
+        onConfirm={confirm}
+        onCancel={() => setPending(null)}
+      />
     </section>
   );
 }

@@ -4,6 +4,10 @@ import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import { HELD_POST_ERROR } from "../../src/lib/board/account-copy.ts";
 import { actorRole } from "./access.ts";
 import { openBan } from "./store.ts";
+import { dropObjectKeys } from "./csam.ts";
+import type { ObjectStore } from "../media/s3.ts";
+
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
 
 type Ok<T> = { ok: true; value: T };
 type Err = { ok: false; status: number; error: string };
@@ -117,7 +121,7 @@ export async function readAccount(
 
 async function writeAudit(
   db: Db,
-  input: { userId: string; name: string; action: "deactivate" | "reactivate" | "deletion-requested"; detail: string; now: Date },
+  input: { userId: string; name: string; action: "deactivate" | "reactivate" | "deletion-requested" | "deletion-completed"; detail: string; now: Date },
 ): Promise<void> {
   await db.query(
     `insert into account_audit (id, user_id, name, action, detail, created_at)
@@ -209,9 +213,11 @@ export type DeletionRequestRow = {
 export async function listDeletionRequests(
   db: Db,
   userId: string,
+  now: Date = new Date(),
 ): Promise<AccountResult<DeletionRequestRow[]>> {
   const actor = await actorRole(db, userId);
   if (!actor.admin) return fail(403, "Deletion requests are for admins.");
+  if (await openBan(db, userId, now)) return fail(403, BANNED_ADMIN);
   const rows = await db.query<{
     id: string;
     user_id: string;
@@ -235,3 +241,105 @@ export async function listDeletionRequests(
     })),
   };
 }
+
+/** Text left on an erased post. The column cannot be empty. */
+export const ERASED_POST_TEXT = "Erased.";
+
+async function postIsKept(db: Db, postId: string): Promise<boolean> {
+  const held = await db.query<{ id: string }>(
+    `select id from board_csam_hold
+     where purged_at is null and (post_id = $1 or $1 = any(post_ids))
+     limit 1`,
+    [postId],
+  );
+  if (held[0]) return true;
+  // An open CSAM flag keeps the post (0034 may not be applied yet).
+  const flagTable = await db.query<{ t: string | null }>(`select to_regclass('csam_flag')::text as t`);
+  if (flagTable[0]?.t) {
+    const flagged = await db.query<{ id: string }>(
+      `select f.id from csam_flag f
+       where f.resolved_at is null
+         and (f.post_id = $1 or f.media_id in (select id from media_object where post_id = $1))
+       limit 1`,
+      [postId],
+    );
+    if (flagged[0]) return true;
+  }
+  // A removed post with a pending appeal is kept so the appeal can be decided.
+  const appealed = await db.query<{ id: string }>(
+    `select a.id from board_appeal a join board_post p on p.id = a.post_id
+     where a.post_id = $1 and a.decision is null and p.removed = true limit 1`,
+    [postId],
+  );
+  if (appealed[0]) return true;
+  return openReportOn(db, postId);
+}
+
+/**
+ * NEEDS JOSH'S SIGN-OFF. An admin completes a member's deletion request. Every
+ * post the member wrote is erased, except a post under a CSAM or legal hold or
+ * an open report. Those are kept untouched and counted in the audit row.
+ */
+export async function completeAccountDeletion(
+  db: Db,
+  input: { adminUserId: string; requestId: string; now: Date; store?: ObjectStore | null },
+): Promise<AccountResult<{ erased: number; kept: number }>> {
+  const actor = await actorRole(db, input.adminUserId);
+  if (!actor.admin) return fail(403, "Deletion requests are for admins.");
+  if (await openBan(db, input.adminUserId, input.now)) return fail(403, BANNED_ADMIN);
+  const mediaKeys: string[] = [];
+  const done = await db.transaction(async (tx) => {
+    const rows = await tx.query<{ user_id: string; name: string }>(
+      `update account_deletion_request set status = 'done'
+       where id = $1 and status = 'open' returning user_id, name`,
+      [input.requestId],
+    );
+    const request = rows[0];
+    if (!request) return null;
+    if (request.user_id === input.adminUserId) throw new SelfCompletion();
+    const posts = await tx.query<{ id: string }>(
+      `select id from board_post where author_user_id = $1 and erased_at is null for update`,
+      [request.user_id],
+    );
+    let erased = 0;
+    let kept = 0;
+    for (const post of posts) {
+      if (await postIsKept(tx, post.id)) {
+        kept += 1;
+        continue;
+      }
+      await tx.query(
+        `update board_post
+         set claim = $2, reason = '', named = '', came = '{}',
+             author_user_id = null, author_name = 'Former member',
+             author_deleted_at = coalesce(author_deleted_at, $3), erased_at = $3
+         where id = $1`,
+        [post.id, ERASED_POST_TEXT, input.now],
+      );
+      // The post's files go too. A held post was skipped above, so its files stay.
+      const files = await tx.query<{ upload_key: string | null; file_key: string | null }>(
+        `delete from media_object where post_id = $1 returning upload_key, file_key`,
+        [post.id],
+      );
+      for (const file of files) mediaKeys.push(file.upload_key ?? "", file.file_key ?? "");
+      erased += 1;
+    }
+    await writeAudit(tx, {
+      userId: request.user_id,
+      name: request.name,
+      action: "deletion-completed",
+      detail: `Posts erased: ${erased}. Kept for a hold or open report: ${kept}.`,
+      now: input.now,
+    });
+    return { erased, kept };
+  }).catch((error) => {
+    if (error instanceof SelfCompletion) return "self" as const;
+    throw error;
+  });
+  if (done === "self") return fail(403, "Another admin completes your own deletion request.");
+  if (!done) return fail(404, "That request is not open.");
+  await dropObjectKeys(input.store ?? null, mediaKeys);
+  return { ok: true, value: done };
+}
+
+class SelfCompletion extends Error {}
