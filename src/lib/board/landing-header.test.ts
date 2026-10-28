@@ -231,3 +231,33 @@ test("God's name is capitalized in site copy", () => {
     );
   }
 });
+
+test("the door explains how the app and the rooms work, in plain sentences", () => {
+  const door = source("../../components/board/door.tsx");
+  assert.match(door, />How it works<\/h2>/);
+  assert.match(door, />The rooms<\/h2>\s*<Terms rows=\{ROOMS\} \/>/);
+  assert.equal(door.includes("typical week"), false);
+  const between = (from: string, to: string) =>
+    door.slice(door.indexOf(from), door.indexOf(to, door.indexOf(from)));
+  const how = between("const HOW = [", "];");
+  const rooms = between("const ROOMS = [", "];");
+  const entries = [...(how + rooms).matchAll(/what: "([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(entries.length, 8, "five app rules and three room rules");
+  for (const text of entries) {
+    assert.equal(/[;:]/.test(text), false, `no semicolon or colon: ${text}`);
+    assert.match(text, /\.$/, `a full sentence: ${text}`);
+  }
+  // The rules the brief fixes: invite only, admins alone see who is going,
+  // shared-room messaging, no feed, a steward in every room.
+  assert.match(how, /invite code/);
+  assert.match(how, /Only the room's admins see the full list/);
+  assert.match(how, /people you've shared a room with/);
+  assert.match(how, /No likes, reshares, scores, or algorithm/);
+  assert.match(rooms, /Every room has a steward/);
+});
+
+test("the drop cap sits against the rest of the word", () => {
+  const css = source("../../../public/backgrounds.css");
+  assert.match(css, /\.illum::first-letter\{[^}]*margin-right:-\.06em\}/);
+  assert.doesNotMatch(css, /\.illum::first-letter\{[^}]*padding-right/);
+});
