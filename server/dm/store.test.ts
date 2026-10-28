@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { Db } from "../db.ts";
-import { createPost } from "../board/store.ts";
+import { createPost } from "../board/test-posting.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { DM_MAX_DEVICES } from "../../src/lib/e2ee/limits.ts";
 import {

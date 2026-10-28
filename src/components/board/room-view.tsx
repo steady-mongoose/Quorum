@@ -7,6 +7,8 @@ import { RoomCall } from "@/components/board/room-call";
 import { ModerationQueue } from "@/components/board/moderation-queue";
 import { ReportControl } from "@/components/board/report-control";
 import { RoomChat } from "@/components/board/room-chat";
+import { MemberGate } from "@/components/board/member-gate";
+import { canPostInRoom } from "@/lib/board/member-gate";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -141,6 +143,13 @@ export function RoomView() {
   const known = rooms.find((item) => item.id === room);
   const ban = activeBan(me, removals, Date.now(), bans, appeals);
   const canFile = typesFor(meta, steward).length > 0;
+  const stewardRooms = useBoard((state) => state.stewardRooms);
+  const canPost = canPostInRoom({
+    remote,
+    member: meta.member === true,
+    admin,
+    stewardOfRoom: stewardRooms.includes(room),
+  });
   const [tools, setTools] = useState(false);
   const focusSlug = roomsRoute?.slug ?? null;
 
@@ -302,6 +311,8 @@ export function RoomView() {
                   ? "This account is closed. Second hard removal."
                   : `Filing is off until ${new Date(ban.until).toLocaleDateString()}. Reason on record: ${RULE_LABEL[ban.reason]}.`}
             </p>
+          ) : !canPost ? (
+            <MemberGate allowed={false}>{null}</MemberGate>
           ) : canFile ? (
             <Composer me={me} steward={steward} />
           ) : (
@@ -330,6 +341,7 @@ export function RoomView() {
                 mine={post.author === me}
                 canMessage={peers.has(post.author)}
                 steward={steward && tools}
+                canPost={canPost}
               />
             ))}
             {remote && older ? (
@@ -342,7 +354,12 @@ export function RoomView() {
               </button>
             ) : (
               <p className="py-6 text-sm text-muted" role="status">
-                {feed.length === 0 ? "Nothing posted here yet." : "That is everything."}
+                {/* A non-member's empty room already shows the invite line above. */}
+                {feed.length === 0
+                  ? canPost
+                    ? "Nothing posted here yet."
+                    : ""
+                  : "That is everything."}
               </p>
             )}
           </section>
@@ -881,6 +898,7 @@ const PostCard = memo(function PostCard({
   mine,
   canMessage,
   steward,
+  canPost,
 }: {
   post: Post;
   replies: Post[];
@@ -889,6 +907,7 @@ const PostCard = memo(function PostCard({
   mine: boolean;
   canMessage: boolean;
   steward: boolean;
+  canPost: boolean;
 }) {
   const now = useNow();
   const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
@@ -1020,7 +1039,9 @@ const PostCard = memo(function PostCard({
       ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {replying ? (
+        {!canPost ? (
+          <MemberGate allowed={false}>{null}</MemberGate>
+        ) : replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <input
               className={fieldClass}

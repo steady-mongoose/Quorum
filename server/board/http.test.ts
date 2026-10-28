@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { createPost, decideAppeal, fileAppeal, removePost } from "./store.ts";
+import { decideAppeal, fileAppeal, removePost } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import { CLIENT_IP_HEADER } from "../proxy.ts";
@@ -99,6 +100,10 @@ test("two signed-in members see the same post", async () => {
          (id, user_id, name, role, action, vouched_by, approved_by, by_actor, note)
          values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
         [randomUUID(), id, name],
+      );
+      await db.query(
+        `insert into room_join (user_id, room_id) values ($1, 'shop') on conflict do nothing`,
+        [id],
       );
     }
     const handler = app(db);

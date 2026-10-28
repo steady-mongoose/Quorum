@@ -15,7 +15,8 @@ import {
   reactivateAccount,
   requestAccountDeletion,
 } from "./account.ts";
-import { banMember, createPost, listBoard, replyToPost } from "./store.ts";
+import { banMember, listBoard } from "./store.ts";
+import { createPost, replyToPost } from "./test-posting.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 

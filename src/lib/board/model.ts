@@ -83,6 +83,8 @@ export type Room = {
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */
   joined?: boolean;
+  /** The viewer is in the room (saved it or stood there), so they may post. */
+  member?: boolean;
   /** Omitted on a local room. Draft and unclaimed stay off the public page. */
   status?: "draft" | "unclaimed" | "active";
   town?: string;

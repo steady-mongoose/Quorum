@@ -6,7 +6,8 @@ import test from "node:test";
 import { REVIEW_CHECKLIST } from "../../src/lib/board/council.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import { createPost, listBoard } from "./store.ts";
+import { listBoard } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 import {
   correctZip,
   decideRoom,
@@ -340,6 +341,13 @@ test("admins approve room requests, and home is nearest first", async () => {
     assert.equal(kept[0]?.status, "approved");
     assert.equal(kept[0]?.note, "Seffner has people asking.");
 
+    // Rooms are joined by invitation: a room invite for rv-shop.
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Invited', 'member', 'rv-shop', 'grant', 'test', 'test', 'test', 'Invited for the test.', $3)`,
+      [randomUUID(), maria, later(9)],
+    );
     await joinRoom(db, { userId: maria, roomId: "rv-shop", now: later(9) });
     const older = await createPost(db, {
       userId: maria,

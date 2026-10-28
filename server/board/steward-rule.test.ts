@@ -32,6 +32,16 @@ async function person(db: Db, name: string, roles: string[] = ["member"]) {
   return { id, email };
 }
 
+/** Rooms are joined by invitation: a room-scoped member grant, as a room invite code writes. */
+async function inviteToRoom(db: Db, userId: string, roomId: string, when: Date) {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, 'Invited', 'member', $3, 'grant', 'test', 'test', 'test', 'Invited for the test.', $4)`,
+    [randomUUID(), userId, roomId, when],
+  );
+}
+
 async function setup() {
   const opened = await openTestDb();
   const { db } = opened;
@@ -166,6 +176,7 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);
 
+    await inviteToRoom(db, sam.id, "bench", at(37));
     const samJoined = await joinRoom(db, { userId: sam.id, roomId: "bench", now: at(38) });
     assert.equal(samJoined.ok, true);
 
@@ -202,6 +213,8 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [sam.id]);
 
+    // Tom left the room, so coming back takes a new room invite.
+    await inviteToRoom(db, tom.id, "bench", at(47));
     const tomBack = await joinRoom(db, { userId: tom.id, roomId: "bench", now: at(48) });
     assert.equal(tomBack.ok, true);
 
@@ -238,6 +251,7 @@ test("a barred replacement is refused with the reason", async () => {
       now,
     });
     assert.equal(made.ok, true);
+    await inviteToRoom(db, sam.id, "bench", at(4));
     assert.equal((await joinRoom(db, { userId: sam.id, roomId: "bench", now: at(5) })).ok, true);
     const barred = await banMember(db, {
       userId: josh.id,

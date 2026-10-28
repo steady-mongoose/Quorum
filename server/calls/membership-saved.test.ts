@@ -38,6 +38,7 @@ test("a saved room or a steward grant lets a member join the room call", async (
     const stranger = await member(db, "Stranger");
     const stew = await member(db, "Stew", "shop");
 
+    await log(db, saver, "grant", "shop", now); // a room invite
     assert.equal((await roomCallMember(db, saver, "shop", now)).kind, "outsider");
     const saved = await joinRoom(db, { userId: saver, roomId: "shop", now });
     assert.equal(saved.ok, true);
@@ -60,6 +61,7 @@ test("a revoked member who saved the room, or a revoked steward, cannot join or 
   try {
     const saver = await member(db, "Gone");
     const stew = await member(db, "GoneStew", "shop");
+    await log(db, saver, "grant", "shop", now); // a room invite
     assert.equal((await joinRoom(db, { userId: saver, roomId: "shop", now })).ok, true);
     assert.equal((await roomCallMember(db, saver, "shop", now)).kind, "member");
     const later = new Date(now.getTime() + 1000);
@@ -223,6 +225,7 @@ test("a posted member who leaves the room loses call access until they come back
   const { db, close } = await openTestDb();
   try {
     const m = await member(db, "Leaver");
+    await log(db, m, "grant", "shop", now); // a room invite
     await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [m]);
     await joinRoom(db, { userId: m, roomId: "shop", now });
     assert.equal((await roomCallMember(db, m, "shop", now)).kind, "member");
@@ -262,6 +265,7 @@ test("a site-wide revoke beats a room grant until a later site-wide grant", asyn
   const { db, close } = await openTestDb();
   try {
     const m = await member(db, "Site");
+    await log(db, m, "grant", "shop", now); // a room invite
     await joinRoom(db, { userId: m, roomId: "shop", now });
     await log(db, m, "revoke", "", t(1));
     await log(db, m, "grant", "shop", t(2));
@@ -277,6 +281,7 @@ test("a later site-wide grant does not undo a room revoke; a later room grant do
   const { db, close } = await openTestDb();
   try {
     const m = await member(db, "Roomed");
+    await log(db, m, "grant", "shop", now); // a room invite
     await joinRoom(db, { userId: m, roomId: "shop", now });
     await log(db, m, "revoke", "shop", t(1));
     await log(db, m, "grant", "", t(2));

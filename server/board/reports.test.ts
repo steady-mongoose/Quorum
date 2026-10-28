@@ -5,7 +5,8 @@ import test from "node:test";
 import { removeChatMessage, sendChat } from "../chat/store.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import { banMember, createPost, removePost } from "./store.ts";
+import { banMember, removePost } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 import { closeReport, fileReport, listReports } from "./reports.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
