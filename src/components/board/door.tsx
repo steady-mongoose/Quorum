@@ -8,27 +8,58 @@ import { APP_NAME, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
 
-/** What a typical week looks like. Nothing from any real card; the shape only. */
-const WEEK = [
-  { day: "Sunday", what: "Church, then lunch together. Someone hosts; you bring a dish." },
+/** How the app works, in the order a new member meets it. Each line is a rule the app keeps. */
+const HOW = [
   {
-    day: "Tuesday",
-    what: "The homeschool co-op. The church's list of families who need dinners this week.",
-  },
-  { day: "Thursday", what: "Shop night. Some say new people welcome; those are where to start." },
-  {
-    day: "Second Tuesday",
-    what: "Debate night at the brewery. One question, two sides, anyone welcome.",
+    term: "Getting in",
+    what: "A member who knows you gives you an invite code to a real gathering. Enter your name and the code to join.",
   },
   {
-    day: "Second Wednesday",
-    what: "Book night: one book, a few chapters, the host says what to read next.",
+    term: "Going",
+    what: "Say you're going to a gathering. You see that you're going. Only the room's admins see the full list.",
   },
   {
-    day: "One morning",
-    what: "The group phone call: everyone phones one official with the same message in the same hour.",
+    term: "Roll call",
+    what: "After the gathering, the host records who came.",
+  },
+  {
+    term: "Messages",
+    what: "You can message people you've shared a room with. No one else can message you.",
+  },
+  {
+    term: "No feed",
+    what: "No likes, reshares, scores, or algorithm. Posts show in the order they were written.",
   },
 ];
+
+/** How rooms work. */
+const ROOMS = [
+  {
+    term: "One group each",
+    what: "A room is one church, shop, club, or county. What's posted in a room stays in that room.",
+  },
+  {
+    term: "By invitation",
+    what: "You join a room only when someone already in it invites you from inside the app.",
+  },
+  {
+    term: "A steward",
+    what: "Every room has a steward who keeps it on track and removes posts that break the rules.",
+  },
+];
+
+function Terms({ rows }: { rows: { term: string; what: string }[] }) {
+  return (
+    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
+      {rows.map((row) => (
+        <div key={row.term} className="contents">
+          <dt className="font-semibold text-fg">{row.term}</dt>
+          <dd className="text-muted">{row.what}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 /**
  * The door. Members join by invitation: a host's code to one card, or
@@ -86,19 +117,13 @@ export function Door() {
           </section>
 
           <section className="door-week card flex flex-col gap-3 p-6">
-            <h2 className="text-base font-semibold text-fg">What a typical week looks like</h2>
-            <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
-              {WEEK.map((row) => (
-                <div key={row.day} className="contents">
-                  <dt className="font-semibold text-fg">{row.day}</dt>
-                  <dd className="text-muted">{row.what}</dd>
-                </div>
-              ))}
-            </dl>
+            <h2 className="text-base font-semibold text-fg">How it works</h2>
+            <Terms rows={HOW} />
           </section>
 
-          <section className="door-rooms card flex flex-col gap-2 p-6">
+          <section className="door-rooms card flex flex-col gap-3 p-6">
             <h2 className="text-base font-semibold text-fg">The rooms</h2>
+            <Terms rows={ROOMS} />
             <p className="max-w-prose text-sm text-muted">
               {rooms
                 .filter((room) => room.id !== "dispatch")
