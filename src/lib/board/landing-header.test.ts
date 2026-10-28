@@ -254,6 +254,7 @@ test("the door explains how the app and the rooms work, in plain sentences", () 
   assert.match(how, /people you've shared a room with/);
   assert.match(how, /No likes, reshares, scores, or algorithm/);
   assert.match(rooms, /Every room has a steward/);
+  assert.match(rooms, /A room is built around one local organization/);
 });
 
 test("the drop cap sits against the rest of the word", () => {

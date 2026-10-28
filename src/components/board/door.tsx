@@ -35,8 +35,8 @@ const HOW = [
 /** How rooms work. */
 const ROOMS = [
   {
-    term: "One group each",
-    what: "A room is one church, shop, club, or county. What's posted in a room stays in that room.",
+    term: "One organization each",
+    what: "A room is built around one local organization, such as a church, a club, a philosophical society, a Christian business, or a trade group like carpenters or ham radio operators. What's posted in a room stays in that room.",
   },
   {
     term: "By invitation",
