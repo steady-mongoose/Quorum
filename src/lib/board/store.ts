@@ -1460,7 +1460,7 @@ export const useBoard = create<BoardState>()(
             return { ok: false, error: saved.error };
           }
           set({
-            rooms: get().rooms.map((room) => (room.id === roomId ? { ...room, joined: true } : room)),
+            rooms: get().rooms.map((room) => (room.id === roomId ? { ...room, joined: true, member: true } : room)),
           });
           await pullHome();
           return { ok: true };
@@ -1470,7 +1470,7 @@ export const useBoard = create<BoardState>()(
           if (!saved.ok) return saved;
           set({
             rooms: get().rooms.map((room) =>
-              room.id === roomId ? { ...room, joined: false } : room,
+              room.id === roomId ? { ...room, joined: false, member: false } : room,
             ),
           });
           return saved;

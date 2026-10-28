@@ -20,7 +20,8 @@ test("every text field on Home, Groups, and About has an accessible name", () =>
         insideLabel || /aria-label|aria-labelledby|\bid=/.test(control),
         `${path}: ${control.slice(0, 80)}`,
       );
-      if (insideLabel) assert.doesNotMatch(control, /aria-label="/, `duplicate name: ${control.slice(0, 80)}`);
+      if (insideLabel)
+        assert.doesNotMatch(control, /aria-label="/, `duplicate name: ${control.slice(0, 80)}`);
     }
   }
 });
@@ -36,17 +37,16 @@ test("Find points to About for the general invite code", () => {
   assert.match(source, /under More, on About/);
 });
 
-test("a room you are not in offers a Join button", () => {
-  const source = read("src/components/board/room-chat.tsx");
-  assert.match(source, /note === NOT_IN_ROOM/);
-  assert.match(source, /Join this room/);
-  assert.match(source, /joinRoom\(roomId\)/);
-  assert.match(source, /aria-disabled=\{joining\}/);
-  assert.doesNotMatch(source, /[^-]disabled=\{joining\}/);
-  assert.match(source, /You joined this room\./);
-  assert.match(source, /composer\.current\?\.focus\(\)/);
-  assert.match(source, /\{joinError\}/);
-  assert.match(source, /role="alert"/);
+test("rooms are joined by invitation: no Join buttons on Home or in room chat", () => {
+  const chat = read("src/components/board/room-chat.tsx");
+  assert.match(chat, /note === NOT_IN_ROOM/);
+  assert.doesNotMatch(chat, /Join this room/);
+  assert.doesNotMatch(chat, /joinRoom\(roomId\)/);
+  assert.match(chat, /MEMBERS_ONLY_INVITE/);
+  const home = read("src/components/board/home-view.tsx");
+  assert.doesNotMatch(home, /joinRoom/);
+  assert.doesNotMatch(home, /"Joined ✓"|"Join"/);
+  assert.match(home, /leaveRoom\(roomId\)/);
 });
 
 test("the room field is labeled Room", () => {

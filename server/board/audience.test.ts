@@ -265,6 +265,13 @@ test("a restricted room is enforced on every path, and a steward override is log
     if (!left.ok) return;
     assert.equal(left.value.joined, false);
 
+    // Rooms are joined by invitation: a room invite for bench.
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Invited', 'member', 'bench', 'grant', 'test', 'test', 'test', 'Invited for the test.', $3)`,
+      [randomUUID(), adam, now],
+    );
     const adamJoin = await joinRoom(db, { userId: adam, roomId: "bench", now });
     assert.equal(adamJoin.ok, true);
     await db.query(

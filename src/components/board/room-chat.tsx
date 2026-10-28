@@ -1,3 +1,4 @@
+import { MEMBERS_ONLY_INVITE } from "@/lib/board/member-gate";
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, useNow, When } from "@/components/quorum/bits";
@@ -21,7 +22,6 @@ const REMOVED_MESSAGE = "Removed. The author can appeal.";
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 export const NOT_IN_ROOM = "You are not in this room.";
-export const JOINED_MESSAGE = "You joined this room.";
 
 /** A membership refusal closes the transcript. A steward refusal leaves it up. */
 function lostRoom(error: string): boolean {
@@ -60,16 +60,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [blocked, setBlocked] = useState(false);
-  const [joinTick, setJoinTick] = useState(0);
-  const [joining, setJoining] = useState(false);
-  const [joinError, setJoinError] = useState("");
-  const [joinedNote, setJoinedNote] = useState("");
   const composer = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    // After a join, the composer appears once the next poll lets the reader in.
-    if (joinedNote && !blocked && !note) composer.current?.focus();
-  }, [joinedNote, blocked, note]);
-  const joinRoom = useBoard((state) => state.joinRoom);
   const [removedNote, setRemovedNote] = useState("");
   const chatHeading = useRef<HTMLHeadingElement | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -117,7 +108,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [remote, roomId, joinTick]);
+  }, [remote, roomId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "nearest" });
@@ -194,41 +185,10 @@ export function RoomChat({ roomId }: { roomId: string }) {
         Members of this room only. Plain text, in time order. A hard removal bars the account.
       </p>
       {note ? (
-        <p className="text-sm text-danger" role="status">
-          {note}
+        <p className={note === NOT_IN_ROOM ? "text-sm text-muted" : "text-sm text-danger"} role="status">
+          {note === NOT_IN_ROOM ? MEMBERS_ONLY_INVITE : note}
         </p>
       ) : null}
-      {note === NOT_IN_ROOM ? (
-        <button
-          type="button"
-          className={cn(btnSignal, "min-h-[44px] self-start")}
-          aria-disabled={joining}
-          onClick={() => {
-            if (joining) return;
-            setJoining(true);
-            setJoinError("");
-            void joinRoom(roomId).then((result) => {
-              setJoining(false);
-              if (!result.ok) {
-                setJoinError(result.error ?? "You were not added to this room. Try again.");
-                return;
-              }
-              setJoinedNote(JOINED_MESSAGE);
-              setJoinTick((tick) => tick + 1);
-            });
-          }}
-        >
-          {joining ? "Joining…" : "Join this room"}
-        </button>
-      ) : null}
-      {joinError ? (
-        <p className="text-sm text-danger" role="alert">
-          {joinError}
-        </p>
-      ) : null}
-      <p className="sr-only" role="status" aria-live="polite">
-        {joinedNote}
-      </p>
       {older ? (
         <button
           type="button"

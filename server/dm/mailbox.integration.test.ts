@@ -369,6 +369,10 @@ test("posting came with someone else's meeting card does not make them a peer", 
          values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
         [randomUUID(), id, name],
       );
+      await db.query(
+        `insert into room_join (user_id, room_id) values ($1, 'shop') on conflict do nothing`,
+        [id],
+      );
     }
     const cardId = "s-victim-night";
     const filed = await transport(handler, victim).post("/api/rooms/shop/posts", {

@@ -6,7 +6,8 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import { cardListed, newCard } from "../../src/lib/board/model.ts";
 import { listGatheringsFor, saveGathering } from "./gathering-record.ts";
-import { createPost, removePost } from "./store.ts";
+import { removePost } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 
 const now = new Date("2026-10-27T12:00:00Z");
 

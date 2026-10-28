@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
-import { createPost, fileAppeal, listBoard, markPost, removePost } from "./store.ts";
+import { fileAppeal, listBoard, markPost, removePost } from "./store.ts";
+import { createPost } from "./test-posting.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 

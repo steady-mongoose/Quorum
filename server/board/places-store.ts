@@ -899,6 +899,42 @@ export async function savePlace(
   return { ok: true, value: { zip, congregationId } };
 }
 
+/** Rooms are joined by invitation. The refusal a member sees without one. */
+export const ROOM_INVITE_ONLY =
+  "Only members of this room can post here. Ask a member of the room for an invite.";
+
+/**
+ * Joining or saving a room needs a live invite to that room: the latest
+ * room-scoped member grant in access_log (written by a room invite code or a
+ * steward's member grant) is a grant, and no site-wide revoke stands. Someone
+ * already in the room (room_member) keeps it. Admins and that room's stewards
+ * are exempt.
+ */
+async function holdsRoomInvite(
+  db: Db,
+  actor: Awaited<ReturnType<typeof actorRole>>,
+  userId: string,
+  roomId: string,
+): Promise<boolean> {
+  if (actor.admin || actor.stewardRooms.includes(roomId)) return true;
+  const rows = await db.query<{ room_id: string; action: string }>(
+    `select distinct on (room_id) room_id, action
+     from access_log
+     where user_id = $1 and role = 'member' and (room_id = '' or room_id = $2)
+     order by room_id, at desc, (action = 'revoke') desc, id desc`,
+    [userId, roomId],
+  );
+  const site = rows.find((row) => row.room_id === "");
+  if (site?.action === "revoke") return false;
+  const room = rows.find((row) => row.room_id === roomId);
+  if (room) return room.action === "grant";
+  const stood = await db.query<{ user_id: string }>(
+    `select user_id from room_member where room_id = $1 and user_id = $2`,
+    [roomId, userId],
+  );
+  return stood.length > 0;
+}
+
 export async function joinRoom(
   db: Db,
   input: {
@@ -938,6 +974,9 @@ export async function joinRoom(
         ...(gate.audience ? { audience: gate.audience } : {}),
       };
     }
+  }
+  if (!input.leave && !(await holdsRoomInvite(db, actor, input.userId, input.roomId))) {
+    return fail(403, ROOM_INVITE_ONLY);
   }
   if (input.leave) {
     // Decide under the room's steward lock, so a leave and a revoke never both pass.
