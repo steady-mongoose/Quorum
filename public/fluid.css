@@ -347,7 +347,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 /* The door column starts with Invite only, rather than sitting in the vertical centre. */
 .door-columns{align-items:start}
 /* Desktop door: the art and the page-height gold frame wrap the whole door grid, and "The rooms" sits under
-   Open the door so both columns end together. Phones keep the DOM order (door, hero, week, rooms). */
+   Open the door so both columns end together. Phones keep the DOM order (hero, week, rooms, door). */
 @media (min-width:1024px){
   body:has(.door-columns){position:relative}
   body:has(.door-columns) .plate-ground{position:absolute;inset:0;height:auto;margin-bottom:0;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}

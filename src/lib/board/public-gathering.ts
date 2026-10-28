@@ -31,7 +31,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const PHONE = /\b(?:\+?1[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}\b/;
 
 export const INVITE_LINE =
-  "Avouch is invite-only. Ask the person who shared this for an invite.";
+  "Avouch is a community you join by invitation. Ask the person who shared this for an invite code.";
 export const PRIVACY_LINE =
   "This page shows the title, the date, the time, and the town. It does not show who is coming, a street, or what was written afterwards.";
 export const PUBLIC_TIME_NOTE =
@@ -140,7 +140,7 @@ export function publicPreview(gathering: PublicGathering): { title: string; desc
     .join(" · ");
   return {
     title: gathering.title,
-    description: description || "Avouch is invite-only.",
+    description: description || INVITE_LINE,
   };
 }
 

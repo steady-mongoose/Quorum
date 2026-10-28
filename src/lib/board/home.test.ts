@@ -151,8 +151,9 @@ test("home controls keep a 44px target, visible labels, and errors on the form",
   assert.match(home, /<summary[\s\S]*Decide/);
   assert.match(home, /aria-live="polite"/);
   assert.match(home, /No town for that ZIP/);
-  assert.match(home, /aria-pressed=\{joined\}/);
-  assert.match(home, /Joined ✓/);
+  // Rooms are joined by invitation: Home offers only Leave on a room you are in.
+  assert.match(home, /\{joined \? \(/);
+  assert.doesNotMatch(home, /Joined ✓/);
   assert.match(home, /role="alert"/);
   assert.equal(home.includes("text-xs"), false);
   assert.match(about, /<summary[^>]*>\{title\}<\/summary>/);
