@@ -175,9 +175,9 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
 
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl text-fg">How it works</h2>
-        <dl className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+        <dl className="about-how columns-1 gap-x-8 lg:columns-2">
           {HOW.map((item) => (
-            <div key={item.title} className="flex flex-col gap-1">
+            <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
               <dt className="font-semibold text-fg">{item.title}</dt>
               <dd className="max-w-prose text-sm text-muted">{item.text}</dd>
             </div>
