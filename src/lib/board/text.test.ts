@@ -66,3 +66,14 @@ test("the removal list names every rule, and porn and CSAM are permanent on the 
   assert.match(RULE_SENTENCE.porn, /suspends the account everywhere on Avouch until an admin reviews it/);
   assert.match(RULE_SENTENCE.csam, /suspends the account everywhere on Avouch until an admin closes it/);
 });
+
+test("About's Moderation copy names no person and states the compromise-only appeal", async () => {
+  const { readFileSync } = await import("node:fs");
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const start = about.indexOf('title: "Moderation"');
+  const moderation = about.slice(start, about.indexOf("},", start));
+  assert.equal(moderation.includes("Josh"), false, "the public page names a role, not a person");
+  assert.match(moderation, /An admin files that report by hand\./);
+  assert.match(moderation, /the evidence is held for at least one year\./);
+  assert.match(moderation, /A pornography closure is lifted only if the member shows technical evidence that someone else took over the account\./);
+});

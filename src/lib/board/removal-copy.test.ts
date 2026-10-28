@@ -13,7 +13,7 @@ test("pornography and CSAM rule sentences say who suspends and who closes, with 
   );
   assert.equal(
     RULE_SENTENCE.csam,
-    "Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A steward's removal suspends the account everywhere on Avouch until an admin closes it. An admin's removal closes it at once.",
+    "Child sexual abuse material is removed at once and the evidence is held for at least one year. A steward's removal suspends the account everywhere on Avouch until an admin closes it. An admin's removal closes it at once.",
   );
   for (const sentence of Object.values(RULE_SENTENCE)) assert.doesNotMatch(sentence, /[()]/);
 });

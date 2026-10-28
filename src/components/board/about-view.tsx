@@ -91,7 +91,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal by a steward suspends the account everywhere on Avouch until an admin reviews it. Pornography or child sexual abuse material removed by a steward suspends the account the first time, until an admin reviews it. When an admin makes either removal, the account is closed at once. Child sexual abuse material is removed at once and the evidence is held for one year, pending counsel. A child sexual abuse material closure is never lifted. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal. An admin decides appeals of pornography removals, and a pornography closure can be appealed only with proof that someone else took over the account. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "These get a post removed: calls for violence, threats, plans or instructions to attack or intimidate someone, doxxing, pornography, child sexual abuse material, and blasphemy (a post that mocks God or Christ). A removal bars filing for 30 days. A second removal by a steward suspends the account everywhere on Avouch until an admin reviews it. Pornography or child sexual abuse material removed by a steward suspends the account the first time, until an admin reviews it. When an admin makes either removal, the account is closed at once. A pornography closure is lifted only if the member shows technical evidence that someone else took over the account. Child sexual abuse material is removed at once and the evidence is held for at least one year. A child sexual abuse material closure is never lifted. An admin queue prepares the report for the NCMEC CyberTipline. An admin files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal. An admin decides appeals of pornography removals, and a pornography closure can be appealed only with proof that someone else took over the account. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -211,7 +211,12 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
           ))}
         </dl>
         <p className="max-w-prose text-sm text-muted">
-          Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}.{" "}
+          Removed for:{" "}
+          {RULES.map((rule) => {
+            // Lowercase only the first letter, so God and Christ keep their capitals.
+            const label = RULE_LABEL[rule];
+            return label.charAt(0).toLowerCase() + label.slice(1);
+          }).join(", ")}.{" "}
           {"A second removal by a steward suspends the account everywhere on Avouch until an admin reviews it. Pornography or child sexual abuse material removed by a steward suspends the account the first time, until an admin reviews it. When an admin makes either removal, the account is closed at once."}{" "}
           A child sexual abuse material closure is never lifted. A pornography closure can be appealed
           only with proof that someone else took over the account.

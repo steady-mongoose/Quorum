@@ -78,7 +78,8 @@ test("about renders signed out, with no account", async () => {
     const text = document.body.textContent ?? "";
     assert.match(text, /What we stand for/);
     assert.match(text, /Avouch exists so you can see what is happening in your community/);
-    assert.match(text, /Josh files that report by hand/);
+    assert.match(text, /An admin files that report by hand/);
+    assert.equal(/(god|christ)/.test(text), false, "God and Christ keep their capitals");
     assert.equal(text.includes("Invite someone"), false);
     assert.equal(text.includes("Your name, as it appears on your posts"), false);
     assert.equal(text.includes("Clear the board"), false);
@@ -110,7 +111,8 @@ test("the member about page still shows the You section", async () => {
     assert.ok(document.querySelector('input[placeholder="Your name"]'));
     assert.match(text, /Clear the board/);
     assert.match(text, /Export first/);
-    assert.match(text, /Josh files that report by hand/);
+    assert.match(text, /An admin files that report by hand/);
+    assert.equal(/(god|christ)/.test(text), false, "God and Christ keep their capitals");
   } finally {
     act(() => root.unmount());
     host.remove();
