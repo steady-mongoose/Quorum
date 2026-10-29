@@ -95,6 +95,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
+  const moderator = useBoard(
+    (state) => state.admin || state.steward || state.stewardRooms.length > 0,
+  );
   const localEntry = useBoard((state) => state.localEntry);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -219,7 +222,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     </>
   ) : (
     <>
-      {entered && server.mfa === "enroll" ? (
+      {entered && moderator && server.mfa === "enroll" ? (
         <div className="mfa-banner mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-prose text-sm text-fg">
             Turn on an authenticator before you moderate, grant a role, approve a reset, or export.

@@ -65,6 +65,21 @@ test("authenticator code fields take six digits and the start button hides while
   assert.match(app, /before you moderate, grant a role, approve a reset, or export/);
 });
 
+test("the authenticator banner shows only to owners, admins and stewards", async () => {
+  const { readFileSync } = await import("node:fs");
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  assert.match(app, /state\.admin \|\| state\.steward \|\| state\.stewardRooms\.length > 0/);
+  assert.match(app, /entered && moderator && server\.mfa === "enroll"/);
+});
+
+test("a non-member of a room gets no Join the call button", async () => {
+  const { readFileSync } = await import("node:fs");
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  assert.match(room, /roomIncludes\(meta, "calls"\) && canPost \? <RoomCall roomId=\{room\} \/>/);
+  const gate = readFileSync(new URL("./member-gate.ts", import.meta.url), "utf8");
+  assert.match(gate, /return input\.member \|\| input\.admin \|\| input\.stewardOfRoom;/);
+});
+
 test("the disable field accepts a recovery code as well as a six-digit code", () => {
   const ui = source("../../components/board/mfa-ui.tsx");
   assert.match(ui, /Six-digit code or a recovery code/);

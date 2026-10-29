@@ -282,7 +282,8 @@ export function RoomView() {
             onSave={(audience) => setRoomAudience(meta.id, audience)}
           />
         ) : null}
-        {roomIncludes(meta, "calls") ? <RoomCall roomId={room} /> : null}
+        {/* Invite-only rooms: a non-member gets no call button; the server refuses them too. */}
+        {roomIncludes(meta, "calls") && canPost ? <RoomCall roomId={room} /> : null}
         {roomIncludes(meta, "chat") ? <RoomChat roomId={room} /> : null}
         {roomIncludes(meta, "members") ? <RoomMembers room={meta} /> : null}
         <ModerationQueue roomId={room} />
