@@ -123,7 +123,7 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.doesNotMatch(door, /invitation only/);
   assert.doesNotMatch(door, /Invite only/);
   assert.doesNotMatch(door, /<Kicker>/);
-  assert.equal((door.match(/invite-only/g) ?? []).length <= 1, true);
+  assert.doesNotMatch(door, /invite-only/i);
   assert.match(door, /Enter your invite code/);
   assert.match(door, /Invite code\s+<input/);
   assert.doesNotMatch(door, /The code\s+<input/);

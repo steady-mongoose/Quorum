@@ -12,11 +12,19 @@ import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const SIGN_IN_EMPTY_ERROR = "Enter your email and password.";
+/** Summary naming only the fields left empty, in form order. */
+export function emptyFieldsSummary(fields: FieldKey[]): string | null {
+  const order: FieldKey[] = ["name", "email", "password"];
+  const list = order.filter((key) => fields.includes(key));
+  if (!list.length) return null;
+  if (list.length === 1) return `Enter your ${list[0]}.`;
+  return `Enter your ${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}.`;
+}
 export const SIGN_IN_MISMATCH_ERROR = "That email and password don't match an account.";
 export const SIGN_IN_ERROR_ID = "sign-in-error";
 export const CODE_MODE_INTRO = "Enter the code your host gave you.";
 
-type FieldKey = "name" | "email" | "password";
+export type FieldKey = "name" | "email" | "password";
 /** One line under each empty field, beside the summary alert. */
 const FIELD_ERRORS: Record<FieldKey, string> = {
   name: "Please enter your name.",
@@ -67,12 +75,17 @@ export function AccountDoor() {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+  const emptyKeys = (Object.keys(blank) as FieldKey[]).filter((key) => blank[key]);
   const signMessage =
     signAlert === "empty"
-      ? SIGN_IN_EMPTY_ERROR
+      ? emptyFieldsSummary(emptyKeys)
       : signAlert === "mismatch"
         ? SIGN_IN_MISMATCH_ERROR
         : null;
+
+  /** A field points at the summary only when the summary is about that field. */
+  const summaryId = (key: FieldKey) =>
+    signMessage && (signAlert === "mismatch" || blank[key]) ? SIGN_IN_ERROR_ID : null;
 
   useEffect(() => {
     const entry = entryFromSearch(window.location.search);
@@ -108,7 +121,7 @@ export function AccountDoor() {
         if (nameBlank || emailBlank || passwordBlank) {
           setEmailInvalid(emailBlank);
           setPasswordInvalid(passwordBlank);
-          setSignAlert(emailBlank || passwordBlank ? "empty" : null);
+          setSignAlert("empty");
           focusFirst([
             nameBlank ? nameRef.current : null,
             emailBlank ? emailRef.current : null,
@@ -161,6 +174,11 @@ export function AccountDoor() {
     >
       <h2 className="text-2xl text-fg">{mode === "sign-in" ? "Sign in" : "Use an invite code"}</h2>
       {mode === "sign-up" ? <p className="text-base text-muted">{CODE_MODE_INTRO}</p> : null}
+      {signMessage ? (
+        <p id={SIGN_IN_ERROR_ID} role="alert" className="text-sm text-danger">
+          {signMessage}
+        </p>
+      ) : null}
       {mode === "sign-up" ? (
         <label className={fieldLabel}>
           Your name, as people know you
@@ -177,7 +195,10 @@ export function AccountDoor() {
             autoComplete="name"
             required
             aria-invalid={nameInvalid ? true : undefined}
-            aria-describedby={describedBy(blank.name && "door-name-error")}
+            aria-describedby={describedBy(
+              blank.name && "door-name-error",
+              summaryId("name"),
+            )}
           />
         </label>
       ) : null}
@@ -194,14 +215,14 @@ export function AccountDoor() {
             setEmail(event.target.value);
             setEmailInvalid(false);
             clearBlank("email");
-            setSignAlert((current) => (passwordInvalid ? current : null));
+            setSignAlert((current) => (current === "mismatch" && !passwordInvalid ? null : current));
           }}
           autoComplete="email"
           required
           aria-invalid={emailInvalid ? true : undefined}
           aria-describedby={describedBy(
             blank.email && "door-email-error",
-            signMessage && SIGN_IN_ERROR_ID,
+            summaryId("email"),
           )}
         />
       </label>
@@ -218,14 +239,14 @@ export function AccountDoor() {
             setPassword(event.target.value);
             setPasswordInvalid(false);
             clearBlank("password");
-            setSignAlert((current) => (emailInvalid ? current : null));
+            setSignAlert((current) => (current === "mismatch" && !emailInvalid ? null : current));
           }}
           autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
           required
           aria-invalid={passwordInvalid ? true : undefined}
           aria-describedby={describedBy(
             blank.password && "door-password-error",
-            signMessage && SIGN_IN_ERROR_ID,
+            summaryId("password"),
           )}
         />
       </label>
@@ -255,11 +276,6 @@ export function AccountDoor() {
             </p>
           ) : null}
         </>
-      ) : null}
-      {signMessage ? (
-        <p id={SIGN_IN_ERROR_ID} role="alert" className="text-sm text-danger">
-          {signMessage}
-        </p>
       ) : null}
       {outcome ? (
         <p role="alert" className="text-sm text-danger">

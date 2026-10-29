@@ -39,7 +39,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { AccountDoor, SIGN_IN_EMPTY_ERROR, SIGN_IN_MISMATCH_ERROR } =
+const { AccountDoor, SIGN_IN_EMPTY_ERROR, SIGN_IN_MISMATCH_ERROR, emptyFieldsSummary } =
   await import("../../components/board/account-door.tsx");
 const { EMPTY_SERVER_SESSION, SessionContext } = await import("../../lib/server-session-state.ts");
 
@@ -76,7 +76,7 @@ async function submitForm() {
   });
 }
 
-/** The alert sits above the submit button and is exposed as an alert. */
+/** The alert sits at the top of the form, above every field, and is exposed as an alert. */
 function announced() {
   const alert = document.querySelector('[role="alert"]');
   const submit = document.querySelector('button[type="submit"]');
@@ -88,6 +88,12 @@ function announced() {
   assert.ok(
     (alert.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
     "the alert is announced above the submit button",
+  );
+  const firstField = document.querySelector("form input");
+  assert.ok(firstField instanceof HTMLInputElement);
+  assert.ok(
+    (alert.compareDocumentPosition(firstField) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    "the alert sits above the fields",
   );
   return alert.textContent ?? "";
 }
@@ -115,7 +121,7 @@ test("an empty sign-in is announced above the button", async () => {
     });
     assert.equal(email.getAttribute("aria-invalid"), null);
     assert.equal(password.getAttribute("aria-invalid"), "true");
-    assert.equal(announced(), SIGN_IN_EMPTY_ERROR);
+    assert.equal(announced(), "Enter your password.");
   } finally {
     cleanup();
   }
@@ -174,7 +180,7 @@ test("a blank password is the field that receives focus", async () => {
       setInput(email, "person@example.com");
     });
     await submitForm();
-    assert.equal(announced(), SIGN_IN_EMPTY_ERROR);
+    assert.equal(announced(), "Enter your password.");
     assert.equal(email.getAttribute("aria-invalid"), null);
     assert.equal(password.getAttribute("aria-invalid"), "true");
     assert.equal(document.activeElement, password);
@@ -245,3 +251,86 @@ function passwordFilled() {
   if (!(password instanceof HTMLInputElement)) throw new Error("password missing");
   return password;
 }
+
+test("the empty summary names only the fields left empty", () => {
+  assert.equal(emptyFieldsSummary(["email"]), "Enter your email.");
+  assert.equal(emptyFieldsSummary(["password"]), "Enter your password.");
+  assert.equal(emptyFieldsSummary(["password", "email"]), SIGN_IN_EMPTY_ERROR);
+  assert.equal(emptyFieldsSummary(["name"]), "Enter your name.");
+  assert.equal(emptyFieldsSummary(["name", "email", "password"]), "Enter your name, email and password.");
+  assert.equal(emptyFieldsSummary([]), null);
+});
+
+async function openCodeMode() {
+  const toggle = [...document.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("I have a code"),
+  );
+  assert.ok(toggle instanceof HTMLButtonElement);
+  await act(async () => {
+    toggle.click();
+  });
+}
+
+test("an all-blank sign-up names every empty field and points name at the summary", async () => {
+  let calls = 0;
+  const cleanup = renderDoor({
+    ...EMPTY_SERVER_SESSION,
+    mode: "live",
+    configured: true,
+    signUp: async () => {
+      calls += 1;
+      return { ok: false, message: "unexpected" };
+    },
+  });
+  try {
+    await openCodeMode();
+    await submitForm();
+    assert.equal(calls, 0);
+    assert.equal(announced(), "Enter your name, email and password.");
+    const name = document.querySelector("#sign-up-name");
+    assert.ok(name instanceof HTMLInputElement);
+    assert.equal(name.getAttribute("aria-describedby"), "door-name-error sign-in-error");
+    assert.equal(document.activeElement, name);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a sign-up with only the name blank is still announced", async () => {
+  let calls = 0;
+  const cleanup = renderDoor({
+    ...EMPTY_SERVER_SESSION,
+    mode: "live",
+    configured: true,
+    signUp: async () => {
+      calls += 1;
+      return { ok: false, message: "unexpected" };
+    },
+  });
+  try {
+    await openCodeMode();
+    const email = document.querySelector("#sign-in-email");
+    const password = document.querySelector("#sign-in-password");
+    assert.ok(email instanceof HTMLInputElement);
+    assert.ok(password instanceof HTMLInputElement);
+    await act(async () => {
+      setInput(email, "person@example.com");
+      setInput(password, "a-password");
+    });
+    await submitForm();
+    assert.equal(calls, 0);
+    assert.equal(document.querySelectorAll('[role="alert"]').length, 1);
+    assert.equal(announced(), "Enter your name.");
+    const name = document.querySelector("#sign-up-name");
+    assert.ok(name instanceof HTMLInputElement);
+    assert.equal(name.getAttribute("aria-describedby"), "door-name-error sign-in-error");
+    assert.equal(email.getAttribute("aria-describedby"), null);
+    assert.equal(document.activeElement, name);
+    await act(async () => {
+      setInput(name, "Pat");
+    });
+    assert.equal(document.querySelector('[role="alert"]'), null);
+  } finally {
+    cleanup();
+  }
+});

@@ -30,7 +30,15 @@ test("UX pass: an empty sign-in submit names each empty field and focuses the fi
   assert.match(account, /setBlank\(\{ name: nameBlank, email: emailBlank, password: passwordBlank \}\)/);
   assert.match(account, /focusFirst\(\[\s*nameBlank \? nameRef\.current/);
   assert.match(account, /id=\{`door-\$\{key\}-error`\} className="text-sm text-danger"/);
-  assert.match(account, /describedBy\(\s*blank\.email && "door-email-error",\s*signMessage && SIGN_IN_ERROR_ID,?\s*\)/);
+  for (const key of ["name", "email", "password"]) {
+    assert.match(
+      account,
+      new RegExp(`describedBy\\(\\s*blank\\.${key} && "door-${key}-error",\\s*summaryId\\("${key}"\\),?\\s*\\)`),
+    );
+  }
+  // The summary is built from the empty fields, and sits above the first field.
+  assert.match(account, /emptyFieldsSummary\(emptyKeys\)/);
+  assert.ok(account.indexOf("id={SIGN_IN_ERROR_ID}") < account.indexOf('id="sign-up-name"'));
   for (const key of ["name", "email", "password"]) {
     assert.match(account, new RegExp(`\\{(mode === "sign-up" \\? )?fieldError\\("${key}"\\)`));
   }
