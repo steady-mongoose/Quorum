@@ -63,3 +63,17 @@ test("admins get the options menu when setting up and editing a room; the room p
   assert.match(room, /\{rollCall \? \(\r?\n\s+<fieldset/);
   assert.match(about, /Roll call is off unless an admin turns it on\./);
 });
+
+test("the member list offers Message only to people you may already write to", () => {
+  const members = read("../../components/board/room-members.tsx");
+  assert.match(members, /messageableNames\(me, cards, posts, rooms\)/);
+  assert.match(members, /row\.name !== me && peers\.has\(row\.name\) \? \(/);
+  assert.match(members, /onClick=\{\(\) => openDm\(row\.name\)\}/);
+  assert.match(members, /Message \{row\.name\}/);
+});
+
+test("Message on a rooms page leaves the rooms page so the conversation shows", () => {
+  const app = read("../../components/board/app.tsx");
+  assert.match(app, /if \(!onRoomsRoute\) return;\r?\n\s+return useBoard\.subscribe\(\(state, previous\) => \{/);
+  assert.match(app, /state\.section !== previous\.section && state\.section !== "rooms"/);
+});
