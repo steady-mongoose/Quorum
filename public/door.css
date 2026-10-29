@@ -6,7 +6,7 @@
   --door-ease:cubic-bezier(.22,.61,.36,1);
   --door-gilt:#c9a45c;
   --door-glow:rgba(240,231,211,.9);
-  --door-motes:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cg fill='%23f0e7d3'%3E%3Ccircle cx='22' cy='40' r='1.1'/%3E%3Ccircle cx='140' cy='18' r='.8'/%3E%3Ccircle cx='250' cy='70' r='1.3'/%3E%3Ccircle cx='70' cy='150' r='.9'/%3E%3Ccircle cx='300' cy='180' r='.7'/%3E%3Ccircle cx='180' cy='230' r='1.2'/%3E%3Ccircle cx='40' cy='280' r='.8'/%3E%3Ccircle cx='230' cy='300' r='1'/%3E%3C/g%3E%3C/svg%3E");
+  --door-motes:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cg fill='%23f0e7d3'%3E%3Ccircle cx='22' cy='40' r='1.8'/%3E%3Ccircle cx='140' cy='18' r='1.2'/%3E%3Ccircle cx='250' cy='70' r='2'/%3E%3Ccircle cx='70' cy='150' r='1.4'/%3E%3Ccircle cx='300' cy='180' r='1.1'/%3E%3Ccircle cx='180' cy='230' r='1.9'/%3E%3Ccircle cx='40' cy='280' r='1.3'/%3E%3Ccircle cx='230' cy='300' r='1.6'/%3E%3C/g%3E%3C/svg%3E");
 }
 [data-palette="parchment"]{--door-glow:rgba(255,250,240,.95)}
 
@@ -14,12 +14,12 @@
 [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{
   overflow:hidden;
   transform-origin:50% 30%;
-  animation:door-drift 52s ease-in-out infinite alternate;
+  animation:door-drift 26s ease-in-out infinite alternate;
   will-change:transform;
 }
 @keyframes door-drift{
   from{transform:scale(1) translate3d(0,0,0)}
-  to{transform:scale(1.045) translate3d(0,-.6%,0)}
+  to{transform:scale(1.11) translate3d(1.5%,-1.4%,0)}
 }
 
 /* 2. The light in the picture breathes. A warm radial at the plate's source of light, screened over the engraving. */
@@ -31,18 +31,18 @@
   /* Martin's light breaks in at the left edge of the desktop crop; phones crop to the centre. */
   --door-light:14% 42%;
   background:
-    radial-gradient(34% 30% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.4) 36%,transparent 70%);
+    radial-gradient(46% 40% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.55) 34%,transparent 72%);
   mix-blend-mode:screen;
-  opacity:.3;
+  opacity:.5;
   transform-origin:var(--door-light);
-  animation:door-breathe 9s ease-in-out infinite;
+  animation:door-breathe 6s ease-in-out infinite;
 }
 @media (max-width:640px){
   [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{--door-light:50% 34%}
 }
 @keyframes door-breathe{
-  0%,100%{opacity:.18;transform:scale(1)}
-  50%{opacity:.5;transform:scale(1.08)}
+  0%,100%{opacity:.22;transform:scale(1)}
+  50%{opacity:.9;transform:scale(1.14)}
 }
 
 /* 3. Motes rise through the light, faint and few. */
@@ -52,8 +52,8 @@
   inset:0;
   pointer-events:none;
   background:var(--door-motes) 0 0/320px 320px repeat,var(--door-motes) 160px 90px/480px 480px repeat;
-  opacity:.16;
-  animation:door-motes 90s linear infinite;
+  opacity:.45;
+  animation:door-motes 40s linear infinite;
 }
 @keyframes door-motes{
   from{background-position:0 0,160px 90px}
@@ -63,17 +63,25 @@
   .plate-ground::before,.plate-ground::after{display:none}
 }
 
+/* The scrim is lighter on the door, so the picture and its light read through. Text sits on solid cards. */
+[data-section="landing"] .scrim,[data-section="signin"] .scrim{
+  background:linear-gradient(90deg,rgba(20,16,12,0) 0%,rgba(20,16,12,.3) 45%,rgba(20,16,12,.72) 70%);
+}
+@media (max-width:640px){
+  [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34vh,var(--bg) 66vh)}
+}
+
 /* 4. The door settles in: each plate rises in turn after the mast. */
 .door-hero,.door-side,.door-week,.door-rooms{
-  animation:door-rise .8s var(--door-ease) both;
-  animation-delay:calc(var(--door-i,0) * 120ms + 80ms);
+  animation:door-rise 1s var(--door-ease) both;
+  animation-delay:calc(var(--door-i,0) * 160ms + 100ms);
 }
 .door-hero{--door-i:0}
 .door-side{--door-i:1}
 .door-week{--door-i:2}
 .door-rooms{--door-i:3}
 @keyframes door-rise{
-  from{opacity:0;transform:translateY(14px)}
+  from{opacity:0;transform:translateY(32px) scale(.985)}
   to{opacity:1;transform:none}
 }
 
@@ -91,7 +99,7 @@
   max-width:18rem;
   background:linear-gradient(90deg,var(--door-gilt) 0%,color-mix(in srgb,var(--door-gilt) 60%,transparent) 70%,transparent 100%);
   transform-origin:left;
-  animation:door-draw 1.1s var(--door-ease) .5s both;
+  animation:door-draw 1.4s var(--door-ease) .7s both;
 }
 .door-rule::before{
   content:"";
@@ -147,21 +155,44 @@
   color:var(--fg);
 }
 
-/* 6. The plates answer the pointer: a gilt edge, a lift, and a warmer field. */
+/* 6. The plates: laid paper under the ink. A warm light catches the top corner, a faint grain sits over the
+   field, and a gilt hairline runs just inside the edge. The ground stays solid, so the text keeps its contrast. */
 .door-hero,.door-week,.door-rooms,.door-side .card,.door-side #sign-in{
+  position:relative;
+  overflow:hidden;
+  border-color:color-mix(in srgb,var(--door-gilt) 32%,var(--line));
+  background:
+    radial-gradient(120% 70% at 0% 0%,color-mix(in srgb,var(--door-gilt) 14%,transparent),transparent 60%),
+    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 70%,var(--card)) 0%,var(--card) 48%,color-mix(in srgb,var(--bg) 35%,var(--card)) 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 14%,transparent),
+    inset 0 1px 0 rgba(240,231,211,.07),
+    0 14px 34px -18px rgba(0,0,0,.8);
   transition:border-color .35s var(--door-ease),box-shadow .35s var(--door-ease),transform .35s var(--door-ease);
-  box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 10px 30px -18px rgba(0,0,0,.7);
+}
+.door-hero::before,.door-week::before,.door-rooms::before,.door-side .card::before,.door-side #sign-in::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:var(--grain);
+  opacity:.12;
+  mix-blend-mode:overlay;
 }
 .door-hero{
-  border-color:color-mix(in srgb,var(--door-gilt) 45%,var(--line));
+  border-color:color-mix(in srgb,var(--door-gilt) 55%,var(--line));
   background:
-    linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 7%,transparent),transparent 42%),
-    var(--card);
+    radial-gradient(120% 80% at 0% 0%,color-mix(in srgb,var(--door-gilt) 22%,transparent),transparent 62%),
+    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 80%,var(--card)) 0%,var(--card) 50%,color-mix(in srgb,var(--bg) 40%,var(--card)) 100%);
 }
 @media (hover:hover){
   .door-week:hover,.door-rooms:hover,.door-side .card:hover,.door-side #sign-in:hover{
-    border-color:color-mix(in srgb,var(--door-gilt) 55%,var(--line));
-    box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 16px 36px -18px rgba(0,0,0,.75),0 0 0 1px color-mix(in srgb,var(--door-gilt) 18%,transparent);
+    border-color:color-mix(in srgb,var(--door-gilt) 70%,var(--line));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 28%,transparent),
+      inset 0 1px 0 rgba(240,231,211,.1),
+      0 20px 40px -18px rgba(0,0,0,.85),
+      0 0 24px -6px color-mix(in srgb,var(--door-gilt) 25%,transparent);
     transform:translateY(-2px);
   }
   .door-side .btn-primary:hover{
