@@ -125,20 +125,15 @@ export function Door() {
           <section className="door-rooms card flex flex-col gap-3 p-6">
             <h2 className="door-heading text-base font-semibold text-fg">The rooms</h2>
             <Terms rows={ROOMS} />
-            <p className="max-w-prose text-sm text-muted">
+            <ul className="door-roomlist" aria-label="Rooms">
               {rooms
                 .filter((room) => room.id !== "dispatch")
-                .map((room, index) => (
-                  <span key={room.id}>
-                    {index > 0 ? (
-                      <span className="door-sep" aria-hidden="true">
-                        ·
-                      </span>
-                    ) : null}
+                .map((room) => (
+                  <li key={room.id} className="door-room">
                     {room.name}
-                  </span>
+                  </li>
                 ))}
-            </p>
+            </ul>
           </section>
         </div>
 
