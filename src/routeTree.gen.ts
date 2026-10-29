@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as TakedownRouteImport } from './routes/takedown'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AdminStatsRouteImport } from './routes/admin/stats'
 import { Route as EIdRouteImport } from './routes/e/$id'
@@ -31,6 +32,11 @@ const AboutRoute = AboutRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TakedownRoute = TakedownRouteImport.update({
+  id: '/takedown',
+  path: '/takedown',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsRoute = TermsRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/takedown': typeof TakedownRoute
   '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/takedown': typeof TakedownRoute
   '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/takedown': typeof TakedownRoute
   '/terms': typeof TermsRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/takedown'
     | '/terms'
     | '/admin/stats'
     | '/e/$id'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/takedown'
     | '/terms'
     | '/admin/stats'
     | '/e/$id'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/takedown'
     | '/terms'
     | '/admin/stats'
     | '/e/$id'
@@ -127,6 +139,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   PrivacyRoute: typeof PrivacyRoute
+  TakedownRoute: typeof TakedownRoute
   TermsRoute: typeof TermsRoute
   AdminStatsRoute: typeof AdminStatsRoute
   EIdRoute: typeof EIdRoute
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/takedown': {
+      id: '/takedown'
+      path: '/takedown'
+      fullPath: '/takedown'
+      preLoaderRoute: typeof TakedownRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms': {
@@ -199,6 +219,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   PrivacyRoute: PrivacyRoute,
+  TakedownRoute: TakedownRoute,
   TermsRoute: TermsRoute,
   AdminStatsRoute: AdminStatsRoute,
   EIdRoute: EIdRoute,
@@ -208,3 +229,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

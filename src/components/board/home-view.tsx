@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ClaimsPanel } from "@/components/board/claims-queue";
+import { TakedownPanel } from "@/components/takedown/takedown-queue";
 import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
@@ -40,6 +41,7 @@ export function HomePanel() {
 
   return (
     <section className="flex flex-col gap-6">
+      <TakedownPanel />
       <div className="flex flex-col gap-2">
         <Kicker>Home</Kicker>
         <h2 className="font-display text-3xl text-fg">Nearest first</h2>

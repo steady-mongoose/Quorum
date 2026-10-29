@@ -8,6 +8,7 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { handleTakedown } from "./takedown/routes.ts";
 import { noteAuthenticatedRequest } from "./stats/activity.ts";
 import { handleStats } from "./stats/routes.ts";
 import { handleProfile } from "./profile/routes.ts";
@@ -544,6 +545,9 @@ async function route(
       json(404, { error: "Not found." })
     );
   }
+
+  const takedown = await handleTakedown(deps, request, url);
+  if (takedown) return takedown;
 
   const gathering = await handlePublicGathering(deps, request, url);
   if (gathering) return gathering;

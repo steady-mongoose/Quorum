@@ -82,6 +82,14 @@ export function ConfirmDialog({
       {children}
       <div className="mt-5 flex flex-wrap gap-2">
         <button
+          ref={cancelRef}
+          type="button"
+          className={cn(btnGhost, "min-h-[44px]")}
+          onClick={onCancel}
+        >
+          {cancelLabel}
+        </button>
+        <button
           type="button"
           className={cn(
             btnGhost,
@@ -96,14 +104,6 @@ export function ConfirmDialog({
           }}
         >
           {confirmLabel}
-        </button>
-        <button
-          ref={cancelRef}
-          type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
-          onClick={onCancel}
-        >
-          {cancelLabel}
         </button>
       </div>
     </dialog>

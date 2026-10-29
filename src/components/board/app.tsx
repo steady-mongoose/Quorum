@@ -414,6 +414,11 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           )}
         </main>
       </div>
+      <footer className="site-footer px-[clamp(1rem,4vw,4rem)] py-4 text-sm">
+        <a className="inline-flex min-h-[44px] items-center underline" href="/takedown">
+          Request removal of intimate images
+        </a>
+      </footer>
       {entered ? <SessionLine /> : null}
       {entered ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
       <ConfirmDialog
