@@ -63,6 +63,7 @@ import {
   updateRoom,
   type Result,
 } from "./store.ts";
+import { listRoomMembers } from "./members.ts";
 import { closeReport, fileReport, listReports } from "./reports.ts";
 
 type SessionUser = { id: string; name: string; email: string };
@@ -212,6 +213,7 @@ export async function handleBoard(
     /^\/api\/claims\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(confirm|check|decide)$/i.exec(
       url.pathname,
     );
+  const roomMembers = /^\/api\/rooms\/([a-z0-9-]{1,32})\/members$/.exec(url.pathname);
   const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const adminRoomMove = /^\/api\/admin\/rooms\/([a-z0-9-]{1,32})\/categories$/.exec(url.pathname);
@@ -244,6 +246,7 @@ export async function handleBoard(
     (url.pathname === "/api/gender" && request.method === "POST") ||
     (url.pathname === "/api/gender/confirm" && request.method === "POST") ||
     Boolean(roomAudience && request.method === "POST") ||
+    Boolean(roomMembers && request.method === "GET") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
@@ -273,6 +276,13 @@ export async function handleBoard(
 
     if (url.pathname === "/api/claims" && request.method === "GET") {
       return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
+    }
+
+    if (roomMembers && request.method === "GET") {
+      return fromResult(
+        200,
+        await listRoomMembers(deps.db, session.id, roomMembers[1] ?? "", now),
+      );
     }
 
     if (url.pathname === "/api/appeals" && request.method === "GET") {
@@ -516,6 +526,7 @@ export async function handleBoard(
         audience: body.audience,
         stewardEmail: stringField(body, "stewardEmail"),
         inviterEmail: stringField(body, "inviterEmail"),
+        ...(body.options !== undefined ? { options: body.options } : {}),
         now,
       });
       return fromResult(201, created);
@@ -547,6 +558,7 @@ export async function handleBoard(
           ...(typeof body.name === "string" ? { name: body.name } : {}),
           ...(typeof body.what === "string" ? { what: body.what } : {}),
           ...pinField(body),
+          ...(body.options !== undefined ? { options: body.options } : {}),
           now,
         }),
       );
