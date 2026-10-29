@@ -1106,7 +1106,7 @@ function roomShape(kind: "town" | "congregation" | "region", name: string, state
   if (kind === "congregation") {
     return {
       what: `Service times, the meal after, and families who need meals this week at ${name}.`,
-      takes: ["hosted"],
+      takes: ["shared", "hosted"],
       cardKinds: ["meeting", "need"],
       cardNoun: "Service",
       parish: true,
@@ -1115,7 +1115,7 @@ function roomShape(kind: "town" | "congregation" | "region", name: string, state
   if (kind === "region") {
     return {
       what: `${name}. Hearings, bills, and candidate events, labeled as such.`,
-      takes: ["did", "asked", "hosted"],
+      takes: ["shared", "did", "asked", "hosted"],
       cardKinds: ["meeting", "candidate"],
       cardNoun: "Meeting",
       parish: false,
@@ -1123,7 +1123,7 @@ function roomShape(kind: "town" | "congregation" | "region", name: string, state
   }
   return {
     what: `Meetings and local notices for ${name}, ${state}.`,
-    takes: ["did", "asked", "hosted"],
+    takes: ["shared", "did", "asked", "hosted"],
     cardKinds: ["meeting"],
     cardNoun: "Meeting",
     parish: false,

@@ -2079,7 +2079,7 @@ export async function createRoom(
           id,
           name,
           what,
-          ["did", "asked", "hosted"],
+          ["shared", "did", "asked", "hosted"],
           ["noted"],
           ["meeting"],
           Number(order[0]?.next ?? 100),

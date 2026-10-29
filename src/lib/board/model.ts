@@ -39,7 +39,7 @@ export function roomIncludes(room: { options?: readonly RoomOption[] }, option: 
   return (room.options ?? DEFAULT_ROOM_OPTIONS).includes(option);
 }
 
-export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
+export type PostType = "shared" | "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
 export type Section =
   "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
@@ -323,8 +323,8 @@ export const MARK_LABEL: Record<Mark, string> = {
   out_of_scope: "Out of scope",
 };
 
-const MEMBER: PostType[] = ["did", "asked", "hosted"];
-const SERVICE: PostType[] = ["hosted"];
+const MEMBER: PostType[] = ["shared", "did", "asked", "hosted"];
+const SERVICE: PostType[] = ["shared", "hosted"];
 
 const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
@@ -467,6 +467,17 @@ export type TypeMeta = {
 };
 
 export const POST_TYPES: TypeMeta[] = [
+  {
+    id: "shared",
+    label: "Share",
+    what: "Anything for the room: news, a thought, a prayer request, or a photo.",
+    claimLabel: "What you want to share",
+    cardPick: "none",
+    tradePick: false,
+    attest: false,
+    closes: false,
+    closable: false,
+  },
   {
     id: "did",
     label: "Did",
@@ -767,6 +778,8 @@ export function composerErrorId(field: ComposerField): string {
 /** The plain-language post button for each kind of post. */
 export function postButtonLabel(type: PostType): string {
   switch (type) {
+    case "shared":
+      return "Share";
     case "asked":
       return "Post question";
     case "did":

@@ -18,7 +18,7 @@ import type {
 import type { BoardClient, BoardFailure, BoardSnapshot } from "./client.ts";
 import { parseHomePayload } from "./home.ts";
 
-const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
+const POST_TYPES = new Set(["shared", "did", "asked", "noted", "saw", "hosted"]);
 const NOUNS = new Set(["Meeting", "Service", "Reading", "Debate"]);
 
 function categoryIdsFrom(row: Record<string, unknown>, roomId: string): string[] {
