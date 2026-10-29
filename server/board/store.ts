@@ -43,6 +43,8 @@ import {
 } from "./places-store.ts";
 import { contentStops, replyStops, sentenceOrStop, type RoomRules } from "./check.ts";
 import { sendHoldAlert } from "./alert-mail.ts";
+import { isCustodian, logHoldAccess } from "./csam-custody.ts";
+import { listCsamFlags, type CsamFlag } from "./csam-flag.ts";
 import {
   CSAM_QUEUE_SQL,
   dropObjectKeys,
@@ -195,6 +197,10 @@ export type BoardPayload = {
   bans: BanEntry[];
   appeals: AppealEntry[];
   csamReports: CsamReport[];
+  /** True for the owner and named custodians. Others see the custodian notice. */
+  csamCustodian: boolean;
+  /** Open reports and scanner flags. Metadata only, custodians only. */
+  csamFlags: CsamFlag[];
   adminAlerts: AdminAlert[];
   /** One cursor per room. Null means that room has no older page. */
   pages: RoomPage[];
@@ -821,9 +827,11 @@ export async function listBoard(
      limit 200`,
   );
   let csamReports: CsamReport[] = [];
+  let csamFlags: CsamFlag[] = [];
   let adminAlerts: AdminAlert[] = [];
+  const custodian = actor.admin && (await isCustodian(db, userId, actor));
   if (actor.admin) {
-    const reportRows = await db.query<{
+    const reportRows = !custodian ? [] : await db.query<{
       id: string;
       post_id: string;
       room_id: string;
@@ -838,8 +846,18 @@ export async function listBoard(
       filed_at: Date | string | null;
       report_id: string;
       filed_by_name: string;
+      legal_hold: boolean;
     }>(CSAM_QUEUE_SQL);
     csamReports = reportRows.map(reportFromRow);
+    if (custodian) csamFlags = await listCsamFlags(db);
+    if (custodian && reportRows.length > 0) {
+      await logHoldAccess(db, {
+        actorUserId: userId,
+        action: "list",
+        detail: `${reportRows.length} holds`,
+        now,
+      });
+    }
     const alertRows = await db.query<{
       id: string;
       kind: string;
@@ -940,6 +958,8 @@ export async function listBoard(
             : null,
       })),
       csamReports,
+      csamCustodian: custodian,
+      csamFlags,
       adminAlerts,
       pages,
       // TODO(rsvp-server): this board response carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
@@ -2164,4 +2184,30 @@ export async function setSteward(
     400,
     "A steward needs the inviter and a steward of that room. An admin needs a steward and the role owner.",
   );
+}
+
+/**
+ * True when this member may read this post: the same room, ban and audience checks as
+ * reading it on the board. A removed post is not readable. Used before a member flag
+ * so nobody can flag (and block) a post they cannot see.
+ */
+export async function memberCanSeeBoardPost(
+  db: Db,
+  userId: string,
+  postId: string,
+  now: Date,
+): Promise<boolean> {
+  const actor = await actorRole(db, userId);
+  if (!actor.member) return false;
+  const rows = await db.query<{ room_id: string; removed: boolean }>(
+    `select room_id, removed from board_post where id = $1`,
+    [postId],
+  );
+  const post = rows[0];
+  if (!post || post.removed) return false;
+  const room = await roomById(db, post.room_id, { id: userId, admin: actor.admin });
+  if (!room || !canReadRoom(room.status, actor)) return false;
+  if (await openBan(db, userId, now, room.id)) return false;
+  const blocked = await audienceBlock(db, { userId, roomId: room.id, now, path: "read", actor });
+  return blocked === null;
 }

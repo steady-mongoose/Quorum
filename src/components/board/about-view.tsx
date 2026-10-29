@@ -9,6 +9,7 @@ import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { CsamQueue } from "@/components/board/csam-queue";
 import { ServerInvite } from "@/components/board/server-invite";
 import { DmReportQueue } from "@/components/board/dm-report";
 import { MfaResetQueue } from "@/components/board/mfa-ui";
@@ -242,7 +243,7 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       {!publicView && remote && admin ? <DeletionRequestQueue /> : null}
       {!publicView && remote && admin ? <RoomsManager /> : null}
 
-      {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
+      {!publicView && remote && admin ? <CsamQueue /> : null}
 
       {!publicView && remote && admin ? <DmReportQueue /> : null}
 
@@ -415,43 +416,6 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         </section>
       ) : null}
     </div>
-  );
-}
-
-function CsamQueue({ reports }: { reports: CsamReport[] }) {
-  return (
-    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">CyberTipline queue</h2>
-      <p className="max-w-prose text-sm text-muted">
-        Prepared for the NCMEC CyberTipline under 18 U.S.C. 2258A. Josh files each report by hand.
-        This page does not send it. The words and the pictures are not shown. The hold is one year,
-        pending counsel.
-      </p>
-      {reports.length === 0 ? (
-        <p className="text-sm text-muted">No report is waiting.</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {reports.map((report) => (
-            <li
-              key={report.id}
-              className="rounded-md border border-line px-3 py-2 text-sm text-muted"
-            >
-              {report.status === "filed"
-                ? "Filed"
-                : report.status === "pending_seal"
-                  ? "Not sealed"
-                  : "Not filed"}
-              {report.status === "filed" && report.reportId ? ` · report ${report.reportId}` : ""} ·{" "}
-              {new Date(report.incidentAt).toLocaleString()} · {report.author} · account{" "}
-              {report.accountId} · room {report.room} · post {report.postId} · {report.mediaCount}{" "}
-              {report.mediaCount === 1 ? "file" : "files"}, {report.byteSize} bytes · hold until{" "}
-              {new Date(report.retainUntil).toLocaleDateString()}
-              {report.mediaTypes.length > 0 ? ` · ${report.mediaTypes.join(", ")}` : ""}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 

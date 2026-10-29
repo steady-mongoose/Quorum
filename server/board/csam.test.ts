@@ -102,6 +102,11 @@ async function grant(
      values ($1, $2, $3, $4, $5, 'grant', 'test', 'test', 'test', 'Granted for the test.', $6)`,
     [randomUUID(), userId, name, role, roomId, now],
   );
+  // These tests read the hold queue as an admin, so name every admin a CSAM custodian.
+  // csam-custody.test.ts covers the admin who is not one.
+  if (role === "admin") {
+    await db.query(`insert into csam_custodian (user_id) values ($1) on conflict do nothing`, [userId]);
+  }
 }
 
 test("the admin queue selects no sealed column", () => {
@@ -811,6 +816,12 @@ test("CSAM is removed, banned, held for one year, and never returned", async () 
     assert.equal(filed.value.reportId, "42");
     assert.equal(filed.value.filedBy, "Josh");
     const due = new Date(now.getTime() + HOLD_MS);
+    assert.equal(await purgeExpiredHolds(db, due, store), 0, "nothing is purged without a lawyer's sign-off");
+    await db.query(
+      `update board_csam_hold set released_at = $2, release_lawyer_name = 'Dana Reyes', release_lawyer_reference = 'DR-114'
+       where id = $1`,
+      [hold[0]?.id ?? "", due],
+    );
     assert.equal(await purgeExpiredHolds(db, due, store), 1);
     assert.equal(store.objects.has(sealedKey), false);
     const wiped = await db.query<{ sealed: string; purged_at: Date | string | null }>(
