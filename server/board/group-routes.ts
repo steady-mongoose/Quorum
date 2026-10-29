@@ -5,6 +5,10 @@ import {
   createGroupPost,
   decideGroupAppeal,
   decideGroupRequest,
+  declineGroupInvite,
+  inviteToGroup,
+  listGroupInvites,
+  revokeGroupInvite,
   joinGroup,
   leaveGroup,
   listGroup,
@@ -81,12 +85,15 @@ export async function handleGroups(
   url: URL,
 ): Promise<Response | null> {
   const groupAction =
-    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log|audience)$/.exec(
+    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log|audience|invites|decline)$/.exec(
       url.pathname,
     );
   const groupOne = /^\/api\/groups\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const requestOne = /^\/api\/group-requests\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
   const postAction = /^\/api\/group-posts\/([A-Za-z0-9_-]{1,80})\/(mark|remove|appeal)$/.exec(
+    url.pathname,
+  );
+  const inviteOne = /^\/api\/groups\/([a-z0-9-]{1,32})\/invites\/([A-Za-z0-9_-]{1,80})\/revoke$/.exec(
     url.pathname,
   );
   const appealOne = /^\/api\/group-appeals\/([A-Za-z0-9_-]{1,80})$/.exec(url.pathname);
@@ -98,6 +105,9 @@ export async function handleGroups(
     (url.pathname === "/api/group-appeals" && request.method === "GET") ||
     (groupOne !== null && request.method === "GET") ||
     (action === "log" && request.method === "GET") ||
+    (action === "invites" && (request.method === "GET" || request.method === "POST")) ||
+    (inviteOne !== null && request.method === "POST") ||
+    (action === "decline" && request.method === "POST") ||
     ((action === "join" ||
       action === "leave" ||
       action === "posts" ||
@@ -148,6 +158,28 @@ export async function handleGroups(
 
     const body = request.method === "GET" ? {} : await readJson(request);
 
+    if (groupAction?.[1] && action === "invites" && request.method === "GET") {
+      return fromResult(200, await listGroupInvites(deps.db, session.id, groupAction[1], now));
+    }
+    if (inviteOne?.[1] && inviteOne[2]) {
+      return fromResult(
+        200,
+        await revokeGroupInvite(deps.db, { ...who, groupId: inviteOne[1], inviteId: inviteOne[2] }),
+      );
+    }
+    if (groupAction?.[1] && action === "invites") {
+      return fromResult(
+        201,
+        await inviteToGroup(deps.db, {
+          ...who,
+          groupId: groupAction[1],
+          email: stringField(body, "email"),
+        }),
+      );
+    }
+    if (groupAction?.[1] && action === "decline") {
+      return fromResult(200, await declineGroupInvite(deps.db, { ...who, groupId: groupAction[1] }));
+    }
     if (groupAction?.[1] && action === "join") {
       return fromResult(200, await joinGroup(deps.db, { ...who, groupId: groupAction[1] }));
     }

@@ -88,8 +88,12 @@ test("group controls meet the review: 44px, alerts, equal appeal buttons", () =>
   assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
   assert.match(bits, /export const btn =\n {2}"inline-flex min-h-\[44px\]/);
   assert.match(view, /min-h-\[44px\]/);
-  assert.match(view, /aria-pressed=\{group\.joined\}/);
-  assert.match(view, /Joined ✓/);
+  // Groups are joined by invite (0045): no open Join toggle on the list.
+  assert.equal(/aria-pressed=\{group\.joined\}/.test(view), false);
+  assert.equal(view.includes('"Join"'), false);
+  assert.match(view, /Leave group/);
+  assert.match(view, /Accept invite/);
+  assert.match(view, /Revoke invite/);
   assert.match(view, /role="alert"/);
   assert.match(view, /text-\[#f0b4a4\]/);
   assert.match(view, /<legend>Remove for<\/legend>/);
