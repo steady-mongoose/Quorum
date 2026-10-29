@@ -187,6 +187,17 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     setSection("rooms");
   }, [categorySlug, setSection]);
 
+  // A rooms page always shows Rooms. When an action elsewhere moves the board
+  // (Message someone, open a profile), leave the rooms page so it shows.
+  useEffect(() => {
+    if (!onRoomsRoute) return;
+    return useBoard.subscribe((state, previous) => {
+      if (state.section !== previous.section && state.section !== "rooms") {
+        void navigate({ to: "/" });
+      }
+    });
+  }, [onRoomsRoute, navigate]);
+
   const openSection = (id: Section) => {
     if (id === "profile") {
       view(me.trim());

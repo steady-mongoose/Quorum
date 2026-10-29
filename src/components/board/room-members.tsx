@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { authorName, formatDate, type Room } from "@/lib/board/model";
+import { MessageSquare } from "lucide-react";
+import { authorName, formatDate, messageableNames, type Room } from "@/lib/board/model";
 import {
   loadRoomMembers,
   localRoomMembers,
@@ -7,6 +8,8 @@ import {
   type MemberRow,
 } from "@/lib/board/room-members";
 import { useBoard } from "@/lib/board/store";
+import { btnQuiet } from "@/components/quorum/bits";
+import { cn } from "@/lib/cn";
 
 function cameLine(row: MemberRow): string {
   if (row.attended.length === 0) return "No gatherings here yet.";
@@ -19,11 +22,19 @@ function cameLine(row: MemberRow): string {
  * Who is in the room. Every member sees every member, in name order. It shows
  * when each joined and last posted, and, in a room that takes roll, the
  * gatherings each came to. It never ranks anyone and shows no upcoming RSVPs.
+ * Message shows only for someone you may already write to; the server checks again.
  */
 export function RoomMembers({ room }: { room: Room }) {
   const remote = useBoard((state) => state.remote);
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
+  const cards = useBoard((state) => state.cards);
+  const rooms = useBoard((state) => state.rooms);
+  const openDm = useBoard((state) => state.openDm);
+  const peers = useMemo(
+    () => messageableNames(me, cards, posts, rooms),
+    [me, cards, posts, rooms],
+  );
   const [live, setLive] = useState<MemberList | null>(null);
   const [error, setError] = useState("");
 
@@ -77,6 +88,16 @@ export function RoomMembers({ room }: { room: Room }) {
                   .join(" ")}
               </span>
               {list.rollCall ? <span className="text-sm text-muted">{cameLine(row)}</span> : null}
+              {row.name !== me && peers.has(row.name) ? (
+                <button
+                  type="button"
+                  className={cn(btnQuiet, "self-start px-0")}
+                  onClick={() => openDm(row.name)}
+                >
+                  <MessageSquare className="size-4" aria-hidden="true" />
+                  Message {row.name}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
