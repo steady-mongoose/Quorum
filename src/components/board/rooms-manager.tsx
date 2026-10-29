@@ -14,8 +14,8 @@ import {
   saveRoomCategories,
   type AdminRoom,
 } from "@/lib/board/rooms-admin";
-import { ROOMS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
+import { ROOMS_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 const AUDIENCE: Record<AdminRoom["audience"], string> = {
   all: "Everyone",
@@ -36,9 +36,8 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
   );
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
-  const [failure, setFailure] = useState<PanelFailure | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
   const [note, setNote] = useState("");
   const [announced, setAnnounced] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);
@@ -58,12 +57,10 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
       if (!live) return;
       // A failed load is said inside this panel, never as a page alert.
       if (result.ok) {
-        setFailure(null);
         setRooms(result.rooms);
         loaded();
       } else {
-        setFailure(result);
-        failed();
+        failed(result);
       }
     });
     return () => {
@@ -152,7 +149,7 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
       aria-labelledby="rooms-manager-heading"
       className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 lg:max-w-3xl"
     >
-      <h2 ref={heading} id="rooms-manager-heading" tabIndex={-1} className="text-2xl text-fg">
+      <h2 ref={heading} id="rooms-manager-heading" tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Rooms
       </h2>
       <p className="max-w-prose text-sm text-muted">

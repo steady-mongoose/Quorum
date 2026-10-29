@@ -154,3 +154,17 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.18em;
   color: var(--color-muted);
 }
+
+/*
+ * Team focus ring for a heading that takes focus from code: the Authenticator
+ * heading under You, and a panel heading after Try again. :focus, not
+ * :focus-visible, because that focus follows a pointer click. One rule for
+ * #114 and #117; both use the heading-focus-ring class.
+ */
+.heading-focus-ring:focus {
+  outline: 2px solid #f0e7d3;
+  outline-offset: 2px;
+}
+[data-palette="parchment"] .heading-focus-ring:focus {
+  outline-color: #1f1912;
+}

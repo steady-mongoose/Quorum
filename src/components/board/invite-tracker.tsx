@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { loadInvites, type InviteRow } from "@/lib/admin/invite-tracker";
-import { INVITES_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
+import { INVITES_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 function day(ms: number | null): string {
   if (!ms) return "—";
@@ -62,21 +62,18 @@ export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
 
 export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rows, setRows] = useState<InviteRow[] | null>(null);
-  const [failure, setFailure] = useState<PanelFailure | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
   useEffect(() => {
     let cancel = false;
     void loadInvites().then((result) => {
       if (cancel) return;
       // A failed load is said inside this panel, never as a page alert.
       if (result.ok) {
-        setFailure(null);
         setRows(result.rows);
         loaded();
       } else {
-        setFailure(result);
-        failed();
+        failed(result);
       }
     });
     return () => {
@@ -85,19 +82,11 @@ export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   }, [tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Invites
       </h2>
-      {failure ? (
-        <PanelNote
-          failure={failure}
-          gateText={INVITES_WAIT}
-          onRetry={retry}
-          onSetUp={onSetUp}
-        />
-      ) : rows ? (
-        <InviteTrackerTable rows={rows} />
-      ) : null}
+      <PanelNote failure={failure} gateText={INVITES_WAIT} onRetry={retry} onSetUp={onSetUp} />
+      {!failure && rows ? <InviteTrackerTable rows={rows} /> : null}
     </section>
   );
 }

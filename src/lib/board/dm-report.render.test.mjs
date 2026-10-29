@@ -136,7 +136,7 @@ test("the admin message-report queue shows shared text and closes a report", asy
     await flush();
     const top = view.host.querySelector("h2");
     assert.equal(top?.textContent?.trim(), "Message reports", "the queue's top heading is an h2");
-    assert.equal(top?.className, "text-2xl text-fg");
+    assert.equal(top?.className, "text-2xl text-fg heading-focus-ring");
     assert.equal(top?.getAttribute("tabindex"), "-1");
     assert.equal(view.host.querySelectorAll("h2").length, 1);
     const items = view.host.querySelectorAll("li");

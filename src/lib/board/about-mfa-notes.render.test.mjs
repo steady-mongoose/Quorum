@@ -257,6 +257,60 @@ for (const panel of PANELS) {
     }
   });
 
+  test(`${panel.name}: a polite status region is always mounted around the note`, async () => {
+    routes = { [panel.path]: [200, panel.ok] };
+    const view = await mount(panel.render(() => {}));
+    try {
+      const region = view.host.querySelector("[data-panel-status]");
+      assert.ok(region, "the region is there with nothing to say");
+      assert.equal(region.getAttribute("role"), "status");
+      assert.equal(region.getAttribute("aria-live"), "polite");
+      assert.equal(region.textContent, "");
+    } finally {
+      await view.cleanup();
+    }
+    routes = { [panel.path]: [403, ENROLL] };
+    const gated = await mount(panel.render(() => {}));
+    try {
+      const region = gated.host.querySelector("[data-panel-status]");
+      assert.ok(region?.textContent?.includes(panel.wait), "the note sits inside the region");
+    } finally {
+      await gated.cleanup();
+    }
+  });
+
+  test(`${panel.name}: a Try again that fails again is cleared and set again, so it is announced`, async () => {
+    routes = { [panel.path]: [500, { error: "internal_error" }] };
+    const view = await mount(panel.render(() => {}));
+    try {
+      const region = view.host.querySelector("[data-panel-status]");
+      assert.ok(region?.textContent?.includes("That did not load."));
+      const said = [];
+      const watch = new MutationObserver(() => said.push(region.textContent ?? ""));
+      watch.observe(region, { childList: true, subtree: true, characterData: true });
+      await act(async () => button(region, "Try again").click());
+      await flush();
+      watch.disconnect();
+      assert.equal(view.host.querySelector("[data-panel-status]"), region, "the same region stays mounted");
+      assert.ok(said.includes(""), "the region is cleared first");
+      assert.ok(said.at(-1)?.includes("That did not load."), "then the same sentence is set again");
+      assert.deepEqual(view.alerts(), [], "still no alert");
+      assert.equal(document.activeElement, view.host.querySelector("h2"), "focus does not drop to the page");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test(`${panel.name}: the heading that takes focus has the team focus ring`, async () => {
+    routes = { [panel.path]: [200, panel.ok] };
+    const view = await mount(panel.render(() => {}));
+    try {
+      assert.ok(view.host.querySelector("h2")?.classList.contains("heading-focus-ring"));
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test(`${panel.name}: step-up and locked keep the server's own sentence`, async () => {
     for (const body of [STEP_UP, LOCKED]) {
       routes = { [panel.path]: [403, body] };
@@ -296,4 +350,27 @@ test("the Authenticator heading under You can take focus, and About passes the w
   }
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   assert.match(app, /<AboutView onSetUp=\{\(\) => openSection\("profile"\)\} \/>/);
+});
+
+test("the team focus ring is one rule: #f0e7d3 on dark, #1f1912 on parchment, 2px offset", () => {
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  const dark = css.match(/\.heading-focus-ring:focus\s*\{([^}]*)\}/);
+  assert.ok(dark, "one shared rule");
+  assert.match(dark[1], /outline:\s*2px solid #f0e7d3/);
+  assert.match(dark[1], /outline-offset:\s*2px/);
+  assert.match(css, /\[data-palette="parchment"\] \.heading-focus-ring:focus\s*\{\s*outline-color:\s*#1f1912/);
+  const mfa = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
+  assert.match(mfa, /<h2 id="authenticator" tabIndex=\{-1\} className="heading-focus-ring /);
+});
+
+test("a member's report keeps its wording; the admin queue says did not load or did not save", async () => {
+  const { reportDmMessage, listDmReports, closeDmReport } = await import("../e2ee/dm-report-api.ts");
+  routes = {
+    "/api/dm/messages/m1/report": [500, {}],
+    "/api/admin/dm-reports": [500, {}],
+    "/api/admin/dm-reports/r1/close": [500, {}],
+  };
+  assert.equal((await reportDmMessage("m1", { reason: "threat", note: "", sharedText: "" })).error, "That did not go through.");
+  assert.equal((await listDmReports()).error, "That did not load.");
+  assert.equal((await closeDmReport("r1", "resolved")).error, "That did not save.");
 });

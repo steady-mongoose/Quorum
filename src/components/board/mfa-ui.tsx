@@ -171,7 +171,7 @@ export function MfaSettings() {
 
   return (
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
-      <h2 id="authenticator" tabIndex={-1} className="text-2xl text-fg">
+      <h2 id="authenticator" tabIndex={-1} className="heading-focus-ring text-2xl text-fg">
         Authenticator
       </h2>
       <p className="max-w-prose text-sm text-muted">

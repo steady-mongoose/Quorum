@@ -9,8 +9,8 @@ import {
   requestAccountDeletion,
   type DeletionRequest,
 } from "@/lib/board/account-api";
-import { DELETION_REQUESTS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
+import { DELETION_REQUESTS_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 export function AccountRemovalPanel({
   deactivated,
@@ -146,9 +146,8 @@ export function AccountRemoval({ live }: { live: boolean }) {
 
 export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [requests, setRequests] = useState<DeletionRequest[] | null>(null);
-  const [failure, setFailure] = useState<PanelFailure | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
 
   useEffect(() => {
     let cancel = false;
@@ -156,11 +155,9 @@ export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {})
       if (cancel) return;
       // A failed load is said inside this panel, never as a page alert.
       if (!result.ok) {
-        setFailure(result);
-        failed();
+        failed(result);
         return;
       }
-      setFailure(null);
       setRequests(result.requests);
       loaded();
     });
@@ -171,7 +168,7 @@ export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {})
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Account deletion requests
       </h2>
       <p className="max-w-prose text-sm text-muted">

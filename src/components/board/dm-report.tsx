@@ -20,8 +20,8 @@ import {
   reportDmMessage,
   type DmReportRow,
 } from "@/lib/e2ee/dm-report-api";
-import { DM_REPORTS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
+import { DM_REPORTS_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 type Send = typeof reportDmMessage;
 
@@ -211,12 +211,11 @@ export function DmReportQueue({
   onSetUp?: () => void;
 }) {
   const [rows, setRows] = useState<DmReportRow[] | null>(null);
-  const [failure, setFailure] = useState<PanelFailure | null>(null);
   const [error, setError] = useState("");
   const [announce, setAnnounce] = useState("");
   const [closedCount, setClosedCount] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
   useEffect(() => {
     if (closedCount) heading.current?.focus();
   }, [closedCount]);
@@ -226,12 +225,10 @@ export function DmReportQueue({
       if (!live) return;
       // A failed load is said inside this panel, never as a page alert.
       if (result.ok) {
-        setFailure(null);
         setRows(result.value);
         loaded();
       } else {
-        setFailure(result);
-        failed();
+        failed(result);
       }
     });
     return () => {
@@ -240,7 +237,7 @@ export function DmReportQueue({
   }, [load, tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Message reports
       </h2>
       <p role="status" className="text-sm text-muted">

@@ -2,31 +2,49 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { PANEL_SET_UP, type PanelFailure } from "@/lib/board/load-failure";
 
 /**
- * A panel's reload, and focus on its heading once a Try again has loaded.
- * `retry` bumps `tick` (the load effect's dependency). The panel calls
- * `loaded()` when a load succeeds; after a Try again that moves focus to the
- * heading once the panel has rendered.
+ * The team focus ring for a heading that takes focus from code (a panel
+ * heading after Try again, the Authenticator heading under You). Defined once
+ * in src/styles.css: #f0e7d3 on dark, #1f1912 on parchment, 2px offset.
+ */
+export const HEADING_FOCUS_RING = "heading-focus-ring";
+
+/**
+ * A panel's load failure, its reload, and focus once a Try again settles.
+ * `retry` clears the note and bumps `tick` (the load effect's dependency), so
+ * a second identical failure is set again and announced. The panel calls
+ * `loaded()` or `failed(failure)`; after a Try again either one moves focus
+ * to the heading once the panel has rendered, so focus never drops to <body>.
  */
 export function usePanelRetry(heading: RefObject<HTMLElement | null>) {
   const [tick, setTick] = useState(0);
+  const [failure, setFailure] = useState<PanelFailure | null>(null);
   const [focusAt, setFocusAt] = useState(0);
   const retried = useRef(false);
-  const retry = useCallback(() => {
-    retried.current = true;
-    setTick((value) => value + 1);
-  }, []);
-  const loaded = useCallback(() => {
+  const settle = useCallback(() => {
     if (!retried.current) return;
     retried.current = false;
     setFocusAt((value) => value + 1);
   }, []);
-  const failed = useCallback(() => {
-    retried.current = false;
+  const retry = useCallback(() => {
+    retried.current = true;
+    setFailure(null);
+    setTick((value) => value + 1);
   }, []);
+  const loaded = useCallback(() => {
+    setFailure(null);
+    settle();
+  }, [settle]);
+  const failed = useCallback(
+    (next: PanelFailure) => {
+      setFailure({ error: next.error, ...(next.mfa ? { mfa: next.mfa } : {}) });
+      settle();
+    },
+    [settle],
+  );
   useEffect(() => {
     if (focusAt) heading.current?.focus();
   }, [focusAt, heading]);
-  return { tick, retry, loaded, failed };
+  return { tick, failure, retry, loaded, failed };
 }
 
 /**
@@ -60,7 +78,26 @@ export function PanelNote({
   onRetry: () => void;
   onSetUp?: () => void;
 }) {
-  if (!failure) return null;
+  // Always mounted and polite, so a note that appears (or appears again after
+  // Try again) is announced. Empty, it takes no space.
+  return (
+    <div role="status" aria-live="polite" data-panel-status="" className="empty:sr-only">
+      {failure ? <PanelNoteBody failure={failure} gateText={gateText} onRetry={onRetry} onSetUp={onSetUp} /> : null}
+    </div>
+  );
+}
+
+function PanelNoteBody({
+  failure,
+  gateText,
+  onRetry,
+  onSetUp,
+}: {
+  failure: PanelFailure;
+  gateText: string;
+  onRetry: () => void;
+  onSetUp?: () => void;
+}) {
   if (failure.mfa === "enroll") {
     return (
       <p className="flex flex-wrap items-center gap-x-3 text-sm text-muted">
