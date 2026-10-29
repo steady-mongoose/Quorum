@@ -1,28 +1,42 @@
 /* The door: type and motion for the welcome page. Loaded after the engraved sheets.
-   Motion is slow and low in contrast so the Martin plate stays a picture, not a show.
-   backgrounds.css already turns every animation and transition off under prefers-reduced-motion,
-   and prefers-reduced-data drops the plate, so the light and the motes go with it. */
+   Motion is slow, runs once and then rests, so the Martin plate stays a picture, not a show.
+   Every movement is opt-in under prefers-reduced-motion:no-preference, and the reduce block at the end
+   stops the plate, its ::before/::after layers, the engravings, the rule and the cards outright.
+   prefers-reduced-data ships in no browser, so data savers are caught by [data-save-data] on <html>,
+   set from navigator.connection.saveData (src/lib/board/save-data.ts). */
 :root{
   --door-ease:cubic-bezier(.22,.61,.36,1);
   --door-gilt:#c9a45c;
   --door-glow:rgba(240,231,211,.9);
   --door-motes:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cg fill='%23f0e7d3'%3E%3Ccircle cx='22' cy='40' r='1.8'/%3E%3Ccircle cx='140' cy='18' r='1.2'/%3E%3Ccircle cx='250' cy='70' r='2'/%3E%3Ccircle cx='70' cy='150' r='1.4'/%3E%3Ccircle cx='300' cy='180' r='1.1'/%3E%3Ccircle cx='180' cy='230' r='1.9'/%3E%3Ccircle cx='40' cy='280' r='1.3'/%3E%3Ccircle cx='230' cy='300' r='1.6'/%3E%3C/g%3E%3C/svg%3E");
 }
-[data-palette="parchment"]{--door-glow:rgba(255,250,240,.95)}
+[data-palette="parchment"]{--door-glow:rgba(255,250,240,.95);--door-gilt:#6f5420}
+
+/* The plate's drift must never widen the page: clip it at the section, not on the plate itself.
+   data-section sits on <body>, whose overflow propagates to the viewport, so clip only the x axis:
+   a full overflow:clip would become overflow:hidden on the viewport and stop the page scrolling.
+   <html> clips too, so body keeps its own clip (rather than handing it to the viewport) and the
+   desktop plate, positioned against body, is cut at the page edge: scrollWidth equals the viewport. */
+[data-section="landing"],[data-section="signin"],
+html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"]){overflow-x:clip}
 
 /* 1. The plate drifts, slowly, as a camera would. The mask on desktop and the sticky frame on phones are untouched. */
 [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{
   overflow:hidden;
   transform-origin:50% 30%;
-  animation:door-drift 26s ease-in-out infinite alternate;
-  will-change:transform;
+}
+/* One slow pass, then the plate rests where it ends. */
+@media (prefers-reduced-motion:no-preference){
+  [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{
+    animation:door-drift 26s ease-in-out 1 forwards;
+  }
 }
 @keyframes door-drift{
   from{transform:scale(1) translate3d(0,0,0)}
   to{transform:scale(1.11) translate3d(1.5%,-1.4%,0)}
 }
 
-/* 2. The light in the picture breathes. A warm radial at the plate's source of light, screened over the engraving. */
+/* 2. The light in the picture: still, not breathing. A warm radial at the plate's source of light, screened over the engraving. */
 [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{
   content:"";
   position:absolute;
@@ -34,18 +48,12 @@
     radial-gradient(46% 40% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.55) 34%,transparent 72%);
   mix-blend-mode:screen;
   opacity:.5;
-  transform-origin:var(--door-light);
-  animation:door-breathe 6s ease-in-out infinite;
 }
 @media (max-width:640px){
   [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{--door-light:50% 34%}
 }
-@keyframes door-breathe{
-  0%,100%{opacity:.22;transform:scale(1)}
-  50%{opacity:.9;transform:scale(1.14)}
-}
 
-/* 3. Motes rise through the light, faint and few. */
+/* 3. Motes rise through the light, faint and few, in one pass. */
 [data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
   content:"";
   position:absolute;
@@ -53,7 +61,11 @@
   pointer-events:none;
   background:var(--door-motes) 0 0/320px 320px repeat,var(--door-motes) 160px 90px/480px 480px repeat;
   opacity:.45;
-  animation:door-motes 40s linear infinite;
+}
+@media (prefers-reduced-motion:no-preference){
+  [data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
+    animation:door-motes 40s linear 1 forwards;
+  }
 }
 @keyframes door-motes{
   from{background-position:0 0,160px 90px}
@@ -71,17 +83,19 @@
   [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34vh,var(--bg) 66vh)}
 }
 
-/* 4. The door settles in: each plate rises in turn after the mast. */
-.door-hero,.door-side,.door-week,.door-rooms{
-  animation:door-rise 1s var(--door-ease) both;
-  animation-delay:calc(var(--door-i,0) * 160ms + 100ms);
+/* 4. The door settles in. The hero (its h1 is the LCP) and the sign-in form are never animated or hidden;
+   only the two lower plates rise, briefly, and only for people who haven't asked for less motion. */
+.door-hero,.door-side{animation:none}
+@media (prefers-reduced-motion:no-preference){
+  .door-week,.door-rooms{
+    animation:door-rise .5s var(--door-ease) both;
+    animation-delay:calc(var(--door-i,0) * 80ms);
+  }
+  .door-week{--door-i:1}
+  .door-rooms{--door-i:2}
 }
-.door-hero{--door-i:0}
-.door-side{--door-i:1}
-.door-week{--door-i:2}
-.door-rooms{--door-i:3}
 @keyframes door-rise{
-  from{opacity:0;transform:translateY(32px) scale(.985)}
+  from{opacity:.001;transform:translateY(12px)}
   to{opacity:1;transform:none}
 }
 
@@ -99,7 +113,9 @@
   max-width:18rem;
   background:linear-gradient(90deg,var(--door-gilt) 0%,color-mix(in srgb,var(--door-gilt) 60%,transparent) 70%,transparent 100%);
   transform-origin:left;
-  animation:door-draw 1.4s var(--door-ease) .7s both;
+}
+@media (prefers-reduced-motion:no-preference){
+  .door-rule{animation:door-draw 1.4s var(--door-ease) .7s both}
 }
 .door-rule::before{
   content:"";
@@ -178,14 +194,6 @@
   background:linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 14%,transparent),color-mix(in srgb,var(--door-gilt) 5%,transparent));
   box-shadow:inset 0 1px 0 rgba(240,231,211,.08),0 2px 6px -3px rgba(0,0,0,.7);
   white-space:nowrap;
-  transition:border-color .3s var(--door-ease),background .3s var(--door-ease),transform .3s var(--door-ease);
-}
-@media (hover:hover){
-  .door-room:hover{
-    border-color:color-mix(in srgb,var(--door-gilt) 85%,var(--line));
-    background:linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 28%,transparent),color-mix(in srgb,var(--door-gilt) 10%,transparent));
-    transform:translateY(-1px);
-  }
 }
 /* The section's own engraving, ghosted into its plate: Doré's ladder under How it works, Dürer's Saint
    Jerome under The rooms. Tablets get the 900px bands backgrounds.css already names; desktops the side
@@ -201,25 +209,26 @@
     -webkit-mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
     mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
     mix-blend-mode:screen;
-    animation:door-ghost 18s ease-in-out infinite alternate;
   }
   .door-week::after{--door-ghost:var(--art-week-band)}
   .door-rooms::after{--door-ghost:var(--art-rooms-band)}
+  /* Doré's band is bright where the text runs on tablets: keep it fainter there so the rules stay legible. */
+  .door-week::after{opacity:.22}
   [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
 }
 @media (min-width:1024px){
   .door-week::after,.door-rooms::after{background-size:auto 120%}
+  .door-week::after{opacity:.4}
   .door-week::after{--door-ghost:var(--art-week-side)}
   .door-rooms::after{--door-ghost:var(--art-rooms-side)}
 }
-@keyframes door-ghost{
-  from{background-position:right 0 center;opacity:.3}
-  to{background-position:right -1.5rem center;opacity:.5}
-}
 @media (prefers-reduced-data:reduce){.door-week::after,.door-rooms::after{display:none}}
+/* Data saver: no plate, no light or motes, no ghosted engravings. */
+[data-save-data] .plate-ground{background-image:none;animation:none}
+[data-save-data] .plate-ground::before,[data-save-data] .plate-ground::after,
+[data-save-data] .door-week::after,[data-save-data] .door-rooms::after{display:none;background-image:none;animation:none}
 .door-aside{
   font-family:var(--font-display);
-  font-style:italic;
   font-size:1.15rem;
   color:var(--fg);
 }
@@ -238,7 +247,6 @@
     inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 14%,transparent),
     inset 0 1px 0 rgba(240,231,211,.07),
     0 14px 34px -18px rgba(0,0,0,.8);
-  transition:border-color .35s var(--door-ease),box-shadow .35s var(--door-ease),transform .35s var(--door-ease);
 }
 .door-hero::before,.door-week::before,.door-rooms::before,.door-side .card::before,.door-side #sign-in::before{
   content:"";
@@ -249,6 +257,9 @@
   opacity:.12;
   mix-blend-mode:overlay;
 }
+/* The grain and the ghosted engraving sit under the words, never over them. */
+.door-week::before,.door-rooms::before,.door-week::after,.door-rooms::after{z-index:0}
+.door-week>*,.door-rooms>*{position:relative;z-index:1}
 /* How it works: cooler ink under Doré's night sky. The rooms: the warmth of Jerome's study lamp. */
 .door-week{
   background:
@@ -260,9 +271,14 @@
   border-color:color-mix(in srgb,var(--door-gilt) 42%,var(--line));
   background:
     radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.5),transparent 62%),
-    radial-gradient(110% 75% at 0% 0%,color-mix(in srgb,var(--door-gilt) 24%,transparent),transparent 60%),
-    linear-gradient(170deg,color-mix(in srgb,#4a3418 50%,var(--card)) 0%,color-mix(in srgb,#2e2112 45%,var(--card)) 50%,color-mix(in srgb,#140e07 55%,var(--card)) 100%);
+    radial-gradient(110% 75% at 0% 0%,color-mix(in srgb,var(--door-gilt) 14%,transparent),transparent 60%),
+    linear-gradient(170deg,color-mix(in srgb,#4a3418 35%,var(--card)) 0%,color-mix(in srgb,#2e2112 45%,var(--card)) 50%,color-mix(in srgb,#140e07 55%,var(--card)) 100%);
 }
+/* Contrast over the plates and their ghosted engravings, measured on the lightest pixel behind the glyphs
+   from 375 to 1280: lighter body text on both lower plates (at least 4.8:1, where plain muted fell to 3.2:1
+   on the tablet engraving), and the rooms heading lifted a touch toward the ink (at least 4.5:1). */
+.door-week .door-what,.door-rooms .door-what{color:color-mix(in srgb,var(--fg) 35%,var(--muted))}
+.door-rooms .door-heading{color:color-mix(in srgb,var(--door-gilt) 82%,var(--fg))}
 [data-palette="parchment"] .door-week,[data-palette="parchment"] .door-rooms{background:var(--card)}
 .door-hero{
   border-color:color-mix(in srgb,var(--door-gilt) 55%,var(--line));
@@ -270,21 +286,29 @@
     radial-gradient(120% 80% at 0% 0%,color-mix(in srgb,var(--door-gilt) 22%,transparent),transparent 62%),
     linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 80%,var(--card)) 0%,var(--card) 50%,color-mix(in srgb,var(--bg) 40%,var(--card)) 100%);
 }
+/* The cards and room names can't be clicked, so they don't react to hover. The sign-in button glows the
+   same for pointer and keyboard, and never lifts; the global focus outline stays as it is. */
+.door-side .btn-primary:focus-visible{
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--door-gilt) 60%,transparent),0 8px 22px -10px rgba(240,231,211,.45);
+}
 @media (hover:hover){
-  .door-week:hover,.door-rooms:hover,.door-side .card:hover,.door-side #sign-in:hover{
-    border-color:color-mix(in srgb,var(--door-gilt) 70%,var(--line));
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 28%,transparent),
-      inset 0 1px 0 rgba(240,231,211,.1),
-      0 20px 40px -18px rgba(0,0,0,.85),
-      0 0 24px -6px color-mix(in srgb,var(--door-gilt) 25%,transparent);
-    transform:translateY(-2px);
-  }
   .door-side .btn-primary:hover{
     box-shadow:0 0 0 1px color-mix(in srgb,var(--door-gilt) 60%,transparent),0 8px 22px -10px rgba(240,231,211,.45);
-    transform:translateY(-1px);
   }
 }
 .door-side input{transition:border-color .25s var(--door-ease),box-shadow .25s var(--door-ease)}
 .door-side input:focus-visible{box-shadow:0 0 0 3px color-mix(in srgb,var(--door-gilt) 22%,transparent)}
-@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media (prefers-reduced-motion:no-preference){
+  html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"]){scroll-behavior:smooth}
+}
+
+/* Reduced motion: nothing on the door moves. backgrounds.css stops animations on every element and
+   pseudo-element; this names the door's own layers too, and pins their transforms flat. */
+@media (prefers-reduced-motion:reduce){
+  .plate-ground,.plate-ground::before,.plate-ground::after,
+  .door-week::after,.door-rooms::after,
+  .door-rule,
+  .door-hero,.door-side,.door-week,.door-rooms,
+  .door-room:hover,.door-week:hover,.door-rooms:hover,.door-side .card:hover,.door-side #sign-in:hover,
+  .door-side .btn-primary:hover,.door-side .btn-primary:focus-visible{animation:none!important;transform:none!important}
+}
