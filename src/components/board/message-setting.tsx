@@ -43,7 +43,24 @@ export function MessageSetting() {
     });
     return () => {
       cancelled = true;
-      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  // A choice still waiting out the arrow-key pause is saved, not dropped, when
+  // the member leaves: on unmount (Back, a route change) and on pagehide
+  // (closing or reloading the tab). The save uses fetch keepalive.
+  useEffect(() => {
+    const leave = () => {
+      if (timer.current) void latest.current();
+    };
+    window.addEventListener("pagehide", leave);
+    return () => {
+      window.removeEventListener("pagehide", leave);
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        void latest.current();
+      }
     };
   }, []);
 
@@ -80,6 +97,9 @@ export function MessageSetting() {
       setError(result.message);
     }
   }
+
+  const latest = useRef(flush);
+  latest.current = flush;
 
   function choose(next: MessageFrom) {
     if (value === null) return;
@@ -128,7 +148,9 @@ export function MessageSetting() {
                   value={choice.value}
                   checked={selected === choice.value}
                   aria-describedby={hintId}
-                  aria-disabled={value === null || pending || undefined}
+                  // Dimmed only while loading. A change made while a save is in
+                  // flight is queued and saved after it, in order.
+                  aria-disabled={value === null || undefined}
                   onChange={() => choose(choice.value)}
                 />
                 <span>{choice.label}</span>

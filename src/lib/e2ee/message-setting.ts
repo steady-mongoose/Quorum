@@ -51,7 +51,11 @@ export function parseMessageFrom(value: unknown): MessageFrom | null {
 }
 
 type Transport = {
-  post(path: string, body: unknown): Promise<{ status: number; body: unknown }>;
+  post(
+    path: string,
+    body: unknown,
+    options?: { keepalive?: boolean },
+  ): Promise<{ status: number; body: unknown }>;
   get(path: string): Promise<{ status: number; body: unknown }>;
 };
 
@@ -77,7 +81,8 @@ export async function saveMessageSetting(
   messageFrom: MessageFrom,
 ): Promise<Loaded> {
   return loaded(
-    await transport.post("/api/dm/settings", { messageFrom }),
+    // keepalive: a choice saved as the page closes still reaches the server.
+    await transport.post("/api/dm/settings", { messageFrom }, { keepalive: true }),
     "Your Messages setting was not saved.",
   );
 }

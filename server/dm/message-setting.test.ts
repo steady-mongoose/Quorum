@@ -367,6 +367,9 @@ test("the Messages setting sits in your own profile, with the three choices in p
   assert.match(view, /<p id=\{hintId\}/);
   assert.match(view, /role="alert" className="[^"]*text-danger/);
   assert.match(view, /SETTLE_MS/);
+  // Dimmed only while loading; saves are queued, not blocked.
+  assert.match(view, /aria-disabled=\{value === null \|\| undefined\}/);
+  assert.match(words, /\{ messageFrom \}, \{ keepalive: true \}/);
   assert.match(words, /saved: "Saved\. No one can message you\."/);
   const mailbox = readFileSync(
     new URL("../../src/components/board/encrypted-mailbox.tsx", import.meta.url),
@@ -374,8 +377,10 @@ test("the Messages setting sits in your own profile, with the three choices in p
   );
   assert.match(
     mailbox,
-    /messagesOff \? \(\s*<p className="text-sm text-muted">\{MESSAGES_OFF\}<\/p>/,
+    /messagesOff === null \? null : messagesOff \? \(\s*<p className="text-sm text-muted">\{MESSAGES_OFF\}<\/p>/,
   );
+  // Unknown until the setting loads, so the composer never flashes.
+  assert.match(mailbox, /useState<boolean \| null>\(null\)/);
   assert.match(view, /type="radio"/);
   assert.equal(/like|score|count/i.test(words.replace(/couldn't|can't/g, "")), false);
 });

@@ -42,12 +42,14 @@ type OpenedMessages = NonNullable<VaultState["opened"]>;
 
 export function browserTransport(): DmTransport {
   return {
-    async post(path, body) {
+    async post(path, body, options) {
       const response = await apiFetch(path, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        // keepalive lets a save finish while the page is going away.
+        ...(options?.keepalive ? { keepalive: true } : {}),
       });
       return { status: response.status, body: await response.json().catch(() => null) };
     },

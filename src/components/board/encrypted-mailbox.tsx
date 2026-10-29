@@ -90,13 +90,16 @@ export function EncryptedMailbox() {
   const [blocked, setBlocked] = useState<{ id: string; name: string }[]>([]);
   const [confirmBlock, setConfirmBlock] = useState(false);
   // "No one" closes your own composer too; your conversations stay to read.
-  const [messagesOff, setMessagesOff] = useState(false);
+  // null until the setting loads: neither the composer nor the note shows, so a
+  // "No one" owner never sees the composer flash.
+  const [messagesOff, setMessagesOff] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!me?.id || !active?.id) return;
     let cancelled = false;
     void readMessageSetting(transport).then((result) => {
-      if (!cancelled && result.ok) setMessagesOff(result.messageFrom === "none");
+      // If it can't load, show the composer: the server still refuses if needed.
+      if (!cancelled) setMessagesOff(result.ok && result.messageFrom === "none");
     });
     return () => {
       cancelled = true;
@@ -532,7 +535,7 @@ export function EncryptedMailbox() {
             browser.
           </p>
         ) : null}
-        {messagesOff ? (
+        {messagesOff === null ? null : messagesOff ? (
           <p className="text-sm text-muted">{MESSAGES_OFF}</p>
         ) : (
           <form
