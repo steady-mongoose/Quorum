@@ -14,7 +14,15 @@ import {
   openThread,
   postMessage,
 } from "./store.ts";
-import { readMessageFrom, saveMessageFrom } from "./message-setting.ts";
+import {
+  SETTING_NOT_READY,
+  markWrote,
+  missingColumn,
+  readMessageFrom,
+  saveMessageFrom,
+} from "./message-setting.ts";
+import { DM_FAILED } from "./routes.ts";
+import { dmCallMember } from "../calls/dm-membership.ts";
 import { MESSAGES_OFF, NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
 
 const now = new Date("2026-10-29T12:00:00.000Z");
@@ -109,6 +117,21 @@ test("migration 0046 applies twice, defaults to rooms, and refuses other values"
        where conname = 'members_message_from_check'`,
     );
     assert.equal(checks.rows.length, 1, "one check constraint after two runs");
+    const validated = await pg.query<{ convalidated: boolean }>(
+      `select convalidated from pg_constraint where conname = 'members_message_from_check'`,
+    );
+    assert.equal(validated.rows[0]?.convalidated, true, "added NOT VALID, then validated");
+    assert.match(sql, /set local lock_timeout/);
+    assert.match(sql, /not valid;\s*alter table members validate constraint/);
+    const markers = await pg.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_name = 'dm_thread' and column_name like 'user\\__\\_wrote_at'
+       order by column_name`,
+    );
+    assert.deepEqual(
+      markers.rows.map((row) => row.column_name),
+      ["user_a_wrote_at", "user_b_wrote_at"],
+    );
     const anna = await member(db, "Anna");
     await db.query(`insert into members (user_id, display_name) values ($1, 'Anna')`, [anna]);
     assert.equal(await readMessageFrom(db, anna), "rooms");
@@ -291,8 +314,24 @@ test("before migration 0046 is applied, everyone has the default and messaging s
     const anna = await member(db, "Anna");
     const ben = await member(db, "Ben");
     await db.query(`alter table members drop column message_from`);
+    await db.query(`alter table dm_thread drop column user_a_wrote_at`);
+    await db.query(`alter table dm_thread drop column user_b_wrote_at`);
     assert.equal(await readMessageFrom(db, anna), "rooms");
     assert.equal((await mayMessage(db, ben, anna, now, { starting: true })).ok, true);
+    // Sending still works: there is just no marker to keep yet.
+    const thread = await openThread(db, ben, anna, now);
+    assert.equal(thread.ok, true);
+    if (thread.ok) await markWroteOrSkip(db, thread.value.id, ben);
+
+    // The route reads the default and says plainly that saving must wait.
+    const handler = app(db);
+    const read = await send(handler, anna, "/api/dm/settings", "GET");
+    assert.deepEqual([read.status, JSON.parse(read.text)], [200, { messageFrom: "rooms" }]);
+    const save = await send(handler, anna, "/api/dm/settings", "POST", { messageFrom: "none" });
+    assert.equal(save.status, 503);
+    assert.deepEqual(JSON.parse(save.text), { error: SETTING_NOT_READY });
+    assert.equal(SETTING_NOT_READY, "Can't save this setting yet. Try again later.");
+    assert.doesNotMatch(save.text, /column|relation|members/);
   } finally {
     await close();
   }
@@ -324,6 +363,10 @@ test("the Messages setting sits in your own profile, with the three choices in p
   assert.match(words, /MESSAGE_SETTING_LEGEND = "Who can message you"/);
   assert.ok(words.includes("This member isn't taking messages right now."));
   assert.match(view, /aria-disabled=/);
+  assert.match(view, /aria-describedby=\{hintId\}/);
+  assert.match(view, /<p id=\{hintId\}/);
+  assert.match(view, /role="alert" className="[^"]*text-danger/);
+  assert.match(view, /SETTLE_MS/);
   assert.match(words, /saved: "Saved\. No one can message you\."/);
   const mailbox = readFileSync(
     new URL("../../src/components/board/encrypted-mailbox.tsx", import.meta.url),
@@ -401,8 +444,12 @@ test("No one closes your own writing too, and your conversations stay readable",
     const read = await sendRawGet(handler, anna, `/api/dm/threads/${opened.value.id}/messages`);
     assert.equal(read.status, 200);
 
+    // Nor can Anna start a DM call in it.
+    assert.equal((await dmCallMember(db, anna, opened.value.id, now)).kind, "outsider");
+
     await saveMessageFrom(db, anna, "rooms");
     assert.equal((await mayMessage(db, anna, ben, now)).ok, true);
+    assert.equal((await dmCallMember(db, anna, opened.value.id, now)).kind, "member");
   } finally {
     await close();
   }
@@ -509,4 +556,123 @@ async function written(db: Db, threadId: string, senderId: string) {
      ) values ($1, $2, $3, 'n', 'c', 's', $4, $5)`,
     [randomUUID(), threadId, senderId, now, new Date(now.getTime() + 30 * 86_400_000)],
   );
+  // postMessage keeps the lasting marker the same way.
+  await markWrote(db, threadId, senderId, now);
 }
+
+/** markWrote, tolerating a database without migration 0046. */
+async function markWroteOrSkip(db: Db, threadId: string, senderId: string) {
+  try {
+    await markWrote(db, threadId, senderId, now);
+  } catch (error) {
+    if (!missingColumn(error)) throw error;
+  }
+}
+
+test("messaged before lasts after the messages expire, and the migration backfills it", async () => {
+  const { db, pg, close } = await openTestDb();
+  try {
+    const anna = await member(db, "Anna");
+    const ben = await member(db, "Ben");
+    const cal = await member(db, "Cal");
+    const withBen = await openThread(db, ben, anna, now);
+    const withCal = await openThread(db, cal, anna, now);
+    assert.ok(withBen.ok && withCal.ok);
+    if (!withBen.ok || !withCal.ok) return;
+    await written(db, withBen.value.id, ben);
+    await written(db, withBen.value.id, anna);
+    await written(db, withCal.value.id, cal);
+    await saveMessageFrom(db, anna, "conversations");
+    assert.equal((await mayMessage(db, ben, anna, now)).ok, true);
+
+    // Every message expires and is swept: Anna wrote to Ben, and that still counts.
+    await db.query(`delete from dm_message`);
+    assert.equal((await mayMessage(db, ben, anna, now)).ok, true);
+    assert.deepEqual(await mayMessage(db, cal, anna, now), {
+      ok: false,
+      status: 403,
+      error: NOT_TAKING_MESSAGES,
+    });
+
+    // Backfill: messages that exist when 0046 runs set the markers.
+    await db.query(`update dm_thread set user_a_wrote_at = null, user_b_wrote_at = null`);
+    for (const [thread, sender] of [
+      [withBen.value.id, ben],
+      [withBen.value.id, anna],
+      [withCal.value.id, cal],
+    ] as const) {
+      await db.query(
+        `insert into dm_message (
+           id, thread_id, sender_user_id, body_nonce, body_ciphertext, body_sig, created_at, expires_at
+         ) values ($1, $2, $3, 'n', 'c', 's', $4, $5)`,
+        [randomUUID(), thread, sender, daysAgo(2), new Date(now.getTime() + DAY)],
+      );
+    }
+    const sql = readFileSync(MIGRATION, "utf8");
+    await pg.exec(sql);
+    await pg.exec(sql);
+    assert.equal((await mayMessage(db, ben, anna, now)).ok, true);
+    assert.equal((await mayMessage(db, cal, anna, now)).ok, false);
+    const marks = await db.query<{ id: string; a: Date | null; b: Date | null }>(
+      `select id, user_a_wrote_at as a, user_b_wrote_at as b from dm_thread where id = $1`,
+      [withCal.value.id],
+    );
+    const calIsA = cal < anna;
+    assert.equal((calIsA ? marks[0]?.a : marks[0]?.b) !== null, true, "Cal wrote");
+    assert.equal(calIsA ? marks[0]?.b : marks[0]?.a, null, "Anna never wrote to Cal");
+  } finally {
+    await close();
+  }
+});
+
+test("a DM route never shows a raw database error", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const anna = await member(db, "Anna");
+    const broken: Db = {
+      ...db,
+      query: (text, params) =>
+        /from members/.test(text)
+          ? Promise.reject(new Error('relation "members" secret detail'))
+          : db.query(text, params),
+    } as Db;
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const response = await send(app(broken), anna, "/api/dm/settings", "GET");
+      assert.equal(response.status, 500);
+      assert.deepEqual(JSON.parse(response.text), { error: DM_FAILED });
+      assert.doesNotMatch(response.text, /relation|secret/);
+    } finally {
+      console.error = original;
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("key previews are rate-limited the same way for a block and the setting", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const blocker = await member(db, "Blocker");
+    const quiet = await member(db, "Quiet");
+    const toBlocker = await member(db, "CallerOne");
+    const toQuiet = await member(db, "CallerTwo");
+    await blockMember(db, blocker, toBlocker, now);
+    await saveMessageFrom(db, quiet, "none");
+    for (const [caller, target] of [
+      [toBlocker, blocker],
+      [toQuiet, quiet],
+    ]) {
+      const seen: number[] = [];
+      for (let i = 0; i < 61; i += 1) {
+        seen.push((await send(handler, caller, `/api/dm/keys?userId=${target}`, "GET")).status);
+      }
+      assert.ok(seen.slice(0, 60).every((status) => status === 403));
+      assert.equal(seen[60], 429);
+    }
+  } finally {
+    await close();
+  }
+});

@@ -4,8 +4,11 @@ import { guardRoomAudience } from "../board/audience.ts";
 import { requireRoomMember } from "../chat/store.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
-import { MESSAGES_OFF, NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
-import { messageSettings } from "./message-setting.ts";
+import {
+  MESSAGES_OFF,
+  NOT_TAKING_MESSAGES,
+} from "../../src/lib/e2ee/message-setting.ts";
+import { markWrote, messageSettings, missingColumn } from "./message-setting.ts";
 import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
@@ -1134,6 +1137,12 @@ export async function postMessage(
     }
     if (isUniqueViolation(error)) return fail(409, "That message was already sent.");
     throw error;
+  }
+  try {
+    await markWrote(db, threadId, userId, now);
+  } catch (error) {
+    // Before migration 0046 is applied there is no marker to keep.
+    if (!missingColumn(error)) throw error;
   }
   return { ok: true, value: { id: message.messageId } };
 }

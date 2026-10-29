@@ -5,6 +5,9 @@ import type { AppDeps } from "../http.ts";
 import {
   DM_BUNDLE_LIMIT,
   DM_BUNDLE_TARGET_LIMIT,
+  DM_KEYS_LIMIT,
+  DM_KEYS_TARGET_LIMIT,
+  DM_OPEN_LIMIT,
   DM_REPORT_LIMIT,
   DM_SEND_LIMIT,
   consumeLimit,
@@ -61,6 +64,9 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   }
   return body as Record<string, unknown>;
 }
+
+/** Generic words for any unexpected failure under /api/dm. */
+export const DM_FAILED = "Something went wrong. Try again.";
 
 function tooMany(retryAfter: number): Response {
   return json(
@@ -205,12 +211,17 @@ export async function handleDm(
     await sweepIfDue(deps.db, deps.now());
     return await dispatch(deps, request, url, session.id);
   } catch (error) {
-    const status =
-      error && typeof error === "object" && "status" in error ? Number(error.status) : 400;
     if (error instanceof SyntaxError) return json(400, { error: "Send JSON." });
-    const message = error instanceof Error ? error.message : "Send JSON.";
-    if (status === 413 || status === 400) return json(status, { error: message });
-    throw error;
+    // Only errors this file raises on purpose carry a status and words meant for
+    // members. Anything else (a database error, say) gets generic words, never
+    // its raw message.
+    const status =
+      error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+    if ((status === 413 || status === 400) && error instanceof Error) {
+      return json(status, { error: error.message });
+    }
+    console.error("dm route failed", error);
+    return json(500, { error: DM_FAILED });
   }
 }
 
@@ -316,12 +327,22 @@ async function dispatch(
   }
 
   if (path === "/api/dm/keys" && method === "GET") {
-    const preview = await previewBundle(
+    const target = url.searchParams.get("userId") ?? "";
+    const limit = await consumeLimit(
       deps.db,
-      userId,
-      url.searchParams.get("userId") ?? "",
-      deps.now(),
+      `dm-keys:${userId}`,
+      DM_KEYS_LIMIT,
+      deps.now().getTime(),
     );
+    if (!limit.allowed) return tooMany(limit.retryAfter);
+    const perTarget = await consumeLimit(
+      deps.db,
+      `dm-keys:${userId}:${target.slice(0, 64)}`,
+      DM_KEYS_TARGET_LIMIT,
+      deps.now().getTime(),
+    );
+    if (!perTarget.allowed) return tooMany(perTarget.retryAfter);
+    const preview = await previewBundle(deps.db, userId, target, deps.now());
     if (!preview.ok) return json(preview.status, { error: preview.error });
     return json(200, preview.value);
   }
@@ -401,6 +422,13 @@ async function dispatch(
     return json(200, { threads: await listThreads(deps.db, userId) });
   }
   if (path === "/api/dm/threads" && method === "POST") {
+    const limit = await consumeLimit(
+      deps.db,
+      `dm-open:${userId}`,
+      DM_OPEN_LIMIT,
+      deps.now().getTime(),
+    );
+    if (!limit.allowed) return tooMany(limit.retryAfter);
     const opened = await openThread(
       deps.db,
       userId,
