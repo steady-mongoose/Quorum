@@ -154,3 +154,20 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.18em;
   color: var(--color-muted);
 }
+
+/*
+ * A heading that script moves focus to (tabIndex -1), such as #authenticator after
+ * "Turn it on under You" or "Set it up", or a section heading after Try again.
+ * Programmatic focus does not always match :focus-visible, so the ring is on :focus.
+ * Team ring: bone on the dark plate, ink on parchment, 2px offset. Unlayered so it
+ * outranks the plate's own :focus-visible rule in backgrounds.css.
+ */
+.focus-target:focus {
+  outline: 2px solid #f0e7d3;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+[data-palette="parchment"] .focus-target:focus {
+  outline-color: #1f1912;
+}
