@@ -9,10 +9,14 @@ import {
   fetchGroupRequests,
   fetchGroups,
   GROUP_INVITE_ONLY,
+  GROUP_PAGE_WAIT,
+  GROUP_REQUESTS_WAIT,
+  GROUP_SET_UP,
   postGroup,
   runByLine,
   type GroupAppealRow,
   type GroupDetail,
+  type GroupFailure,
   type GroupInviteRow,
   type GroupPostRow,
   type GroupRemovalRow,
@@ -31,7 +35,7 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
  * A group admin marks or removes. A steward upholds or lifts an appeal.
  * Nothing here is ranked.
  */
-export function GroupsView() {
+export function GroupsView({ onSetUp }: { onSetUp?: () => void } = {}) {
   const remote = useBoard((state) => state.remote);
   const home = useBoard((state) => state.home);
   const steward = useBoard((state) => state.steward);
@@ -54,9 +58,15 @@ export function GroupsView() {
             id={openId}
             canDecide={steward || admin}
             onBack={() => setOpenId(null)}
+            onSetUp={onSetUp}
           />
         ) : (
-          <GroupList home={home} canDecide={steward || admin} onOpen={setOpenId} />
+          <GroupList
+            home={home}
+            canDecide={steward || admin}
+            onOpen={setOpenId}
+            onSetUp={onSetUp}
+          />
         )
       ) : (
         <p className="max-w-prose text-base text-muted">
@@ -76,6 +86,74 @@ function FormAlert({ message }: { message: string }) {
   );
 }
 
+/**
+ * Why a section could not load, said inside that section and never as a page alert.
+ * "gate": no authenticator yet; the place's own sentence and a way to turn it on.
+ * "wait": a code is needed or attempts are locked; the server's own sentence.
+ * "error": anything else; plain danger text and Try again.
+ */
+type LoadNote = { kind: "gate" | "wait" | "error"; text: string } | null;
+
+function loadNote(failure: GroupFailure, gateText: string): LoadNote {
+  if (failure.mfa === "enroll") return { kind: "gate", text: gateText };
+  if (failure.mfa === "verify") return { kind: "wait", text: failure.error };
+  return { kind: "error", text: failure.error };
+}
+
+/** Focus the Authenticator heading under You once it is on the page. */
+function focusAuthenticator(triesLeft = 40) {
+  const heading = document.getElementById("authenticator");
+  if (heading) {
+    heading.focus();
+    heading.scrollIntoView?.({ block: "start" });
+    return;
+  }
+  if (triesLeft > 0) window.setTimeout(() => focusAuthenticator(triesLeft - 1), 50);
+}
+
+function SectionNote({
+  note,
+  onRetry,
+  onSetUp,
+}: {
+  note: LoadNote;
+  onRetry: () => void;
+  onSetUp?: () => void;
+}) {
+  if (!note) return null;
+  if (note.kind === "error") {
+    return (
+      <p className="flex flex-wrap items-center gap-x-3 text-sm text-[#f0b4a4]">
+        <span>{note.text}</span>
+        <button
+          type="button"
+          className="min-h-[44px] underline underline-offset-4"
+          onClick={onRetry}
+        >
+          Try again
+        </button>
+      </p>
+    );
+  }
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 text-sm text-muted">
+      <span>{note.text}</span>
+      {note.kind === "gate" ? (
+        <button
+          type="button"
+          className="min-h-[44px] text-fg underline underline-offset-4"
+          onClick={() => {
+            onSetUp?.();
+            focusAuthenticator();
+          }}
+        >
+          {GROUP_SET_UP}
+        </button>
+      ) : null}
+    </p>
+  );
+}
+
 const NO_ROOMS: { id: string; name: string }[] = [];
 
 function joinedRooms(home: HomePayload | null): { id: string; name: string }[] {
@@ -88,15 +166,17 @@ function GroupList({
   home,
   canDecide,
   onOpen,
+  onSetUp,
 }: {
   home: HomePayload | null;
   canDecide: boolean;
   onOpen: (id: string) => void;
+  onSetUp?: () => void;
 }) {
   const [groups, setGroups] = useState<GroupSummary[] | null>(null);
   const [requests, setRequests] = useState<GroupRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
-  const [requestsNote, setRequestsNote] = useState("");
+  const [requestsNote, setRequestsNote] = useState<LoadNote>(null);
   const [rowError, setRowError] = useState("");
   const [rowId, setRowId] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -107,15 +187,16 @@ function GroupList({
     void (async () => {
       const [listed, asked] = await Promise.all([fetchGroups(), fetchGroupRequests()]);
       if (cancel) return;
+      // The page alert is only for the group list itself failing.
       if (!listed.ok) {
         setLoadError(listed.error);
         return;
       }
+      setLoadError("");
       setGroups(listed.value);
       setRequests(asked.ok ? asked.value : []);
-      // An authenticator gate on the requests queue is a quiet note in that section.
-      setRequestsNote(!asked.ok && asked.mfa ? asked.error : "");
-      setLoadError(asked.ok || asked.mfa ? "" : asked.error);
+      // A failed requests load is said inside that section, never as a page alert.
+      setRequestsNote(asked.ok ? null : loadNote(asked, GROUP_REQUESTS_WAIT));
     })();
     return () => {
       cancel = true;
@@ -187,6 +268,7 @@ function GroupList({
         note={requestsNote}
         canDecide={canDecide}
         onSaved={() => setTick((value) => value + 1)}
+        onSetUp={onSetUp}
       />
     </div>
   );
@@ -277,18 +359,26 @@ function RequestDecisions({
   note,
   canDecide,
   onSaved,
+  onSetUp,
 }: {
   requests: GroupRequestRow[];
-  note: string;
+  note: LoadNote;
   canDecide: boolean;
   onSaved: () => void;
+  onSetUp?: () => void;
 }) {
   const open = requests.filter((request) => request.status === "open");
   if (open.length === 0 && !note) return null;
   return (
     <details open className="max-w-xl rounded-lg border border-line bg-surface p-4">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg">Decide</summary>
-      {note ? <p className="mt-3 text-sm text-muted">{note}</p> : null}
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg">
+        {canDecide ? "Decide" : "Your requests"}
+      </summary>
+      {note ? (
+        <div className="mt-3">
+          <SectionNote note={note} onRetry={onSaved} onSetUp={onSetUp} />
+        </div>
+      ) : null}
       {open.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-4">
           {open.map((request) => (
@@ -375,14 +465,18 @@ function GroupDetailView({
   id,
   canDecide,
   onBack,
+  onSetUp,
 }: {
   id: string;
   canDecide: boolean;
   onBack: () => void;
+  onSetUp?: () => void;
 }) {
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [appeals, setAppeals] = useState<GroupAppealRow[]>([]);
-  const [appealsNote, setAppealsNote] = useState("");
+  const [appealsNote, setAppealsNote] = useState<LoadNote>(null);
+  // No authenticator yet: invites and appeals give way to one note.
+  const [invitesGated, setInvitesGated] = useState(false);
   const [error, setError] = useState("");
   const [body, setBody] = useState("");
   const [on, setOn] = useState("");
@@ -399,16 +493,17 @@ function GroupDetailView({
     void (async () => {
       const [loaded, asked] = await Promise.all([fetchGroup(id), fetchGroupAppeals()]);
       if (cancel) return;
+      // The page alert is only for the group itself failing to load.
       if (!loaded.ok) {
         setError(loaded.error);
         setDetail(null);
         return;
       }
+      setError("");
       setDetail(loaded.value);
       setAppeals(asked.ok ? asked.value.filter((appeal) => appeal.groupId === id) : []);
-      // An authenticator gate on the appeals queue is a quiet note in that section.
-      setAppealsNote(!asked.ok && asked.mfa ? asked.error : "");
-      setError(asked.ok || asked.mfa ? "" : asked.error);
+      // A failed appeals load is said inside that section, never as a page alert.
+      setAppealsNote(asked.ok ? null : loadNote(asked, GROUP_PAGE_WAIT));
     })();
     return () => {
       cancel = true;
@@ -454,6 +549,10 @@ function GroupDetailView({
   const canPost = Boolean(detail && (detail.group.joined || detail.group.admin));
   const canModerate = Boolean(detail && (detail.group.admin || canDecide));
   const openAppeals = appeals.filter((appeal) => appeal.status === "open");
+  const gated =
+    Boolean(detail) &&
+    ((canDecide && appealsNote?.kind === "gate") ||
+      (Boolean(detail?.group.canInvite) && invitesGated));
 
   return (
     <div className="flex flex-col gap-6">
@@ -517,7 +616,20 @@ function GroupDetailView({
               ) : null}
             </div>
           )}
-          {detail.group.canInvite ? <InviteForm groupId={id} /> : null}
+          {gated ? (
+            <section className="flex max-w-xl flex-col gap-3" aria-labelledby="group-running-heading">
+              <h3 id="group-running-heading" className="text-xl text-fg">
+                Running this group
+              </h3>
+              <SectionNote
+                note={{ kind: "gate", text: GROUP_PAGE_WAIT }}
+                onRetry={reload}
+                onSetUp={onSetUp}
+              />
+            </section>
+          ) : detail.group.canInvite ? (
+            <InviteForm groupId={id} onGated={() => setInvitesGated(true)} />
+          ) : null}
           <ul className="flex max-w-2xl flex-col gap-4">
             {detail.posts.map((post) => (
               <PostRow
@@ -543,10 +655,10 @@ function GroupDetailView({
               Older
             </button>
           ) : null}
-          {canDecide && (openAppeals.length > 0 || appealsNote) ? (
+          {canDecide && !gated && (openAppeals.length > 0 || appealsNote) ? (
             <section className="flex max-w-xl flex-col gap-3">
               <h3 className="text-2xl text-fg">Appeals</h3>
-              {appealsNote ? <p className="text-sm text-muted">{appealsNote}</p> : null}
+              <SectionNote note={appealsNote} onRetry={reload} onSetUp={onSetUp} />
               {openAppeals.length > 0 ? (
                 <ul className="flex flex-col gap-4">
                   {openAppeals.map((appeal) => (
@@ -889,7 +1001,7 @@ function inviteDate(at: number): string {
 }
 
 /** Group admins and stewards invite a member by email, and revoke an open invite. */
-function InviteForm({ groupId }: { groupId: string }) {
+function InviteForm({ groupId, onGated }: { groupId: string; onGated?: () => void }) {
   const [invites, setInvites] = useState<GroupInviteRow[] | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -897,10 +1009,13 @@ function InviteForm({ groupId }: { groupId: string }) {
   const [note, setNote] = useState("");
   const [listError, setListError] = useState("");
   const [listNote, setListNote] = useState("");
+  const [revokeError, setRevokeError] = useState("");
   const [revoking, setRevoking] = useState<GroupInviteRow | null>(null);
   const [tick, setTick] = useState(0);
   const fieldRef = useRef<HTMLInputElement>(null);
   const openRef = useRef<HTMLHeadingElement>(null);
+  const gatedRef = useRef(onGated);
+  gatedRef.current = onGated;
 
   useEffect(() => {
     let cancel = false;
@@ -908,12 +1023,24 @@ function InviteForm({ groupId }: { groupId: string }) {
       const loaded = await fetchGroupInvites(groupId);
       if (cancel) return;
       if (!loaded.ok) {
-        // An authenticator gate on the invite list is a quiet note, not an alert.
-        if (loaded.mfa) setListNote(loaded.error);
-        else setListError(loaded.error);
+        // No authenticator yet: the group page shows one note instead of this section.
+        if (loaded.mfa === "enroll") {
+          gatedRef.current?.();
+          return;
+        }
+        // A code or a wait is the server's own quiet sentence; anything else is plain
+        // danger text with Try again. Neither is an alert.
+        if (loaded.mfa) {
+          setListError("");
+          setListNote(loaded.error);
+        } else {
+          setListNote("");
+          setListError(loaded.error);
+        }
         return;
       }
       setListNote("");
+      setListError("");
       setInvites(loaded.value);
     })();
     return () => {
@@ -944,12 +1071,12 @@ function InviteForm({ groupId }: { groupId: string }) {
   async function revoke(invite: GroupInviteRow) {
     if (busy) return;
     setBusy(true);
-    setListError("");
+    setRevokeError("");
     setNote("");
     const saved = await postGroup(`/api/groups/${groupId}/invites/${invite.id}/revoke`, {});
     setBusy(false);
     if (!saved.ok) {
-      setListError(saved.error);
+      setRevokeError(saved.error);
       return;
     }
     setNote("Invite revoked.");
@@ -997,8 +1124,11 @@ function InviteForm({ groupId }: { groupId: string }) {
       <h3 ref={openRef} tabIndex={-1} className="text-xl text-fg">
         Open invites
       </h3>
-      <FormAlert message={listError} />
-      {listNote ? <p className="text-sm text-muted">{listNote}</p> : null}
+      <SectionNote
+        note={listError ? { kind: "error", text: listError } : listNote ? { kind: "wait", text: listNote } : null}
+        onRetry={() => setTick((value) => value + 1)}
+      />
+      <FormAlert message={revokeError} />
       {invites !== null && invites.length === 0 ? (
         <p className="text-sm text-muted">No open invites.</p>
       ) : null}

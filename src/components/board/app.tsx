@@ -258,7 +258,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
       {!entered && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
-      {entered && shown === "groups" && <GroupsView />}
+      {entered && shown === "groups" && <GroupsView onSetUp={() => openSection("profile")} />}
       {entered && shown === "find" && <FindView />}
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}

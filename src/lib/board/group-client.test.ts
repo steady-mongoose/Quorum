@@ -163,7 +163,7 @@ test("an authenticator 403 on a load keeps the server's sentence and is flagged"
       assert.deepEqual(loaded, {
         ok: false,
         error: "Turn on an authenticator before using this.",
-        mfa: true,
+        mfa: "enroll",
       });
     }
   } finally {
@@ -181,13 +181,28 @@ test("groupFailure reads the server's sentence from error, then message, then fa
   assert.deepEqual(groupFailure({ error: "oops" }, "fallback here"), { error: "fallback here" });
   assert.deepEqual(groupFailure(null, "fallback here"), { error: "fallback here" });
   assert.deepEqual(groupFailure({ error: "banned" }, "x"), { error: "You are barred from that group." });
-  assert.deepEqual(groupFailure({ error: "mfa_required" }, "x"), { error: GROUP_MFA_NEEDED, mfa: true });
+  assert.deepEqual(groupFailure({ error: "mfa_required" }, "x"), { error: GROUP_MFA_NEEDED, mfa: "enroll" });
   assert.deepEqual(
     groupFailure(
       { error: "mfa_required", message: "Enter the authenticator code to finish signing in." },
       "x",
     ),
-    { error: "Enter the authenticator code to finish signing in.", mfa: true },
+    { error: "Enter the authenticator code to finish signing in.", mfa: "verify" },
+  );
+  assert.deepEqual(
+    groupFailure(
+      { error: "mfa_required", message: "Turn on an authenticator before using this.", step: "enroll" },
+      "x",
+    ),
+    { error: GROUP_MFA_NEEDED, mfa: "enroll" },
+  );
+  assert.deepEqual(
+    groupFailure({ error: "mfa_step_up", message: "Enter your authenticator code first." }, "x"),
+    { error: "Enter your authenticator code first.", mfa: "verify" },
+  );
+  assert.deepEqual(
+    groupFailure({ error: "mfa_locked", message: "Too many attempts. Wait and try again." }, "x"),
+    { error: "Too many attempts. Wait and try again.", mfa: "verify" },
   );
 });
 
