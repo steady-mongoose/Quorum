@@ -96,6 +96,7 @@ function GroupList({
   const [groups, setGroups] = useState<GroupSummary[] | null>(null);
   const [requests, setRequests] = useState<GroupRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [requestsNote, setRequestsNote] = useState("");
   const [rowError, setRowError] = useState("");
   const [rowId, setRowId] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -112,7 +113,9 @@ function GroupList({
       }
       setGroups(listed.value);
       setRequests(asked.ok ? asked.value : []);
-      setLoadError(asked.ok ? "" : asked.error);
+      // An authenticator gate on the requests queue is a quiet note in that section.
+      setRequestsNote(!asked.ok && asked.mfa ? asked.error : "");
+      setLoadError(asked.ok || asked.mfa ? "" : asked.error);
     })();
     return () => {
       cancel = true;
@@ -181,6 +184,7 @@ function GroupList({
       <RequestGroup rooms={joinedRooms(home)} onSaved={() => setTick((value) => value + 1)} />
       <RequestDecisions
         requests={requests}
+        note={requestsNote}
         canDecide={canDecide}
         onSaved={() => setTick((value) => value + 1)}
       />
@@ -270,23 +274,28 @@ function RequestGroup({
 
 function RequestDecisions({
   requests,
+  note,
   canDecide,
   onSaved,
 }: {
   requests: GroupRequestRow[];
+  note: string;
   canDecide: boolean;
   onSaved: () => void;
 }) {
   const open = requests.filter((request) => request.status === "open");
-  if (open.length === 0) return null;
+  if (open.length === 0 && !note) return null;
   return (
     <details open className="max-w-xl rounded-lg border border-line bg-surface p-4">
       <summary className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg">Decide</summary>
-      <ul className="mt-3 flex flex-col gap-4">
-        {open.map((request) => (
-          <RequestRow key={request.id} request={request} canDecide={canDecide} onSaved={onSaved} />
-        ))}
-      </ul>
+      {note ? <p className="mt-3 text-sm text-muted">{note}</p> : null}
+      {open.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-4">
+          {open.map((request) => (
+            <RequestRow key={request.id} request={request} canDecide={canDecide} onSaved={onSaved} />
+          ))}
+        </ul>
+      ) : null}
     </details>
   );
 }
@@ -373,6 +382,7 @@ function GroupDetailView({
 }) {
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [appeals, setAppeals] = useState<GroupAppealRow[]>([]);
+  const [appealsNote, setAppealsNote] = useState("");
   const [error, setError] = useState("");
   const [body, setBody] = useState("");
   const [on, setOn] = useState("");
@@ -396,7 +406,9 @@ function GroupDetailView({
       }
       setDetail(loaded.value);
       setAppeals(asked.ok ? asked.value.filter((appeal) => appeal.groupId === id) : []);
-      setError(asked.ok ? "" : asked.error);
+      // An authenticator gate on the appeals queue is a quiet note in that section.
+      setAppealsNote(!asked.ok && asked.mfa ? asked.error : "");
+      setError(asked.ok || asked.mfa ? "" : asked.error);
     })();
     return () => {
       cancel = true;
@@ -531,14 +543,17 @@ function GroupDetailView({
               Older
             </button>
           ) : null}
-          {canDecide && openAppeals.length > 0 ? (
+          {canDecide && (openAppeals.length > 0 || appealsNote) ? (
             <section className="flex max-w-xl flex-col gap-3">
               <h3 className="text-2xl text-fg">Appeals</h3>
-              <ul className="flex flex-col gap-4">
-                {openAppeals.map((appeal) => (
-                  <AppealDecision key={appeal.id} appeal={appeal} onChanged={() => void reload()} />
-                ))}
-              </ul>
+              {appealsNote ? <p className="text-sm text-muted">{appealsNote}</p> : null}
+              {openAppeals.length > 0 ? (
+                <ul className="flex flex-col gap-4">
+                  {openAppeals.map((appeal) => (
+                    <AppealDecision key={appeal.id} appeal={appeal} onChanged={() => void reload()} />
+                  ))}
+                </ul>
+              ) : null}
             </section>
           ) : null}
         </>
@@ -881,6 +896,7 @@ function InviteForm({ groupId }: { groupId: string }) {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [listError, setListError] = useState("");
+  const [listNote, setListNote] = useState("");
   const [revoking, setRevoking] = useState<GroupInviteRow | null>(null);
   const [tick, setTick] = useState(0);
   const fieldRef = useRef<HTMLInputElement>(null);
@@ -892,9 +908,12 @@ function InviteForm({ groupId }: { groupId: string }) {
       const loaded = await fetchGroupInvites(groupId);
       if (cancel) return;
       if (!loaded.ok) {
-        setListError(loaded.error);
+        // An authenticator gate on the invite list is a quiet note, not an alert.
+        if (loaded.mfa) setListNote(loaded.error);
+        else setListError(loaded.error);
         return;
       }
+      setListNote("");
       setInvites(loaded.value);
     })();
     return () => {
@@ -979,6 +998,7 @@ function InviteForm({ groupId }: { groupId: string }) {
         Open invites
       </h3>
       <FormAlert message={listError} />
+      {listNote ? <p className="text-sm text-muted">{listNote}</p> : null}
       {invites !== null && invites.length === 0 ? (
         <p className="text-sm text-muted">No open invites.</p>
       ) : null}
