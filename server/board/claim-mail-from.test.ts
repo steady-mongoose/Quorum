@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sendHoldAlert, sendTextEmail } from "./alert-mail.ts";
-import { CLAIM_REPLY_TO, claimFromAddress, claimMail, DEFAULT_CLAIM_FROM, deliverCode } from "./claims.ts";
+import { CLAIM_REPLY_TO, claimFromAddress, claimMail, DEFAULT_CLAIM_FROM, deliverCode, isValidFrom, warnInvalidClaimFrom } from "./claims.ts";
 
 const SAFETY = "Avouch Social Safety <safety@example.com>";
 const CLAIM = "Avouch Social <noreply@example.com>";
@@ -110,4 +110,21 @@ test("the CSAM hold alert never has a reply_to", async () => {
     assert.equal(bodies.length, 1);
     assert.equal("reply_to" in bodies[0], false);
   }
+});
+
+test("a malformed RESEND_CLAIM_FROM uses the noreply default and warns at startup", () => {
+  assert.equal(isValidFrom(CLAIM), true);
+  assert.equal(isValidFrom("noreply@example.com"), true);
+  for (const bad of ["noreply", "Avouch <noreply>", "a b@c.com", "<x@y.com", "Name x@y.com>"]) {
+    assert.equal(isValidFrom(bad), false, bad);
+    assert.equal(claimFromAddress({ RESEND_FROM: SAFETY, RESEND_CLAIM_FROM: bad }), DEFAULT_CLAIM_FROM);
+    const logs: string[] = [];
+    warnInvalidClaimFrom({ RESEND_CLAIM_FROM: bad }, (m) => logs.push(m));
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /RESEND_CLAIM_FROM is not a valid From address/);
+  }
+  const quiet: string[] = [];
+  warnInvalidClaimFrom({}, (m) => quiet.push(m));
+  warnInvalidClaimFrom({ RESEND_CLAIM_FROM: CLAIM }, (m) => quiet.push(m));
+  assert.equal(quiet.length, 0);
 });

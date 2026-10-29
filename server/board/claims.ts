@@ -386,8 +386,29 @@ export const CLAIM_REPLY_TO = "contact@avouchsocial.com";
 
 export const DEFAULT_CLAIM_FROM = "Avouch Social <noreply@avouchsocial.com>";
 
+const BARE_ADDRESS = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/;
+const NAMED_ADDRESS = /^[^<>]*\S[^<>]*<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>$/;
+
+/** `Name <addr@domain>` or a bare `addr@domain`. */
+export function isValidFrom(value: string): boolean {
+  return BARE_ADDRESS.test(value) || NAMED_ADDRESS.test(value);
+}
+
 export function claimFromAddress(env: NodeJS.ProcessEnv = process.env): string {
-  return env.RESEND_CLAIM_FROM?.trim() || DEFAULT_CLAIM_FROM;
+  const raw = env.RESEND_CLAIM_FROM?.trim() ?? "";
+  return raw && isValidFrom(raw) ? raw : DEFAULT_CLAIM_FROM;
+}
+
+/** Boot warning when RESEND_CLAIM_FROM is set but malformed. The value is not logged. */
+export function warnInvalidClaimFrom(
+  env: NodeJS.ProcessEnv = process.env,
+  log: (message: string) => void = console.error,
+): void {
+  const raw = env.RESEND_CLAIM_FROM?.trim() ?? "";
+  if (!raw || isValidFrom(raw)) return;
+  log(
+    `WARNING: RESEND_CLAIM_FROM is not a valid From address. Claim codes will come from ${DEFAULT_CLAIM_FROM}. Use "Name <addr@domain>" or a bare address.`,
+  );
 }
 
 export async function deliverCode(

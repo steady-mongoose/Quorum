@@ -13,6 +13,7 @@ import { readMediaConfig } from "./media/config.ts";
 import { storeFromConfig } from "./media/s3.ts";
 import { reencryptPendingHolds, startHoldSweep, warnMissingHoldKey } from "./board/csam.ts";
 import { warnMissingMfaKey } from "./mfa/secret.ts";
+import { warnInvalidClaimFrom } from "./board/claims.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 import { startNightlyStats } from "./stats/schedule.ts";
 
@@ -80,6 +81,7 @@ export function startHost(): void {
   const mediaStore = storeFromConfig(mediaConfig);
   warnMissingHoldKey();
   warnMissingMfaKey();
+  warnInvalidClaimFrom();
   const boardDb = pgDb(pool);
   void reencryptPendingHolds(boardDb, mediaStore).catch((error) => {
     console.error(
