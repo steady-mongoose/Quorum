@@ -235,7 +235,7 @@ test("God's name is capitalized in site copy", () => {
 test("the door explains how the app and the rooms work, in plain sentences", () => {
   const door = source("../../components/board/door.tsx");
   assert.match(door, />How it works<\/h2>/);
-  assert.match(door, />The rooms<\/h2>\s*<Terms rows=\{ROOMS\} \/>/);
+  assert.match(door, />\s*The rooms\s*<\/h2>\s*<Terms rows=\{ROOMS\} \/>/);
   assert.equal(door.includes("typical week"), false);
   const between = (from: string, to: string) =>
     door.slice(door.indexOf(from), door.indexOf(to, door.indexOf(from)));
