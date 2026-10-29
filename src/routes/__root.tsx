@@ -5,6 +5,10 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { NotFoundPage } from "@/components/not-found";
 import { rootMeta } from "@/lib/board/route-heads";
 import appCss from "../styles.css?url";
+import { markSaveData } from "@/lib/board/save-data";
+
+// Before the first paint, so door.css can drop the engravings for data-saver users.
+markSaveData();
 
 export const Route = createRootRoute({
   head: () => ({
