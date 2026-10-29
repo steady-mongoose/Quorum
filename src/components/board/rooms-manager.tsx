@@ -14,6 +14,8 @@ import {
   saveRoomCategories,
   type AdminRoom,
 } from "@/lib/board/rooms-admin";
+import { ROOMS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
+import { PanelNote } from "@/components/board/panel-note";
 
 const AUDIENCE: Record<AdminRoom["audience"], string> = {
   all: "Everyone",
@@ -27,13 +29,15 @@ const chip = "inline-flex items-center rounded-full border border-line px-3 py-1
  * Admin-only. Every room, grouped by category, with "Not yet sorted" last.
  * Categories edits where a room is listed. Archive and delete wait on migration 0039.
  */
-export function RoomsManager() {
+export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
   const categories = useCategories();
   const choices = (categories.length > 0 ? categories : [...CATEGORY_LIST]).filter(
     (category) => category.slug !== UNCATEGORIZED_SLUG,
   );
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
+  const [failure, setFailure] = useState<PanelFailure | null>(null);
+  const [tick, setTick] = useState(0);
   const [note, setNote] = useState("");
   const [announced, setAnnounced] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);
@@ -51,13 +55,16 @@ export function RoomsManager() {
     let live = true;
     void loadAdminRooms().then((result) => {
       if (!live) return;
-      if (result.ok) setRooms(result.rooms);
-      else setError(result.error);
+      // A failed load is said inside this panel, never as a page alert.
+      if (result.ok) {
+        setFailure(null);
+        setRooms(result.rooms);
+      } else setFailure(result);
     });
     return () => {
       live = false;
     };
-  }, []);
+  }, [tick]);
 
   useEffect(() => {
     if (editing) firstBox.current?.focus();
@@ -147,6 +154,13 @@ export function RoomsManager() {
         Every room, by category. Check each room is in the right place. Move changes where members
         find it. A room can be in more than one category.
       </p>
+      <PanelNote
+        failure={failure}
+        gateText={ROOMS_WAIT}
+        onRetry={() => setTick((value) => value + 1)}
+        onSetUp={onSetUp}
+      />
+      {rooms === null && failure ? null : (
       <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
         Find a room
         <input
@@ -161,6 +175,7 @@ export function RoomsManager() {
           }}
         />
       </label>
+      )}
       <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className="text-sm text-fg">
         {note || announced}
       </p>
@@ -169,7 +184,7 @@ export function RoomsManager() {
           {error}
         </p>
       ) : null}
-      {rooms === null && !error ? <p className="text-sm text-muted">Loading rooms…</p> : null}
+      {rooms === null && !failure ? <p className="text-sm text-muted">Loading rooms…</p> : null}
 
       {groups.map((group) => (
         <div key={group.slug} className="flex flex-col gap-2">

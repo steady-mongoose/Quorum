@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { PANEL_LOAD_FAILED, PANEL_UNREACHABLE, panelFailure, type PanelFailure } from "./load-failure.ts";
 
 export type AccountState = {
   deactivated: boolean;
@@ -75,10 +76,17 @@ export async function requestAccountDeletion(note: string): Promise<{ ok: true }
   return { ok: true };
 }
 
-export async function loadDeletionRequests(): Promise<{ ok: true; requests: DeletionRequest[] } | Failure> {
-  const sent = await send("/api/account/deletion-requests");
+export async function loadDeletionRequests(): Promise<
+  { ok: true; requests: DeletionRequest[] } | ({ ok: false } & PanelFailure)
+> {
+  let sent: { ok: boolean; json: unknown };
+  try {
+    sent = await send("/api/account/deletion-requests");
+  } catch {
+    return { ok: false, error: PANEL_UNREACHABLE };
+  }
   if (!sent.ok || !sent.json || typeof sent.json !== "object") {
-    return { ok: false, error: errorOf(sent.json, "The deletion queue could not be read.") };
+    return { ok: false, ...panelFailure(sent.json, PANEL_LOAD_FAILED) };
   }
   const raw = (sent.json as { requests?: unknown }).requests;
   const requests: DeletionRequest[] = [];

@@ -1,5 +1,12 @@
 import { apiFetch } from "../api-base";
 import type { HardRuleValue } from "../board/text";
+import {
+  PANEL_LOAD_FAILED,
+  PANEL_SAVE_FAILED,
+  PANEL_UNREACHABLE,
+  panelFailure,
+  type PanelFailure,
+} from "../board/load-failure";
 
 export type DmReportRow = {
   id: string;
@@ -13,7 +20,7 @@ export type DmReportRow = {
   at: number;
 };
 
-type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
+type Outcome<T> = { ok: true; value: T } | ({ ok: false } & PanelFailure);
 
 async function call<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<Outcome<T>> {
   try {
@@ -25,11 +32,12 @@ async function call<T>(path: string, method: "GET" | "POST", body?: unknown): Pr
     });
     const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!response.ok) {
-      return { ok: false, error: typeof json?.error === "string" ? json.error : "That did not go through." };
+      // A bare code such as mfa_required never reaches the page.
+      return { ok: false, ...panelFailure(json, method === "GET" ? PANEL_LOAD_FAILED : PANEL_SAVE_FAILED) };
     }
     return { ok: true, value: json as T };
   } catch {
-    return { ok: false, error: "The server could not be reached." };
+    return { ok: false, error: PANEL_UNREACHABLE };
   }
 }
 

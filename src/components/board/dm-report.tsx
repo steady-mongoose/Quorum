@@ -20,6 +20,8 @@ import {
   reportDmMessage,
   type DmReportRow,
 } from "@/lib/e2ee/dm-report-api";
+import { DM_REPORTS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
+import { PanelNote } from "@/components/board/panel-note";
 
 type Send = typeof reportDmMessage;
 
@@ -202,11 +204,15 @@ export function dmReportActionLabel(
 export function DmReportQueue({
   load = listDmReports,
   close = closeDmReport,
+  onSetUp,
 }: {
   load?: typeof listDmReports;
   close?: typeof closeDmReport;
+  onSetUp?: () => void;
 }) {
   const [rows, setRows] = useState<DmReportRow[] | null>(null);
+  const [failure, setFailure] = useState<PanelFailure | null>(null);
+  const [tick, setTick] = useState(0);
   const [error, setError] = useState("");
   const [announce, setAnnounce] = useState("");
   const [closedCount, setClosedCount] = useState(0);
@@ -218,13 +224,16 @@ export function DmReportQueue({
     let live = true;
     void load().then((result) => {
       if (!live) return;
-      if (result.ok) setRows(result.value);
-      else setError(result.error);
+      // A failed load is said inside this panel, never as a page alert.
+      if (result.ok) {
+        setFailure(null);
+        setRows(result.value);
+      } else setFailure(result);
     });
     return () => {
       live = false;
     };
-  }, [load]);
+  }, [load, tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
@@ -242,7 +251,13 @@ export function DmReportQueue({
           {error}
         </p>
       ) : null}
-      {rows === null && !error ? <p className="text-sm text-muted">Loading message reports…</p> : null}
+      <PanelNote
+        failure={failure}
+        gateText={DM_REPORTS_WAIT}
+        onRetry={() => setTick((value) => value + 1)}
+        onSetUp={onSetUp}
+      />
+      {rows === null && !failure ? <p className="text-sm text-muted">Loading message reports…</p> : null}
       {rows && rows.length === 0 ? <p className="text-sm text-muted">No open message reports.</p> : null}
       {rows && rows.length > 0 ? (
         <ul className="flex flex-col gap-3">

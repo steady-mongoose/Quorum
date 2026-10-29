@@ -112,7 +112,14 @@ const HOW = [
   },
 ];
 
-export function AboutView({ publicView = false }: { publicView?: boolean }) {
+export function AboutView({
+  publicView = false,
+  onSetUp,
+}: {
+  publicView?: boolean;
+  /** Opens You, where the authenticator is turned on. */
+  onSetUp?: () => void;
+}) {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
@@ -258,14 +265,14 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         />
       ) : null}
 
-      {!publicView && remote && admin ? <DeletionRequestQueue /> : null}
-      {!publicView && remote && admin ? <RoomsManager /> : null}
+      {!publicView && remote && admin ? <DeletionRequestQueue onSetUp={onSetUp} /> : null}
+      {!publicView && remote && admin ? <RoomsManager onSetUp={onSetUp} /> : null}
 
       {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
-      {!publicView && remote && admin ? <DmReportQueue /> : null}
+      {!publicView && remote && admin ? <DmReportQueue onSetUp={onSetUp} /> : null}
 
-      {!publicView && remote && admin ? <InviteTracker /> : null}
+      {!publicView && remote && admin ? <InviteTracker onSetUp={onSetUp} /> : null}
 
       {publicView ? null : (
         <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">

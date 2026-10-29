@@ -1,5 +1,11 @@
 import { apiFetch } from "../api-base.ts";
 import { UNCATEGORIZED_SLUG } from "./categories.ts";
+import {
+  PANEL_LOAD_FAILED,
+  PANEL_UNREACHABLE,
+  panelFailure,
+  type PanelFailure,
+} from "./load-failure.ts";
 
 /** One room as the admin Rooms manager sees it. */
 export type AdminRoom = {
@@ -106,19 +112,24 @@ async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
+/** A person's sentence, never a bare code: see load-failure.ts. */
 function errorFrom(json: unknown, fallback: string): string {
-  const error = (json as { error?: unknown } | null)?.error;
-  return typeof error === "string" && error ? error : fallback;
+  return panelFailure(json, fallback).error;
 }
 
 export async function loadAdminRooms(): Promise<
-  { ok: true; rooms: AdminRoom[] } | { ok: false; error: string }
+  { ok: true; rooms: AdminRoom[] } | ({ ok: false } & PanelFailure)
 > {
-  const response = await apiFetch("/api/admin/rooms", { credentials: "include" });
+  let response: Response;
+  try {
+    response = await apiFetch("/api/admin/rooms", { credentials: "include" });
+  } catch {
+    return { ok: false, error: PANEL_UNREACHABLE };
+  }
   const json = await readJson(response);
-  if (!response.ok) return { ok: false, error: errorFrom(json, "Rooms did not load.") };
+  if (!response.ok) return { ok: false, ...panelFailure(json, PANEL_LOAD_FAILED) };
   const rooms = (json as { rooms?: unknown } | null)?.rooms;
-  if (!Array.isArray(rooms)) return { ok: false, error: "Rooms did not load." };
+  if (!Array.isArray(rooms)) return { ok: false, error: PANEL_LOAD_FAILED };
   return { ok: true, rooms: rooms.map(roomFrom).filter((row): row is AdminRoom => row !== null) };
 }
 

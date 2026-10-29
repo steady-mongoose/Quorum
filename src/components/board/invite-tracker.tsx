@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { loadInvites, type InviteRow } from "@/lib/admin/invite-tracker";
+import { INVITES_WAIT, type PanelFailure } from "@/lib/board/load-failure";
+import { PanelNote } from "@/components/board/panel-note";
 
 function day(ms: number | null): string {
   if (!ms) return "—";
@@ -58,20 +60,34 @@ export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
   );
 }
 
-export function InviteTracker() {
+export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rows, setRows] = useState<InviteRow[] | null>(null);
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState<PanelFailure | null>(null);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
+    let cancel = false;
     void loadInvites().then((result) => {
-      if (result.ok) setRows(result.rows);
-      else setError(result.error);
+      if (cancel) return;
+      // A failed load is said inside this panel, never as a page alert.
+      if (result.ok) {
+        setFailure(null);
+        setRows(result.rows);
+      } else setFailure(result);
     });
-  }, []);
+    return () => {
+      cancel = true;
+    };
+  }, [tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
       <h2 className="text-2xl text-fg">Invites</h2>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">{error}</p>
+      {failure ? (
+        <PanelNote
+          failure={failure}
+          gateText={INVITES_WAIT}
+          onRetry={() => setTick((value) => value + 1)}
+          onSetUp={onSetUp}
+        />
       ) : rows ? (
         <InviteTrackerTable rows={rows} />
       ) : (

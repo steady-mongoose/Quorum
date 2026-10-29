@@ -9,6 +9,8 @@ import {
   requestAccountDeletion,
   type DeletionRequest,
 } from "@/lib/board/account-api";
+import { DELETION_REQUESTS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
+import { PanelNote } from "@/components/board/panel-note";
 
 export function AccountRemovalPanel({
   deactivated,
@@ -142,24 +144,27 @@ export function AccountRemoval({ live }: { live: boolean }) {
   );
 }
 
-export function DeletionRequestQueue() {
+export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [requests, setRequests] = useState<DeletionRequest[] | null>(null);
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState<PanelFailure | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancel = false;
     void loadDeletionRequests().then((result) => {
       if (cancel) return;
+      // A failed load is said inside this panel, never as a page alert.
       if (!result.ok) {
-        setError(result.error);
+        setFailure(result);
         return;
       }
+      setFailure(null);
       setRequests(result.requests);
     });
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [tick]);
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -167,11 +172,12 @@ export function DeletionRequestQueue() {
       <p className="max-w-prose text-sm text-muted">
         A member asked for the account to be deleted. This list does not delete it.
       </p>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
+      <PanelNote
+        failure={failure}
+        gateText={DELETION_REQUESTS_WAIT}
+        onRetry={() => setTick((value) => value + 1)}
+        onSetUp={onSetUp}
+      />
       {requests && requests.length === 0 ? (
         <p className="text-sm text-muted">No open deletion requests.</p>
       ) : null}

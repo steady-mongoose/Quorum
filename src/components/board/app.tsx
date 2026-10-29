@@ -263,7 +263,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}
       {entered && shown === "profile" && <ProfileView />}
-      {entered && shown === "about" && <AboutView />}
+      {entered && shown === "about" && <AboutView onSetUp={() => openSection("profile")} />}
     </>
   );
 

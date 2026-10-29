@@ -34,6 +34,7 @@ const appTests = [
   "src/lib/board/phone-nav.test.ts",
   "src/lib/board/more-menu.render.test.mjs",
   "src/lib/board/dm-report.render.test.mjs",
+  "src/lib/board/about-mfa-notes.render.test.mjs",
   "src/lib/board/audience.render.test.mjs",
   "src/lib/board/confirm-dialog.render.test.mjs",
   "src/lib/board/design-followup.test.ts",
