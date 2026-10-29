@@ -14,6 +14,7 @@ import {
   loadBrowserVault,
   subscribeMessageCache,
 } from "@/lib/e2ee/browser";
+import { MESSAGES_OFF, readMessageSetting } from "@/lib/e2ee/message-setting";
 import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
 import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
 import {
@@ -88,6 +89,22 @@ export function EncryptedMailbox() {
   );
   const [blocked, setBlocked] = useState<{ id: string; name: string }[]>([]);
   const [confirmBlock, setConfirmBlock] = useState(false);
+  // "No one" closes your own composer too; your conversations stay to read.
+  // null until the setting loads: neither the composer nor the note shows, so a
+  // "No one" owner never sees the composer flash.
+  const [messagesOff, setMessagesOff] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!me?.id || !active?.id) return;
+    let cancelled = false;
+    void readMessageSetting(transport).then((result) => {
+      // If it can't load, show the composer: the server still refuses if needed.
+      if (!cancelled) setMessagesOff(result.ok && result.messageFrom === "none");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [me?.id, active?.id, transport]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -361,6 +378,10 @@ export function EncryptedMailbox() {
     const sent = await sendEncrypted(transport, store, active.id, active.otherUserId, draft);
     setBusy(false);
     if (!sent.ok) {
+      if (sent.message === MESSAGES_OFF) {
+        setMessagesOff(true);
+        return;
+      }
       setNotice(sent.message);
       if (sent.safety) setSafety(sent.safety);
       return;
@@ -514,24 +535,28 @@ export function EncryptedMailbox() {
             browser.
           </p>
         ) : null}
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <input
-            className={fieldClass}
-            value={draft}
-            placeholder={`To ${active.otherName}`}
-            aria-label={`Message to ${active.otherName}`}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <button type="submit" className={btnSignal} disabled={busy} aria-busy={busy}>
-            {busy ? "Sending…" : "Send"}
-          </button>
-        </form>
+        {messagesOff === null ? null : messagesOff ? (
+          <p className="text-sm text-muted">{MESSAGES_OFF}</p>
+        ) : (
+          <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            <input
+              className={fieldClass}
+              value={draft}
+              placeholder={`To ${active.otherName}`}
+              aria-label={`Message to ${active.otherName}`}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button type="submit" className={btnSignal} disabled={busy} aria-busy={busy}>
+              {busy ? "Sending…" : "Send"}
+            </button>
+          </form>
+        )}
         {notice ? <p className="text-sm text-muted">{notice}</p> : null}
       </div>
     );

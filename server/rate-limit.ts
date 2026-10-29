@@ -23,6 +23,16 @@ export const DM_BUNDLE_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
 /** Per recipient, so one account cannot empty another member's one-time keys. */
 export const DM_BUNDLE_TARGET_LIMIT = { windowMs: 10 * 60 * 1000, max: 4 };
 
+/**
+ * Key previews and conversation opens. A send previews keys twice (yours and
+ * theirs), so this sits well above the send cap, but far below the few hundred
+ * requests a timing probe needs.
+ */
+export const DM_KEYS_LIMIT = { windowMs: 10 * 60 * 1000, max: 120 };
+/** Per member asked about. */
+export const DM_KEYS_TARGET_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
+export const DM_OPEN_LIMIT = { windowMs: 10 * 60 * 1000, max: 60 };
+
 export type LimitRule = { windowMs: number; max: number };
 
 const BACKOFF_CAP = 4;

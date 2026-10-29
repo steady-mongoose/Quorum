@@ -5,6 +5,11 @@ import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts"
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
+  MESSAGES_OFF,
+  NOT_TAKING_MESSAGES,
+} from "../../src/lib/e2ee/message-setting.ts";
+import { markWroteInTransaction, messageSettings } from "./message-setting.ts";
+import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
   DM_MAX_ENVELOPES,
@@ -605,7 +610,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const NOT_REACHABLE =
   "You can message someone in one of your rooms, or someone you have been to a meeting with.";
-export const BLOCKED = "You cannot message this member.";
+/** A block and the recipient's Messages setting refuse with the same words. */
+export const BLOCKED = NOT_TAKING_MESSAGES;
 export const ROOM_WAIT = `You can start a conversation with someone from a room after ${ROOM_MESSAGE_WAIT_DAYS} days in it.`;
 export const ROOM_DAILY_LIMIT = `You have started ${ROOM_MESSAGE_DAILY_STARTS} new conversations through your rooms today. Try again tomorrow.`;
 
@@ -670,10 +676,13 @@ export type MessageGate =
   | { ok: false; status: number; error: string };
 
 /**
- * Whether the caller may message the other member. A block either way stops it.
- * A verified meeting together allows it. Otherwise a room both stand in allows
- * it; starting a new conversation that way also needs three days in the room
- * and stays under five starts a day.
+ * Whether the caller may message the other member. A caller who chose "No one"
+ * cannot write either. A verified meeting together allows it. Otherwise a room
+ * both stand in allows it; starting a new conversation that way also needs
+ * three days in the room and stays under five starts a day. Someone who shares
+ * neither gets the reachability note. Last, a block either way and the other
+ * member's Messages setting refuse with the same words. Both are read together
+ * on every call, so a block and the setting cost the same work.
  */
 export async function mayMessage(
   db: Db,
@@ -685,8 +694,24 @@ export async function mayMessage(
   if (!callerId || !otherUserId) return { ok: false, status: 403, error: NOT_REACHABLE };
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
-  if (await blockedBetween(db, callerId, otherUserId))
-    return { ok: false, status: 403, error: BLOCKED };
+  const [blocked, setting] = await Promise.all([
+    blockedBetween(db, callerId, otherUserId),
+    messageSettings(db, callerId, otherUserId),
+  ]);
+  if (setting.senderOff) return { ok: false, status: 403, error: MESSAGES_OFF };
+  const reach = await reachable(db, callerId, otherUserId, now, options);
+  if (!reach.ok) return reach;
+  if (blocked || setting.refused) return { ok: false, status: 403, error: BLOCKED };
+  return reach;
+}
+
+async function reachable(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+  now: Date,
+  options: { starting?: boolean },
+): Promise<MessageGate> {
   if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
@@ -1038,9 +1063,11 @@ export async function openThread(
     [low, high],
   );
   const gate = await mayMessage(db, userId, otherUserId, now, { starting: !existing[0] });
-  if (!gate.ok) return fail(gate.status, gate.error);
-  if (existing[0])
+  // "No one" closes your own writing, but your conversations stay open to read.
+  if (existing[0] && (gate.ok || gate.error === MESSAGES_OFF)) {
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
+  }
+  if (!gate.ok) return fail(gate.status, gate.error);
   const id = randomUUID();
   await db.query(
     `insert into dm_thread (
@@ -1170,6 +1197,9 @@ export async function postMessage(
           ],
         );
       }
+      // The lasting "has written" marker commits with the message or not at
+      // all, so a failed marker leaves no stored message for a retry to repeat.
+      await markWroteInTransaction(tx, threadId, userId, now);
     });
   } catch (error) {
     const text = error instanceof Error ? error.message : "";

@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { MfaSettings } from "@/components/board/mfa-ui";
+import { MessageSetting } from "@/components/board/message-setting";
 import { useServerSession } from "@/lib/server-session-state";
 
 /**
@@ -192,6 +193,7 @@ export function ProfileView() {
         <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
       </section>
 
+      {mine && server.mode === "live" ? <MessageSetting /> : null}
       {mine && server.mode === "live" ? <MfaSettings /> : null}
       {mine ? (
         <div className="border-t border-line pt-6">

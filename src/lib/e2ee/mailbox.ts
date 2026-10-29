@@ -81,7 +81,11 @@ export type VaultStore = {
 };
 
 export type DmTransport = {
-  post(path: string, body: unknown): Promise<{ status: number; body: unknown }>;
+  post(
+    path: string,
+    body: unknown,
+    options?: { keepalive?: boolean },
+  ): Promise<{ status: number; body: unknown }>;
   get(path: string): Promise<{ status: number; body: unknown }>;
 };
 
