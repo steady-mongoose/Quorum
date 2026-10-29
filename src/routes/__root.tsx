@@ -18,6 +18,7 @@ export const Route = createRootRoute({
       { rel: "stylesheet", href: "/page-art.css" },
       { rel: "stylesheet", href: "/gathering.css" },
       { rel: "stylesheet", href: "/engraved-adjust.css" },
+      { rel: "stylesheet", href: "/door.css" },
       {
         rel: "preload",
         href: "/fonts/EBGaramond-latin.woff2",

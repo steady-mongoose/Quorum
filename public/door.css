@@ -1,0 +1,290 @@
+/* The door: type and motion for the welcome page. Loaded after the engraved sheets.
+   Motion is slow and low in contrast so the Martin plate stays a picture, not a show.
+   backgrounds.css already turns every animation and transition off under prefers-reduced-motion,
+   and prefers-reduced-data drops the plate, so the light and the motes go with it. */
+:root{
+  --door-ease:cubic-bezier(.22,.61,.36,1);
+  --door-gilt:#c9a45c;
+  --door-glow:rgba(240,231,211,.9);
+  --door-motes:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cg fill='%23f0e7d3'%3E%3Ccircle cx='22' cy='40' r='1.8'/%3E%3Ccircle cx='140' cy='18' r='1.2'/%3E%3Ccircle cx='250' cy='70' r='2'/%3E%3Ccircle cx='70' cy='150' r='1.4'/%3E%3Ccircle cx='300' cy='180' r='1.1'/%3E%3Ccircle cx='180' cy='230' r='1.9'/%3E%3Ccircle cx='40' cy='280' r='1.3'/%3E%3Ccircle cx='230' cy='300' r='1.6'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-palette="parchment"]{--door-glow:rgba(255,250,240,.95)}
+
+/* 1. The plate drifts, slowly, as a camera would. The mask on desktop and the sticky frame on phones are untouched. */
+[data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{
+  overflow:hidden;
+  transform-origin:50% 30%;
+  animation:door-drift 26s ease-in-out infinite alternate;
+  will-change:transform;
+}
+@keyframes door-drift{
+  from{transform:scale(1) translate3d(0,0,0)}
+  to{transform:scale(1.11) translate3d(1.5%,-1.4%,0)}
+}
+
+/* 2. The light in the picture breathes. A warm radial at the plate's source of light, screened over the engraving. */
+[data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{
+  content:"";
+  position:absolute;
+  inset:-10%;
+  pointer-events:none;
+  /* Martin's light breaks in at the left edge of the desktop crop; phones crop to the centre. */
+  --door-light:14% 42%;
+  background:
+    radial-gradient(46% 40% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.55) 34%,transparent 72%);
+  mix-blend-mode:screen;
+  opacity:.5;
+  transform-origin:var(--door-light);
+  animation:door-breathe 6s ease-in-out infinite;
+}
+@media (max-width:640px){
+  [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{--door-light:50% 34%}
+}
+@keyframes door-breathe{
+  0%,100%{opacity:.22;transform:scale(1)}
+  50%{opacity:.9;transform:scale(1.14)}
+}
+
+/* 3. Motes rise through the light, faint and few. */
+[data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:var(--door-motes) 0 0/320px 320px repeat,var(--door-motes) 160px 90px/480px 480px repeat;
+  opacity:.45;
+  animation:door-motes 40s linear infinite;
+}
+@keyframes door-motes{
+  from{background-position:0 0,160px 90px}
+  to{background-position:60px -640px,100px -1050px}
+}
+@media (prefers-reduced-data:reduce){
+  .plate-ground::before,.plate-ground::after{display:none}
+}
+
+/* The scrim is lighter on the door, so the picture and its light read through. Text sits on solid cards. */
+[data-section="landing"] .scrim,[data-section="signin"] .scrim{
+  background:linear-gradient(90deg,rgba(20,16,12,0) 0%,rgba(20,16,12,.3) 45%,rgba(20,16,12,.72) 70%);
+}
+@media (max-width:640px){
+  [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34vh,var(--bg) 66vh)}
+}
+
+/* 4. The door settles in: each plate rises in turn after the mast. */
+.door-hero,.door-side,.door-week,.door-rooms{
+  animation:door-rise 1s var(--door-ease) both;
+  animation-delay:calc(var(--door-i,0) * 160ms + 100ms);
+}
+.door-hero{--door-i:0}
+.door-side{--door-i:1}
+.door-week{--door-i:2}
+.door-rooms{--door-i:3}
+@keyframes door-rise{
+  from{opacity:0;transform:translateY(32px) scale(.985)}
+  to{opacity:1;transform:none}
+}
+
+/* 5. Type. The title is set tight; a gilt rule draws in beneath it; the lede reads in the serif. */
+.door-title{
+  letter-spacing:-.018em;
+  font-weight:560;
+  line-height:1.04;
+  text-shadow:0 1px 0 rgba(0,0,0,.35),0 0 24px rgba(201,164,92,.12);
+}
+.door-rule{
+  position:relative;
+  height:1px;
+  margin:.35rem 0 .25rem;
+  max-width:18rem;
+  background:linear-gradient(90deg,var(--door-gilt) 0%,color-mix(in srgb,var(--door-gilt) 60%,transparent) 70%,transparent 100%);
+  transform-origin:left;
+  animation:door-draw 1.4s var(--door-ease) .7s both;
+}
+.door-rule::before{
+  content:"";
+  position:absolute;
+  left:-1px;
+  top:-3px;
+  width:7px;
+  height:7px;
+  transform:rotate(45deg);
+  background:var(--door-gilt);
+}
+@keyframes door-draw{
+  from{transform:scaleX(0)}
+  to{transform:scaleX(1)}
+}
+.door-lede{
+  font-family:var(--font-display);
+  font-size:1.2rem;
+  line-height:1.55;
+  color:color-mix(in srgb,var(--fg) 88%,var(--muted));
+}
+@media (min-width:1024px){.door-lede{font-size:1.3rem}}
+.door-heading{
+  font-family:var(--font-display);
+  font-variant-caps:all-small-caps;
+  font-size:1.125rem;
+  font-weight:600;
+  letter-spacing:.14em;
+  color:var(--door-gilt);
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+}
+.door-heading::after{
+  content:"";
+  flex:1 1 auto;
+  height:1px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--door-gilt) 45%,transparent),transparent);
+}
+.door-term{
+  font-family:var(--font-display);
+  font-size:1.08rem;
+  font-weight:600;
+  line-height:1.5;
+  color:var(--fg);
+}
+.door-what{line-height:1.6}
+/* Each rule is marked with a gilt diamond and closed with a hairline. */
+.door-term{position:relative;padding-left:1.1em}
+.door-term::before{
+  content:"";
+  position:absolute;
+  left:.05em;
+  top:.62em;
+  width:.42em;
+  height:.42em;
+  transform:rotate(45deg);
+  background:var(--door-gilt);
+  box-shadow:0 0 6px color-mix(in srgb,var(--door-gilt) 60%,transparent);
+}
+.door-term,.door-what{padding-bottom:.55rem;border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent)}
+@media (max-width:639px){.door-term{border-bottom:0;padding-bottom:0}}
+.contents:last-child > .door-term,.contents:last-child > .door-what{border-bottom:0;padding-bottom:0}
+/* The rooms, each on its own small plate. */
+.door-roomlist{display:flex;flex-wrap:wrap;gap:.5rem;margin:.35rem 0 0;padding:0;list-style:none}
+.door-room{
+  font-family:var(--font-display);
+  font-variant-caps:all-small-caps;
+  font-size:1.05rem;
+  letter-spacing:.06em;
+  line-height:1;
+  color:var(--fg);
+  padding:.45em .7em .5em;
+  border:1px solid color-mix(in srgb,var(--door-gilt) 40%,var(--line));
+  border-radius:3px;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 14%,transparent),color-mix(in srgb,var(--door-gilt) 5%,transparent));
+  box-shadow:inset 0 1px 0 rgba(240,231,211,.08),0 2px 6px -3px rgba(0,0,0,.7);
+  white-space:nowrap;
+  transition:border-color .3s var(--door-ease),background .3s var(--door-ease),transform .3s var(--door-ease);
+}
+@media (hover:hover){
+  .door-room:hover{
+    border-color:color-mix(in srgb,var(--door-gilt) 85%,var(--line));
+    background:linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 28%,transparent),color-mix(in srgb,var(--door-gilt) 10%,transparent));
+    transform:translateY(-1px);
+  }
+}
+/* The section's own engraving, ghosted into its plate: Doré's ladder under How it works, Dürer's Saint
+   Jerome under The rooms. Tablets get the 900px bands backgrounds.css already names; desktops the side
+   plates. The mask keeps the text's side of the card clear. Phones stay solid. */
+@media (min-width:640px){
+  .door-week::after,.door-rooms::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background:var(--door-ghost) right center/cover no-repeat;
+    opacity:.4;
+    -webkit-mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
+    mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
+    mix-blend-mode:screen;
+    animation:door-ghost 18s ease-in-out infinite alternate;
+  }
+  .door-week::after{--door-ghost:var(--art-week-band)}
+  .door-rooms::after{--door-ghost:var(--art-rooms-band)}
+  [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
+}
+@media (min-width:1024px){
+  .door-week::after,.door-rooms::after{background-size:auto 120%}
+  .door-week::after{--door-ghost:var(--art-week-side)}
+  .door-rooms::after{--door-ghost:var(--art-rooms-side)}
+}
+@keyframes door-ghost{
+  from{background-position:right 0 center;opacity:.3}
+  to{background-position:right -1.5rem center;opacity:.5}
+}
+@media (prefers-reduced-data:reduce){.door-week::after,.door-rooms::after{display:none}}
+.door-aside{
+  font-family:var(--font-display);
+  font-style:italic;
+  font-size:1.15rem;
+  color:var(--fg);
+}
+
+/* 6. The plates: laid paper under the ink. A warm light catches the top corner, a faint grain sits over the
+   field, and a gilt hairline runs just inside the edge. The ground stays solid, so the text keeps its contrast. */
+.door-hero,.door-week,.door-rooms,.door-side .card,.door-side #sign-in{
+  position:relative;
+  overflow:hidden;
+  border-color:color-mix(in srgb,var(--door-gilt) 32%,var(--line));
+  background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.5),transparent 62%),
+    radial-gradient(120% 70% at 0% 0%,color-mix(in srgb,var(--door-gilt) 14%,transparent),transparent 60%),
+    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 70%,var(--card)) 0%,var(--card) 48%,color-mix(in srgb,var(--bg) 45%,var(--card)) 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 14%,transparent),
+    inset 0 1px 0 rgba(240,231,211,.07),
+    0 14px 34px -18px rgba(0,0,0,.8);
+  transition:border-color .35s var(--door-ease),box-shadow .35s var(--door-ease),transform .35s var(--door-ease);
+}
+.door-hero::before,.door-week::before,.door-rooms::before,.door-side .card::before,.door-side #sign-in::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:var(--grain);
+  opacity:.12;
+  mix-blend-mode:overlay;
+}
+/* How it works: cooler ink under Doré's night sky. The rooms: the warmth of Jerome's study lamp. */
+.door-week{
+  background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.55),transparent 62%),
+    radial-gradient(110% 70% at 0% 0%,rgba(240,231,211,.09),transparent 58%),
+    linear-gradient(170deg,color-mix(in srgb,#2b2c35 42%,var(--card)) 0%,color-mix(in srgb,#1d1c22 50%,var(--card)) 50%,color-mix(in srgb,#0d0c11 60%,var(--card)) 100%);
+}
+.door-rooms{
+  border-color:color-mix(in srgb,var(--door-gilt) 42%,var(--line));
+  background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.5),transparent 62%),
+    radial-gradient(110% 75% at 0% 0%,color-mix(in srgb,var(--door-gilt) 24%,transparent),transparent 60%),
+    linear-gradient(170deg,color-mix(in srgb,#4a3418 50%,var(--card)) 0%,color-mix(in srgb,#2e2112 45%,var(--card)) 50%,color-mix(in srgb,#140e07 55%,var(--card)) 100%);
+}
+[data-palette="parchment"] .door-week,[data-palette="parchment"] .door-rooms{background:var(--card)}
+.door-hero{
+  border-color:color-mix(in srgb,var(--door-gilt) 55%,var(--line));
+  background:
+    radial-gradient(120% 80% at 0% 0%,color-mix(in srgb,var(--door-gilt) 22%,transparent),transparent 62%),
+    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 80%,var(--card)) 0%,var(--card) 50%,color-mix(in srgb,var(--bg) 40%,var(--card)) 100%);
+}
+@media (hover:hover){
+  .door-week:hover,.door-rooms:hover,.door-side .card:hover,.door-side #sign-in:hover{
+    border-color:color-mix(in srgb,var(--door-gilt) 70%,var(--line));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 28%,transparent),
+      inset 0 1px 0 rgba(240,231,211,.1),
+      0 20px 40px -18px rgba(0,0,0,.85),
+      0 0 24px -6px color-mix(in srgb,var(--door-gilt) 25%,transparent);
+    transform:translateY(-2px);
+  }
+  .door-side .btn-primary:hover{
+    box-shadow:0 0 0 1px color-mix(in srgb,var(--door-gilt) 60%,transparent),0 8px 22px -10px rgba(240,231,211,.45);
+    transform:translateY(-1px);
+  }
+}
+.door-side input{transition:border-color .25s var(--door-ease),box-shadow .25s var(--door-ease)}
+.door-side input:focus-visible{box-shadow:0 0 0 3px color-mix(in srgb,var(--door-gilt) 22%,transparent)}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
