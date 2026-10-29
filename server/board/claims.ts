@@ -363,26 +363,67 @@ export type ClaimDeps = MailDeps & {
   request?: PageRequest;
 };
 
-function claimMail(name: string, code: string): { subject: string; text: string } {
+export function claimMail(name: string, code: string): { subject: string; text: string } {
   return {
     subject: `${APP_NAME}: code to claim ${name}`,
     text: [
       `Someone asked to claim ${name} on ${APP_NAME}.`,
       `The code is ${code}.`,
       "It expires in 24 hours.",
+      `Enter this code on the page where you asked to claim ${name}.`,
       "If you did not ask, ignore this message.",
     ].join("\n"),
   };
 }
 
-async function deliverCode(
+/**
+ * Claim codes go to members, so they come from RESEND_CLAIM_FROM, not the
+ * CSAM alert address. Unset or blank falls back to a fixed noreply sender,
+ * never to RESEND_FROM (the safety sender).
+ */
+/** Members can reply to a claim code; CSAM alerts have no reply-to. */
+export const CLAIM_REPLY_TO = "contact@avouchsocial.com";
+
+export const DEFAULT_CLAIM_FROM = "Avouch Social <noreply@avouchsocial.com>";
+
+const BARE_ADDRESS = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/;
+const NAMED_ADDRESS = /^[^<>]*\S[^<>]*<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>$/;
+
+/** `Name <addr@domain>` or a bare `addr@domain`. */
+export function isValidFrom(value: string): boolean {
+  return BARE_ADDRESS.test(value) || NAMED_ADDRESS.test(value);
+}
+
+export function claimFromAddress(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.RESEND_CLAIM_FROM?.trim() ?? "";
+  return raw && isValidFrom(raw) ? raw : DEFAULT_CLAIM_FROM;
+}
+
+/** Boot warning when RESEND_CLAIM_FROM is set but malformed. The value is not logged. */
+export function warnInvalidClaimFrom(
+  env: NodeJS.ProcessEnv = process.env,
+  log: (message: string) => void = console.error,
+): void {
+  const raw = env.RESEND_CLAIM_FROM?.trim() ?? "";
+  if (!raw || isValidFrom(raw)) return;
+  log(
+    `WARNING: RESEND_CLAIM_FROM is not a valid From address. Claim codes will come from ${DEFAULT_CLAIM_FROM}. Use "Name <addr@domain>" or a bare address.`,
+  );
+}
+
+export async function deliverCode(
   deps: ClaimDeps,
   input: { to: string; name: string; code: string; claimId: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const message = claimMail(input.name, input.code);
-  const mail = { ...message, to: input.to, idempotencyKey: `claim-code/${input.claimId}` };
+  const mail = {
+    ...message,
+    to: input.to,
+    idempotencyKey: `claim-code/${input.claimId}`,
+    replyTo: CLAIM_REPLY_TO,
+  };
   if (deps.send) return deps.send(mail);
-  return sendTextEmail(mail, deps);
+  return sendTextEmail(mail, deps, claimFromAddress(deps.env ?? process.env));
 }
 
 export async function requestClaim(

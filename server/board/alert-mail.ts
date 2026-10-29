@@ -9,6 +9,8 @@ export type TextMail = {
   subject: string;
   text: string;
   idempotencyKey: string;
+  /** Resend reply_to. Only claim-code mail sets this; CSAM alerts never do. */
+  replyTo?: string;
 };
 
 export type MailDeps = {
@@ -20,15 +22,18 @@ export type MailDeps = {
 /**
  * The one outbound mail path. Resend is already how the box sends mail.
  * A missing key or from-address does not call out. This does not add a
- * second mail vendor.
+ * second mail vendor. `fromOverride` lets one kind of mail (claim codes)
+ * come from its own address; CSAM alerts always use RESEND_FROM.
  */
 export async function sendTextEmail(
   message: TextMail,
   deps: MailDeps = {},
+  fromOverride?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const env = deps.env ?? process.env;
   const apiKey = env.RESEND_API_KEY?.trim() ?? "";
-  const from = env.RESEND_FROM?.trim() ?? "";
+  // A caller may name its own From address. Blank or missing uses RESEND_FROM.
+  const from = fromOverride?.trim() || (env.RESEND_FROM?.trim() ?? "");
   const to = (Array.isArray(message.to) ? message.to : [message.to])
     .map((item) => item.trim())
     .filter(Boolean);
@@ -43,7 +48,13 @@ export async function sendTextEmail(
         "content-type": "application/json",
         "Idempotency-Key": message.idempotencyKey,
       },
-      body: JSON.stringify({ from, to, subject: message.subject, text: message.text }),
+      body: JSON.stringify({
+        from,
+        to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.replyTo?.trim() ? { reply_to: message.replyTo.trim() } : {}),
+      }),
     });
     if (!response.ok) return { ok: false, error: `mail ${response.status}` };
     return { ok: true };
