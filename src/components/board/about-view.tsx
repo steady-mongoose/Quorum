@@ -1071,11 +1071,10 @@ function AdminTools({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Room
+          Room, in lowercase letters, numbers, and hyphens
           <input
             className={fieldClass}
             value={id}
-            placeholder="woodshop"
             onChange={(event) => setId(event.target.value)}
           />
         </label>
@@ -1084,7 +1083,6 @@ function AdminTools({
           <input
             className={fieldClass}
             value={name}
-            placeholder="Woodshop"
             onChange={(event) => setName(event.target.value)}
           />
         </label>
@@ -1201,11 +1199,10 @@ function AdminTools({
           />
         </label>
         <label className="flex flex-col gap-2 text-sm text-muted">
-          State
+          State, as two letters
           <input
             className={fieldClass}
             value={stateCode}
-            placeholder="FL"
             onChange={(event) => setStateCode(event.target.value)}
           />
         </label>

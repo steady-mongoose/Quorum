@@ -90,7 +90,6 @@ export function ProfileView() {
               Name, as people know you
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Josh"
                 autoComplete="name"
                 value={knownAs}
                 onChange={(event) => setKnownAs(event.target.value)}
@@ -100,7 +99,6 @@ export function ProfileView() {
               Household
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="the McMullins"
                 value={household}
                 onChange={(event) => setHousehold(event.target.value)}
               />
@@ -109,7 +107,6 @@ export function ProfileView() {
               Church
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Epiphany of Our Lord"
                 value={parish}
                 onChange={(event) => setParish(event.target.value)}
               />
@@ -118,7 +115,6 @@ export function ProfileView() {
               Trade
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Electrician"
                 value={trade}
                 onChange={(event) => setTrade(event.target.value)}
               />

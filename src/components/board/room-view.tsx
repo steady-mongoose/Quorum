@@ -808,7 +808,6 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                     What to have read by then ({closing.book})
                     <input
                       className={fieldClass}
-                      placeholder="chapters 5 and 6"
                       value={current.pages}
                       aria-invalid={pageErrors.length > 0 ? true : undefined}
                       aria-describedby={describedBy("pages", pageErrors)}

@@ -653,14 +653,7 @@ function AddCard({ me }: { me: string }) {
         </label>
         {text("name")}
         {text("place")}
-        {text(
-          "time",
-          kind === "trade"
-            ? "Electrical, residential"
-            : kind === "need"
-              ? "Dinners this week"
-              : "First Monday 7:30 p.m.",
-        )}
+        {text("time")}
         {text("host", me)}
         {reading ? (
           <>
@@ -668,7 +661,6 @@ function AddCard({ me }: { me: string }) {
               The book, title and author
               <input
                 className={fieldClass}
-                placeholder="Meditations, Marcus Aurelius"
                 value={fields.book}
                 onChange={(event) => set({ book: event.target.value })}
               />
@@ -677,7 +669,6 @@ function AddCard({ me }: { me: string }) {
               What to have read for the first table
               <input
                 className={fieldClass}
-                placeholder="Book one"
                 value={fields.pages}
                 onChange={(event) => set({ pages: event.target.value })}
               />
