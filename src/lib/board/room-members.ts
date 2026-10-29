@@ -11,7 +11,14 @@ export type MemberRow = {
   joinedOn: string;
   lastPostedOn: string;
   attended: { on: string; host: string; hosted: boolean }[];
+  /** "open": a Message button. "wait": the 3-day wait line. "none": nothing. */
+  message: MemberMessage;
 };
+
+export type MemberMessage = "open" | "wait" | "none";
+
+/** Shown in place of Message while you are new to the room. */
+export const MEMBER_WAIT_LINE = "You can message members of this room after 3 days here.";
 
 export type MemberList = { members: MemberRow[]; rollCall: boolean };
 
@@ -42,6 +49,7 @@ export function parseMemberList(value: unknown): MemberList | null {
         joinedOn: text(row.joinedOn),
         lastPostedOn: text(row.lastPostedOn),
         attended,
+        message: row.message === "open" || row.message === "wait" ? row.message : "none",
       },
     ];
   });
@@ -75,9 +83,14 @@ function isoDay(at: number): string {
 /**
  * The demo on this device: everyone who posted in the room, everyone a host's
  * write-up there named, and you if you joined it. Attendance only in a room
- * that takes roll.
+ * that takes roll. Message opens for the names in peers.
  */
-export function localRoomMembers(room: Room, posts: Post[], me: string): MemberList {
+export function localRoomMembers(
+  room: Room,
+  posts: Post[],
+  me: string,
+  peers: ReadonlySet<string> = new Set(),
+): MemberList {
   const rollCall = roomIncludes(room, "roll_call");
   const rows = new Map<string, MemberRow>();
   const row = (name: string): MemberRow => {
@@ -90,6 +103,7 @@ export function localRoomMembers(room: Room, posts: Post[], me: string): MemberL
       joinedOn: "",
       lastPostedOn: "",
       attended: [],
+      message: name !== me && peers.has(name) ? "open" : "none",
     };
     rows.set(name, fresh);
     return fresh;

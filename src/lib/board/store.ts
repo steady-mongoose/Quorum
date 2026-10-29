@@ -131,6 +131,10 @@ type BoardState = {
   threads: DmThread[];
   messages: DmMessage[];
   openThread: string | null;
+  /** Set when Message in a room's member list opened the conversation; Back returns there. */
+  dmFrom: { room: RoomId; memberId: string; name: string; userId: string | null } | null;
+  /** The member row whose Message button takes focus when its room shows again. */
+  focusMember: string | null;
   lineDismissedAt: number;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
@@ -229,6 +233,10 @@ type BoardState = {
   /** Put your name on a day of a need. Nothing enforces it. */
   takeSlot: (cardId: string, day: string) => void;
   openDm: (other: string) => void;
+  /** Message from a room's member list. On the server the list already checked; the server checks again. */
+  messageMember: (room: RoomId, member: { id: string; name: string; userId: string | null }) => void;
+  backToRoom: () => void;
+  clearFocusMember: () => void;
   sendDm: (threadId: string, text: string, media?: SharedMedia) => void;
   setOpenThread: (id: string | null) => void;
   clearBoard: () => void;
@@ -695,6 +703,8 @@ export const useBoard = create<BoardState>()(
         genderNeedsConfirmation: false,
         roomHold: null,
         roomHoldBack: null,
+        dmFrom: null,
+        focusMember: null,
         home: null,
         remote: false,
         boardError: "",
@@ -719,7 +729,7 @@ export const useBoard = create<BoardState>()(
         localEntry: false,
         setSection: (section) => {
           if (section === "civic" && !get().deskOn) return;
-          set(section === "rooms" ? { section, browsing: true } : { section });
+          set(section === "rooms" ? { section, browsing: true, dmFrom: null } : { section, dmFrom: null });
         },
         dismissRoomHold: () => {
           const back = get().roomHoldBack;
@@ -1355,7 +1365,32 @@ export const useBoard = create<BoardState>()(
             ],
           });
         },
-        setOpenThread: (openThread) => set({ openThread }),
+        setOpenThread: (openThread) => set({ openThread, dmFrom: null }),
+        messageMember: (room, member) => {
+          const name = member.name.trim();
+          if (!name || name === me()) return;
+          // On this device the room's posts decide who you may write to.
+          if (!get().remote && !messageableNames(me(), get().cards, get().posts, get().rooms).has(name))
+            return;
+          const id = threadIdFor(me(), name);
+          const threads = get().threads.some((thread) => thread.id === id)
+            ? get().threads
+            : [{ id, between: [me(), name].sort() as [string, string] }, ...get().threads];
+          set({
+            threads,
+            openThread: id,
+            section: "messages",
+            dmFrom: { room, memberId: member.id, name, userId: member.userId },
+            focusMember: null,
+          });
+        },
+        backToRoom: () => {
+          const from = get().dmFrom;
+          if (!from) return;
+          set({ openThread: null, dmFrom: null, focusMember: from.memberId });
+          get().setRoom(from.room);
+        },
+        clearFocusMember: () => set({ focusMember: null }),
         createRoom: async (input) => {
           if (!get().remote) return { ok: false, error: "Rooms are added on the server." };
           const saved = await (await getBoardClient()).createRoom(input);

@@ -1,9 +1,19 @@
+import "./test-storage.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { ROOMS, blankDraft, composerCheck, roomIncludes, type CheckContext, type Post } from "./model.ts";
+import {
+  ROOMS,
+  blankDraft,
+  composerCheck,
+  newPost,
+  roomIncludes,
+  type CheckContext,
+  type Post,
+} from "./model.ts";
 import { DEFAULT_ROOM_OPTIONS, roomOptionsFrom } from "./room-options.ts";
 import { localRoomMembers, parseMemberList } from "./room-members.ts";
+import { useBoard } from "./store.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -64,12 +74,61 @@ test("admins get the options menu when setting up and editing a room; the room p
   assert.match(about, /Roll call is off unless an admin turns it on\./);
 });
 
-test("the member list offers Message only to people you may already write to", () => {
+test("the member list shows Message, the wait line, or nothing, as the server says", () => {
   const members = read("../../components/board/room-members.tsx");
-  assert.match(members, /messageableNames\(me, cards, posts, rooms\)/);
-  assert.match(members, /row\.name !== me && peers\.has\(row\.name\) \? \(/);
-  assert.match(members, /onClick=\{\(\) => openDm\(row\.name\)\}/);
-  assert.match(members, /Message \{row\.name\}/);
+  assert.ok(members.includes(`row.name !== me && row.message === "open" ? (`));
+  assert.ok(members.includes(`row.name !== me && row.message === "wait" ? (`));
+  assert.ok(members.includes("{MEMBER_WAIT_LINE}"));
+  assert.ok(members.includes(`"max-w-full self-start px-0 text-left [overflow-wrap:anywhere]"`));
+  assert.ok(members.includes("text-base text-fg [overflow-wrap:anywhere]"));
+  const parsed = parseMemberList({
+    members: [
+      { id: "a", name: "A", message: "wait" },
+      { id: "b", name: "B", message: "maybe" },
+    ],
+  });
+  assert.deepEqual(parsed?.members.map((row) => row.message), ["wait", "none"]);
+  const top = read("../../components/board/conversation-top.tsx");
+  assert.ok(top.includes("<h1 ref={heading} tabIndex={-1}"));
+  assert.ok(top.includes("onClick={dmFrom ? backToRoom : onAllMessages}"));
+});
+
+test("Message from the member list opens the conversation; Back returns to the room and that row", () => {
+  const shop = { ...ROOMS.find((room) => room.id === "shop")!, joined: true };
+  useBoard.setState({
+    remote: false,
+    me: "Me",
+    rooms: [shop],
+    posts: [newPost({ room: "shop", type: "shared", author: "Hank", claim: "The lathe is oiled." })],
+    cards: [],
+    threads: [],
+    section: "rooms",
+    room: "shop",
+    openThread: null,
+    dmFrom: null,
+    focusMember: null,
+  });
+  useBoard.getState().messageMember("shop", { id: "Otto", name: "Otto", userId: null });
+  assert.equal(useBoard.getState().section, "rooms");
+
+  useBoard.getState().messageMember("shop", { id: "Hank", name: "Hank", userId: null });
+  let state = useBoard.getState();
+  assert.equal(state.section, "messages");
+  assert.ok(state.openThread);
+  assert.deepEqual(state.dmFrom, { room: "shop", memberId: "Hank", name: "Hank", userId: null });
+
+  state.backToRoom();
+  state = useBoard.getState();
+  assert.equal(state.section, "rooms");
+  assert.equal(state.room, "shop");
+  assert.equal(state.openThread, null);
+  assert.equal(state.dmFrom, null);
+  assert.equal(state.focusMember, "Hank");
+
+  // Opened from the list of conversations instead: Back goes to all messages.
+  state.messageMember("shop", { id: "Hank", name: "Hank", userId: null });
+  useBoard.getState().setOpenThread(null);
+  assert.equal(useBoard.getState().dmFrom, null);
 });
 
 test("Message on a rooms page leaves the rooms page so the conversation shows", () => {

@@ -213,9 +213,13 @@ test("members see each other in name order; attendance only in a room that takes
       "id",
       "joinedOn",
       "lastPostedOn",
+      "message",
       "name",
       "steward",
     ]);
+    // Amos has been in the room five days: he may write to Zeb, and not to himself.
+    assert.equal(byName.get("Zeb")?.message, "open");
+    assert.equal(byName.get("Amos")?.message, "none");
 
     const notIn = await listRoomMembers(db, outsider, "shop", now);
     assert.equal(notIn.ok, false);

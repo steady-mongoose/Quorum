@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { ArrowLeft } from "lucide-react";
-import { btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
+import { btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { DM_DEMO_NOTICE } from "@/lib/e2ee/copy";
 import {
@@ -14,6 +13,7 @@ import {
 import { useBoard } from "@/lib/board/store";
 import { SharedMediaFigure } from "@/components/board/media-share";
 import { useServerSession } from "@/lib/server-session-state";
+import { ConversationBack, ConversationHeading } from "@/components/board/conversation-top";
 
 function LiveMailbox() {
   const [Mailbox, setMailbox] = useState<ComponentType | null>(null);
@@ -76,11 +76,8 @@ export function DmView() {
     return (
       <div className="flex flex-col gap-4 lg:max-w-3xl">
         <div className="plate plate--hero flex flex-col gap-2">
-          <button type="button" className={cn(btnQuiet, "self-start px-0")} onClick={() => setOpenThread(null)}>
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            All messages
-          </button>
-          <h1 className="illum font-display text-3xl text-fg">{other}</h1>
+          <ConversationBack onAllMessages={() => setOpenThread(null)} />
+          <ConversationHeading name={other} className="illum font-display text-3xl text-fg" />
           <p className="text-sm text-muted">Plain text, deleted after {DM_RETENTION_DAYS} days.</p>
         </div>
         <ul className="flex flex-col gap-2">
