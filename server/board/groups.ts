@@ -126,7 +126,10 @@ type LogAction =
   | "remove"
   | "appeal"
   | "uphold"
-  | "lift";
+  | "lift"
+  | "invite"
+  | "revoke-invite"
+  | "decline-invite";
 
 type Err = {
   ok: false;
@@ -429,6 +432,7 @@ export async function listGroups(
     source_room_id: string;
     joined: unknown;
     admin: unknown;
+    invite_from: string | null;
     ban_reason: string | null;
     ban_strikes: number | string | null;
     ban_until: Date | string | null;
@@ -437,6 +441,10 @@ export async function listGroups(
     `select g.id, g.name, g.about, g.audience, g.source_room_id,
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
+            (select i.by_name from theme_group_invite i
+              where i.group_id = g.id and i.user_id = $1
+                and i.used_at is null and i.revoked_at is null and i.declined_at is null
+              limit 1) as invite_from,
             b.reason as ban_reason, b.strikes as ban_strikes, b.until_at as ban_until
      from theme_group g
      left join theme_group_request r
@@ -453,6 +461,7 @@ export async function listGroups(
     about: string;
     joined: boolean;
     admin: boolean;
+    inviteFrom: string | null;
     audience: string;
     sourceRoomId: string;
   }> = [];
@@ -466,6 +475,7 @@ export async function listGroups(
         about: row.about,
         joined: flag(row.joined),
         admin: flag(row.admin),
+        inviteFrom: row.invite_from,
         audience: row.audience,
         sourceRoomId: row.source_room_id,
       });
@@ -498,6 +508,7 @@ export async function listGroups(
         about: group.about,
         joined: group.joined,
         admin: group.admin,
+        ...(group.inviteFrom && !group.joined ? { inviteFrom: group.inviteFrom } : {}),
         ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
       })),
     },
@@ -512,7 +523,12 @@ export async function listGroup(
   query: { cursor?: string; limit?: number } = {},
 ): Promise<
   Result<{
-    group: ThemeGroup & { admins: string[] };
+    group: ThemeGroup & {
+      admins: string[];
+      canInvite: boolean;
+      invited: boolean;
+      invitedBy: string | null;
+    };
     posts: GroupPost[];
     marks: GroupMark[];
     removals: GroupRemoval[];
@@ -533,6 +549,38 @@ export async function listGroup(
     return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
   }
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
+  // Reading is for members, like rooms. A non-member, including someone who
+  // left, gets the group's name and their invite, if any, and no posts.
+  // Group admins, stewards, and site admins keep access.
+  if (
+    !(await isJoined(db, groupId, userId)) &&
+    !(await moderatesGroup(db, gated.actor, userId, groupId))
+  ) {
+    const named = await db.query<{ name: string }>(`select name from theme_group where id = $1`, [
+      groupId,
+    ]);
+    const held = await openInvite(db, groupId, userId);
+    return {
+      ok: true,
+      value: {
+        group: {
+          id: groupId,
+          name: named[0]?.name ?? "",
+          about: "",
+          joined: false,
+          admin: false,
+          admins: [],
+          canInvite: false,
+          invited: Boolean(held),
+          invitedBy: held ? held.by_name : null,
+        },
+        posts: [],
+        marks: [],
+        removals: [],
+        next: null,
+      },
+    };
+  }
   const cursor = query.cursor ? decodeCursor(query.cursor) : null;
   if (query.cursor && !cursor) return fail(400, "That page is not valid.");
   const limit = Math.min(
@@ -622,6 +670,11 @@ export async function listGroup(
         joined: await isJoined(db, groupId, userId),
         admin,
         admins: adminRows.map((row) => row.name),
+        canInvite: seesRemovals,
+        ...(await (async () => {
+          const held = await openInvite(db, groupId, userId);
+          return { invited: Boolean(held), invitedBy: held ? held.by_name : null };
+        })()),
         followsRoom,
         ...(liveAudience === "men" || liveAudience === "women" ? { audience: liveAudience } : {}),
       },
@@ -647,6 +700,181 @@ export async function listGroup(
   };
 }
 
+/** Groups are joined by invitation. The refusal a member sees without one. */
+export const GROUP_INVITE_ONLY =
+  "Only members of this group can read and post here. Ask a group admin or steward for an invite.";
+
+async function openInvite(
+  db: Db,
+  groupId: string,
+  userId: string,
+): Promise<{ id: string; by_name: string } | null> {
+  const rows = await db.query<{ id: string; by_name: string }>(
+    `select id, by_name from theme_group_invite
+     where group_id = $1 and user_id = $2
+       and used_at is null and revoked_at is null and declined_at is null
+     limit 1`,
+    [groupId, userId],
+  );
+  return rows[0] ?? null;
+}
+
+export type GroupInvite = { id: string; name: string; by: string; at: number };
+
+/** Only a group admin or a steward of the group sends or revokes an invite. */
+async function invitesFor(db: Db, actor: BoardActor, userId: string, groupId: string) {
+  if (await isGroupAdmin(db, groupId, userId)) return true;
+  return stewardOfGroup(db, actor, userId, groupId);
+}
+
+export async function inviteToGroup(
+  db: Db,
+  input: { userId: string; name: string; groupId: string; email: string; now: Date },
+): Promise<Result<GroupInvite>> {
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
+  if (!(await invitesFor(db, gated.actor, input.userId, input.groupId)))
+    return fail(403, "Only a group admin or steward can invite.");
+  const email = input.email.trim().toLowerCase();
+  if (!email) return fail(400, "Enter the member's email.");
+  const people = await db.query<{ id: string; name: string }>(
+    `select id, name from "user" where lower(email) = $1`,
+    [email],
+  );
+  const person = people[0];
+  if (!person) return fail(404, "No member has that email.");
+  const target = await actorRole(db, person.id);
+  if (!target.member) return fail(400, "That person is not a member.");
+  if (await isJoined(db, input.groupId, person.id))
+    return fail(409, "That person is already in this group.");
+  if (await openInvite(db, input.groupId, person.id))
+    return fail(409, "That person already has an invite to this group.");
+  const who = input.name.trim() || "Member";
+  const id = randomUUID();
+  try {
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `insert into theme_group_invite (id, group_id, user_id, by_user_id, by_name, created_at)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [id, input.groupId, person.id, input.userId, who, input.now],
+      );
+      await writeLog(tx, {
+        groupId: input.groupId,
+        actorUserId: input.userId,
+        actorName: who,
+        action: "invite",
+        targetUserId: person.id,
+        detail: person.name,
+        now: input.now,
+      });
+    });
+  } catch (error) {
+    if (isUniqueViolation(error))
+      return fail(409, "That person already has an invite to this group.");
+    throw error;
+  }
+  return { ok: true, value: { id, name: person.name, by: who, at: input.now.getTime() } };
+}
+
+export async function revokeGroupInvite(
+  db: Db,
+  input: { userId: string; name: string; groupId: string; inviteId: string; now: Date },
+): Promise<Result<{ revoked: true }>> {
+  const gated = await gateGroup(db, input.userId, input.groupId, input.now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
+  if (!(await invitesFor(db, gated.actor, input.userId, input.groupId)))
+    return fail(403, "Only a group admin or steward can revoke an invite.");
+  const rows = await db.query<{ id: string; user_id: string; name: string }>(
+    `select i.id, i.user_id, coalesce(u.name, '') as name
+     from theme_group_invite i left join "user" u on u.id = i.user_id
+     where i.id = $1 and i.group_id = $2
+       and i.used_at is null and i.revoked_at is null and i.declined_at is null`,
+    [input.inviteId, input.groupId],
+  );
+  const invite = rows[0];
+  if (!invite) return fail(404, "That invite is not open.");
+  const who = input.name.trim() || "Member";
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `update theme_group_invite
+       set revoked_at = $2, revoked_by_user_id = $3, revoked_by_name = $4
+       where id = $1`,
+      [invite.id, input.now, input.userId, who],
+    );
+    await writeLog(tx, {
+      groupId: input.groupId,
+      actorUserId: input.userId,
+      actorName: who,
+      action: "revoke-invite",
+      targetUserId: invite.user_id,
+      detail: invite.name,
+      now: input.now,
+    });
+  });
+  return { ok: true, value: { revoked: true } };
+}
+
+/** The invited member turns down their own open invite. No one is told. */
+export async function declineGroupInvite(
+  db: Db,
+  input: { userId: string; name: string; groupId: string; now: Date },
+): Promise<Result<{ declined: true }>> {
+  const gated = await gate(db, input.userId, input.now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
+  const invite = await openInvite(db, input.groupId, input.userId);
+  if (!invite) return fail(404, "You have no open invite to this group.");
+  const who = input.name.trim() || "Member";
+  await db.transaction(async (tx) => {
+    await tx.query(`update theme_group_invite set declined_at = $2 where id = $1`, [
+      invite.id,
+      input.now,
+    ]);
+    await writeLog(tx, {
+      groupId: input.groupId,
+      actorUserId: input.userId,
+      actorName: who,
+      action: "decline-invite",
+      now: input.now,
+    });
+  });
+  return { ok: true, value: { declined: true } };
+}
+
+/** Open invites, oldest first, for the group's admins and stewards. */
+export async function listGroupInvites(
+  db: Db,
+  userId: string,
+  groupId: string,
+  now: Date,
+): Promise<Result<{ invites: GroupInvite[] }>> {
+  const gated = await gateGroup(db, userId, groupId, now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
+  if (!(await invitesFor(db, gated.actor, userId, groupId)))
+    return fail(403, "Only a group admin or steward can see invites.");
+  const rows = await db.query<{ id: string; name: string; by_name: string; created_at: Date | string }>(
+    `select i.id, coalesce(u.name, '') as name, i.by_name, i.created_at
+     from theme_group_invite i left join "user" u on u.id = i.user_id
+     where i.group_id = $1 and i.used_at is null and i.revoked_at is null and i.declined_at is null
+     order by i.created_at, i.id`,
+    [groupId],
+  );
+  return {
+    ok: true,
+    value: {
+      invites: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        by: row.by_name,
+        at: new Date(row.created_at).getTime(),
+      })),
+    },
+  };
+}
+
 export async function joinGroup(
   db: Db,
   input: { userId: string; name: string; groupId: string; now: Date },
@@ -666,11 +894,20 @@ export async function joinGroup(
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const who = input.name.trim() || "Member";
   if (await isJoined(db, input.groupId, input.userId)) return { ok: true, value: { joined: true } };
+  const exempt = await moderatesGroup(db, gated.actor, input.userId, input.groupId);
+  const invite = exempt ? null : await openInvite(db, input.groupId, input.userId);
+  if (!exempt && !invite) return fail(403, GROUP_INVITE_ONLY);
   await db.transaction(async (tx) => {
     await tx.query(
       `insert into theme_group_member (group_id, user_id, joined_at) values ($1, $2, $3)`,
       [input.groupId, input.userId, input.now],
     );
+    if (invite) {
+      await tx.query(`update theme_group_invite set used_at = $2 where id = $1`, [
+        invite.id,
+        input.now,
+      ]);
+    }
     await writeLog(tx, {
       groupId: input.groupId,
       actorUserId: input.userId,
@@ -735,7 +972,7 @@ export async function createGroupPost(
   if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
   const admin = await isGroupAdmin(db, input.groupId, input.userId);
   const joined = await isJoined(db, input.groupId, input.userId);
-  if (!admin && !joined) return fail(403, "Join the group before you post.");
+  if (!admin && !joined) return fail(403, GROUP_INVITE_ONLY);
   const body = englishText(input.body, 600, "Write the post.", "Keep it under 600 characters.");
   if (!body.ok) return fail(400, body.error);
   if (looksLikeThreat(body.text)) return fail(400, "That reads as a threat and will not post.");

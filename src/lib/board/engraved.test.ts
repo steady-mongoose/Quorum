@@ -42,10 +42,10 @@ test("Martin is only the landing and the sign-in plate", () => {
   assert.equal(artSection({ entered: true, section: "week", signingIn: false }), "week");
   assert.equal(artSection({ entered: true, section: "rooms", signingIn: false }), "rooms");
   assert.equal(artSection({ entered: true, section: "messages", signingIn: false }), "messages");
-  assert.equal(artSection({ entered: true, section: "find", signingIn: false }), null);
-  assert.equal(artSection({ entered: true, section: "about", signingIn: false }), null);
-  assert.equal(artSection({ entered: true, section: "profile", signingIn: false }), null);
-  assert.equal(artSection({ entered: true, section: "civic", signingIn: false }), null);
+  assert.equal(artSection({ entered: true, section: "find", signingIn: false }), "find");
+  assert.equal(artSection({ entered: true, section: "about", signingIn: false }), "about");
+  assert.equal(artSection({ entered: true, section: "profile", signingIn: false }), "profile");
+  assert.equal(artSection({ entered: true, section: "civic", signingIn: false }), "civic");
 });
 
 test("no destruction or apocalyptic plate is shipped", () => {

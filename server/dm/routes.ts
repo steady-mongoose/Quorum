@@ -10,9 +10,12 @@ import {
 } from "../rate-limit.ts";
 import {
   addPrekeys,
+  blockMember,
   claimBundle,
   getBackup,
+  listBlocked,
   listPeers,
+  unblockMember,
   previewBundle,
   listMessages,
   listOwnDevices,
@@ -312,7 +315,12 @@ async function dispatch(
   }
 
   if (path === "/api/dm/keys" && method === "GET") {
-    const preview = await previewBundle(deps.db, userId, url.searchParams.get("userId") ?? "");
+    const preview = await previewBundle(
+      deps.db,
+      userId,
+      url.searchParams.get("userId") ?? "",
+      deps.now(),
+    );
     if (!preview.ok) return json(preview.status, { error: preview.error });
     return json(200, preview.value);
   }
@@ -348,6 +356,26 @@ async function dispatch(
     if (!saved.ok) return json(saved.status, { error: saved.error });
     return json(200, { ok: true });
   }
+  if (path === "/api/dm/blocks" && method === "GET") {
+    return json(200, { blocked: await listBlocked(deps.db, userId) });
+  }
+  if (path === "/api/dm/blocks" && method === "POST") {
+    const blocked = await blockMember(
+      deps.db,
+      userId,
+      stringField(await readJson(request), "userId"),
+      deps.now(),
+    );
+    if (!blocked.ok) return json(blocked.status, { error: blocked.error });
+    return json(200, { ok: true });
+  }
+  const unblock = path.match(/^\/api\/dm\/blocks\/([^/]+)\/unblock$/);
+  if (unblock && method === "POST") {
+    const lifted = await unblockMember(deps.db, userId, decodeURIComponent(unblock[1] ?? ""));
+    if (!lifted.ok) return json(lifted.status, { error: lifted.error });
+    return json(200, { ok: true });
+  }
+
   if (path === "/api/dm/peers" && method === "GET") {
     return json(200, { peers: await listPeers(deps.db, userId) });
   }

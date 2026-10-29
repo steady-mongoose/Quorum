@@ -11,7 +11,7 @@ import {
   SENTENCE_ERROR,
 } from "../../src/lib/board/text.ts";
 
-const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
+const POST_TYPES = new Set(["shared", "did", "asked", "noted", "saw", "hosted"]);
 const REASON_TYPES = new Set(["did", "asked", "noted", "saw"]);
 const DATE_TYPES = new Set(["did", "saw", "hosted"]);
 
@@ -19,6 +19,8 @@ export type RoomRules = {
   name: string;
   takes: string[];
   stewardTakes: string[];
+  /** False when the room does not take roll. Left out, roll is allowed. */
+  rollCall?: boolean;
 };
 
 export function contentStops(input: {
@@ -64,6 +66,13 @@ export function contentStops(input: {
     stops.push("The next date is not a valid date.");
   if (input.type === "asked" && (claim.match(/\?/g) ?? []).length > 1) {
     stops.push("One question per post. Ask the second one separately.");
+  }
+  if (
+    input.type === "hosted" &&
+    input.room.rollCall === false &&
+    (input.came.length > 0 || input.named)
+  ) {
+    stops.push("This room does not take roll. Leave out who came.");
   }
   if (input.type === "hosted" && hasHeadcount(claim)) {
     stops.push("Leave out the headcount. Say how it went, not how many came.");

@@ -63,6 +63,8 @@ import {
   updateRoom,
   type Result,
 } from "./store.ts";
+import { listRoomMembers } from "./members.ts";
+import { closeReport, fileReport, listReports } from "./reports.ts";
 
 type SessionUser = { id: string; name: string; email: string };
 
@@ -211,11 +213,13 @@ export async function handleBoard(
     /^\/api\/claims\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(confirm|check|decide)$/i.exec(
       url.pathname,
     );
+  const roomMembers = /^\/api\/rooms\/([a-z0-9-]{1,32})\/members$/.exec(url.pathname);
   const roomAudience = /^\/api\/rooms\/([a-z0-9-]{1,32})\/audience$/.exec(url.pathname);
   const roomOne = /^\/api\/rooms\/([a-z0-9-]{1,32})$/.exec(url.pathname);
   const adminRoomMove = /^\/api\/admin\/rooms\/([a-z0-9-]{1,32})\/categories$/.exec(url.pathname);
   const categoryOne = /^\/api\/categories\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(url.pathname);
   const decide = /^\/api\/room-requests\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
+  const reportClose = /^\/api\/reports\/([A-Za-z0-9_-]{1,80})\/close$/.exec(url.pathname);
   const gatheringOne =
     /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
       url.pathname,
@@ -242,11 +246,14 @@ export async function handleBoard(
     (url.pathname === "/api/gender" && request.method === "POST") ||
     (url.pathname === "/api/gender/confirm" && request.method === "POST") ||
     Boolean(roomAudience && request.method === "POST") ||
+    Boolean(roomMembers && request.method === "GET") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
     (url.pathname === "/api/access" && request.method === "POST") ||
     (url.pathname === "/api/bans" && request.method === "POST") ||
+    (url.pathname === "/api/reports" && (request.method === "GET" || request.method === "POST")) ||
+    Boolean(reportClose && request.method === "POST") ||
     (url.pathname === "/api/account" && request.method === "GET") ||
     (url.pathname === "/api/account/deletion-requests" && request.method === "GET") ||
     (url.pathname === "/api/account/deactivate" && request.method === "POST") ||
@@ -271,9 +278,26 @@ export async function handleBoard(
       return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
     }
 
+    if (roomMembers && request.method === "GET") {
+      return fromResult(
+        200,
+        await listRoomMembers(deps.db, session.id, roomMembers[1] ?? "", now),
+      );
+    }
+
     if (url.pathname === "/api/appeals" && request.method === "GET") {
       const appeals = await listOwnAppeals(deps.db, session.id);
       return json(200, { appeals });
+    }
+
+    if (url.pathname === "/api/reports" && request.method === "GET") {
+      const listed = await listReports(deps.db, {
+        userId: session.id,
+        roomId: url.searchParams.get("room") ?? "",
+        now,
+      });
+      if (!listed.ok) return json(listed.status, { error: listed.error });
+      return json(200, { reports: listed.value });
     }
 
     if (url.pathname === "/api/gatherings" && request.method === "GET") {
@@ -374,6 +398,32 @@ export async function handleBoard(
 
     const body = await readJson(request);
 
+    if (reportClose && request.method === "POST") {
+      const closed = await closeReport(deps.db, {
+        userId: session.id,
+        reportId: decodeURIComponent(reportClose[1] ?? ""),
+        resolution: stringField(body, "resolution"),
+        note: stringField(body, "note"),
+        now,
+      });
+      if (!closed.ok) return json(closed.status, { error: closed.error });
+      return json(200, { report: closed.value });
+    }
+
+    if (url.pathname === "/api/reports" && request.method === "POST") {
+      const filed = await fileReport(deps.db, {
+        userId: session.id,
+        name: session.name,
+        roomId: stringField(body, "roomId"),
+        subjectKind: stringField(body, "subjectKind"),
+        subjectId: stringField(body, "subjectId"),
+        reason: stringField(body, "reason"),
+        note: stringField(body, "note"),
+        now,
+      });
+      if (!filed.ok) return json(filed.status, { error: filed.error });
+      return json(201, { report: filed.value });
+    }
     if (url.pathname === "/api/account/deactivate" && request.method === "POST") {
       return fromResult(
         200,
@@ -474,6 +524,9 @@ export async function handleBoard(
         what: stringField(body, "what"),
         categoryIds: categoryIdsField(body).categoryIds ?? [],
         audience: body.audience,
+        stewardEmail: stringField(body, "stewardEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
+        ...(body.options !== undefined ? { options: body.options } : {}),
         now,
       });
       return fromResult(201, created);
@@ -505,6 +558,7 @@ export async function handleBoard(
           ...(typeof body.name === "string" ? { name: body.name } : {}),
           ...(typeof body.what === "string" ? { what: body.what } : {}),
           ...pinField(body),
+          ...(body.options !== undefined ? { options: body.options } : {}),
           now,
         }),
       );
@@ -630,6 +684,8 @@ export async function handleBoard(
           requestId: decide[1] ?? "",
           decision: stringField(body, "decision"),
           note: stringField(body, "note"),
+          stewardEmail: stringField(body, "stewardEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
           now,
         }),
       );
@@ -657,6 +713,8 @@ export async function handleBoard(
           roomId: roomJoin[1] ?? "",
           now,
           leave: roomJoin[2] === "leave",
+          replacementEmail: stringField(body, "replacementEmail"),
+          inviterEmail: stringField(body, "inviterEmail"),
         }),
       );
     }
@@ -670,6 +728,7 @@ export async function handleBoard(
         inviterEmail: stringField(body, "inviterEmail"),
         stewardEmail: stringField(body, "stewardEmail"),
         role: stringField(body, "role"),
+        replacementEmail: stringField(body, "replacementEmail"),
         now,
       });
       return fromResult(200, changed);
@@ -682,6 +741,8 @@ export async function handleBoard(
         email: stringField(body, "email"),
         reason: stringField(body, "reason"),
         roomId: stringField(body, "roomId"),
+        replacementEmail: stringField(body, "replacementEmail"),
+        inviterEmail: stringField(body, "inviterEmail"),
         now,
       });
       return fromResult(201, banned);
@@ -770,10 +831,7 @@ export async function handleBoard(
       );
     }
     if (action === "delete") {
-      return fromResult(
-        200,
-        await deleteOwnPost(deps.db, { userId: session.id, postId, now }),
-      );
+      return fromResult(200, await deleteOwnPost(deps.db, { userId: session.id, postId, now }));
     }
     if (action === "appeal") {
       return fromResult(

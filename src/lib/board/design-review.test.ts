@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { entryFromSearch, INVITE_CODE_ERROR, INVITE_INVALID, inviteCodeError } from "./invite-entry.ts";
+import {
+  entryFromSearch,
+  INVITE_CODE_ERROR,
+  INVITE_INVALID,
+  inviteCodeError,
+} from "./invite-entry.ts";
 import { THEMES, themeById, OWNER_THEME } from "./themes.ts";
 import { dayHeading, localCalendarIso, meetingDates, shiftLocalDate } from "./week-days.ts";
 
@@ -212,7 +217,7 @@ test("the week, the door, and the fields use the review's markup", () => {
   assert.match(model, /shiftLocalDate\(iso, days\)/);
   assert.match(model, /meetingDates\(card\.time, card\.next, today/);
   const formAt = door.indexOf("<AccountDoor");
-  const pitchAt = door.indexOf("{APP_NAME} is invite-only.");
+  const pitchAt = door.indexOf("Welcome to {APP_NAME}");
   assert.ok(formAt > 0 && pitchAt > 0 && pitchAt < formAt);
   assert.match(door, /lg:order-last/);
   assert.match(door, /door-side order-first/);
@@ -237,7 +242,10 @@ test("the week, the door, and the fields use the review's markup", () => {
   assert.match(bits, /border-line-strong/);
   assert.match(bits, /focus-visible:border-fg/);
   const rooms = source("../../components/board/room-view.tsx");
-  assert.match(rooms, /inline-flex min-h-\[44px\] items-center font-semibold text-fg hover:underline/);
+  assert.match(
+    rooms,
+    /inline-flex min-h-\[44px\] items-center font-semibold text-fg hover:underline/,
+  );
   assert.match(
     rooms,
     /inline-flex min-h-\[44px\] items-center gap-2 self-end[\s\S]*className="size-5"/,

@@ -25,18 +25,15 @@ test("UX pass: an empty sign-in submit names each empty field and focuses the fi
   assert.match(account, /email: "Please enter your email\."/);
   assert.match(account, /password: "Please enter your password\."/);
   assert.match(account, /name: "Please enter your name\."/);
-  assert.match(account, /\["email", "password"\]/);
-  assert.match(account, /refs\[empty\[0\]\]\.current\?\.focus\(\)/);
-  assert.match(account, /id=\{`door-\$\{key\}-error`\} role="alert"/);
-  assert.match(account, /"aria-invalid": fieldErrors\[key\] \? true : undefined/);
-  assert.match(
-    account,
-    /"aria-describedby": fieldErrors\[key\] \? `door-\$\{key\}-error` : undefined/,
-  );
+  // Both sets of errors: one line under each empty field, and the summary alert.
+  assert.match(account, /SIGN_IN_EMPTY_ERROR = "Enter your email and password\."/);
+  assert.match(account, /setBlank\(\{ name: nameBlank, email: emailBlank, password: passwordBlank \}\)/);
+  assert.match(account, /focusFirst\(\[\s*nameBlank \? nameRef\.current/);
+  assert.match(account, /id=\{`door-\$\{key\}-error`\} className="text-sm text-danger"/);
+  assert.match(account, /describedBy\(\s*blank\.email && "door-email-error",\s*signMessage && SIGN_IN_ERROR_ID,?\s*\)/);
   for (const key of ["name", "email", "password"]) {
-    assert.match(account, new RegExp(`\\{\\.\\.\\.fieldProps\\("${key}"\\)\\}`));
-    assert.match(account, new RegExp(`\\{fieldError\\("${key}"\\)\\}`));
+    assert.match(account, new RegExp(`\\{(mode === "sign-up" \\? )?fieldError\\("${key}"\\)`));
   }
   // The empty check runs before any request goes out.
-  assert.ok(account.indexOf("empty.length > 0") < account.indexOf("server.signIn("));
+  assert.ok(account.indexOf("if (nameBlank || emailBlank || passwordBlank)") < account.indexOf("server.signIn("));
 });

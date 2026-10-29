@@ -35,7 +35,11 @@ test("a shared page is the title, the date, the time, and the town, with noindex
   assert.match(page.body, /October 24, 2026/);
   assert.match(page.body, /07:00/);
   assert.match(page.body, /Riverview/);
-  assert.match(page.body, /Avouch is invite-only/);
+  assert.match(
+    page.body,
+    /Avouch is a community you join by invitation\. Ask the person who shared this for an invite code\./,
+  );
+  assert.doesNotMatch(page.body, /invite-only/);
   assert.match(page.body, /the title, the date, the time, and the town/);
   assert.match(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
@@ -275,5 +279,5 @@ test("dark surfaces, including the sign-in card, use the light focus ring in eve
   for (const sel of [".bg-bg", ".bg-surface", ".bg-raised", '[data-palette="parchment"] .bg-surface']) assert.ok(rule[1].includes(sel), sel);
   assert.match(css, /:focus-visible\{outline:2px solid var\(--focus\);outline-offset:2px;/);
   const door = readFileSync(new URL("../../components/board/door.tsx", import.meta.url), "utf8");
-  assert.match(door, /id="sign-in" className="[^"]*\bbg-surface\b/);
+  assert.match(door, /id="sign-in"\s+className="[^"]*\bbg-surface\b/);
 });

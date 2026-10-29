@@ -26,6 +26,13 @@ test("join, then chat lets you in, and leaving shuts it again", async () => {
        values ($1, $2, 'Josh', 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $3)`,
       [randomUUID(), josh, now],
     );
+    // Rooms are joined by invitation: a room invite for the shop.
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Josh', 'member', 'shop', 'grant', 'test', 'test', 'test', 'Invited for the test.', $3)`,
+      [randomUUID(), josh, now],
+    );
 
     const before = await listChat(db, { userId: josh, roomId: "shop", now });
     assert.equal(before.ok, false);
@@ -56,7 +63,13 @@ test("join, then chat lets you in, and leaving shuts it again", async () => {
     const refused = await listChat(db, { userId: josh, roomId: "shop", now });
     assert.equal(refused.ok, false);
     if (!refused.ok) assert.equal(refused.error, "You are not in this room.");
-    const resend = await sendChat(db, { userId: josh, name: "Josh", roomId: "shop", text: "Still here?", now });
+    const resend = await sendChat(db, {
+      userId: josh,
+      name: "Josh",
+      roomId: "shop",
+      text: "Still here?",
+      now,
+    });
     assert.equal(resend.ok, false);
 
     // His past message stays in the room.
@@ -69,14 +82,14 @@ test("join, then chat lets you in, and leaving shuts it again", async () => {
   }
 });
 
-test("after a join the chat reloads, the Join button goes, and the note clears", () => {
-  const source = readFileSync(new URL("../../src/components/board/room-chat.tsx", import.meta.url), "utf8");
-  // The button only shows while the server says NOT_IN_ROOM.
-  assert.match(source, /\{note === NOT_IN_ROOM \? \(/);
-  // A successful join bumps joinTick, which re-runs the pull...
-  assert.match(source, /setJoinTick\(\(tick\) => tick \+ 1\)/);
-  assert.match(source, /\}, \[remote, roomId, joinTick\]\);/);
-  // ...and a successful pull clears the note, which removes the button.
+test("room chat has no Join button; a non-member sees the invite line", () => {
+  const source = readFileSync(
+    new URL("../../src/components/board/room-chat.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /Join this room/);
+  assert.doesNotMatch(source, /joinRoom\(/);
+  assert.match(source, /note === NOT_IN_ROOM \? MEMBERS_ONLY_INVITE : note/);
+  // A successful pull still clears the note.
   assert.match(source, /setBlocked\(false\);\n\s+setNote\(""\);/);
-  assert.match(source, /You joined this room\./);
 });

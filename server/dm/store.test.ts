@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { Db } from "../db.ts";
-import { createPost } from "../board/store.ts";
-import { openTestDb } from "../closed-test/test-db.ts";
+import { createPost } from "../board/test-posting.ts";
+import { openRollCallDb } from "../closed-test/roll-call-db.ts";
 import { DM_MAX_DEVICES } from "../../src/lib/e2ee/limits.ts";
 import {
   createBackupKey,
@@ -113,7 +113,7 @@ async function meet(db: Db, userIds: string[]): Promise<void> {
 }
 
 test("a bad device signature is refused and eight devices is the cap", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const alice = await member(db, "Alice");
     const device = await createDevice({ userId: alice, prekeyCount: 1 });
@@ -157,7 +157,7 @@ test("a bad device signature is refused and eight devices is the cap", async () 
 });
 
 test("the backup row stores ciphertext, not the passphrase or the private key", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const alice = await member(db, "Alice");
     const backup = await createBackupKey();
@@ -191,7 +191,7 @@ test("the backup row stores ciphertext, not the passphrase or the private key", 
 });
 
 test("a thread is one pair, the text is not stored, and a third member cannot read it", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const alice = await member(db, "Alice");
@@ -271,7 +271,7 @@ test("a thread is one pair, the text is not stored, and a third member cannot re
 });
 
 test("an envelope aimed outside the pair is refused, and a revoked device cannot send", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const alice = await member(db, "Alice");
@@ -323,7 +323,7 @@ test("an envelope aimed outside the pair is refused, and a revoked device cannot
 });
 
 test("each one-time prekey is handed out once", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const alice = await member(db, "Alice");
@@ -341,7 +341,7 @@ test("each one-time prekey is handed out once", async () => {
 });
 
 test("a claimed meeting id is not attendance, and peers do not reveal who went", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const alice = await member(db, "Alice");
@@ -392,7 +392,7 @@ test("a claimed meeting id is not attendance, and peers do not reveal who went",
 });
 
 test("a signed prekey older than 30 days is not offered for a new message", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const alice = await member(db, "Alice");
@@ -416,7 +416,7 @@ test("a signed prekey older than 30 days is not offered for a new message", asyn
 });
 
 test("deleting a member keeps the other person's thread and shows Former member", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
     assert.match(sql, /create or replace function anonymize_dm_user/);
@@ -526,7 +526,7 @@ test("deleting a member keeps the other person's thread and shows Former member"
 });
 
 test("a reused card does not leak attendees, and a came list is not attendance", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const victim = await member(db, "Victim");
@@ -693,7 +693,7 @@ test("a reused card does not leak attendees, and a came list is not attendance",
 });
 
 test("a listed name is the account that existed when the host posted", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const now = new Date("2026-10-19T12:00:00Z");
     const host = await member(db, "Host");
@@ -741,7 +741,7 @@ test("a listed name is the account that existed when the host posted", async () 
 });
 
 test("existing hosted posts are named when the private-message migration runs", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
     assert.match(sql, /backfill_dm_named_accounts/);
@@ -804,7 +804,7 @@ test("existing hosted posts are named when the private-message migration runs", 
 });
 
 test("two hosts cannot claim one fresh card at the same time", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   try {
     const sql = readFileSync(new URL("../../migrations/0006_dm_e2ee.sql", import.meta.url), "utf8");
     assert.match(sql, /dm_card_host/);

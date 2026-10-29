@@ -1,5 +1,6 @@
 import type { BrowseRoom, RoomCategory } from "./categories.ts";
 import type { HomePayload } from "./home.ts";
+import type { RoomOption } from "./room-options.ts";
 import type {
   AppealRow,
   BanRow,
@@ -40,7 +41,12 @@ export type RoomRequestInput = {
   state: string;
 };
 
-export type RoomDecisionInput = { decision: "approved" | "refused"; note: string };
+export type RoomDecisionInput = {
+  decision: "approved" | "refused";
+  note: string;
+  stewardEmail?: string;
+  inviterEmail?: string;
+};
 
 export type ZipCorrectionInput = { zip: string; name: string; state: string; clear?: boolean };
 
@@ -51,6 +57,8 @@ export type AccessInput = {
   inviterEmail?: string;
   stewardEmail?: string;
   role?: "member" | "steward" | "admin";
+  /** A new steward named in the same step, when the last steward leaves a room. */
+  replacementEmail?: string;
 };
 
 export type CouncilInput = {
@@ -112,10 +120,19 @@ export type BoardClient = {
     what: string;
     categoryIds: string[];
     audience?: "all" | "men" | "women";
+    stewardEmail?: string;
+    inviterEmail?: string;
+    options?: RoomOption[];
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
   updateRoom: (
     id: string,
-    input: { categoryIds?: string[]; name?: string; what?: string; pinOrder?: number | null },
+    input: {
+      categoryIds?: string[];
+      name?: string;
+      what?: string;
+      pinOrder?: number | null;
+      options?: RoomOption[];
+    },
   ) => Promise<{ ok: true; room: Room } | BoardFailure>;
   listCategories: () => Promise<{ ok: true; categories: RoomCategory[] } | BoardFailure>;
   readCategory: (

@@ -1,6 +1,9 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { DEFAULT_ROOM_OPTIONS, ROOM_OPTION_OFF, type RoomOption } from "./room-options.ts";
+export type { RoomOption } from "./room-options.ts";
+
 import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
@@ -31,7 +34,12 @@ export type RoomId =
   | "orthodox"
   | "dispatch"
   | (string & {});
-export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
+/** Whether a room includes roll call, the member list, chat, or calls. */
+export function roomIncludes(room: { options?: readonly RoomOption[] }, option: RoomOption): boolean {
+  return (room.options ?? DEFAULT_ROOM_OPTIONS).includes(option);
+}
+
+export type PostType = "shared" | "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
 export type Section =
   "week" | "rooms" | "groups" | "find" | "civic" | "messages" | "about" | "profile";
@@ -77,12 +85,16 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** What the room includes. Left out, everything but roll call. An admin sets it. */
+  options?: RoomOption[];
   /** Every category this room is listed in. */
   categoryIds: string[];
   /** Set when a steward of this room has pinned it. Absent means alphabetical. */
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */
   joined?: boolean;
+  /** The viewer is in the room (saved it or stood there), so they may post. */
+  member?: boolean;
   /** Omitted on a local room. Draft and unclaimed stay off the public page. */
   status?: "draft" | "unclaimed" | "active";
   town?: string;
@@ -263,7 +275,7 @@ export const RULE_LABEL: Record<HardRule, string> = {
   threat: "Threat of violence",
   porn: "Pornography",
   csam: "Child sexual abuse material",
-  doxxing: "Doxxing",
+  doxxing: "Sharing someone's private details",
   blasphemy: "Mocking God or Christ",
 };
 /**
@@ -311,8 +323,8 @@ export const MARK_LABEL: Record<Mark, string> = {
   out_of_scope: "Out of scope",
 };
 
-const MEMBER: PostType[] = ["did", "asked", "hosted"];
-const SERVICE: PostType[] = ["hosted"];
+const MEMBER: PostType[] = ["shared", "did", "asked", "hosted"];
+const SERVICE: PostType[] = ["shared", "hosted"];
 
 const ROOM_SEED: Omit<Room, "categoryIds" | "pinOrder" | "joined">[] = [
   {
@@ -455,6 +467,17 @@ export type TypeMeta = {
 };
 
 export const POST_TYPES: TypeMeta[] = [
+  {
+    id: "shared",
+    label: "Share",
+    what: "Anything for the room: news, a thought, a prayer request, or a photo.",
+    claimLabel: "What you want to share",
+    cardPick: "none",
+    tradePick: false,
+    attest: false,
+    closes: false,
+    closable: false,
+  },
   {
     id: "did",
     label: "Did",
@@ -612,6 +635,35 @@ export function formatWhen(at: number, now: number): string {
   return new Date(at).toLocaleDateString("en-US", CALENDAR_DATE);
 }
 
+/** A short excerpt for an accessible name: first words, up to about 40 characters. */
+export function itemExcerpt(text: string, max = 40): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/**
+ * Accessible name for a per-item action: the visible time (formatWhen, the
+ * same text the row shows) and a short excerpt, so two same-day items from one
+ * person still differ through their words:
+ * "Report message from Mark, 5m ago: \"See you at the bench\"".
+ */
+export function itemActionName(
+  action: "Report" | "Remove",
+  kind: "message" | "post",
+  author: string,
+  when: string,
+  text: string,
+): string {
+  const parts = [`${action} ${kind} from ${author}`];
+  if (when) parts.push(when);
+  const excerpt = itemExcerpt(text);
+  const head = parts.join(", ");
+  return excerpt ? `${head}: "${excerpt}"` : head;
+}
+
 export function newPost(
   fields: Pick<Post, "room" | "type" | "claim" | "author"> & Partial<Post>,
 ): Post {
@@ -726,6 +778,8 @@ export function composerErrorId(field: ComposerField): string {
 /** The plain-language post button for each kind of post. */
 export function postButtonLabel(type: PostType): string {
   switch (type) {
+    case "shared":
+      return "Share";
     case "asked":
       return "Post question";
     case "did":
@@ -898,6 +952,9 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   if (meta.closable && (claim.match(/\?/g) ?? []).length > 1)
     stop("claim", "One question per post. Ask the second one separately.");
 
+  if (meta.closes && !roomIncludes(room, "roll_call") && (draft.came.length > 0 || draft.named)) {
+    stop("form", ROOM_OPTION_OFF.roll_call);
+  }
   if (meta.cardPick === "own") {
     const card = ctx.cards.find((item) => item.id === draft.cardId);
     if (!card) stop("card", "Choose which meeting this is about.");
@@ -1138,6 +1195,28 @@ export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<
   return names;
 }
 
+/**
+ * People who post in a room you have joined. Rooms are joined only by an
+ * invitation from inside the app, so these are people from your rooms.
+ */
+export function roomMatesOf(me: string, rooms: readonly Room[], posts: Post[]): Set<string> {
+  const joined = new Set(rooms.filter((room) => room.joined).map((room) => room.id));
+  const names = new Set<string>();
+  for (const post of posts) if (!post.removed && joined.has(post.room)) names.add(post.author);
+  names.delete(me);
+  return names;
+}
+
+/** Everyone you can open a message to: people from your meetings and from your rooms. */
+export function messageableNames(
+  me: string,
+  cards: MeetingCard[],
+  posts: Post[],
+  rooms: readonly Room[],
+): Set<string> {
+  return new Set([...stoodWith(me, cards, posts), ...roomMatesOf(me, rooms, posts)]);
+}
+
 /** The last few times a host named this person, newest first. */
 export function namedLines(name: string, posts: Post[]): Post[] {
   return posts
@@ -1160,7 +1239,10 @@ export function otherIn(thread: DmThread, me: string): string {
  * on this device today (the server never sends them), so this runs where the
  * views assemble their board data.
  */
-export function forViewer(card: MeetingCard, viewer: { admin: boolean; name: string }): MeetingCard {
+export function forViewer(
+  card: MeetingCard,
+  viewer: { admin: boolean; name: string },
+): MeetingCard {
   if (viewer.admin) return card;
   return {
     ...card,

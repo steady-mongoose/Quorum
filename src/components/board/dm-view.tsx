@@ -139,8 +139,9 @@ export function DmView() {
         <Kicker>Messages</Kicker>
         <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">Messages</h1>
         <p className="max-w-prose text-base text-muted">
-          You can message someone you have been on an "I went" list with, or who replied to your
-          post. Open one from their post or their card. {DM_DEMO_NOTICE}
+          You can message someone who posts in one of your rooms, someone you have been on an "I
+          went" list with, or someone who replied to your post. Open one from their post or their
+          card. {DM_DEMO_NOTICE}
         </p>
       </section>
       {mine.length === 0 ? (

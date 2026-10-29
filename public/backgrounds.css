@@ -79,7 +79,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
 /* Dark surfaces (Tailwind bg-bg, bg-surface, bg-raised stay dark in every palette, including the sign-in card) always take the light ring. */
 .bg-bg,.bg-surface,.bg-raised,[data-palette="parchment"] .bg-bg,[data-palette="parchment"] .bg-surface,[data-palette="parchment"] .bg-raised{--focus:#f0e7d3}
-.illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;padding-right:.03em}
+.illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;margin-right:-.06em}
 .rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:7.5rem}
 .rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0);transition:transform 360ms var(--ease-press)}
 .rsvp-mark .laurel{width:46px;height:auto;opacity:0;transition:opacity 360ms 120ms ease-out}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { firstSteward } from "./test-stewards.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { bindCallEviction } from "../calls/evict.ts";
@@ -12,7 +13,6 @@ import { ruleId } from "./rule.ts";
 import {
   banMember,
   closeAsked,
-  createPost,
   createRoom,
   decideAppeal,
   fileAppeal,
@@ -20,10 +20,10 @@ import {
   listOwnAppeals,
   markPost,
   removePost,
-  replyToPost,
   revisePost,
   setSteward,
 } from "./store.ts";
+import { createPost, replyToPost } from "./test-posting.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 
@@ -321,6 +321,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
     if (denied.ok) return;
     assert.equal(denied.status, 403);
     const created = await createRoom(db, {
+      ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
       userId: josh,
       id: "woodshop",
       name: "Woodshop",

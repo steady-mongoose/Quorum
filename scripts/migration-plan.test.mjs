@@ -91,11 +91,69 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0022_stats.sql",
       "0023_mfa.sql",
       "0024_member_profile.sql",
+      "0029_member_reports.sql",
       "0030_account_removal.sql",
       "0032_dm_report.sql",
+      "0042_share_post.sql",
+      "0043_room_messages.sql",
+      "0044_room_options.sql",
+      "0045_group_invites.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+});
+
+test("migration 0042 adds the Share post, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0042_share_post.sql"), "utf8");
+  assert.match(sql, /Numbered 0042/);
+  assert.match(sql, /owner must approve/i);
+  assert.match(sql, /'shared', 'did', 'asked', 'noted', 'saw', 'hosted'/);
+  assert.ok(sql.includes("cardinality(takes) > 0"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from/i.test(sql), false);
+});
+
+test("migration 0043 adds room messaging guards, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0043_room_messages.sql"), "utf8");
+  assert.match(sql, /Numbered 0043/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("create table if not exists dm_block"));
+  assert.ok(sql.includes("add column if not exists opened_via"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from/i.test(sql), false);
+});
+
+test("migration 0044 adds room options with roll call off, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0044_room_options.sql"), "utf8");
+  assert.match(sql, /Numbered 0044/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("default array['members', 'chat', 'calls']::text[]"));
+  assert.ok(sql.includes("options <@ array['roll_call', 'members', 'chat', 'calls']::text[]"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from|update room/i.test(sql), false);
+});
+
+test("migration 0045 adds group invites, is owner-approved, and replaces only its own function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0045_group_invites.sql"), "utf8");
+  assert.match(sql, /Numbered 0045/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("create table if not exists theme_group_invite"));
+  assert.ok(sql.includes("'invite', 'revoke-invite', 'decline-invite'"));
+  assert.ok(sql.includes("declined_at timestamptz"));
+  // Only its own anonymize function, created or replaced so a rerun is safe.
+  assert.deepEqual(sql.match(/create or replace function \w+/gi), [
+    "create or replace function anonymize_theme_group_invite_user",
+  ]);
+  assert.equal(/^create (function|table|index|trigger) (?!if not exists)/im.test(sql.replace(/create trigger anonymize_theme_group_invite_user/, "")), false);
+  assert.equal(/drop table|delete from|update theme_group /i.test(sql), false);
+  const code = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const banned of ["like_count", "likes", "score", "reshare", "rank"]) {
+    assert.equal(code.includes(banned), false, banned);
+  }
 });
 
 test("migration 0010 anonymizes on its own and does not replace anonymize_board_user", () => {
