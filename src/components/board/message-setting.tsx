@@ -18,6 +18,7 @@ const SETTLE_MS = 800;
 
 export function MessageSetting() {
   const name = useId();
+  const introId = `${name}-intro`;
   // What the server has; what is checked on screen.
   const [value, setValue] = useState<MessageFrom | null>(null);
   const [selected, setSelected] = useState<MessageFrom | null>(null);
@@ -27,6 +28,9 @@ export function MessageSetting() {
   const saved = useRef<MessageFrom | null>(null);
   const wanted = useRef<MessageFrom | null>(null);
   const saving = useRef(false);
+  // The choice the request in flight carries, and the one sent as the page left.
+  const inFlight = useRef<MessageFrom | null>(null);
+  const sentOnLeave = useRef<MessageFrom | null>(null);
   const arrow = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -46,23 +50,36 @@ export function MessageSetting() {
     };
   }, []);
 
-  // A choice still waiting out the arrow-key pause is saved, not dropped, when
-  // the member leaves: on unmount (Back, a route change) and on pagehide
-  // (closing or reloading the tab). The save uses fetch keepalive.
+  // A choice not yet saved is sent, not dropped, when the member leaves: on
+  // unmount (Back, a route change) and on pagehide (closing or reloading the
+  // tab). That covers a choice still waiting out the arrow-key pause and a
+  // newer choice queued behind a save in flight. The page may be gone before
+  // the save in flight answers, so the newest choice goes at once, with fetch
+  // keepalive, after the one in flight. Requests reach the server in order and
+  // the last write wins, so the newest choice is what stays.
   useEffect(() => {
-    const leave = () => {
-      if (timer.current) void latest.current();
-    };
+    const leave = () => latestLeave.current();
     window.addEventListener("pagehide", leave);
     return () => {
       window.removeEventListener("pagehide", leave);
-      if (timer.current) {
-        clearTimeout(timer.current);
-        timer.current = null;
-        void latest.current();
-      }
+      leave();
     };
   }, []);
+
+  function leaveNow() {
+    const waiting = timer.current !== null;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (!saving.current) {
+      // Nothing in flight: the usual save, which already uses keepalive.
+      if (waiting) void flush();
+      return;
+    }
+    const next = wanted.current;
+    if (next === null || next === inFlight.current || next === sentOnLeave.current) return;
+    sentOnLeave.current = next;
+    void saveMessageSetting(browserTransport(), next);
+  }
 
   // Save the latest choice. One request at a time; a newer choice made while
   // one is in flight is saved after it.
@@ -73,11 +90,14 @@ export function MessageSetting() {
     const next = wanted.current;
     if (next === null || next === saved.current) return;
     saving.current = true;
+    inFlight.current = next;
     setPending(true);
     setNotice("");
     setError("");
     const result = await saveMessageSetting(browserTransport(), next);
     saving.current = false;
+    inFlight.current = null;
+    sentOnLeave.current = null;
     if (result.ok) {
       saved.current = result.messageFrom;
       setValue(result.messageFrom);
@@ -98,8 +118,8 @@ export function MessageSetting() {
     }
   }
 
-  const latest = useRef(flush);
-  latest.current = flush;
+  const latestLeave = useRef(leaveNow);
+  latestLeave.current = leaveNow;
 
   function choose(next: MessageFrom) {
     if (value === null) return;
@@ -131,11 +151,14 @@ export function MessageSetting() {
       <fieldset
         className="flex flex-col gap-3"
         aria-busy={value === null || pending}
+        aria-describedby={introId}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
       >
         <legend className="mb-1 text-2xl text-fg">{MESSAGE_SETTING_LEGEND}</legend>
-        <p className="max-w-prose text-sm text-muted">{MESSAGE_SETTING_INTRO}</p>
+        <p id={introId} className="max-w-prose text-sm text-muted">
+          {MESSAGE_SETTING_INTRO}
+        </p>
         {MESSAGE_FROM_CHOICES.map((choice) => {
           const hintId = `${name}-${choice.value}-hint`;
           return (

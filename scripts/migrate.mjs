@@ -15,6 +15,13 @@
  * The read is non-recursive, so the opt-in auth schema under migrations/auth/
  * is not applied to an app that never asked for sign-in.
  *
+ * A file that sets `set local lock_timeout` (0046, say) only gets that timeout
+ * inside a transaction: this runner (one transaction per file), or
+ * `psql -1` / `psql --single-transaction -f FILE`. Plain `psql -f FILE` runs
+ * each statement on its own, so Postgres warns that SET LOCAL has no effect
+ * and the file waits on locks with no timeout. Apply such files with this
+ * runner or with `psql -1`.
+ *
  * No DATABASE_URL (local / preview builds) -> skip; the PGLite fallback applies
  * the same files at startup instead (see src/lib/db.ts).
  */

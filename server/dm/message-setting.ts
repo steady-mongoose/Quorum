@@ -118,3 +118,27 @@ export async function markWrote(
     [threadId, userId, now],
   );
 }
+
+/**
+ * markWrote inside the message insert's transaction. A savepoint fences the
+ * update: before migration 0046 is applied the columns are missing (42703),
+ * so only the savepoint rolls back and the send commits the way it always
+ * has. Any other failure is thrown, which rolls back the whole transaction,
+ * message included.
+ */
+export async function markWroteInTransaction(
+  tx: Pick<Db, "query">,
+  threadId: string,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  await tx.query("savepoint dm_mark_wrote");
+  try {
+    await markWrote(tx, threadId, userId, now);
+  } catch (error) {
+    if (!missingColumn(error)) throw error;
+    await tx.query("rollback to savepoint dm_mark_wrote");
+    return;
+  }
+  await tx.query("release savepoint dm_mark_wrote");
+}

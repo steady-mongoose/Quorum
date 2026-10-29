@@ -202,3 +202,64 @@ test("arrow keys save once, after the pause", async () => {
   );
   view.unmount();
 });
+
+test("a newer choice queued behind a save in flight is sent at once, with keepalive, when the page is hidden", async () => {
+  const api = fakeApi({ hold: true });
+  api.load();
+  const view = mount();
+  await settle();
+  clickOn(view.host, "conversations");
+  await settle();
+  clickOn(view.host, "none");
+  await settle();
+  assert.deepEqual(
+    api.posts.map((post) => post.messageFrom),
+    ["conversations"],
+    "the newer choice waits while the page is open",
+  );
+  // The page closes before the save in flight answers.
+  await act(async () => {
+    window.dispatchEvent(new window.Event("pagehide"));
+  });
+  await settle();
+  assert.deepEqual(
+    api.posts.map(({ messageFrom, keepalive }) => ({ messageFrom, keepalive })),
+    [
+      { messageFrom: "conversations", keepalive: true },
+      { messageFrom: "none", keepalive: true },
+    ],
+    "the newest choice goes out last, without waiting for the first save",
+  );
+  // A second pagehide does not send it again.
+  await act(async () => {
+    window.dispatchEvent(new window.Event("pagehide"));
+  });
+  await settle();
+  assert.equal(api.posts.length, 2);
+  // The server ends on the newest choice whatever order the answers come back in.
+  await act(async () => api.posts[1]?.release());
+  await act(async () => api.posts[0]?.release());
+  await settle();
+  for (const post of api.posts.slice(2)) await act(async () => post.release());
+  await settle();
+  assert.equal(api.posts.at(-1)?.messageFrom, "none");
+  assert.equal(radios(view.host).find((radio) => radio.checked)?.value, "none");
+  view.unmount();
+});
+
+test("the intro paragraph describes the radio group", async () => {
+  const api = fakeApi();
+  api.load();
+  const view = mount();
+  await settle();
+  const group = view.host.querySelector("fieldset");
+  const describedBy = group?.getAttribute("aria-describedby") ?? "";
+  assert.ok(describedBy, "the group names its description");
+  const intro = view.host.querySelector(`[id="${describedBy}"]`);
+  assert.ok(intro, "the description is on the page");
+  assert.match(
+    intro.textContent ?? "",
+    /isn\u2019t taking messages right now|isn't taking messages right now/,
+  );
+  view.unmount();
+});

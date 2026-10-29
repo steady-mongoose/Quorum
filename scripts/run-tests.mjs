@@ -62,6 +62,7 @@ const appTests = [
   "server/dm/room-messages.test.ts",
   "server/dm/room-messages.integration.test.ts",
   "server/dm/message-setting.test.ts",
+  "server/dm/send-marker.test.ts",
   "server/board/share-post.test.ts",
   "server/board/room-options.test.ts",
   "server/dm/mailbox.integration.test.ts",
