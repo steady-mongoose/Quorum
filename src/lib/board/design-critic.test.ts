@@ -91,7 +91,7 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(profile, /The desk/);
   assert.match(source("./phone-nav.ts"), /label: "About"/);
   assert.match(source("./phone-nav.ts"), /label: "More"/);
-  assert.match(door, /text-base font-semibold text-fg">The rooms/);
+  assert.match(door, /text-base font-semibold text-fg">\s*The rooms/);
   assert.match(desk, /<summary[\s\S]*How it works/);
   assert.match(account, /autoComplete="name"/);
   assert.match(account, /autoComplete="email"/);

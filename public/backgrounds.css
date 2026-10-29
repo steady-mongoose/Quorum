@@ -70,7 +70,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .mfa-banner ~ * .plate--hero{margin-top:0}
 /* Evening warmth: optional */
 [data-evening]{--bg:#17110b}
-@media (prefers-reduced-motion:reduce){[data-section]{background-attachment:scroll}*{animation:none!important;transition-duration:0s!important}}
+@media (prefers-reduced-motion:reduce){[data-section]{background-attachment:scroll}*,*::before,*::after{animation:none!important;transition-duration:0s!important}}
 @media (prefers-reduced-data:reduce){.hero-band,.margin-art,.plate-ground{background-image:none}[data-section="landing"]{background-image:none}}
 /* Interactions */
 .btn{transition:transform var(--dur-press) var(--ease-press),box-shadow var(--dur-press) var(--ease-press)}

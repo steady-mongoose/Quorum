@@ -28,7 +28,7 @@ const HOW = [
   },
   {
     term: "No feed",
-    what: "No likes, reshares, scores, or algorithm. Posts show in the order they were written.",
+    what: "No likes, reshares, scores, or algorithm. Posts appear in the order they were written.",
   },
 ];
 
@@ -36,7 +36,7 @@ const HOW = [
 const ROOMS = [
   {
     term: "One group each",
-    what: "A room is one church, shop, club, or county. What's posted in a room stays in that room.",
+    what: "A room is one church, shop, club, or county. Its posts are shown only to the room's members, its steward, and the admins. A host can choose to share a gathering by link.",
   },
   {
     term: "By invitation",
@@ -53,8 +53,8 @@ function Terms({ rows }: { rows: { term: string; what: string }[] }) {
     <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
       {rows.map((row) => (
         <div key={row.term} className="contents">
-          <dt className="font-semibold text-fg">{row.term}</dt>
-          <dd className="text-muted">{row.what}</dd>
+          <dt className="door-term">{row.term}</dt>
+          <dd className="door-what text-muted">{row.what}</dd>
         </div>
       ))}
     </dl>
@@ -94,10 +94,11 @@ export function Door() {
       <div className="door-columns grid gap-10 py-6 lg:grid-cols-[minmax(0,7fr)_minmax(22rem,5fr)] lg:items-start lg:gap-16 lg:py-10">
         <div className="door-main flex max-w-3xl flex-col gap-8">
           <section className="door-hero card flex flex-col gap-3 p-6">
-            <h1 className="illum font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
+            <h1 className="illum door-title font-display text-4xl leading-tight text-balance text-fg sm:text-5xl lg:text-6xl">
               Welcome to {APP_NAME}
             </h1>
-            <p className="max-w-prose text-base text-muted lg:text-lg">
+            <div className="door-rule" aria-hidden="true" />
+            <p className="door-lede max-w-prose">
               {live ? (
                 <>
                   {APP_NAME} is a community you join by invitation. A member who knows you gives you
@@ -117,19 +118,24 @@ export function Door() {
           </section>
 
           <section className="door-week card flex flex-col gap-3 p-6">
-            <h2 className="text-base font-semibold text-fg">How it works</h2>
+            <h2 className="door-heading text-base font-semibold text-fg">How it works</h2>
             <Terms rows={HOW} />
           </section>
 
           <section className="door-rooms card flex flex-col gap-3 p-6">
-            <h2 className="text-base font-semibold text-fg">The rooms</h2>
+            <h2 id="door-rooms-heading" className="door-heading text-base font-semibold text-fg">
+              The rooms
+            </h2>
             <Terms rows={ROOMS} />
-            <p className="max-w-prose text-sm text-muted">
+            <ul className="door-roomlist" role="list" aria-labelledby="door-rooms-heading">
               {rooms
                 .filter((room) => room.id !== "dispatch")
-                .map((room) => room.name)
-                .join(" · ")}
-            </p>
+                .map((room) => (
+                  <li key={room.id} className="door-room">
+                    {room.name}
+                  </li>
+                ))}
+            </ul>
           </section>
         </div>
 
@@ -159,7 +165,7 @@ export function Door() {
           ) : null}
           {live ? (
             <>
-              <p className="text-base text-fg">Already a member? Sign in below.</p>
+              <p className="door-aside">Already a member? Sign in below.</p>
               <AccountDoor />
             </>
           ) : (
