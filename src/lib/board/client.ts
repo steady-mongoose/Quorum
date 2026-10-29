@@ -1,5 +1,6 @@
 import type { BrowseRoom, RoomCategory } from "./categories.ts";
 import type { HomePayload } from "./home.ts";
+import type { RoomOption } from "./room-options.ts";
 import type {
   AppealRow,
   BanRow,
@@ -121,10 +122,17 @@ export type BoardClient = {
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
+    options?: RoomOption[];
   }) => Promise<{ ok: true; room: Room } | BoardFailure>;
   updateRoom: (
     id: string,
-    input: { categoryIds?: string[]; name?: string; what?: string; pinOrder?: number | null },
+    input: {
+      categoryIds?: string[];
+      name?: string;
+      what?: string;
+      pinOrder?: number | null;
+      options?: RoomOption[];
+    },
   ) => Promise<{ ok: true; room: Room } | BoardFailure>;
   listCategories: () => Promise<{ ok: true; categories: RoomCategory[] } | BoardFailure>;
   readCategory: (

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { RoomOptionsMenu } from "@/components/board/room-options-menu";
+import { DEFAULT_ROOM_OPTIONS, type RoomOption } from "@/lib/board/room-options";
 import { Link } from "@tanstack/react-router";
 import { btnGhost, btnSignal, fieldClass, pill } from "@/components/quorum/bits";
 import { getBoardClient } from "@/lib/board/client";
@@ -523,6 +525,9 @@ export function RoomCategoryFields({ room }: { room: Room }) {
   const [name, setName] = useState(room.name);
   const [what, setWhat] = useState(room.what);
   const [pin, setPin] = useState(room.pinOrder == null ? "" : String(room.pinOrder));
+  const [options, setOptions] = useState<RoomOption[]>([
+    ...(room.options ?? DEFAULT_ROOM_OPTIONS),
+  ]);
   const [error, setError] = useState("");
   const canEdit = admin || stewardRooms.includes(room.id) || (steward && !remote);
   if (!canEdit) return null;
@@ -546,7 +551,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
           id: room.id,
           categoryIds,
           pinOrder,
-          ...(admin ? { name, what } : {}),
+          ...(admin ? { name, what, options } : {}),
         }).then((result) => {
           if (!result.ok) setError(result.error ?? "The room was not saved.");
         });
@@ -593,6 +598,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
           onChange={(event) => setPin(event.target.value)}
         />
       </label>
+      {admin ? <RoomOptionsMenu selected={options} onChange={setOptions} /> : null}
       <button type="submit" className={btnGhost}>
         Save room
       </button>
