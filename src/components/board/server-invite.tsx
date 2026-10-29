@@ -74,11 +74,11 @@ export function ServerInvite() {
       <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
         <input
           type="checkbox"
-          className="size-5 shrink-0"
+          className="check-gilt"
           ref={ageRef}
           checked={attestAdult}
           aria-invalid={ageError ? true : undefined}
-          aria-describedby="invite-age-error"
+          aria-describedby={ageError ? "invite-age-error" : undefined}
           onChange={(event) => {
             setAttestAdult(event.target.checked);
             if (event.target.checked) setAgeError(false);
@@ -112,6 +112,15 @@ export function ServerInvite() {
             }
             setCopyNote("");
             setCode(result.code);
+            // One confirmation covers one code.
+            setAttestAdult(false);
+            // On a phone the new code can land under the tab bar. Bring it up and read it out.
+            window.requestAnimationFrame(() => {
+              const node = codeText.current;
+              if (!node) return;
+              node.focus();
+              node.scrollIntoView?.({ block: "nearest" });
+            });
           });
         }}
       >
@@ -119,7 +128,12 @@ export function ServerInvite() {
       </button>
       {code ? (
         <div className="flex flex-wrap items-center gap-3">
-          <p ref={codeText} id="invite-code" className="font-mono text-lg tracking-widest text-fg select-all">
+          <p
+            ref={codeText}
+            id="invite-code"
+            tabIndex={-1}
+            className="scroll-mb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+16px)] font-mono text-lg tracking-widest text-fg select-all"
+          >
             {code}
           </p>
           <button

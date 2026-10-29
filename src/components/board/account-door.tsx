@@ -15,6 +15,12 @@ import { useServerSession } from "@/lib/server-session-state";
 export const SIGN_IN_EMPTY_ERROR = "Enter your email and password.";
 export const SIGN_IN_MISMATCH_ERROR = "That email and password don't match an account.";
 export const SIGN_IN_ERROR_ID = "sign-in-error";
+export const NAME_EMPTY_ERROR = "Enter your name.";
+export const NAME_ERROR_ID = "sign-up-name-error";
+export const AGE_ERROR_ID = "age-error";
+
+/** Problems in screen order. Only the first one is announced. */
+type Problem = "name" | "sign" | "code" | "age";
 export const CODE_MODE_INTRO = "Enter the code your host gave you.";
 
 const fieldLabel = "flex flex-col gap-2 text-base text-fg";
@@ -43,6 +49,8 @@ export function AccountDoor() {
   const [passwordInvalid, setPasswordInvalid] = useState(false);
   const [adult, setAdult] = useState(false);
   const [ageError, setAgeError] = useState(false);
+  const [alertOn, setAlertOn] = useState<Problem | null>(null);
+  const alertRole = (problem: Problem) => (alertOn === problem ? "alert" : undefined);
   const ageRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -79,39 +87,39 @@ export function AccountDoor() {
       onSubmit={(event) => {
         event.preventDefault();
         setOutcome(null);
-        const nameBlank = mode === "sign-up" && !name.trim();
+        // Every check in one pass, in screen order: name, email and password, code, age.
+        const signUp = mode === "sign-up";
+        const nameBlank = signUp && !name.trim();
         const emailBlank = !email.trim();
         const passwordBlank = !password.trim();
+        const codeBlank = signUp && !code.trim();
+        const ageMissing = signUp && !adult;
+        const first: Problem | null = nameBlank
+          ? "name"
+          : emailBlank || passwordBlank
+            ? "sign"
+            : codeBlank
+              ? "code"
+              : ageMissing
+                ? "age"
+                : null;
         setNameInvalid(nameBlank);
-        if (emailBlank || passwordBlank) {
-          setEmailInvalid(emailBlank);
-          setPasswordInvalid(passwordBlank);
-          setSignAlert("empty");
+        setEmailInvalid(emailBlank);
+        setPasswordInvalid(passwordBlank);
+        setSignAlert(emailBlank || passwordBlank ? "empty" : null);
+        setCodeError(codeBlank ? INVITE_CODE_ERROR : null);
+        setAgeError(ageMissing);
+        setAlertOn(first);
+        if (first) {
           focusFirst([
             nameBlank ? nameRef.current : null,
             emailBlank ? emailRef.current : null,
             passwordBlank ? passwordRef.current : null,
+            codeBlank ? codeRef.current : null,
+            ageMissing ? ageRef.current : null,
           ]);
           return;
         }
-        if (mode === "sign-up" && !code.trim()) {
-          setSignAlert(null);
-          setEmailInvalid(false);
-          setPasswordInvalid(false);
-          setCodeError(INVITE_CODE_ERROR);
-          focusFirst([nameBlank ? nameRef.current : null, codeRef.current]);
-          return;
-        }
-        if (mode === "sign-up" && !adult) {
-          setAgeError(true);
-          ageRef.current?.focus();
-          return;
-        }
-        setCodeError(null);
-        setSignAlert(null);
-        setEmailInvalid(false);
-        setPasswordInvalid(false);
-        setAgeError(false);
         setPending(true);
         const run =
           mode === "sign-in"
@@ -129,9 +137,11 @@ export function AccountDoor() {
             const aboutCode = mode === "sign-up" ? inviteCodeError(code, result) : null;
             if (aboutCode) {
               setCodeError(aboutCode);
+              setAlertOn("code");
               focusFirst([nameBlank ? nameRef.current : null, codeRef.current]);
             } else if (mode === "sign-in") {
               setSignAlert("mismatch");
+              setAlertOn("sign");
               setEmailInvalid(true);
               setPasswordInvalid(true);
               focusFirst([emailRef.current]);
@@ -160,8 +170,14 @@ export function AccountDoor() {
             autoComplete="name"
             required
             aria-invalid={nameInvalid ? true : undefined}
+            aria-describedby={nameInvalid ? NAME_ERROR_ID : undefined}
           />
         </label>
+      ) : null}
+      {mode === "sign-up" && nameInvalid ? (
+        <p id={NAME_ERROR_ID} role={alertRole("name")} className="text-sm text-danger">
+          {NAME_EMPTY_ERROR}
+        </p>
       ) : null}
       <label className={fieldLabel}>
         Email
@@ -201,6 +217,11 @@ export function AccountDoor() {
           aria-describedby={signMessage ? SIGN_IN_ERROR_ID : undefined}
         />
       </label>
+      {signMessage ? (
+        <p id={SIGN_IN_ERROR_ID} role={alertRole("sign")} className="text-sm text-danger">
+          {signMessage}
+        </p>
+      ) : null}
       {mode === "sign-up" ? (
         <>
           <label className={fieldLabel}>
@@ -221,18 +242,18 @@ export function AccountDoor() {
             />
           </label>
           {codeError ? (
-            <p id={INVITE_CODE_ERROR_ID} role="alert" className="text-sm text-danger">
+            <p id={INVITE_CODE_ERROR_ID} role={alertRole("code")} className="text-sm text-danger">
               {codeError}
             </p>
           ) : null}
           <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
             <input
               type="checkbox"
-              className="size-5 shrink-0"
+              className="check-gilt"
               ref={ageRef}
               checked={adult}
               aria-invalid={ageError ? true : undefined}
-              aria-describedby="age-error"
+              aria-describedby={ageError ? AGE_ERROR_ID : undefined}
               onChange={(event) => {
                 setAdult(event.target.checked);
                 if (event.target.checked) setAgeError(false);
@@ -241,16 +262,11 @@ export function AccountDoor() {
             {AGE_SIGNUP_LABEL}
           </label>
           {ageError ? (
-            <p id="age-error" role="alert" className="text-sm text-danger">
+            <p id={AGE_ERROR_ID} role={alertRole("age")} className="text-sm text-danger">
               {AGE_SIGNUP_ERROR}
             </p>
           ) : null}
         </>
-      ) : null}
-      {signMessage ? (
-        <p id={SIGN_IN_ERROR_ID} role="alert" className="text-sm text-danger">
-          {signMessage}
-        </p>
       ) : null}
       {outcome ? (
         <p role="alert" className="text-sm text-danger">
@@ -273,6 +289,8 @@ export function AccountDoor() {
           setNameInvalid(false);
           setEmailInvalid(false);
           setPasswordInvalid(false);
+          setAgeError(false);
+          setAlertOn(null);
         }}
       >
         {mode === "sign-in" ? "I have a code" : "I already have an account"}

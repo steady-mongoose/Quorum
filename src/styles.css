@@ -154,3 +154,48 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.18em;
   color: var(--color-muted);
 }
+
+/* The 18+ checkboxes (door and invite). Ink & Bone gilt, not the browser default.
+ * Border 3.9:1, gilt fill 7.0:1, and ink check on gilt 7.4:1 against the card. No transition.
+ * Ring: #f0e7d3 with a 2px offset (#114's currentColor ring is not on the-board yet). */
+@layer components {
+  .check-gilt {
+    appearance: none;
+    flex: none;
+    margin: 0;
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    display: grid;
+    place-content: center;
+    border: 2px solid var(--color-line-strong, #8a7a62);
+    border-radius: 3px;
+    background: #14100c;
+  }
+  .check-gilt::before {
+    content: "";
+    inline-size: 0.7rem;
+    block-size: 0.7rem;
+    background: #1f1912;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%);
+    transform: scale(0);
+  }
+  .check-gilt:checked {
+    background: #c9a45c;
+    border-color: #c9a45c;
+  }
+  .check-gilt:checked::before {
+    transform: scale(1);
+  }
+  .check-gilt[aria-invalid="true"] {
+    border-color: #f0b4a4;
+  }
+  .check-gilt:focus-visible {
+    outline: 2px solid #f0e7d3;
+    outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    .check-gilt {
+      appearance: auto;
+    }
+  }
+}

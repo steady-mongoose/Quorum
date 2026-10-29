@@ -78,6 +78,7 @@ const appTests = [
   "server/closed-test/signup-limit.integration.test.ts",
   "src/lib/signup-feedback.test.ts",
   "server/closed-test/age.test.ts",
+  "server/closed-test/age-gate.test.ts",
   "src/lib/board/age-gate.render.test.mjs",
   "server/media/limits.test.ts",
   "server/media/config.test.ts",

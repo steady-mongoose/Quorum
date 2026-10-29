@@ -9,3 +9,7 @@ export const AGE_INVITE_ERROR = "Confirm this person is 18 or older.";
 export function confirmedAdult(value: unknown): boolean {
   return value === true;
 }
+
+/** The one-time step for a member whose account predates the 18+ check. */
+export const AGE_STEP_TITLE = "One thing before you go in";
+export const AGE_STEP_BODY = "Avouch Social is for adults. Please confirm your age.";
