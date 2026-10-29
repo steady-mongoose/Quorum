@@ -21,7 +21,7 @@ import {
   type DmReportRow,
 } from "@/lib/e2ee/dm-report-api";
 import { DM_REPORTS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote } from "@/components/board/panel-note";
+import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 type Send = typeof reportDmMessage;
 
@@ -212,11 +212,11 @@ export function DmReportQueue({
 }) {
   const [rows, setRows] = useState<DmReportRow[] | null>(null);
   const [failure, setFailure] = useState<PanelFailure | null>(null);
-  const [tick, setTick] = useState(0);
   const [error, setError] = useState("");
   const [announce, setAnnounce] = useState("");
   const [closedCount, setClosedCount] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, retry, loaded, failed } = usePanelRetry(heading);
   useEffect(() => {
     if (closedCount) heading.current?.focus();
   }, [closedCount]);
@@ -228,7 +228,11 @@ export function DmReportQueue({
       if (result.ok) {
         setFailure(null);
         setRows(result.value);
-      } else setFailure(result);
+        loaded();
+      } else {
+        setFailure(result);
+        failed();
+      }
     });
     return () => {
       live = false;
@@ -254,10 +258,9 @@ export function DmReportQueue({
       <PanelNote
         failure={failure}
         gateText={DM_REPORTS_WAIT}
-        onRetry={() => setTick((value) => value + 1)}
+        onRetry={retry}
         onSetUp={onSetUp}
       />
-      {rows === null && !failure ? <p className="text-sm text-muted">Loading message reports…</p> : null}
       {rows && rows.length === 0 ? <p className="text-sm text-muted">No open message reports.</p> : null}
       {rows && rows.length > 0 ? (
         <ul className="flex flex-col gap-3">

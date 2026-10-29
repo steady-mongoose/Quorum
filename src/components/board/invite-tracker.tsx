@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadInvites, type InviteRow } from "@/lib/admin/invite-tracker";
 import { INVITES_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote } from "@/components/board/panel-note";
+import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 function day(ms: number | null): string {
   if (!ms) return "—";
@@ -63,7 +63,8 @@ export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
 export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rows, setRows] = useState<InviteRow[] | null>(null);
   const [failure, setFailure] = useState<PanelFailure | null>(null);
-  const [tick, setTick] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, retry, loaded, failed } = usePanelRetry(heading);
   useEffect(() => {
     let cancel = false;
     void loadInvites().then((result) => {
@@ -72,7 +73,11 @@ export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
       if (result.ok) {
         setFailure(null);
         setRows(result.rows);
-      } else setFailure(result);
+        loaded();
+      } else {
+        setFailure(result);
+        failed();
+      }
     });
     return () => {
       cancel = true;
@@ -80,19 +85,19 @@ export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   }, [tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Invites</h2>
+      <h2 ref={heading} tabIndex={-1} className="text-2xl text-fg">
+        Invites
+      </h2>
       {failure ? (
         <PanelNote
           failure={failure}
           gateText={INVITES_WAIT}
-          onRetry={() => setTick((value) => value + 1)}
+          onRetry={retry}
           onSetUp={onSetUp}
         />
       ) : rows ? (
         <InviteTrackerTable rows={rows} />
-      ) : (
-        <p className="text-sm text-muted">Loading.</p>
-      )}
+      ) : null}
     </section>
   );
 }

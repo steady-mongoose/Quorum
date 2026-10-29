@@ -54,9 +54,12 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 /** Path -> [status, body]. Anything missing answers 404. */
 let routes = {};
 const seen = [];
+/** While set, every request waits on it, so a test can look before the gate answers. */
+let hold = null;
 globalThis.fetch = async (input, init) => {
   const path = new URL(String(input), "http://localhost/").pathname;
   seen.push(`${init?.method ?? "GET"} ${path}`);
+  if (hold) await hold;
   const [status, body] = routes[path] ?? [404, { error: "Not found." }];
   return new Response(JSON.stringify(body), {
     status,
@@ -147,6 +150,45 @@ function count(host, text) {
 }
 
 for (const panel of PANELS) {
+  test(`${panel.name}: nothing flashes before the gate answers`, async () => {
+    let release;
+    hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    routes = { [panel.path]: [403, ENROLL] };
+    const view = await mount(panel.render(() => {}));
+    try {
+      assert.ok(view.host.querySelector("h2")?.textContent?.includes(panel.name));
+      // A closed confirm dialog (Rooms) is not shown, so it does not count.
+      const body = [...view.host.querySelectorAll("input, table, ul, button")].filter(
+        (node) => !node.closest("dialog"),
+      );
+      assert.deepEqual(body, [], "no body yet");
+      assert.ok(!view.host.textContent.includes(panel.loaded));
+      assert.ok(!/Loading/.test(view.host.textContent), "no loading line to swap out");
+      hold = null;
+      release();
+      await flush();
+      assert.equal(count(view.host, panel.wait), 1, "then the note");
+      assert.equal(view.host.querySelector("input"), null, "and no field behind it");
+    } finally {
+      hold = null;
+      await view.cleanup();
+    }
+  });
+
+  test(`${panel.name}: a first load that works does not move focus`, async () => {
+    routes = { [panel.path]: [200, panel.ok] };
+    document.body.focus();
+    const view = await mount(panel.render(() => {}));
+    try {
+      assert.ok(view.host.textContent.includes(panel.loaded));
+      assert.notEqual(document.activeElement, view.host.querySelector("h2"));
+    } finally {
+      await view.cleanup();
+    }
+  });
+
   test(`${panel.name}: no authenticator is one quiet note, never the raw code`, async () => {
     routes = { [panel.path]: [403, ENROLL] };
     let opened = 0;
@@ -207,6 +249,9 @@ for (const panel of PANELS) {
       assert.ok(seen.filter((s) => s === `GET ${panel.path}`).length > before, "Try again reloads");
       assert.ok(!view.host.textContent.includes("That did not load."));
       assert.ok(view.host.textContent.includes(panel.loaded), "the panel loads after Try again");
+      const heading = view.host.querySelector("h2");
+      assert.equal(heading?.getAttribute("tabindex"), "-1");
+      assert.equal(document.activeElement, heading, "focus moves to the panel heading after Try again");
     } finally {
       await view.cleanup();
     }

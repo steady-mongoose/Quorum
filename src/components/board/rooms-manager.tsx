@@ -15,7 +15,7 @@ import {
   type AdminRoom,
 } from "@/lib/board/rooms-admin";
 import { ROOMS_WAIT, type PanelFailure } from "@/lib/board/load-failure";
-import { PanelNote } from "@/components/board/panel-note";
+import { PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 const AUDIENCE: Record<AdminRoom["audience"], string> = {
   all: "Everyone",
@@ -37,7 +37,8 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
   const [failure, setFailure] = useState<PanelFailure | null>(null);
-  const [tick, setTick] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, retry, loaded, failed } = usePanelRetry(heading);
   const [note, setNote] = useState("");
   const [announced, setAnnounced] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);
@@ -59,7 +60,11 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
       if (result.ok) {
         setFailure(null);
         setRooms(result.rooms);
-      } else setFailure(result);
+        loaded();
+      } else {
+        setFailure(result);
+        failed();
+      }
     });
     return () => {
       live = false;
@@ -147,7 +152,7 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
       aria-labelledby="rooms-manager-heading"
       className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 lg:max-w-3xl"
     >
-      <h2 id="rooms-manager-heading" className="text-2xl text-fg">
+      <h2 ref={heading} id="rooms-manager-heading" tabIndex={-1} className="text-2xl text-fg">
         Rooms
       </h2>
       <p className="max-w-prose text-sm text-muted">
@@ -157,10 +162,11 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
       <PanelNote
         failure={failure}
         gateText={ROOMS_WAIT}
-        onRetry={() => setTick((value) => value + 1)}
+        onRetry={retry}
         onSetUp={onSetUp}
       />
-      {rooms === null && failure ? null : (
+      {/* Nothing to search until the list has loaded, so no field flashes before a gate. */}
+      {rooms === null ? null : (
       <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
         Find a room
         <input
@@ -184,7 +190,6 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
           {error}
         </p>
       ) : null}
-      {rooms === null && !failure ? <p className="text-sm text-muted">Loading rooms…</p> : null}
 
       {groups.map((group) => (
         <div key={group.slug} className="flex flex-col gap-2">

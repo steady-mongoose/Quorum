@@ -1,10 +1,39 @@
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { PANEL_SET_UP, type PanelFailure } from "@/lib/board/load-failure";
 
 /**
- * Focus the Authenticator heading under You once it is on the page.
- * Same as groups-view.tsx in PR #114.
+ * A panel's reload, and focus on its heading once a Try again has loaded.
+ * `retry` bumps `tick` (the load effect's dependency). The panel calls
+ * `loaded()` when a load succeeds; after a Try again that moves focus to the
+ * heading once the panel has rendered.
  */
-export function focusAuthenticator(triesLeft = 40) {
+export function usePanelRetry(heading: RefObject<HTMLElement | null>) {
+  const [tick, setTick] = useState(0);
+  const [focusAt, setFocusAt] = useState(0);
+  const retried = useRef(false);
+  const retry = useCallback(() => {
+    retried.current = true;
+    setTick((value) => value + 1);
+  }, []);
+  const loaded = useCallback(() => {
+    if (!retried.current) return;
+    retried.current = false;
+    setFocusAt((value) => value + 1);
+  }, []);
+  const failed = useCallback(() => {
+    retried.current = false;
+  }, []);
+  useEffect(() => {
+    if (focusAt) heading.current?.focus();
+  }, [focusAt, heading]);
+  return { tick, retry, loaded, failed };
+}
+
+/**
+ * Focus the Authenticator heading under You once it is on the page.
+ * Watches for up to 10s (200 tries, 50ms apart), as in groups-view.tsx (PR #114).
+ */
+export function focusAuthenticator(triesLeft = 200) {
   const heading = document.getElementById("authenticator");
   if (heading) {
     heading.focus();
