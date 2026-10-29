@@ -14,6 +14,7 @@ import {
   listBlocked,
   listPeers,
   mayMessage,
+  memberMessageStates,
   openThread,
   rememberNamedAccounts,
   recordAttendance,
@@ -228,6 +229,48 @@ test("a block stops messages both ways, from a room or a meeting, until it is li
     assert.equal(self.ok, false);
     const nobody = await blockMember(db, anna, randomUUID(), now);
     assert.deepEqual(nobody.ok ? null : nobody.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test("the member list offers Message where the server would allow it, and hides only your own block", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const anna = await person(db, "Anna");
+    const bea = await person(db, "Bea");
+    const cal = await person(db, "Cal");
+    const dee = await person(db, "Dee");
+    const eli = await person(db, "Eli");
+    for (const id of [anna, bea, cal, dee, eli]) await joined(db, id, "shop", daysAgo(10));
+    await blockMember(db, anna, cal, now);
+    await blockMember(db, dee, anna, now);
+    const states = await memberMessageStates(db, anna, [anna, bea, cal, dee, eli], now);
+    assert.equal(states.has(anna), false);
+    assert.equal(states.get(bea), "open");
+    assert.equal(states.get(cal), "none");
+    // Dee blocked Anna: the button stays; the server refuses when she opens it.
+    assert.equal(states.get(dee), "open");
+    const refused = await openThread(db, anna, dee, now);
+    assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [403, BLOCKED]);
+
+    // A member who has not posted gets the button like anyone else; nothing here reads posts.
+    // New to the room: the wait line, not a button.
+    const new1 = await person(db, "Newt");
+    await joined(db, new1, "shop", daysAgo(1));
+    assert.equal((await memberMessageStates(db, new1, [bea], now)).get(bea), "wait");
+
+    // Today's starts used up: new conversations hide, open ones stay.
+    const others: string[] = [];
+    for (let i = 0; i < ROOM_MESSAGE_DAILY_STARTS; i += 1) {
+      const other = await person(db, `Started${i}`);
+      await joined(db, other, "shop", daysAgo(10));
+      assert.equal((await openThread(db, anna, other, now)).ok, true);
+      others.push(other);
+    }
+    const capped = await memberMessageStates(db, anna, [bea, others[0] ?? ""], now);
+    assert.equal(capped.get(bea), "none");
+    assert.equal(capped.get(others[0] ?? ""), "open");
   } finally {
     await close();
   }

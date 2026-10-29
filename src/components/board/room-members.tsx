@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { authorName, formatDate, messageableNames, type Room } from "@/lib/board/model";
 import {
   loadRoomMembers,
   localRoomMembers,
+  MEMBER_WAIT_LINE,
   type MemberList,
   type MemberRow,
 } from "@/lib/board/room-members";
@@ -22,7 +23,7 @@ function cameLine(row: MemberRow): string {
  * Who is in the room. Every member sees every member, in name order. It shows
  * when each joined and last posted, and, in a room that takes roll, the
  * gatherings each came to. It never ranks anyone and shows no upcoming RSVPs.
- * Message shows only for someone you may already write to; the server checks again.
+ * Message shows where the server says you may write; it checks again on open.
  */
 export function RoomMembers({ room }: { room: Room }) {
   const remote = useBoard((state) => state.remote);
@@ -30,13 +31,13 @@ export function RoomMembers({ room }: { room: Room }) {
   const me = useBoard((state) => authorName(state.me));
   const cards = useBoard((state) => state.cards);
   const rooms = useBoard((state) => state.rooms);
-  const openDm = useBoard((state) => state.openDm);
-  const peers = useMemo(
-    () => messageableNames(me, cards, posts, rooms),
-    [me, cards, posts, rooms],
-  );
+  const messageMember = useBoard((state) => state.messageMember);
+  const focusMember = useBoard((state) => state.focusMember);
+  const clearFocusMember = useBoard((state) => state.clearFocusMember);
   const [live, setLive] = useState<MemberList | null>(null);
   const [error, setError] = useState("");
+  const details = useRef<HTMLDetailsElement>(null);
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     if (!remote) return;
@@ -54,13 +55,25 @@ export function RoomMembers({ room }: { room: Room }) {
   }, [remote, room.id]);
 
   const local = useMemo(
-    () => (remote ? null : localRoomMembers(room, posts, me)),
-    [remote, room, posts, me],
+    () =>
+      remote
+        ? null
+        : localRoomMembers(room, posts, me, messageableNames(me, cards, posts, rooms)),
+    [remote, room, posts, me, cards, rooms],
   );
   const list = remote ? live : local;
 
+  // Back from a conversation opened here: the list opens and that row's button takes focus.
+  useEffect(() => {
+    if (!focusMember || !list) return;
+    const button = buttons.current.get(focusMember);
+    if (details.current) details.current.open = true;
+    button?.focus();
+    clearFocusMember();
+  }, [focusMember, list, clearFocusMember]);
+
   return (
-    <details className="rounded-md border border-line bg-surface px-3 py-2">
+    <details ref={details} className="rounded-md border border-line bg-surface px-3 py-2">
       <summary className="min-h-[44px] cursor-pointer py-2 text-base text-fg">
         Members{list ? ` (${list.members.length})` : ""}
       </summary>
@@ -72,7 +85,7 @@ export function RoomMembers({ room }: { room: Room }) {
         <ul className="flex flex-col gap-3 py-2">
           {list.members.map((row) => (
             <li key={row.id} className="flex flex-col gap-1 border-t border-line pt-3">
-              <span className="text-base text-fg">
+              <span className="text-base text-fg [overflow-wrap:anywhere]">
                 {row.name}
                 {row.steward ? <span className="text-sm text-muted"> · steward</span> : null}
                 {row.name === me ? <span className="text-sm text-muted"> · you</span> : null}
@@ -88,15 +101,31 @@ export function RoomMembers({ room }: { room: Room }) {
                   .join(" ")}
               </span>
               {list.rollCall ? <span className="text-sm text-muted">{cameLine(row)}</span> : null}
-              {row.name !== me && peers.has(row.name) ? (
+              {row.name !== me && row.message === "open" ? (
                 <button
                   type="button"
-                  className={cn(btnQuiet, "self-start px-0")}
-                  onClick={() => openDm(row.name)}
+                  ref={(node) => {
+                    if (node) buttons.current.set(row.id, node);
+                    else buttons.current.delete(row.id);
+                  }}
+                  className={cn(
+                    btnQuiet,
+                    "max-w-full self-start px-0 text-left [overflow-wrap:anywhere]",
+                  )}
+                  onClick={() =>
+                    messageMember(room.id, {
+                      id: row.id,
+                      name: row.name,
+                      userId: remote ? row.id : null,
+                    })
+                  }
                 >
-                  <MessageSquare className="size-4" aria-hidden="true" />
+                  <MessageSquare className="size-4 shrink-0" aria-hidden="true" />
                   Message {row.name}
                 </button>
+              ) : null}
+              {row.name !== me && row.message === "wait" ? (
+                <span className="text-sm text-muted">{MEMBER_WAIT_LINE}</span>
               ) : null}
             </li>
           ))}

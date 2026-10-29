@@ -702,6 +702,60 @@ export async function mayMessage(
   return { ok: true, via: "room" };
 }
 
+/**
+ * What the room member list offers for each person. "open": a Message button.
+ * "wait": the caller is new to every room they share (the 3-day wait). "none":
+ * the caller blocked them, or has used today's room starts. A block by the
+ * other person is not shown here: the button stays, and the server refuses
+ * with the same words it uses for any block.
+ */
+export type MemberMessage = "open" | "wait" | "none";
+
+export async function memberMessageStates(
+  db: Db,
+  callerId: string,
+  otherIds: string[],
+  now: Date,
+): Promise<Map<string, MemberMessage>> {
+  const states = new Map<string, MemberMessage>();
+  const others = otherIds.filter((id) => id && id !== callerId);
+  if (!callerId || others.length === 0) return states;
+  const mine = await db.query<{ blocked_user_id: string }>(
+    `select blocked_user_id from dm_block
+     where blocker_user_id = $1 and blocked_user_id = any ($2::text[])`,
+    [callerId, others],
+  );
+  const iBlocked = new Set(mine.map((row) => row.blocked_user_id));
+  const threads = await db.query<{ user_a: string; user_b: string }>(
+    `select user_a, user_b from dm_thread
+     where (user_a = $1 and user_b = any ($2::text[]))
+        or (user_b = $1 and user_a = any ($2::text[]))`,
+    [callerId, others],
+  );
+  const talking = new Set(
+    threads.map((row) => (row.user_a === callerId ? row.user_b : row.user_a)),
+  );
+  const started = await db.query<{ count: string }>(
+    `select count(*)::text as count from dm_thread
+     where opened_by = $1 and opened_via = 'room' and created_at > $2`,
+    [callerId, new Date(now.getTime() - DAY_MS)],
+  );
+  const capped = Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS;
+  for (const other of others) {
+    if (iBlocked.has(other)) {
+      states.set(other, "none");
+    } else if (talking.has(other) || (await sharesMeeting(db, callerId, other))) {
+      states.set(other, "open");
+    } else {
+      const rooms = await roomsInCommon(db, callerId, other, now);
+      if (rooms.length === 0) states.set(other, "none");
+      else if (!rooms.some((room) => room.settled)) states.set(other, "wait");
+      else states.set(other, capped ? "none" : "open");
+    }
+  }
+  return states;
+}
+
 /** Block a member. Messages and calls stop both ways until the block is lifted. */
 export async function blockMember(
   db: Db,

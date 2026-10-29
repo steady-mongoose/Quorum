@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker, When } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
@@ -46,6 +45,7 @@ import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
 import { DmReportControl } from "@/components/board/dm-report";
 import { DmCall } from "@/components/board/dm-call";
+import { ConversationBack, ConversationHeading } from "@/components/board/conversation-top";
 
 /**
  * Signed-in mailbox. Plaintext is sealed in the browser. This view never
@@ -60,6 +60,7 @@ export function EncryptedMailbox() {
   const rooms = useBoard((state) => state.rooms);
   const openThread = useBoard((state) => state.openThread);
   const setOpenThread = useBoard((state) => state.setOpenThread);
+  const dmFrom = useBoard((state) => state.dmFrom);
   const transport = useMemo(() => browserTransport(), []);
   const [vault, setVault] = useState<VaultState | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -193,6 +194,12 @@ export function EncryptedMailbox() {
       setNotice(
         "The name on this board and the name on the account do not match. Set them to the same name under About.",
       );
+      return;
+    }
+    // From a room's member list: the server listed this account. It checks again on open.
+    const listed = dmFrom && dmFrom.name === other ? dmFrom.userId : null;
+    if (listed) {
+      void openPeer(listed);
       return;
     }
     if (!peers.has(other)) {
@@ -432,20 +439,15 @@ export function EncryptedMailbox() {
   if (active) {
     return (
       <div className="flex flex-col gap-4 lg:max-w-3xl">
-        <button
-          type="button"
-          className={cn(btnQuiet, "self-start px-0")}
-          onClick={() => {
+        <ConversationBack
+          onAllMessages={() => {
             setActive(null);
             setOpenThread(null);
             setSafety("");
             void refreshThreads();
           }}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          All messages
-        </button>
-        <h1 className="font-display text-3xl text-fg">{active.otherName}</h1>
+        />
+        <ConversationHeading name={active.otherName} className="font-display text-3xl text-fg" />
         <p className="text-sm text-muted">
           Account {active.otherUserId.slice(0, 8)}. Encrypted on this device, deleted after{" "}
           {DM_RETENTION_DAYS} days.

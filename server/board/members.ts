@@ -2,6 +2,7 @@ import type { Db } from "../db.ts";
 import { requireRoomMember } from "../chat/store.ts";
 import { actorRole, stewardsRoom } from "./access.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
+import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
 
 /**
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
@@ -20,6 +21,8 @@ export type RoomMember = {
   lastPostedOn: string;
   /** Newest first: each gathering in this room the host's write-up names them at. */
   attended: { on: string; host: string; hosted: boolean }[];
+  /** What the list offers the viewer for this person; "none" on their own row. */
+  message: MemberMessage;
 };
 
 /** Gatherings shown per member. */
@@ -115,6 +118,7 @@ export async function listRoomMembers(
     if (row.user_id && row.user_id !== row.host_id) note(row.user_id, row, false);
   }
 
+  const messaging = await memberMessageStates(db, userId, ids, now);
   const members: RoomMember[] = [];
   for (const person of standing) {
     const actor = await actorRole(db, person.id);
@@ -127,6 +131,7 @@ export async function listRoomMembers(
       attended: [...(attended.get(person.id)?.values() ?? [])]
         .sort((a, b) => b.on.localeCompare(a.on))
         .slice(0, ATTENDED_SHOWN),
+      message: messaging.get(person.id) ?? "none",
     });
   }
   return { ok: true, value: { members, rollCall } };
