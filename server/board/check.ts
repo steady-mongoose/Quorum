@@ -11,7 +11,7 @@ import {
   SENTENCE_ERROR,
 } from "../../src/lib/board/text.ts";
 
-const POST_TYPES = new Set(["did", "asked", "noted", "saw", "hosted"]);
+const POST_TYPES = new Set(["shared", "did", "asked", "noted", "saw", "hosted"]);
 const REASON_TYPES = new Set(["did", "asked", "noted", "saw"]);
 const DATE_TYPES = new Set(["did", "saw", "hosted"]);
 

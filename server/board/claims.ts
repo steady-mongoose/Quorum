@@ -295,7 +295,7 @@ async function writeListings(
           [
             id,
             listing.name,
-            ["did", "asked", "hosted"],
+            ["shared", "did", "asked", "hosted"],
             ["noted"],
             ["meeting"],
             sort,
