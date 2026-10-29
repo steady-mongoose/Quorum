@@ -12,6 +12,7 @@ import {
   inviteToGroup,
   joinGroup,
   listGroup,
+  leaveGroup,
   listGroupInvites,
   revokeGroupInvite,
 } from "./groups.ts";
@@ -338,6 +339,75 @@ test("migration 0045 is safe to apply twice", async () => {
       `select tgname from pg_trigger where tgname = 'anonymize_theme_group_invite_user'`,
     );
     assert.equal(triggers.length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("group reading is members-only: a non-member and a member who left get no posts", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const owner = await member(db, "Owen");
+    const ada = await member(db, "Ada");
+    const bo = await member(db, "Bo");
+    await groupAdmin(db, "carpentry", owner, "Owen");
+    const posted = await createGroupPost(db, {
+      userId: owner,
+      name: "Owen",
+      groupId: "carpentry",
+      body: "Shop night is Thursday.",
+      on: "",
+      now,
+    });
+    assert.equal(posted.ok, true);
+    const sent = await inviteToGroup(db, {
+      userId: owner,
+      name: "Owen",
+      groupId: "carpentry",
+      email: "ada@example.com",
+      now,
+    });
+    assert.equal(sent.ok, true);
+
+    const outsider = await listGroup(db, bo, "carpentry", now);
+    assert.equal(outsider.ok, true);
+    if (outsider.ok) {
+      assert.equal(outsider.value.group.name, "Carpentry");
+      assert.equal(outsider.value.group.about, "");
+      assert.deepEqual(outsider.value.group.admins, []);
+      assert.deepEqual(outsider.value.posts, []);
+      assert.equal(outsider.value.group.invited, false);
+    }
+    const invited = await listGroup(db, ada, "carpentry", now);
+    assert.equal(invited.ok, true);
+    if (invited.ok) {
+      assert.deepEqual(invited.value.posts, []);
+      assert.equal(invited.value.group.invitedBy, "Owen");
+    }
+
+    assert.equal(
+      (await joinGroup(db, { userId: ada, name: "Ada", groupId: "carpentry", now })).ok,
+      true,
+    );
+    const inside = await listGroup(db, ada, "carpentry", now);
+    assert.equal(inside.ok, true);
+    if (inside.ok) assert.equal(inside.value.posts.length, 1);
+
+    assert.equal(
+      (await leaveGroup(db, { userId: ada, name: "Ada", groupId: "carpentry", now })).ok,
+      true,
+    );
+    const left = await listGroup(db, ada, "carpentry", now);
+    assert.equal(left.ok, true);
+    if (left.ok) {
+      assert.deepEqual(left.value.posts, []);
+      assert.deepEqual(left.value.marks, []);
+      assert.deepEqual(left.value.removals, []);
+    }
+
+    const adminView = await listGroup(db, owner, "carpentry", now);
+    assert.equal(adminView.ok, true);
+    if (adminView.ok) assert.equal(adminView.value.posts.length, 1);
   } finally {
     await close();
   }

@@ -549,6 +549,38 @@ export async function listGroup(
     return { ok: false, status: audienceGate.status, error: audienceGate.error, code: audienceGate.code };
   }
   if (!(await groupExists(db, groupId))) return fail(404, "That group is not here.");
+  // Reading is for members, like rooms. A non-member, including someone who
+  // left, gets the group's name and their invite, if any, and no posts.
+  // Group admins, stewards, and site admins keep access.
+  if (
+    !(await isJoined(db, groupId, userId)) &&
+    !(await moderatesGroup(db, gated.actor, userId, groupId))
+  ) {
+    const named = await db.query<{ name: string }>(`select name from theme_group where id = $1`, [
+      groupId,
+    ]);
+    const held = await openInvite(db, groupId, userId);
+    return {
+      ok: true,
+      value: {
+        group: {
+          id: groupId,
+          name: named[0]?.name ?? "",
+          about: "",
+          joined: false,
+          admin: false,
+          admins: [],
+          canInvite: false,
+          invited: Boolean(held),
+          invitedBy: held ? held.by_name : null,
+        },
+        posts: [],
+        marks: [],
+        removals: [],
+        next: null,
+      },
+    };
+  }
   const cursor = query.cursor ? decodeCursor(query.cursor) : null;
   if (query.cursor && !cursor) return fail(400, "That page is not valid.");
   const limit = Math.min(
