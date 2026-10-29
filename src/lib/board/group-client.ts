@@ -42,8 +42,14 @@ export type GroupRemovalRow = {
   at: number;
 };
 
+/** The refusal and the muted line a non-member sees on a group page. */
+export const GROUP_INVITE_ONLY =
+  "Only members of this group can post here. Ask a group admin or steward for an invite.";
+
+export type GroupInviteRow = { id: string; name: string; by: string; at: number };
+
 export type GroupDetail = {
-  group: GroupSummary & { admins: string[] };
+  group: GroupSummary & { admins: string[]; canInvite: boolean; invited: boolean };
   posts: GroupPostRow[];
   marks: GroupMarkRow[];
   removals: GroupRemovalRow[];
@@ -191,7 +197,18 @@ export function parseGroupDetail(value: unknown): GroupDetail | null {
     removals.push({ id, postId, author, reason: reason as GroupRemovalRow["reason"], at });
   }
   if (body.next !== null && (typeof body.next !== "string" || body.next.length > 120)) return null;
-  return { group: { ...group, admins }, posts, marks, removals, next: body.next };
+  return {
+    group: {
+      ...group,
+      admins,
+      canInvite: groupRow.canInvite === true,
+      invited: groupRow.invited === true,
+    },
+    posts,
+    marks,
+    removals,
+    next: body.next,
+  };
 }
 
 export function parseGroupRequests(value: unknown): GroupRequestRow[] | null {
@@ -333,6 +350,31 @@ export async function fetchGroupAppeals(): Promise<GroupCall<GroupAppealRow[]>> 
   const appeals = parseGroupAppeals(result.json);
   if (!appeals) return { ok: false, error: "The appeals did not load." };
   return { ok: true, value: appeals };
+}
+
+export function parseGroupInvites(value: unknown): GroupInviteRow[] | null {
+  const body = record(value);
+  if (!body || !Array.isArray(body.invites)) return null;
+  const invites: GroupInviteRow[] = [];
+  for (const item of body.invites) {
+    const row = record(item);
+    if (!row) return null;
+    const id = text(row.id, 80);
+    const name = text(row.name, 200);
+    const by = text(row.by, 200);
+    const at = stamp(row.at);
+    if (!id || !OBJECT_ID.test(id) || name === null || by === null || at === null) return null;
+    invites.push({ id, name, by, at });
+  }
+  return invites;
+}
+
+export async function fetchGroupInvites(id: string): Promise<GroupCall<GroupInviteRow[]>> {
+  const result = await call("GET", `/api/groups/${encodeURIComponent(id)}/invites`);
+  if (!result.ok) return result;
+  const invites = parseGroupInvites(result.json);
+  if (!invites) return { ok: false, error: "The invites did not load." };
+  return { ok: true, value: invites };
 }
 
 export async function postGroup(

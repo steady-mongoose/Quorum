@@ -5,12 +5,15 @@ import { cn } from "@/lib/cn";
 import {
   fetchGroup,
   fetchGroupAppeals,
+  fetchGroupInvites,
   fetchGroupRequests,
   fetchGroups,
+  GROUP_INVITE_ONLY,
   postGroup,
   runByLine,
   type GroupAppealRow,
   type GroupDetail,
+  type GroupInviteRow,
   type GroupPostRow,
   type GroupRemovalRow,
   type GroupRequestRow,
@@ -116,11 +119,12 @@ function GroupList({
     };
   }, [tick]);
 
-  async function toggle(group: GroupSummary) {
+  // Joining takes an invite, accepted on the group's page. Here a member can only leave.
+  async function leave(group: GroupSummary) {
     setBusyId(group.id);
     setRowError("");
     setRowId(group.id);
-    const saved = await postGroup(`/api/groups/${group.id}/${group.joined ? "leave" : "join"}`, {});
+    const saved = await postGroup(`/api/groups/${group.id}/leave`, {});
     setBusyId("");
     if (!saved.ok) {
       setRowError(saved.error);
@@ -129,7 +133,7 @@ function GroupList({
     setRowId("");
     setGroups((current) =>
       (current ?? []).map((item) =>
-        item.id === group.id ? { ...item, joined: !group.joined } : item,
+        item.id === group.id ? { ...item, joined: false } : item,
       ),
     );
   }
@@ -151,18 +155,19 @@ function GroupList({
             </button>
             <RoomAudienceMark audience={group.audience} />
             <p className="mt-2 max-w-prose text-base text-muted">{group.about}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={group.joined ? btnQuiet : btnGhost}
-                aria-pressed={group.joined}
-                aria-busy={busyId === group.id}
-                disabled={busyId === group.id}
-                onClick={() => void toggle(group)}
-              >
-                {group.joined ? "Joined ✓" : "Join"}
-              </button>
-            </div>
+            {group.joined ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={btnQuiet}
+                  aria-busy={busyId === group.id}
+                  disabled={busyId === group.id}
+                  onClick={() => void leave(group)}
+                >
+                  Leave group
+                </button>
+              </div>
+            ) : null}
             {rowId === group.id ? <FormAlert message={rowError} /> : null}
           </li>
         ))}
@@ -468,8 +473,12 @@ function GroupDetailView({
               </button>
             </form>
           ) : (
-            <p className="text-sm text-muted">Join the group before you post.</p>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-muted">{GROUP_INVITE_ONLY}</p>
+              {detail.group.invited ? <AcceptInvite groupId={id} onJoined={reload} /> : null}
+            </div>
           )}
+          {detail.group.canInvite ? <InviteForm groupId={id} /> : null}
           <ul className="flex max-w-2xl flex-col gap-4">
             {detail.posts.map((post) => (
               <PostRow
@@ -761,5 +770,130 @@ function AppealDecision({ appeal, onChanged }: { appeal: GroupAppealRow; onChang
         </button>
       </div>
     </li>
+  );
+}
+
+/** A member who holds an open invite joins here. */
+function AcceptInvite({ groupId, onJoined }: { groupId: string; onJoined: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function accept() {
+    setBusy(true);
+    setError("");
+    const saved = await postGroup(`/api/groups/${groupId}/join`, {});
+    setBusy(false);
+    if (!saved.ok) {
+      setError(saved.error);
+      return;
+    }
+    onJoined();
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-muted">You have an invite to this group.</p>
+      <button
+        type="button"
+        className={cn(btnSignal, "self-start")}
+        aria-busy={busy}
+        disabled={busy}
+        onClick={() => void accept()}
+      >
+        {busy ? "Joining…" : "Accept invite"}
+      </button>
+      <FormAlert message={error} />
+    </div>
+  );
+}
+
+/** Group admins and stewards invite a member by email, and revoke an open invite. */
+function InviteForm({ groupId }: { groupId: string }) {
+  const [invites, setInvites] = useState<GroupInviteRow[]>([]);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let cancel = false;
+    void (async () => {
+      const loaded = await fetchGroupInvites(groupId);
+      if (cancel) return;
+      if (!loaded.ok) {
+        setError(loaded.error);
+        return;
+      }
+      setInvites(loaded.value);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [groupId, tick]);
+
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const saved = await postGroup(`/api/groups/${groupId}/invites`, { email });
+    setBusy(false);
+    if (!saved.ok) {
+      setError(saved.error);
+      return;
+    }
+    setEmail("");
+    setTick((value) => value + 1);
+  }
+
+  async function revoke(invite: GroupInviteRow) {
+    setBusy(true);
+    setError("");
+    const saved = await postGroup(`/api/groups/${groupId}/invites/${invite.id}/revoke`, {});
+    setBusy(false);
+    if (!saved.ok) {
+      setError(saved.error);
+      return;
+    }
+    setTick((value) => value + 1);
+  }
+
+  return (
+    <section className="flex max-w-xl flex-col gap-3" aria-labelledby="group-invite-heading">
+      <h3 id="group-invite-heading" className="text-xl text-fg">
+        Invite a member
+      </h3>
+      <form className="flex flex-col gap-3" onSubmit={(event) => void send(event)}>
+        <label className="flex flex-col gap-2 text-sm text-muted">
+          Member's email
+          <input
+            type="email"
+            className={fieldClass}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        <FormAlert message={error} />
+        <button type="submit" className={cn(btnSignal, "self-start")} aria-busy={busy} disabled={busy}>
+          {busy ? "Saving…" : "Send invite"}
+        </button>
+      </form>
+      {invites.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {invites.map((invite) => (
+            <li key={invite.id} className="flex flex-wrap items-center gap-3 text-sm text-muted">
+              <span>
+                {invite.name || "Member"}, invited by {invite.by}
+              </span>
+              <button
+                type="button"
+                className={btnGhost}
+                disabled={busy}
+                onClick={() => void revoke(invite)}
+              >
+                Revoke invite
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }

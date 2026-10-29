@@ -97,6 +97,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0042_share_post.sql",
       "0043_room_messages.sql",
       "0044_room_options.sql",
+      "0045_group_invites.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -130,6 +131,24 @@ test("migration 0044 adds room options with roll call off, is owner-approved, an
   assert.ok(sql.includes("options <@ array['roll_call', 'members', 'chat', 'calls']::text[]"));
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/drop table|delete from|update room/i.test(sql), false);
+});
+
+test("migration 0045 adds group invites, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0045_group_invites.sql"), "utf8");
+  assert.match(sql, /Numbered 0045/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("create table if not exists theme_group_invite"));
+  assert.ok(sql.includes("'invite', 'revoke-invite'"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from|update theme_group /i.test(sql), false);
+  const code = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const banned of ["like_count", "likes", "score", "reshare", "rank"]) {
+    assert.equal(code.includes(banned), false, banned);
+  }
 });
 
 test("migration 0010 anonymizes on its own and does not replace anonymize_board_user", () => {

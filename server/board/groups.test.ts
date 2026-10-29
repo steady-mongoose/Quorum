@@ -15,7 +15,7 @@ import {
   createGroupPost,
   decideGroupAppeal,
   decideGroupRequest,
-  joinGroup,
+  joinGroup as joinWithInvite,
   leaveGroup,
   listGroup,
   listGroupAppeals,
@@ -30,6 +30,28 @@ import {
 } from "./groups.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
+
+/**
+ * Groups are joined by invitation (0045). These tests are about posting and
+ * moderation, so each join here carries an invite. group-invites.test.ts
+ * covers the invite rules.
+ */
+async function joinGroup(
+  db: Db,
+  input: { userId: string; name: string; groupId: string; now: Date },
+): ReturnType<typeof joinWithInvite> {
+  await db.query(
+    `insert into theme_group_invite (id, group_id, user_id, by_name)
+     select $1, $2, $3, 'Test'
+     where exists (select 1 from theme_group where id = $2)
+       and not exists (
+         select 1 from theme_group_invite
+         where group_id = $2 and user_id = $3 and used_at is null and revoked_at is null
+       )`,
+    [randomUUID(), input.groupId, input.userId],
+  );
+  return joinWithInvite(db, input);
+}
 
 function later(ms: number): Date {
   return new Date(now.getTime() + ms);
@@ -1185,6 +1207,7 @@ test("deleting an account clears that name from the group tables", async () => {
         "anonymize_moderation_user",
         "anonymize_places_user",
         "anonymize_room_chat_user",
+        "anonymize_theme_group_invite_user",
         "anonymize_theme_group_user",
       ],
     );
