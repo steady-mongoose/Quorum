@@ -797,6 +797,45 @@ test("an unenrolled admin or steward is refused on every non-member route", asyn
   assert.equal(board.status, 200);
 });
 
+test("a plain member never gets the enroll phase; owners, admins and stewards do", async (t) => {
+  if (skipped || !db) {
+    t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");
+    return;
+  }
+  const clock = { now: new Date("2026-10-27T19:30:00Z") };
+  const app = handler(clock);
+  const plain = await user({ name: "Plain Member", email: "phase-member@example.com" });
+  await db.query(
+    `insert into access_log
+      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
+     values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+    [randomUUID(), plain.id, plain.name],
+  );
+  const outsider = await user({ name: "No Grant", email: "phase-outsider@example.com" });
+  const admin = await user({ name: "Phase Admin", email: "phase-admin@example.com", admin: true });
+  const steward = await user({ name: "Phase Steward", email: "phase-steward@example.com", stewardRoom: "shop" });
+  const cases: Array<[typeof plain, string]> = [
+    [plain, "ok"],
+    [outsider, "ok"],
+    [admin, "enroll"],
+    [steward, "enroll"],
+  ];
+  const seat = await db.query<{ user_id: string }>(`select user_id from bootstrap_seat where id = 'founding'`);
+  if (!seat[0]) {
+    cases.push([await user({ name: "Phase Owner", email: "phase-owner@example.com", owner: true }), "enroll"]);
+  }
+  let n = 20;
+  for (const [person, phase] of cases) {
+    const response = await app(
+      new Request("http://127.0.0.1:8787/api/mfa/status", { headers: headers(person, `198.51.100.${n++}`) }),
+    );
+    assert.equal(response.status, 200, person.name);
+    const body = (await response.json()) as { mfa?: string; required?: boolean };
+    assert.equal(body.mfa, phase, person.name);
+    assert.equal(body.required, phase === "enroll", person.name);
+  }
+});
+
 test("parallel wrong codes cannot beat the five-try lock", async (t) => {
   if (skipped || !db) {
     t.skip("Set MFA_TEST_DATABASE_URL to run authenticator tests on Postgres.");

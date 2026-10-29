@@ -57,7 +57,7 @@ test("admins get the options menu when setting up and editing a room; the room p
   assert.match(menu, /What this room includes/);
   assert.match(browse, /\{admin \? <RoomOptionsMenu selected=\{options\} onChange=\{setOptions\} \/> : null\}/);
   assert.match(about, /<RoomOptionsMenu selected=\{options\} onChange=\{setOptions\} \/>/);
-  assert.match(room, /roomIncludes\(meta, "calls"\) && canPost \? <RoomCall/);
+  assert.match(room, /roomIncludes\(meta, "calls"\) && canCall \? <RoomCall/);
   assert.match(room, /roomIncludes\(meta, "chat"\) \? <RoomChat/);
   assert.match(room, /roomIncludes\(meta, "members"\) \? <RoomMembers/);
   assert.match(room, /\{rollCall \? \(\r?\n\s+<fieldset/);

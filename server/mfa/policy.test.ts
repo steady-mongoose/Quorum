@@ -94,3 +94,14 @@ test("privileged is deny by default: moderation reads, PUT/PATCH and unknown rou
     assert.equal(privilegedPath(path!, method!), false, `${method} ${path}`);
   }
 });
+
+test("only owners, admins and stewards are sent to enroll; a plain member never is", () => {
+  const base = { member: true, steward: false, admin: false, owner: false, stewardRooms: [] as string[] };
+  const phase = (actor: typeof base) =>
+    phaseFor({ required: roleRequiresMfa(actor), enrolled: false, verified: false });
+  assert.equal(phase(base), "ok");
+  assert.equal(phase({ ...base, member: false }), "ok");
+  assert.equal(phase({ ...base, owner: true }), "enroll");
+  assert.equal(phase({ ...base, admin: true, steward: true }), "enroll");
+  assert.equal(phase({ ...base, steward: true, stewardRooms: ["shop"] }), "enroll");
+});

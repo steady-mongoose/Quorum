@@ -65,19 +65,27 @@ test("authenticator code fields take six digits and the start button hides while
   assert.match(app, /before you moderate, grant a role, approve a reset, or export/);
 });
 
-test("the authenticator banner shows only to owners, admins and stewards", async () => {
+test("the authenticator banner follows the server's enroll phase, with no app-side role check", async () => {
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
-  assert.match(app, /state\.admin \|\| state\.steward \|\| state\.stewardRooms\.length > 0/);
-  assert.match(app, /entered && moderator && server\.mfa === "enroll"/);
+  // The server sends "enroll" only to owners, admins and stewards (server/mfa/policy.ts).
+  assert.match(app, /\{entered && server\.mfa === "enroll" \?/);
+  assert.doesNotMatch(app, /moderator && server\.mfa/);
 });
 
-test("a non-member of a room gets no Join the call button", async () => {
+test("Join the call uses the server's rule: room member or this room's steward", async () => {
   const { readFileSync } = await import("node:fs");
   const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
-  assert.match(room, /roomIncludes\(meta, "calls"\) && canPost \? <RoomCall roomId=\{room\} \/>/);
-  const gate = readFileSync(new URL("./member-gate.ts", import.meta.url), "utf8");
-  assert.match(gate, /return input\.member \|\| input\.admin \|\| input\.stewardOfRoom;/);
+  assert.match(room, /roomIncludes\(meta, "calls"\) && canCall \? <RoomCall roomId=\{room\} \/>/);
+  const { canJoinRoomCall } = await import("./member-gate.ts");
+  // A site admin who is not in the room: the server answers 403, so no button.
+  assert.equal(canJoinRoomCall({ remote: true, member: false, stewardOfRoom: false }), false);
+  // A steward of Shop looking at County.
+  const shop = ["shop"];
+  assert.equal(canJoinRoomCall({ remote: true, member: false, stewardOfRoom: shop.includes("county") }), false);
+  assert.equal(canJoinRoomCall({ remote: true, member: false, stewardOfRoom: shop.includes("shop") }), true);
+  // A member of the room.
+  assert.equal(canJoinRoomCall({ remote: true, member: true, stewardOfRoom: false }), true);
 });
 
 test("the disable field accepts a recovery code as well as a six-digit code", () => {

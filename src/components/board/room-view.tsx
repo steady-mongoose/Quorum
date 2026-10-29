@@ -8,7 +8,7 @@ import { ModerationQueue } from "@/components/board/moderation-queue";
 import { ReportControl } from "@/components/board/report-control";
 import { RoomChat } from "@/components/board/room-chat";
 import { MemberGate } from "@/components/board/member-gate";
-import { canPostInRoom } from "@/lib/board/member-gate";
+import { canJoinRoomCall, canPostInRoom } from "@/lib/board/member-gate";
 import {
   Check as CheckIcon,
   CornerDownRight,
@@ -155,6 +155,11 @@ export function RoomView() {
     admin,
     stewardOfRoom: stewardRooms.includes(room),
   });
+  const canCall = canJoinRoomCall({
+    remote,
+    member: meta.member === true,
+    stewardOfRoom: stewardRooms.includes(room),
+  });
   const [tools, setTools] = useState(false);
   const focusSlug = roomsRoute?.slug ?? null;
 
@@ -282,8 +287,8 @@ export function RoomView() {
             onSave={(audience) => setRoomAudience(meta.id, audience)}
           />
         ) : null}
-        {/* Invite-only rooms: a non-member gets no call button; the server refuses them too. */}
-        {roomIncludes(meta, "calls") && canPost ? <RoomCall roomId={room} /> : null}
+        {/* Same rule as the server's call check: room member or this room's steward. */}
+        {roomIncludes(meta, "calls") && canCall ? <RoomCall roomId={room} /> : null}
         {roomIncludes(meta, "chat") ? <RoomChat roomId={room} /> : null}
         {roomIncludes(meta, "members") ? <RoomMembers room={meta} /> : null}
         <ModerationQueue roomId={room} />
