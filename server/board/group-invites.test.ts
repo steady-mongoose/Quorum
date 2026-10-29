@@ -20,7 +20,7 @@ import { GROUP_INVITE_ONLY as CLIENT_COPY } from "../../src/lib/board/group-clie
 
 const now = new Date("2026-10-29T12:00:00Z");
 const COPY =
-  "Only members of this group can post here. Ask a group admin or steward for an invite.";
+  "Only members of this group can read and post here. Ask a group admin or steward for an invite.";
 
 async function member(db: Db, name: string): Promise<string> {
   const id = randomUUID();

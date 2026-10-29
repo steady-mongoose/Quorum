@@ -702,7 +702,7 @@ export async function listGroup(
 
 /** Groups are joined by invitation. The refusal a member sees without one. */
 export const GROUP_INVITE_ONLY =
-  "Only members of this group can post here. Ask a group admin or steward for an invite.";
+  "Only members of this group can read and post here. Ask a group admin or steward for an invite.";
 
 async function openInvite(
   db: Db,
