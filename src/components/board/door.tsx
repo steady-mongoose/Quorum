@@ -36,7 +36,7 @@ const HOW = [
 const ROOMS = [
   {
     term: "One group each",
-    what: "A room is one church, shop, club, or county. What's posted stays in that room.",
+    what: "A room is one church, shop, club, or county. Its posts are shown only to the room's members, its steward, and the admins. A host can choose to share a gathering by link.",
   },
   {
     term: "By invitation",
@@ -123,9 +123,11 @@ export function Door() {
           </section>
 
           <section className="door-rooms card flex flex-col gap-3 p-6">
-            <h2 className="door-heading text-base font-semibold text-fg">The rooms</h2>
+            <h2 id="door-rooms-heading" className="door-heading text-base font-semibold text-fg">
+              The rooms
+            </h2>
             <Terms rows={ROOMS} />
-            <ul className="door-roomlist" aria-label="Rooms">
+            <ul className="door-roomlist" role="list" aria-labelledby="door-rooms-heading">
               {rooms
                 .filter((room) => room.id !== "dispatch")
                 .map((room) => (
