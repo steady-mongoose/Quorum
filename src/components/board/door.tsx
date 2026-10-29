@@ -20,7 +20,7 @@ const HOW = [
   },
   {
     term: "Roll call",
-    what: "After the gathering, the host records who came.",
+    what: "In a room that takes roll, the host records who came. Members of the room can see it.",
   },
   {
     term: "Messages",

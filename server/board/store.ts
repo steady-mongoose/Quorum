@@ -57,6 +57,14 @@ import { orderPosts } from "./order.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
+import {
+  DEFAULT_ROOM_OPTIONS,
+  LEGACY_ROOM_OPTIONS,
+  optionsColumnReady,
+  parseRoomOptions,
+  roomOptionsFrom,
+  type RoomOption,
+} from "./room-options.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 
@@ -102,6 +110,8 @@ export type BoardRoom = {
   cardNoun: "Meeting" | "Service" | "Reading" | "Debate";
   requiresNextDate: boolean;
   parish: boolean;
+  /** What the room includes: roll call, the member list, chat, calls. An admin sets it. */
+  options: RoomOption[];
   categoryIds: string[];
   scopeKind: "topic" | "town" | "congregation" | "region";
   townId: string;
@@ -284,6 +294,7 @@ type RoomRow = {
   card_noun: string;
   requires_next_date: boolean;
   parish: boolean;
+  options?: unknown;
   category_ids?: unknown;
   scope_kind?: string;
   town_id?: string;
@@ -334,6 +345,8 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     cardNoun: noun(row.card_noun),
     requiresNextDate: Boolean(row.requires_next_date),
     parish: Boolean(row.parish),
+    // Before migration 0044 the column is not there and every room keeps all four.
+    options: row.options === undefined ? [...LEGACY_ROOM_OPTIONS] : roomOptionsFrom(row.options),
     categoryIds: categoryIdsFrom(row.category_ids, row.id),
     scopeKind: scopeKind(row.scope_kind),
     townId: row.town_id ?? "",
@@ -357,7 +370,12 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
 }
 
 function rulesOf(room: BoardRoom): RoomRules {
-  return { name: room.name, takes: room.takes, stewardTakes: room.stewardTakes };
+  return {
+    name: room.name,
+    takes: room.takes,
+    stewardTakes: room.stewardTakes,
+    rollCall: room.options.includes("roll_call"),
+  };
 }
 
 type PostRow = {
@@ -427,8 +445,9 @@ async function roomById(
   if (!ROOM_ID.test(id)) return null;
   const who = typeof viewer === "string" ? { id: viewer, admin: false } : viewer;
   const ready = await listingColumnsReady(db);
+  const optionsReady = await optionsColumnReady(db);
   const rows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $2
@@ -660,8 +679,9 @@ export async function listBoard(
     );
     if (concealed[0]) return fail(404, "That room is not here.");
   }
+  const optionsReady = await optionsColumnReady(db);
   const roomRows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $1
@@ -2020,10 +2040,15 @@ export async function createRoom(
     audience?: unknown;
     stewardEmail?: string;
     inviterEmail?: string;
+    /** What the room includes. Left out, it is everything but roll call. */
+    options?: unknown;
   },
 ): Promise<Result<BoardRoom>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.admin) return fail(403, "Only an admin can add a room.");
+  const options =
+    input.options === undefined ? [...DEFAULT_ROOM_OPTIONS] : parseRoomOptions(input.options);
+  if (!options) return fail(400, "Choose from roll call, the member list, chat, and calls.");
   const id = input.id.trim().toLowerCase();
   const name = input.name.trim();
   const what = input.what.trim();
@@ -2063,6 +2088,9 @@ export async function createRoom(
           audience,
         ],
       );
+      if (await optionsColumnReady(tx)) {
+        await tx.query(`update room set options = $2 where id = $1`, [id, options]);
+      }
       await replaceRoomCategories(tx, id, categoryIds);
       if (audience !== "all") {
         await writeGenderAudit(tx, {
@@ -2102,6 +2130,8 @@ export async function updateRoom(
     name?: string;
     what?: string;
     pinOrder?: number | null;
+    /** Only an admin changes what a room includes. */
+    options?: unknown;
     now: Date;
   },
 ): Promise<Result<BoardRoom>> {
@@ -2134,6 +2164,18 @@ export async function updateRoom(
     }
     pinOrder = input.pinOrder;
   }
+  let options: RoomOption[] | null = null;
+  if (input.options !== undefined) {
+    options = parseRoomOptions(input.options);
+    if (!options) return fail(400, "Choose from roll call, the member list, chat, and calls.");
+    const changing =
+      options.length !== current.options.length ||
+      options.some((option) => !current.options.includes(option));
+    if (changing && !actor.admin) return fail(403, "Only an admin can change what a room includes.");
+    if (changing && !(await optionsColumnReady(db)))
+      return fail(503, "Room options are not set up on this server yet.");
+    if (!changing) options = null;
+  }
   const nextName = name || current.name;
   const nextWhat = what || current.what;
   if (renaming) {
@@ -2150,6 +2192,7 @@ export async function updateRoom(
       pinOrder,
     ]);
     if (categoryIds) await replaceRoomCategories(tx, id, categoryIds);
+    if (options) await tx.query(`update room set options = $2 where id = $1`, [id, options]);
   });
   const room = await roomById(db, id, { id: input.userId, admin: actor.admin });
   if (!room) return fail(500, "The room was not saved.");

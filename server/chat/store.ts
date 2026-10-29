@@ -8,6 +8,7 @@ import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
+import { ROOM_OPTION_OFF, roomHas } from "../board/room-options.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
 
@@ -160,6 +161,7 @@ export async function listChat(
     detail: "list",
   });
   if (!gate.ok) return gate;
+  if (!(await roomHas(db, input.roomId, "chat"))) return fail(404, ROOM_OPTION_OFF.chat);
   const after = input.after ?? null;
   const before = input.before ?? null;
   if (after != null && before != null)
@@ -230,6 +232,7 @@ export async function sendChat(
     detail: "send",
   });
   if (!gate.ok) return gate;
+  if (!(await roomHas(db, input.roomId, "chat"))) return fail(404, ROOM_OPTION_OFF.chat);
   const body = chatText(input.text);
   if (!body.ok) return fail(400, body.error);
   const author = input.name.trim().slice(0, 80) || "Member";

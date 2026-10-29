@@ -13,6 +13,7 @@ import {
   type ZipCorrectionInput,
 } from "./client.ts";
 import type { HomePayload } from "./home.ts";
+import type { RoomOption } from "./room-options.ts";
 import { removalFailedCopy } from "./errors.ts";
 
 /** How long Find offers Undo before the DELETE is sent. */
@@ -163,6 +164,7 @@ type BoardState = {
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
+    options?: RoomOption[];
   }) => Promise<{ ok: boolean; error?: string }>;
   updateRoom: (input: {
     id: string;
@@ -170,6 +172,7 @@ type BoardState = {
     name?: string;
     what?: string;
     pinOrder?: number | null;
+    options?: RoomOption[];
   }) => Promise<{ ok: boolean; error?: string }>;
   setRoomAudience: (
     roomId: string,
@@ -1370,6 +1373,8 @@ export const useBoard = create<BoardState>()(
           if (!allowed) return { ok: false, error: "That room is not here." };
           if (input.categoryIds && input.categoryIds.length === 0)
             return { ok: false, error: "Choose a category." };
+          if (input.options && !get().admin)
+            return { ok: false, error: "Only an admin can change what a room includes." };
           if (!get().remote) {
             if (input.name || input.what)
               return { ok: false, error: "Rooms are edited on the server." };
@@ -1379,6 +1384,7 @@ export const useBoard = create<BoardState>()(
                     ...room,
                     ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
                     ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
+                    ...(input.options && get().admin ? { options: input.options } : {}),
                   }
                 : room,
             );
@@ -1393,6 +1399,7 @@ export const useBoard = create<BoardState>()(
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.what !== undefined ? { what: input.what } : {}),
             ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
+            ...(input.options !== undefined ? { options: input.options } : {}),
           });
           if (!saved.ok) return { ok: false, error: saved.error };
           const rooms = get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room));

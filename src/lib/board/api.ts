@@ -1,4 +1,5 @@
 import { apiFetch } from "../api-base.ts";
+import { LEGACY_ROOM_OPTIONS, roomOptionsFrom } from "./room-options.ts";
 import { categoryForRoom, type BrowseRoom, type RoomCategory } from "./categories.ts";
 import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
@@ -180,6 +181,8 @@ function roomFrom(value: unknown): Room | null {
     cardNoun: cardNoun as Room["cardNoun"],
     requiresNextDate: row.requiresNextDate === true,
     parish: row.parish === true,
+    // An older server sends no options; it still takes roll everywhere.
+    options: Array.isArray(row.options) ? roomOptionsFrom(row.options) : [...LEGACY_ROOM_OPTIONS],
     categoryIds: categoryIdsFrom(row, row.id),
     pinOrder:
       typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
