@@ -21,11 +21,20 @@ test("About says every room has a steward and cannot lose its last one", () => {
 });
 
 test("the door and About describe messaging the way the server enforces it", () => {
-  // listPeers in server/dm/store.ts pairs people by verified attendance at the
-  // same meeting, not by belonging to the same room.
-  assert.match(door, /You can message people you've been at a gathering with\. No one else can message you\./);
+  // mayMessage in server/dm/store.ts allows a verified meeting together, or a
+  // room both people are in. A block either way stops both.
+  assert.match(
+    door,
+    /You can message people in your rooms and people you've been at a gathering with\. No one else can message you, and you can block anyone\./,
+  );
   assert.equal(door.includes("shared a room with"), false);
-  assert.match(dmCopy, /People who have been to the same meeting as you can see your profile and message you\. Nobody else can\./);
+  assert.match(
+    dmCopy,
+    /People in your rooms and people who have been to the same meeting as you can message you\. Nobody else can\./,
+  );
+  assert.match(dmCopy, /A new member of a room waits three days before starting a conversation there\./);
+  assert.match(dmCopy, /You can block anyone, and they are not told\./);
+  assert.match(dmCopy, /Only people from the same meeting can see your profile\./);
 });
 
 test("the About rule list lowercases only the first letter, so God and Christ keep their capitals", () => {

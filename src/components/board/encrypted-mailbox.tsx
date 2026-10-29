@@ -7,6 +7,7 @@ import {
   DM_KEYS_MISSING,
   DM_PASSPHRASE_WARNING,
   DM_SAFETY_HINT,
+  MESSAGE_RULE,
 } from "@/lib/e2ee/copy";
 import {
   browserTransport,
@@ -17,8 +18,11 @@ import {
 import { installDmMediaCrypto } from "@/lib/e2ee/media-bridge";
 import { createDmMediaCrypto } from "@/lib/e2ee/media-crypto";
 import {
+  blockMember,
   confirmSafety,
   createLocalDevice,
+  findMember,
+  listBlockedMembers,
   listDmPeers,
   listEncryptedThreads,
   listOwnDevices,
@@ -30,12 +34,14 @@ import {
   restoreFromBackup,
   revokeOtherDevice,
   sendEncrypted,
+  unblockMember,
   type DecodedMessage,
   type OwnDevice,
   type ThreadSummary,
   type VaultState,
 } from "@/lib/e2ee/mailbox";
-import { DM_RETENTION_DAYS, formatWhen, otherIn, stoodWith } from "@/lib/board/model";
+import { DM_RETENTION_DAYS, formatWhen, messageableNames, otherIn } from "@/lib/board/model";
+import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
 import { DmReportControl } from "@/components/board/dm-report";
@@ -51,6 +57,7 @@ export function EncryptedMailbox() {
   const boardName = useBoard((state) => state.me.trim());
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
+  const rooms = useBoard((state) => state.rooms);
   const openThread = useBoard((state) => state.openThread);
   const setOpenThread = useBoard((state) => state.setOpenThread);
   const transport = useMemo(() => browserTransport(), []);
@@ -74,7 +81,12 @@ export function EncryptedMailbox() {
   const [busy, setBusy] = useState(false);
 
   const gateName = boardName || me?.name || "";
-  const peers = useMemo(() => stoodWith(gateName, cards, posts), [gateName, cards, posts]);
+  const peers = useMemo(
+    () => messageableNames(gateName, cards, posts, rooms),
+    [gateName, cards, posts, rooms],
+  );
+  const [blocked, setBlocked] = useState<{ id: string; name: string }[]>([]);
+  const [confirmBlock, setConfirmBlock] = useState(false);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -156,6 +168,7 @@ export function EncryptedMailbox() {
       }
       await installDmMediaCrypto(createDmMediaCrypto({ transport, vault: store }));
       await refreshDevices(store.read() ?? vault);
+      await refreshBlocked();
       const rows = await refreshThreads();
       if (cancelled) return;
       await restoreReadableHistory(rows);
@@ -183,7 +196,7 @@ export function EncryptedMailbox() {
       return;
     }
     if (!peers.has(other)) {
-      setNotice("You can message someone you have been to a meeting with.");
+      setNotice(MESSAGE_RULE);
       return;
     }
     let cancelled = false;
@@ -203,10 +216,17 @@ export function EncryptedMailbox() {
         setNotice(found.message);
         return;
       }
-      const matches = found.peers.filter((peer) => peer.name === other);
+      let matches = found.peers.filter((peer) => peer.name === other);
+      if (matches.length === 0) {
+        // Not someone from a meeting: look them up by name. The server decides
+        // whether you share a room and may start a conversation.
+        const named = await findMember(transport, other);
+        if (cancelled) return;
+        matches = named.ok ? named.matches : [];
+      }
       if (matches.length === 0) {
         setChoices([]);
-        setNotice("That person does not have an account for this meeting yet.");
+        setNotice("That person does not have an account yet.");
         return;
       }
       if (matches.length > 1) {
@@ -223,6 +243,32 @@ export function EncryptedMailbox() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThread, me?.id, vault?.device.deviceId, gateName]);
+
+  async function refreshBlocked() {
+    const listed = await listBlockedMembers(transport);
+    if (listed.ok) setBlocked(listed.blocked);
+  }
+
+  async function block(thread: ThreadSummary) {
+    const done = await blockMember(transport, thread.otherUserId);
+    if (!done.ok) {
+      setNotice(done.message);
+      return;
+    }
+    setActive(null);
+    setMessages([]);
+    setNotice(`${thread.otherName} is blocked.`);
+    await refreshBlocked();
+  }
+
+  async function unblock(userId: string) {
+    const done = await unblockMember(transport, userId);
+    if (!done.ok) {
+      setNotice(done.message);
+      return;
+    }
+    await refreshBlocked();
+  }
 
   async function openPeer(userId: string) {
     setChoices([]);
@@ -405,6 +451,25 @@ export function EncryptedMailbox() {
           {DM_RETENTION_DAYS} days.
         </p>
         <DmCall threadId={active.id} otherName={active.otherName} />
+        <button
+          type="button"
+          className={cn(btnQuiet, "self-start px-0")}
+          onClick={() => setConfirmBlock(true)}
+        >
+          Block {active.otherName}
+        </button>
+        <ConfirmDialog
+          open={confirmBlock}
+          title={`Block ${active.otherName}?`}
+          description={`${active.otherName} will not be able to message or call you, and you will not be able to message them. They are not told. You can unblock them from Messages.`}
+          confirmLabel="Block"
+          cancelLabel="Not now"
+          onConfirm={() => {
+            setConfirmBlock(false);
+            void block(active);
+          }}
+          onCancel={() => setConfirmBlock(false)}
+        />
         {safety ? (
           <div className="rounded-md border border-line bg-surface px-3 py-3">
             <p className="text-sm font-semibold text-fg">Safety number</p>
@@ -481,7 +546,8 @@ export function EncryptedMailbox() {
       </section>
       {threads.length === 0 ? (
         <p className="text-sm text-muted">
-          No messages yet. Open one from a person you have been to a meeting with.
+          No messages yet. Open one from someone in one of your rooms, or someone you have been to a
+          meeting with.
         </p>
       ) : (
         <ul className="flex flex-col gap-2 lg:max-w-2xl">
@@ -506,6 +572,31 @@ export function EncryptedMailbox() {
           ))}
         </ul>
       )}
+
+      {blocked.length > 0 ? (
+        <section className="flex max-w-xl flex-col gap-2">
+          <h2 className="text-lg text-fg">Blocked</h2>
+          <ul className="flex flex-col gap-2">
+            {blocked.map((person) => (
+              <li
+                key={person.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2"
+              >
+                <span className="text-sm text-fg">
+                  {person.name} · {person.id.slice(0, 8)}
+                </span>
+                <button
+                  type="button"
+                  className={btnQuiet}
+                  onClick={() => void unblock(person.id)}
+                >
+                  Unblock
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="flex max-w-xl flex-col gap-3 rounded-md border border-line bg-surface px-3 py-3">
         <h2 className="text-lg text-fg">Key backup</h2>

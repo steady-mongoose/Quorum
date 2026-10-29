@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { actorRole, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
+import { requireRoomMember } from "../chat/store.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -565,6 +567,11 @@ export async function listPeers(db: Db, userId: string): Promise<{ id: string; n
        on theirs.meeting_id = mine.meeting_id and theirs.user_id <> mine.user_id
      join "user" peer on peer.id = theirs.user_id
      where mine.user_id = $1
+       and not exists (
+         select 1 from dm_block b
+         where (b.blocker_user_id = $1 and b.blocked_user_id = peer.id)
+            or (b.blocker_user_id = peer.id and b.blocked_user_id = $1)
+       )
      order by peer.name, peer.id`,
     [userId],
   );
@@ -588,6 +595,160 @@ export async function sharesMeeting(
     [callerId, otherUserId],
   );
   return Boolean(rows[0]);
+}
+
+/** A member who joined a room this recently cannot start a conversation through it. */
+export const ROOM_MESSAGE_WAIT_DAYS = 3;
+/** New conversations one member can start through rooms in a day. */
+export const ROOM_MESSAGE_DAILY_STARTS = 5;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const NOT_REACHABLE =
+  "You can message someone in one of your rooms, or someone you have been to a meeting with.";
+export const BLOCKED = "You cannot message this member.";
+export const ROOM_WAIT = `You can start a conversation with someone from a room after ${ROOM_MESSAGE_WAIT_DAYS} days in it.`;
+export const ROOM_DAILY_LIMIT = `You have started ${ROOM_MESSAGE_DAILY_STARTS} new conversations through your rooms today. Try again tomorrow.`;
+
+/** True when either person has blocked the other. */
+export async function blockedBetween(db: Db, a: string, b: string): Promise<boolean> {
+  const rows = await db.query<{ blocker_user_id: string }>(
+    `select blocker_user_id from dm_block
+     where (blocker_user_id = $1 and blocked_user_id = $2)
+        or (blocker_user_id = $2 and blocked_user_id = $1)
+     limit 1`,
+    [a, b],
+  );
+  return Boolean(rows[0]);
+}
+
+/**
+ * Rooms both people stand in right now: each has joined, neither is barred, and
+ * the room's audience lets both in. Settled means the caller may start a
+ * conversation through that room: a steward of it, or three days since joining.
+ */
+async function roomsInCommon(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+  now: Date,
+): Promise<{ roomId: string; settled: boolean }[]> {
+  const rows = await db.query<{ room_id: string; joined_at: Date | string | null }>(
+    `with mine as (
+       select room_id from room_member where user_id = $1
+       union
+       select room_id from room_join where user_id = $1
+     ),
+     theirs as (
+       select room_id from room_member where user_id = $2
+       union
+       select room_id from room_join where user_id = $2
+     )
+     select m.room_id, j.joined_at
+     from mine m
+     join theirs t on t.room_id = m.room_id
+     left join room_join j on j.room_id = m.room_id and j.user_id = $1
+     order by m.room_id`,
+    [callerId, otherUserId],
+  );
+  if (rows.length === 0) return [];
+  const actor = await actorRole(db, callerId);
+  const wait = ROOM_MESSAGE_WAIT_DAYS * DAY_MS;
+  const shared: { roomId: string; settled: boolean }[] = [];
+  for (const row of rows) {
+    if (!(await requireRoomMember(db, callerId, row.room_id, now)).ok) continue;
+    if (!(await requireRoomMember(db, otherUserId, row.room_id, now)).ok) continue;
+    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
+    const settled =
+      stewardsRoom(actor, row.room_id) || (joined !== null && now.getTime() - joined >= wait);
+    shared.push({ roomId: row.room_id, settled });
+  }
+  return shared;
+}
+
+export type MessageGate =
+  | { ok: true; via: "self" | "meeting" | "room" }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Whether the caller may message the other member. A block either way stops it.
+ * A verified meeting together allows it. Otherwise a room both stand in allows
+ * it; starting a new conversation that way also needs three days in the room
+ * and stays under five starts a day.
+ */
+export async function mayMessage(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+  now: Date,
+  options: { starting?: boolean } = {},
+): Promise<MessageGate> {
+  if (!callerId || !otherUserId) return { ok: false, status: 403, error: NOT_REACHABLE };
+  // Your own devices: a new device claims keys for the account it belongs to.
+  if (callerId === otherUserId) return { ok: true, via: "self" };
+  if (await blockedBetween(db, callerId, otherUserId))
+    return { ok: false, status: 403, error: BLOCKED };
+  if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
+  const rooms = await roomsInCommon(db, callerId, otherUserId, now);
+  if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
+  if (!options.starting) return { ok: true, via: "room" };
+  if (!rooms.some((room) => room.settled)) return { ok: false, status: 403, error: ROOM_WAIT };
+  const started = await db.query<{ count: string }>(
+    `select count(*)::text as count from dm_thread
+     where opened_by = $1 and opened_via = 'room' and created_at > $2`,
+    [callerId, new Date(now.getTime() - DAY_MS)],
+  );
+  if (Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS)
+    return { ok: false, status: 429, error: ROOM_DAILY_LIMIT };
+  return { ok: true, via: "room" };
+}
+
+/** Block a member. Messages and calls stop both ways until the block is lifted. */
+export async function blockMember(
+  db: Db,
+  userId: string,
+  otherUserId: string,
+  now: Date,
+): Promise<Result<null>> {
+  if (!isMemberId(otherUserId) || otherUserId === userId)
+    return fail(400, "That member was not found.");
+  const found = await db.query<{ id: string }>(`select id from "user" where id = $1`, [
+    otherUserId,
+  ]);
+  if (!found[0]) return fail(404, "That member was not found.");
+  await db.query(
+    `insert into dm_block (blocker_user_id, blocked_user_id, created_at)
+     values ($1, $2, $3)
+     on conflict do nothing`,
+    [userId, otherUserId, now],
+  );
+  return { ok: true, value: null };
+}
+
+export async function unblockMember(
+  db: Db,
+  userId: string,
+  otherUserId: string,
+): Promise<Result<null>> {
+  if (!isMemberId(otherUserId)) return fail(400, "That member was not found.");
+  await db.query(`delete from dm_block where blocker_user_id = $1 and blocked_user_id = $2`, [
+    userId,
+    otherUserId,
+  ]);
+  return { ok: true, value: null };
+}
+
+/** The members this person has blocked. It never says who blocked them. */
+export async function listBlocked(
+  db: Db,
+  userId: string,
+): Promise<{ id: string; name: string }[]> {
+  const rows = await db.query<{ id: string; name: string }>(
+    `select u.id, u.name from dm_block b join "user" u on u.id = b.blocked_user_id
+     where b.blocker_user_id = $1
+     order by u.name, u.id`,
+    [userId],
+  );
+  return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
 async function sharesThread(db: Db, callerId: string, otherUserId: string): Promise<boolean> {
@@ -614,9 +775,8 @@ export async function claimBundle(
   }>
 > {
   if (!isMemberId(targetUserId)) return fail(400, "That member was not found.");
-  if (!(await sharesMeeting(db, callerId, targetUserId))) {
-    return fail(403, "You can message someone you have been to a meeting with.");
-  }
+  const gate = await mayMessage(db, callerId, targetUserId, now);
+  if (!gate.ok) return fail(gate.status, gate.error);
   if (!(await sharesThread(db, callerId, targetUserId))) {
     return fail(403, "Open the conversation before asking for keys.");
   }
@@ -678,6 +838,7 @@ export async function previewBundle(
   db: Db,
   callerId: string,
   targetUserId: string,
+  now: Date = new Date(),
 ): Promise<
   Result<{
     userId: string;
@@ -687,9 +848,8 @@ export async function previewBundle(
   }>
 > {
   if (!isMemberId(targetUserId)) return fail(400, "That member was not found.");
-  if (!(await sharesMeeting(db, callerId, targetUserId))) {
-    return fail(403, "You can message someone you have been to a meeting with.");
-  }
+  const gate = await mayMessage(db, callerId, targetUserId, now);
+  if (!gate.ok) return fail(gate.status, gate.error);
   if (!(await sharesThread(db, callerId, targetUserId))) {
     return fail(403, "Open the conversation before asking for keys.");
   }
@@ -748,9 +908,6 @@ export async function openThread(
   const other = people.find((person) => person.id === otherUserId);
   const me = people.find((person) => person.id === userId);
   if (!other || !me) return fail(404, "That member was not found.");
-  if (!(await sharesMeeting(db, userId, otherUserId))) {
-    return fail(403, "You can message someone you have been to a meeting with.");
-  }
   const [low, high] = userId < otherUserId ? [userId, otherUserId] : [otherUserId, userId];
   const lowName = low === userId ? me.name : other.name;
   const highName = high === userId ? me.name : other.name;
@@ -758,13 +915,16 @@ export async function openThread(
     `select id from dm_thread where user_a = $1 and user_b = $2`,
     [low, high],
   );
+  const gate = await mayMessage(db, userId, otherUserId, now, { starting: !existing[0] });
+  if (!gate.ok) return fail(gate.status, gate.error);
   if (existing[0])
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
   const id = randomUUID();
   await db.query(
-    `insert into dm_thread (id, user_a, user_b, user_a_name, user_b_name, created_at)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [id, low, high, lowName, highName, now],
+    `insert into dm_thread (
+       id, user_a, user_b, user_a_name, user_b_name, created_at, opened_by, opened_via
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, low, high, lowName, highName, now, userId, gate.via],
   );
   return { ok: true, value: { id, otherUserId, otherName: other.name } };
 }
@@ -829,9 +989,9 @@ export async function postMessage(
   const thread = await threadFor(db, threadId, userId);
   if (!thread) return fail(404, "That conversation was not found.");
   const otherUserId = thread.user_a === userId ? thread.user_b : thread.user_a;
-  if (!otherUserId || !(await sharesMeeting(db, userId, otherUserId))) {
-    return fail(403, "You can message someone you have been to a meeting with.");
-  }
+  if (!otherUserId) return fail(403, NOT_REACHABLE);
+  const gate = await mayMessage(db, userId, otherUserId, now);
+  if (!gate.ok) return fail(gate.status, gate.error);
   const devices = await db.query<DeviceRow>(`select * from dm_device where id = $1`, [
     message.senderDeviceId,
   ]);

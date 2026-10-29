@@ -94,9 +94,20 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0029_member_reports.sql",
       "0030_account_removal.sql",
       "0032_dm_report.sql",
+      "0043_room_messages.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+});
+
+test("migration 0043 adds room messaging guards, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0043_room_messages.sql"), "utf8");
+  assert.match(sql, /Numbered 0043/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("create table if not exists dm_block"));
+  assert.ok(sql.includes("add column if not exists opened_via"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from/i.test(sql), false);
 });
 
 test("migration 0010 anonymizes on its own and does not replace anonymize_board_user", () => {
