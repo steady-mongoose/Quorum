@@ -95,6 +95,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0030_account_removal.sql",
       "0032_dm_report.sql",
       "0042_share_post.sql",
+      "0043_room_messages.sql",
       "0044_room_options.sql",
     ],
   );
@@ -107,6 +108,16 @@ test("migration 0042 adds the Share post, is owner-approved, and replaces no fun
   assert.match(sql, /owner must approve/i);
   assert.match(sql, /'shared', 'did', 'asked', 'noted', 'saw', 'hosted'/);
   assert.ok(sql.includes("cardinality(takes) > 0"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from/i.test(sql), false);
+});
+
+test("migration 0043 adds room messaging guards, is owner-approved, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0043_room_messages.sql"), "utf8");
+  assert.match(sql, /Numbered 0043/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("create table if not exists dm_block"));
+  assert.ok(sql.includes("add column if not exists opened_via"));
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/drop table|delete from/i.test(sql), false);
 });

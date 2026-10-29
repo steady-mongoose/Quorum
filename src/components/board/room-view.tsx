@@ -54,7 +54,7 @@ import {
   roomIncludes,
   shelfFor,
   sortRoom,
-  stoodWith,
+  messageableNames,
   todayIso,
   typeMeta,
   typesFor,
@@ -128,7 +128,10 @@ export function RoomView() {
 
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
-  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  const peers = useMemo(
+    () => messageableNames(me, cards, posts, rooms),
+    [me, cards, posts, rooms],
+  );
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const shelf = useMemo(
     () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),

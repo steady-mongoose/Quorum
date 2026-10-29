@@ -742,6 +742,52 @@ export async function recordAttendance(
   return response.ok ? { ok: true } : response;
 }
 
+function readPeople(body: unknown, key: string): { id: string; name: string }[] {
+  if (!body || typeof body !== "object" || !(key in body)) return [];
+  const list = (body as Record<string, unknown>)[key];
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((item) => {
+    if (!item || typeof item !== "object" || !("id" in item) || !("name" in item)) return [];
+    if (typeof item.id !== "string" || typeof item.name !== "string") return [];
+    return [{ id: item.id, name: item.name }];
+  });
+}
+
+/** The members you have blocked. Nobody is told that you blocked them. */
+export async function listBlockedMembers(
+  transport: DmTransport,
+): Promise<{ ok: true; blocked: { id: string; name: string }[] } | { ok: false; message: string }> {
+  const response = await expectOk(
+    await transport.get("/api/dm/blocks"),
+    "The blocked list did not load.",
+  );
+  if (!response.ok) return response;
+  return { ok: true, blocked: readPeople(response.body, "blocked") };
+}
+
+/** Block a member: no messages or calls either way until you unblock them. */
+export async function blockMember(
+  transport: DmTransport,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const response = await expectOk(
+    await transport.post("/api/dm/blocks", { userId }),
+    "That member was not blocked.",
+  );
+  return response.ok ? { ok: true } : response;
+}
+
+export async function unblockMember(
+  transport: DmTransport,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const response = await expectOk(
+    await transport.post(`/api/dm/blocks/${encodeURIComponent(userId)}/unblock`, {}),
+    "That member was not unblocked.",
+  );
+  return response.ok ? { ok: true } : response;
+}
+
 export async function listDmPeers(
   transport: DmTransport,
 ): Promise<{ ok: true; peers: { id: string; name: string }[] } | { ok: false; message: string }> {

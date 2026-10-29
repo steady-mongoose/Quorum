@@ -1195,6 +1195,28 @@ export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<
   return names;
 }
 
+/**
+ * People who post in a room you have joined. Rooms are joined only by an
+ * invitation from inside the app, so these are people from your rooms.
+ */
+export function roomMatesOf(me: string, rooms: readonly Room[], posts: Post[]): Set<string> {
+  const joined = new Set(rooms.filter((room) => room.joined).map((room) => room.id));
+  const names = new Set<string>();
+  for (const post of posts) if (!post.removed && joined.has(post.room)) names.add(post.author);
+  names.delete(me);
+  return names;
+}
+
+/** Everyone you can open a message to: people from your meetings and from your rooms. */
+export function messageableNames(
+  me: string,
+  cards: MeetingCard[],
+  posts: Post[],
+  rooms: readonly Room[],
+): Set<string> {
+  return new Set([...stoodWith(me, cards, posts), ...roomMatesOf(me, rooms, posts)]);
+}
+
 /** The last few times a host named this person, newest first. */
 export function namedLines(name: string, posts: Post[]): Post[] {
   return posts

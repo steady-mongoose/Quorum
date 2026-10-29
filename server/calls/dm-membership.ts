@@ -1,6 +1,6 @@
 import type { Db } from "../db.ts";
 import { openBanOrNone } from "../board/store.ts";
-import { sharesMeeting } from "../dm/store.ts";
+import { mayMessage } from "../dm/store.ts";
 import type { MemberCheck } from "./membership.ts";
 
 export type DmCallCheck = MemberCheck;
@@ -37,7 +37,7 @@ export async function dmCallMember(
     if (ban) return { kind: "banned", ban };
     const theirs = await openBanOrNone(db, other, now);
     if (theirs) return { kind: "outsider" };
-    if (!(await sharesMeeting(db, userId, other))) return { kind: "outsider" };
+    if (!other || !(await mayMessage(db, userId, other, now)).ok) return { kind: "outsider" };
     return { kind: "member" };
   } catch {
     return { kind: "unavailable" };

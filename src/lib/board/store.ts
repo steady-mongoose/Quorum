@@ -41,7 +41,7 @@ import {
   newCard,
   newPost,
   setRoomCatalog,
-  stoodWith,
+  messageableNames,
   threadIdFor,
   todayIso,
   type AppealDecision,
@@ -1327,7 +1327,7 @@ export const useBoard = create<BoardState>()(
           })),
         openDm: (other) => {
           const name = other.trim();
-          if (!stoodWith(me(), get().cards, get().posts).has(name)) return;
+          if (!messageableNames(me(), get().cards, get().posts, get().rooms).has(name)) return;
           const id = threadIdFor(me(), name);
           const threads = get().threads.some((thread) => thread.id === id)
             ? get().threads
