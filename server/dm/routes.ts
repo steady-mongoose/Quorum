@@ -1,4 +1,5 @@
 import { openBan } from "../board/store.ts";
+import { readMessageFrom, saveMessageFrom } from "./message-setting.ts";
 import { closeDmReport, fileDmReport, listDmReports } from "./reports.ts";
 import type { AppDeps } from "../http.ts";
 import {
@@ -374,6 +375,16 @@ async function dispatch(
     const lifted = await unblockMember(deps.db, userId, decodeURIComponent(unblock[1] ?? ""));
     if (!lifted.ok) return json(lifted.status, { error: lifted.error });
     return json(200, { ok: true });
+  }
+
+  // Who can message you. Only your own choice is read or written here.
+  if (path === "/api/dm/settings" && method === "GET") {
+    return json(200, { messageFrom: await readMessageFrom(deps.db, userId) });
+  }
+  if (path === "/api/dm/settings" && method === "POST") {
+    const saved = await saveMessageFrom(deps.db, userId, (await readJson(request)).messageFrom);
+    if (!saved.ok) return json(saved.status, { error: saved.error });
+    return json(200, { messageFrom: saved.value });
   }
 
   if (path === "/api/dm/peers" && method === "GET") {

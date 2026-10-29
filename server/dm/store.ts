@@ -4,6 +4,8 @@ import { guardRoomAudience } from "../board/audience.ts";
 import { requireRoomMember } from "../chat/store.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
+import { NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
+import { settingRefuses } from "./message-setting.ts";
 import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
@@ -605,7 +607,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const NOT_REACHABLE =
   "You can message someone in one of your rooms, or someone you have been to a meeting with.";
-export const BLOCKED = "You cannot message this member.";
+/** A block and the recipient's Messages setting refuse with the same words. */
+export const BLOCKED = NOT_TAKING_MESSAGES;
 export const ROOM_WAIT = `You can start a conversation with someone from a room after ${ROOM_MESSAGE_WAIT_DAYS} days in it.`;
 export const ROOM_DAILY_LIMIT = `You have started ${ROOM_MESSAGE_DAILY_STARTS} new conversations through your rooms today. Try again tomorrow.`;
 
@@ -670,7 +673,8 @@ export type MessageGate =
   | { ok: false; status: number; error: string };
 
 /**
- * Whether the caller may message the other member. A block either way stops it.
+ * Whether the caller may message the other member. A block either way stops it,
+ * and so does the other member's Messages setting, with the same refusal.
  * A verified meeting together allows it. Otherwise a room both stand in allows
  * it; starting a new conversation that way also needs three days in the room
  * and stays under five starts a day.
@@ -686,6 +690,8 @@ export async function mayMessage(
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
   if (await blockedBetween(db, callerId, otherUserId))
+    return { ok: false, status: 403, error: BLOCKED };
+  if (await settingRefuses(db, otherUserId, callerId))
     return { ok: false, status: 403, error: BLOCKED };
   if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
