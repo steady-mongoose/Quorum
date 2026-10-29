@@ -18,7 +18,6 @@ export type PanelFailure = { error: string; mfa?: PanelMfa };
 
 export const PANEL_LOAD_FAILED = "That did not load.";
 export const PANEL_SAVE_FAILED = "That did not save.";
-export const PANEL_UNREACHABLE = "The server could not be reached.";
 /** The server's own enroll wording, used when its 403 carries no message. */
 export const PANEL_MFA_NEEDED = "Turn on an authenticator before using this.";
 export const PANEL_SET_UP = "Turn it on under You";
@@ -29,6 +28,7 @@ export const DELETION_REQUESTS_WAIT =
 export const ROOMS_WAIT = "The room list waits until you turn on an authenticator.";
 export const DM_REPORTS_WAIT = "Message reports wait until you turn on an authenticator.";
 export const INVITES_WAIT = "The invite list waits until you turn on an authenticator.";
+export const MFA_RESETS_WAIT = "Authenticator resets wait until you turn on an authenticator.";
 
 const MFA_CODES = new Set(["mfa_required", "mfa_step_up", "mfa_locked"]);
 

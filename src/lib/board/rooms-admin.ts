@@ -2,7 +2,6 @@ import { apiFetch } from "../api-base.ts";
 import { UNCATEGORIZED_SLUG } from "./categories.ts";
 import {
   PANEL_LOAD_FAILED,
-  PANEL_UNREACHABLE,
   panelFailure,
   type PanelFailure,
 } from "./load-failure.ts";
@@ -120,12 +119,8 @@ function errorFrom(json: unknown, fallback: string): string {
 export async function loadAdminRooms(): Promise<
   { ok: true; rooms: AdminRoom[] } | ({ ok: false } & PanelFailure)
 > {
-  let response: Response;
-  try {
-    response = await apiFetch("/api/admin/rooms", { credentials: "include" });
-  } catch {
-    return { ok: false, error: PANEL_UNREACHABLE };
-  }
+  // apiFetch never throws: a transport failure comes back as a 503 api-unavailable.
+  const response = await apiFetch("/api/admin/rooms", { credentials: "include" });
   const json = await readJson(response);
   if (!response.ok) return { ok: false, ...panelFailure(json, PANEL_LOAD_FAILED) };
   const rooms = (json as { rooms?: unknown } | null)?.rooms;

@@ -37,7 +37,7 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
   const [note, setNote] = useState("");
   const [announced, setAnnounced] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);
@@ -161,23 +161,25 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
         gateText={ROOMS_WAIT}
         onRetry={retry}
         onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
       />
       {/* Nothing to search until the list has loaded, so no field flashes before a gate. */}
       {rooms === null ? null : (
-      <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
-        Find a room
-        <input
-          id={searchId}
-          type="search"
-          className={cn(fieldClass, "min-h-[44px]")}
-          value={query}
-          placeholder="Name or slug"
-          onChange={(event) => {
-            setNote("");
-            setQuery(event.target.value);
-          }}
-        />
-      </label>
+        <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
+          Find a room
+          <input
+            id={searchId}
+            type="search"
+            className={cn(fieldClass, "min-h-[44px]")}
+            value={query}
+            placeholder="Name or slug"
+            onChange={(event) => {
+              setNote("");
+              setQuery(event.target.value);
+            }}
+          />
+        </label>
       )}
       <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className="text-sm text-fg">
         {note || announced}
@@ -300,7 +302,7 @@ export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
         </div>
       ))}
 
-      <p className="max-w-prose text-sm text-muted">Archive and delete are coming soon.</p>
+      {failure ? null : <p className="max-w-prose text-sm text-muted">Archive and delete are coming soon.</p>}
 
       <ConfirmDialog
         open={confirming && editingRoom !== null}

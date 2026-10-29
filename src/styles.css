@@ -156,15 +156,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /*
- * Team focus ring for a heading that takes focus from code: the Authenticator
- * heading under You, and a panel heading after Try again. :focus, not
- * :focus-visible, because that focus follows a pointer click. One rule for
- * #114 and #117; both use the heading-focus-ring class.
+ * A heading that script moves focus to (tabIndex -1), such as #authenticator after
+ * "Turn it on under You" or "Set it up", or a section heading after Try again; and any
+ * element focused with focusWithRing(), which marks it [data-focus-ring] until blur
+ * (the Decide summary, say, so a plain mouse click on Decide still draws no ring).
+ * Programmatic focus does not always match :focus-visible, so the ring is on :focus.
+ * The ring is the element's own text colour (text-fg), so it reads on whatever ground
+ * the element sits on, dark plate, parchment or a dark card on parchment. 2px offset.
+ * Unlayered so it outranks the plate's own :focus-visible rule in backgrounds.css.
  */
-.heading-focus-ring:focus {
-  outline: 2px solid #f0e7d3;
+.focus-target:focus,
+[data-focus-ring]:focus {
+  outline: 2px solid currentColor;
   outline-offset: 2px;
-}
-[data-palette="parchment"] .heading-focus-ring:focus {
-  outline-color: #1f1912;
+  border-radius: 4px;
 }

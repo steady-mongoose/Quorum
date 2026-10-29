@@ -215,7 +215,7 @@ export function DmReportQueue({
   const [announce, setAnnounce] = useState("");
   const [closedCount, setClosedCount] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
   useEffect(() => {
     if (closedCount) heading.current?.focus();
   }, [closedCount]);
@@ -257,6 +257,8 @@ export function DmReportQueue({
         gateText={DM_REPORTS_WAIT}
         onRetry={retry}
         onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
       />
       {rows && rows.length === 0 ? <p className="text-sm text-muted">No open message reports.</p> : null}
       {rows && rows.length > 0 ? (

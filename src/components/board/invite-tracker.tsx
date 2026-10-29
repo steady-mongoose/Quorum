@@ -63,7 +63,7 @@ export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
 export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rows, setRows] = useState<InviteRow[] | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
   useEffect(() => {
     let cancel = false;
     void loadInvites().then((result) => {
@@ -85,7 +85,14 @@ export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
       <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Invites
       </h2>
-      <PanelNote failure={failure} gateText={INVITES_WAIT} onRetry={retry} onSetUp={onSetUp} />
+      <PanelNote
+        failure={failure}
+        gateText={INVITES_WAIT}
+        onRetry={retry}
+        onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
+      />
       {!failure && rows ? <InviteTrackerTable rows={rows} /> : null}
     </section>
   );

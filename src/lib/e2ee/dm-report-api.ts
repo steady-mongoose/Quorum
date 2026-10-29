@@ -3,7 +3,6 @@ import type { HardRuleValue } from "../board/text";
 import {
   PANEL_LOAD_FAILED,
   PANEL_SAVE_FAILED,
-  PANEL_UNREACHABLE,
   panelFailure,
   type PanelFailure,
 } from "../board/load-failure";
@@ -31,22 +30,21 @@ async function call<T>(
   body: unknown,
   fallback: string,
 ): Promise<Outcome<T>> {
-  try {
-    const response = await apiFetch(path, {
-      method,
-      credentials: "include",
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!response.ok) {
-      // A bare code such as mfa_required never reaches the page.
-      return { ok: false, ...panelFailure(json, fallback) };
-    }
-    return { ok: true, value: json as T };
-  } catch {
-    return { ok: false, error: PANEL_UNREACHABLE };
+  // apiFetch never throws: a transport failure comes back as a 503 api-unavailable.
+  const response = await apiFetch(path, {
+    method,
+    credentials: "include",
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!response.ok) {
+    // A bare code such as mfa_required never reaches the page.
+    return { ok: false, ...panelFailure(json, fallback) };
   }
+  // A 2xx that is not a JSON object is a failure too, in the same words.
+  if (!json || typeof json !== "object") return { ok: false, error: fallback };
+  return { ok: true, value: json as T };
 }
 
 export function reportDmMessage(
@@ -58,7 +56,10 @@ export function reportDmMessage(
 
 export async function listDmReports(): Promise<Outcome<DmReportRow[]>> {
   const result = await call<{ reports: DmReportRow[] }>("/api/admin/dm-reports", "GET", undefined, PANEL_LOAD_FAILED);
-  return result.ok ? { ok: true, value: result.value.reports } : result;
+  if (!result.ok) return result;
+  const reports = (result.value as { reports?: unknown }).reports;
+  if (!Array.isArray(reports)) return { ok: false, error: PANEL_LOAD_FAILED };
+  return { ok: true, value: reports as DmReportRow[] };
 }
 
 export function closeDmReport(id: string, resolution: "resolved" | "dismissed"): Promise<Outcome<{ ok: true }>> {

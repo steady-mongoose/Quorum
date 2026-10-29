@@ -1,6 +1,7 @@
 // @ts-nocheck -- happy-dom render test; DOM globals are installed at runtime.
-// About's four admin panels (#115): no raw mfa_required, a quiet note per panel
-// with a way to turn the authenticator on, in-panel load errors, step-up text.
+// About's admin panels (#115): one "Admin lists" card while there is no
+// authenticator; as a fallback, a quiet note per panel with a way to turn it
+// on; in-panel load errors; step-up text; a polite region only after Try again.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
@@ -141,8 +142,9 @@ function button(root, text) {
   return [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
 }
 
+/** The panel's note (PanelNote's wrapper) that says `text`. */
 function noteWith(host, text) {
-  return [...host.querySelectorAll("p")].find((p) => p.textContent?.includes(text));
+  return [...host.querySelectorAll("[data-panel-note]")].find((n) => n.textContent?.includes(text));
 }
 
 function count(host, text) {
@@ -257,7 +259,7 @@ for (const panel of PANELS) {
     }
   });
 
-  test(`${panel.name}: a polite status region is always mounted around the note`, async () => {
+  test(`${panel.name}: a first-load note is outside the polite region, so opening About announces nothing`, async () => {
     routes = { [panel.path]: [200, panel.ok] };
     const view = await mount(panel.render(() => {}));
     try {
@@ -269,34 +271,125 @@ for (const panel of PANELS) {
     } finally {
       await view.cleanup();
     }
-    routes = { [panel.path]: [403, ENROLL] };
-    const gated = await mount(panel.render(() => {}));
-    try {
-      const region = gated.host.querySelector("[data-panel-status]");
-      assert.ok(region?.textContent?.includes(panel.wait), "the note sits inside the region");
-    } finally {
-      await gated.cleanup();
+    for (const [status, body, text] of [
+      [403, ENROLL, panel.wait],
+      [500, { error: "internal_error" }, "That did not load."],
+    ]) {
+      routes = { [panel.path]: [status, body] };
+      const first = await mount(panel.render(() => {}));
+      try {
+        const region = first.host.querySelector("[data-panel-status]");
+        assert.equal(region?.textContent, "", `the region stays empty on a first-load ${status}`);
+        assert.equal(count(first.host, text), 1, "the note shows once, outside the region");
+        const shown = [...first.host.querySelectorAll("span")].find((n) => n.textContent === text);
+        assert.equal(shown?.closest('[role="status"], [aria-live]'), null, "plain text, not announced");
+        assert.equal(shown?.getAttribute("aria-hidden"), null, "still read when browsing");
+      } finally {
+        await first.cleanup();
+      }
     }
   });
 
-  test(`${panel.name}: a Try again that fails again is cleared and set again, so it is announced`, async () => {
+  test(`${panel.name}: Try again stays mounted and aria-busy while the reload runs, so focus never drops to <body>`, async () => {
+    routes = { [panel.path]: [500, { error: "internal_error" }] };
+    const view = await mount(panel.render(() => {}));
+    let release;
+    try {
+      const retry = button(view.host, "Try again");
+      retry.focus();
+      hold = new Promise((resolve) => {
+        release = resolve;
+      });
+      await act(async () => retry.click());
+      await flush();
+      assert.equal(button(view.host, "Try again"), retry, "the same button is still on the page");
+      assert.equal(document.activeElement, retry, "focus stays on Try again during the reload");
+      assert.equal(retry.getAttribute("aria-busy"), "true");
+      assert.equal(retry.getAttribute("aria-disabled"), "true");
+      const region = view.host.querySelector("[data-panel-status]");
+      assert.equal(region.textContent, "", "the region is emptied while busy");
+      assert.equal(region.querySelector("button"), null, "buttons are outside the region");
+      const shown = [...view.host.querySelectorAll("span")].find((n) => n.textContent === "That did not load.");
+      assert.equal(shown?.getAttribute("aria-hidden"), "true", "the sentence stays on screen, not read twice");
+      const before = seen.filter((s) => s === `GET ${panel.path}`).length;
+      await act(async () => retry.click());
+      assert.equal(seen.filter((s) => s === `GET ${panel.path}`).length, before, "a busy Try again does nothing");
+      hold = null;
+      release();
+      await flush();
+      assert.equal(retry.getAttribute("aria-busy"), null, "aria-busy clears");
+    } finally {
+      hold = null;
+      release?.();
+      await view.cleanup();
+    }
+  });
+
+  test(`${panel.name}: after Try again the sentence is in the polite region, emptied and set again each time`, async () => {
     routes = { [panel.path]: [500, { error: "internal_error" }] };
     const view = await mount(panel.render(() => {}));
     try {
       const region = view.host.querySelector("[data-panel-status]");
-      assert.ok(region?.textContent?.includes("That did not load."));
+      assert.equal(region?.textContent, "", "not announced on the first load");
+      const retry = button(view.host, "Try again");
+      retry.focus(); // a click focuses the button in a browser; happy-dom's click() does not
+      await act(async () => retry.click());
+      await flush();
+      assert.equal(view.host.querySelector("[data-panel-status]"), region, "the same region stays mounted");
+      assert.equal(region.textContent, "That did not load.", "only the sentence is in the region");
+      assert.equal(count(view.host, "That did not load."), 1, "and it shows once");
+      assert.equal(document.activeElement, retry, "a repeat failure leaves focus on Try again");
       const said = [];
       const watch = new MutationObserver(() => said.push(region.textContent ?? ""));
       watch.observe(region, { childList: true, subtree: true, characterData: true });
-      await act(async () => button(region, "Try again").click());
+      await act(async () => retry.click());
       await flush();
       watch.disconnect();
-      assert.equal(view.host.querySelector("[data-panel-status]"), region, "the same region stays mounted");
-      assert.ok(said.includes(""), "the region is cleared first");
-      assert.ok(said.at(-1)?.includes("That did not load."), "then the same sentence is set again");
+      assert.ok(said.includes(""), "the region is emptied first");
+      assert.equal(said.at(-1), "That did not load.", "then the same sentence is set again");
       assert.deepEqual(view.alerts(), [], "still no alert");
-      assert.equal(document.activeElement, view.host.querySelector("h2"), "focus does not drop to the page");
+      routes[panel.path] = [200, panel.ok];
+      await act(async () => retry.click());
+      await flush();
+      const heading = view.host.querySelector("h2");
+      assert.equal(document.activeElement, heading, "a retry that loads moves focus to the heading");
+      assert.ok(heading.hasAttribute("data-focus-ring"), "script focus is marked for the ring");
+      assert.equal(region.textContent, "");
     } finally {
+      await view.cleanup();
+    }
+  });
+
+  test(`${panel.name}: a Try again that lands on the gate focuses the heading`, async () => {
+    routes = { [panel.path]: [500, { error: "internal_error" }] };
+    const view = await mount(panel.render(() => {}));
+    try {
+      routes[panel.path] = [403, ENROLL];
+      await act(async () => button(view.host, "Try again").click());
+      await flush();
+      assert.equal(button(view.host, "Try again"), undefined);
+      assert.equal(document.activeElement, view.host.querySelector("h2"), "focus does not drop to <body>");
+      assert.equal(view.host.querySelector("[data-panel-status]").textContent, panel.wait, "the gate note is announced");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  test(`${panel.name}: a 2xx that is not JSON is a load failure, not an empty list`, async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input), "http://localhost/").pathname;
+      if (path === panel.path) return new Response("<html>oops</html>", { status: 200, headers: { "content-type": "text/html" } });
+      return real(input, init);
+    };
+    const view = await mount(panel.render(() => {}));
+    try {
+      assert.ok(noteWith(view.host, "That did not load."), "says it did not load");
+      assert.ok(button(view.host, "Try again"));
+      assert.ok(!view.host.textContent.includes(panel.loaded), "no empty-list text");
+      assert.equal(view.host.querySelector("table"), null, "no empty table");
+    } finally {
+      globalThis.fetch = real;
       await view.cleanup();
     }
   });
@@ -305,7 +398,7 @@ for (const panel of PANELS) {
     routes = { [panel.path]: [200, panel.ok] };
     const view = await mount(panel.render(() => {}));
     try {
-      assert.ok(view.host.querySelector("h2")?.classList.contains("heading-focus-ring"));
+      assert.ok(view.host.querySelector("h2")?.classList.contains("focus-target"));
     } finally {
       await view.cleanup();
     }
@@ -352,15 +445,33 @@ test("the Authenticator heading under You can take focus, and About passes the w
   assert.match(app, /<AboutView onSetUp=\{\(\) => openSection\("profile"\)\} \/>/);
 });
 
-test("the team focus ring is one rule: #f0e7d3 on dark, #1f1912 on parchment, 2px offset", () => {
+test("the team focus ring is #114's rule: currentColor, 2px offset, no parchment-only colour", () => {
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  const dark = css.match(/\.heading-focus-ring:focus\s*\{([^}]*)\}/);
-  assert.ok(dark, "one shared rule");
-  assert.match(dark[1], /outline:\s*2px solid #f0e7d3/);
-  assert.match(dark[1], /outline-offset:\s*2px/);
-  assert.match(css, /\[data-palette="parchment"\] \.heading-focus-ring:focus\s*\{\s*outline-color:\s*#1f1912/);
+  const rule = css.match(/\.focus-target:focus,\s*\[data-focus-ring\]:focus\s*\{([^}]*)\}/);
+  assert.ok(rule, "one shared rule for the class and the script-focus mark");
+  assert.match(rule[1], /outline:\s*2px solid currentColor/);
+  assert.match(rule[1], /outline-offset:\s*2px/);
+  assert.doesNotMatch(css, /data-palette="parchment"\][^{]*focus/, "no parchment-only ring");
+  assert.doesNotMatch(css, /heading-focus-ring/);
   const mfa = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
-  assert.match(mfa, /<h2 id="authenticator" tabIndex=\{-1\} className="heading-focus-ring /);
+  assert.match(mfa, /<h2 id="authenticator" tabIndex=\{-1\} className="focus-target /);
+});
+
+test("focusWithRing marks script focus and the mark comes off on blur", async () => {
+  const { focusWithRing } = await import("./focus-ring.ts");
+  const el = document.createElement("h2");
+  el.tabIndex = -1;
+  document.body.append(el);
+  try {
+    focusWithRing(el);
+    assert.equal(document.activeElement, el);
+    assert.ok(el.hasAttribute("data-focus-ring"));
+    el.blur();
+    assert.ok(!el.hasAttribute("data-focus-ring"));
+    focusWithRing(null);
+  } finally {
+    el.remove();
+  }
 });
 
 test("a member's report keeps its wording; the admin queue says did not load or did not save", async () => {

@@ -17,6 +17,7 @@ import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
+import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
@@ -134,6 +135,10 @@ export function AboutView({
   const [exportError, setExportError] = useState("");
   const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
+  // No authenticator yet: the same state the app banner reads, so no extra
+  // request and no flash. One card stands in for the five lists that wait.
+  const noAuthenticator = server.mfa === "enroll";
+  const adminLists = !publicView && remote && admin && !noAuthenticator;
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -247,7 +252,8 @@ export function AboutView({
       </section>
 
       {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
-      {!publicView && remote && admin ? <MfaResetQueue /> : null}
+      {!publicView && remote && admin && noAuthenticator ? <AdminListsCard onSetUp={onSetUp} /> : null}
+      {adminLists ? <MfaResetQueue onSetUp={onSetUp} /> : null}
 
       {!publicView && remote && admin ? (
         <p>
@@ -265,14 +271,14 @@ export function AboutView({
         />
       ) : null}
 
-      {!publicView && remote && admin ? <DeletionRequestQueue onSetUp={onSetUp} /> : null}
-      {!publicView && remote && admin ? <RoomsManager onSetUp={onSetUp} /> : null}
+      {adminLists ? <DeletionRequestQueue onSetUp={onSetUp} /> : null}
+      {adminLists ? <RoomsManager onSetUp={onSetUp} /> : null}
 
       {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
-      {!publicView && remote && admin ? <DmReportQueue onSetUp={onSetUp} /> : null}
+      {adminLists ? <DmReportQueue onSetUp={onSetUp} /> : null}
 
-      {!publicView && remote && admin ? <InviteTracker onSetUp={onSetUp} /> : null}
+      {adminLists ? <InviteTracker onSetUp={onSetUp} /> : null}
 
       {publicView ? null : (
         <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -441,6 +447,41 @@ export function AboutView({
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * In place of the admin lists while the admin has no authenticator (#115):
+ * one note, not one per panel. Static text, so no role.
+ */
+function AdminListsCard({ onSetUp }: { onSetUp?: () => void }) {
+  // You replaces About, so the wait outlives this button (as on Groups, PR #114).
+  const focusAuthenticator = useFocusAuthenticator();
+  return (
+    <section
+      aria-labelledby="admin-lists-heading"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5"
+    >
+      <h2 id="admin-lists-heading" className="text-2xl text-fg">
+        Admin lists
+      </h2>
+      <p className="max-w-prose text-sm text-muted">
+        Deletion requests, authenticator resets, the room list, message reports, and the invite list
+        wait until you turn on an authenticator.
+      </p>
+      <p>
+        <button
+          type="button"
+          className="min-h-[44px] text-fg underline underline-offset-4"
+          onClick={() => {
+            onSetUp?.();
+            focusAuthenticator();
+          }}
+        >
+          Turn it on under You
+        </button>
+      </p>
+    </section>
   );
 }
 

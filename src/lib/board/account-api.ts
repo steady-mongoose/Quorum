@@ -1,5 +1,5 @@
 import { apiFetch } from "../api-base.ts";
-import { PANEL_LOAD_FAILED, PANEL_UNREACHABLE, panelFailure, type PanelFailure } from "./load-failure.ts";
+import { PANEL_LOAD_FAILED, panelFailure, type PanelFailure } from "./load-failure.ts";
 
 export type AccountState = {
   deactivated: boolean;
@@ -79,12 +79,8 @@ export async function requestAccountDeletion(note: string): Promise<{ ok: true }
 export async function loadDeletionRequests(): Promise<
   { ok: true; requests: DeletionRequest[] } | ({ ok: false } & PanelFailure)
 > {
-  let sent: { ok: boolean; json: unknown };
-  try {
-    sent = await send("/api/account/deletion-requests");
-  } catch {
-    return { ok: false, error: PANEL_UNREACHABLE };
-  }
+  // apiFetch never throws: a transport failure comes back as a 503 api-unavailable.
+  const sent = await send("/api/account/deletion-requests");
   if (!sent.ok || !sent.json || typeof sent.json !== "object") {
     return { ok: false, ...panelFailure(sent.json, PANEL_LOAD_FAILED) };
   }

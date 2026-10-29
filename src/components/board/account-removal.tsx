@@ -147,7 +147,7 @@ export function AccountRemoval({ live }: { live: boolean }) {
 export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [requests, setRequests] = useState<DeletionRequest[] | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { tick, failure, retry, loaded, failed } = usePanelRetry(heading);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
 
   useEffect(() => {
     let cancel = false;
@@ -179,6 +179,8 @@ export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {})
         gateText={DELETION_REQUESTS_WAIT}
         onRetry={retry}
         onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
       />
       {requests && requests.length === 0 ? (
         <p className="text-sm text-muted">No open deletion requests.</p>
