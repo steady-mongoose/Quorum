@@ -187,24 +187,30 @@
     transform:translateY(-1px);
   }
 }
-/* The section's own engraving, ghosted into its plate on wide screens: Doré's ladder under How it works,
-   Dürer's Saint Jerome under The rooms. The mask keeps the text's side of the card clear. */
-@media (min-width:1024px){
+/* The section's own engraving, ghosted into its plate: Doré's ladder under How it works, Dürer's Saint
+   Jerome under The rooms. Tablets get the 900px bands backgrounds.css already names; desktops the side
+   plates. The mask keeps the text's side of the card clear. Phones stay solid. */
+@media (min-width:640px){
   .door-week::after,.door-rooms::after{
     content:"";
     position:absolute;
     inset:0;
     pointer-events:none;
-    background:var(--door-ghost) right center/auto 120% no-repeat;
+    background:var(--door-ghost) right center/cover no-repeat;
     opacity:.4;
     -webkit-mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
     mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
     mix-blend-mode:screen;
     animation:door-ghost 18s ease-in-out infinite alternate;
   }
+  .door-week::after{--door-ghost:var(--art-week-band)}
+  .door-rooms::after{--door-ghost:var(--art-rooms-band)}
+  [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
+}
+@media (min-width:1024px){
+  .door-week::after,.door-rooms::after{background-size:auto 120%}
   .door-week::after{--door-ghost:var(--art-week-side)}
   .door-rooms::after{--door-ghost:var(--art-rooms-side)}
-  [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
 }
 @keyframes door-ghost{
   from{background-position:right 0 center;opacity:.3}
@@ -225,8 +231,9 @@
   overflow:hidden;
   border-color:color-mix(in srgb,var(--door-gilt) 32%,var(--line));
   background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.5),transparent 62%),
     radial-gradient(120% 70% at 0% 0%,color-mix(in srgb,var(--door-gilt) 14%,transparent),transparent 60%),
-    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 70%,var(--card)) 0%,var(--card) 48%,color-mix(in srgb,var(--bg) 35%,var(--card)) 100%);
+    linear-gradient(170deg,color-mix(in srgb,var(--card-raised) 70%,var(--card)) 0%,var(--card) 48%,color-mix(in srgb,var(--bg) 45%,var(--card)) 100%);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb,var(--door-gilt) 14%,transparent),
     inset 0 1px 0 rgba(240,231,211,.07),
@@ -242,6 +249,21 @@
   opacity:.12;
   mix-blend-mode:overlay;
 }
+/* How it works: cooler ink under Doré's night sky. The rooms: the warmth of Jerome's study lamp. */
+.door-week{
+  background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.55),transparent 62%),
+    radial-gradient(110% 70% at 0% 0%,rgba(240,231,211,.09),transparent 58%),
+    linear-gradient(170deg,color-mix(in srgb,#2b2c35 42%,var(--card)) 0%,color-mix(in srgb,#1d1c22 50%,var(--card)) 50%,color-mix(in srgb,#0d0c11 60%,var(--card)) 100%);
+}
+.door-rooms{
+  border-color:color-mix(in srgb,var(--door-gilt) 42%,var(--line));
+  background:
+    radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.5),transparent 62%),
+    radial-gradient(110% 75% at 0% 0%,color-mix(in srgb,var(--door-gilt) 24%,transparent),transparent 60%),
+    linear-gradient(170deg,color-mix(in srgb,#4a3418 50%,var(--card)) 0%,color-mix(in srgb,#2e2112 45%,var(--card)) 50%,color-mix(in srgb,#140e07 55%,var(--card)) 100%);
+}
+[data-palette="parchment"] .door-week,[data-palette="parchment"] .door-rooms{background:var(--card)}
 .door-hero{
   border-color:color-mix(in srgb,var(--door-gilt) 55%,var(--line));
   background:
