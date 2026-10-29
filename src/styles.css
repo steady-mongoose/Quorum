@@ -154,3 +154,20 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.18em;
   color: var(--color-muted);
 }
+
+/* Labels over a list of rows (Your congregation, Farther out): sentence case, 14px, bold, muted bone (8:1 on the card). */
+.list-label {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+/* Desktop only: the full-width This week plate gets more room and the gold rule. The phone plate is unchanged. */
+@media (min-width: 1024px) {
+  .plate.week-hero {
+    padding: 2rem 2.5rem;
+    border-top: 3px solid var(--color-gilt);
+  }
+}
