@@ -193,6 +193,13 @@ input[type="range"]::-moz-range-thumb {
     outline: 2px solid #f0e7d3;
     outline-offset: 2px;
   }
+  /* The minted invite code takes focus after Generate (a script focus, so
+   * :focus rather than :focus-visible). Same team ring. */
+  .minted-code:focus {
+    outline: 2px solid #f0e7d3;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
   @media (forced-colors: active) {
     .check-gilt {
       appearance: auto;

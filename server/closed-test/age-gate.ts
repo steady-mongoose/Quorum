@@ -9,20 +9,31 @@ export const AGE_CONFIRM_PATH = "/api/age/confirm";
 type SessionRef = { id: string };
 
 /**
- * Routes a signed-in member may use before confirming: reading the session,
- * signing in or out, the second factor (it comes first), and the confirmation
- * itself. Everything else waits.
+ * Routes a signed-in member may use before confirming, by exact method and
+ * path: the health probe, reading the session, signing in or out, redeeming
+ * an invite, the sign-in steps of the second factor (it comes first), the
+ * confirmation itself, and the two public feature probes (no member data).
+ * Everything else waits, including every other /api/mfa route: the reset
+ * queue lists other members, and approve, request, disable and step-up act
+ * on accounts.
  */
+export const AGE_EXEMPT_ROUTES: ReadonlyArray<readonly [method: string, path: string]> = [
+  ["GET", "/api/health"],
+  ["GET", "/api/auth/get-session"],
+  ["POST", "/api/auth/sign-in/email"],
+  ["POST", "/api/auth/sign-out"],
+  ["POST", "/api/signup"],
+  ["GET", "/api/mfa/status"],
+  ["POST", "/api/mfa/challenge"],
+  ["POST", "/api/mfa/enroll/start"],
+  ["POST", "/api/mfa/enroll/confirm"],
+  ["POST", AGE_CONFIRM_PATH],
+  ["GET", "/api/calls/status"],
+  ["GET", "/api/media/status"],
+];
+
 export function ageExempt(pathname: string, method: string): boolean {
-  if (pathname === "/api/health") return true;
-  if (method === "GET" && pathname === "/api/auth/get-session") return true;
-  if (method === "POST" && pathname === "/api/auth/sign-out") return true;
-  if (method === "POST" && pathname.startsWith("/api/auth/sign-in")) return true;
-  if (method === "POST" && pathname === "/api/signup") return true;
-  if (pathname.startsWith("/api/mfa")) return true;
-  if (method === "POST" && pathname === AGE_CONFIRM_PATH) return true;
-  if (method === "GET" && (pathname === "/api/calls/status" || pathname === "/api/media/status")) return true;
-  return false;
+  return AGE_EXEMPT_ROUTES.some(([verb, path]) => verb === method && path === pathname);
 }
 
 /** True when the member has confirmed. A missing account reads as confirmed: the route answers its own 401. */

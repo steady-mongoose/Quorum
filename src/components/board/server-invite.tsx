@@ -132,7 +132,7 @@ export function ServerInvite() {
             ref={codeText}
             id="invite-code"
             tabIndex={-1}
-            className="scroll-mb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+16px)] font-mono text-lg tracking-widest text-fg select-all"
+            className="minted-code scroll-mb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+16px)] font-mono text-lg tracking-widest text-fg select-all"
           >
             {code}
           </p>

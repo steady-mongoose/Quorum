@@ -274,6 +274,7 @@ test("after a mint the invite box is unticked again, and the code is focused and
     assert.equal(code.getAttribute("tabindex"), "-1");
     assert.match(code.className, /scroll-mb-\[calc\(var\(--tabbar-h,64px\)\+env\(safe-area-inset-bottom\)\+16px\)\]/);
     assert.equal(document.activeElement, code);
+    assert.match(code.className, /\bminted-code\b/, "the focused code shows the team ring");
     assert.deepEqual(scrolled.at(-1), { id: "invite-code", options: { block: "nearest" } });
 
     // A second code needs a second tick.
@@ -429,8 +430,9 @@ test("in sign-in mode the empty message sits directly under Password", () => {
 
 /**
  * A stand-in for the app: the step shows while ageConfirmed is false and the
- * session's confirmAge flips it, the way ServerSessionProvider does.
- * @param {{ calls: unknown[], signOuts: number[] }} log
+ * session's confirmAge flips it, the way ServerSessionProvider does. When
+ * log.hold is set, confirmAge and signOut wait on it.
+ * @param {{ log: { calls: unknown[], signOuts: number[], hold?: Promise<void> } }} props
  */
 function AgeHarness({ log }) {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
@@ -442,16 +444,24 @@ function AgeHarness({ log }) {
     ageConfirmed,
     confirmAge: async (/** @type {boolean} */ adult) => {
       log.calls.push(adult);
+      if (log.hold) await log.hold;
       setAgeConfirmed(true);
       return { ok: true };
     },
     signOut: async () => {
       log.signOuts.push(1);
+      if (log.hold) await log.hold;
     },
   };
   return createElement(SessionContext.Provider, {
     value: /** @type {any} */ (session),
-    children: ageConfirmed ? createElement("p", { id: "hall" }, "The hall") : createElement(AgeStep),
+    children: ageConfirmed
+      ? createElement(
+          "main",
+          { id: "main", tabIndex: -1 },
+          createElement("h1", { id: "hall", tabIndex: -1 }, "The hall"),
+        )
+      : createElement(AgeStep),
   });
 }
 
@@ -529,7 +539,12 @@ test("a ticked Continue sends true once and the step is gone; Sign out signs out
     });
     assert.deepEqual(log.calls, [true]);
     assert.equal(view.host.querySelector("#age-step"), null, "never shown again");
-    assert.ok(view.host.querySelector("#hall"));
+    const hall = view.host.querySelector("#hall");
+    assert.ok(hall);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    assert.equal(document.activeElement, hall, "focus lands on the view's heading");
   } finally {
     view.cleanup();
   }
@@ -558,4 +573,101 @@ test("a 403 age_required from any route brings the step back; other answers do n
   assert.match(app, /const ageDue = server\.mode === "live" && Boolean\(server\.user\) && !server\.ageConfirmed;/);
   assert.match(app, /\{ageDue \? <AgeStep \/> : null\}/);
   assert.match(app, /\{!entered && !ageDue && <Door \/>\}/);
+});
+
+test("a pending Continue keeps focus, says busy, and sends once; Sign out ignores a double tap", async () => {
+  /** @type {() => void} */
+  let release = () => {};
+  /** @type {{ calls: unknown[], signOuts: number[], hold?: Promise<void> }} */
+  const log = {
+    calls: [],
+    signOuts: [],
+    hold: new Promise((resolve) => {
+      release = () => resolve(undefined);
+    }),
+  };
+  const view = render(createElement(AgeHarness, { log }));
+  try {
+    const box = view.host.querySelector('input[type="checkbox"]');
+    assert.ok(box instanceof HTMLInputElement);
+    act(() => {
+      box.click();
+    });
+    const buttons = [...view.host.querySelectorAll("button")];
+    const next = buttons.find((b) => b.textContent === "Continue");
+    const out = buttons.find((b) => b.textContent === "Sign out");
+    assert.ok(next && out);
+    assert.equal(next.hasAttribute("disabled"), false);
+    assert.equal(next.getAttribute("aria-disabled"), null);
+    const form = view.host.querySelector("form");
+    assert.ok(form);
+    next.focus();
+    await act(async () => {
+      form.requestSubmit();
+    });
+    assert.equal(next.getAttribute("aria-disabled"), "true");
+    assert.equal(next.getAttribute("aria-busy"), "true");
+    assert.equal(next.hasAttribute("disabled"), false, "not disabled, so focus does not drop");
+    assert.equal(document.activeElement, next);
+    await act(async () => {
+      form.requestSubmit();
+    });
+    assert.deepEqual(log.calls, [true], "a second submit while pending sends nothing");
+
+    await act(async () => {
+      out.click();
+    });
+    await act(async () => {
+      out.click();
+    });
+    assert.equal(log.signOuts.length, 1, "a double tap signs out once");
+    assert.equal(out.getAttribute("aria-disabled"), "true");
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  } finally {
+    view.cleanup();
+  }
+});
+
+/**
+ * The body of the first rule whose selector is exactly `selector`, with spaces collapsed.
+ * @param {string} css
+ * @param {string} selector
+ */
+function ruleBody(css, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|[\\s}])${escaped}\\s*\\{([^}]*)\\}`).exec(css);
+  assert.ok(match, `${selector} is defined`);
+  return (match[1] ?? "").replace(/\s+/g, " ").trim();
+}
+
+test(".check-gilt is pinned: gilt box, fill, invalid border, team ring, and the system box in forced colors", () => {
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  const base = ruleBody(css, ".check-gilt");
+  assert.match(base, /appearance: none;/);
+  assert.match(base, /border: 2px solid var\(--color-line-strong, #8a7a62\);/);
+  const ticked = ruleBody(css, ".check-gilt:checked");
+  assert.match(ticked, /background: #c9a45c;/);
+  assert.match(ticked, /border-color: #c9a45c;/);
+  assert.match(ruleBody(css, ".check-gilt::before"), /background: #1f1912;/);
+  assert.match(ruleBody(css, ".check-gilt:checked::before"), /transform: scale\(1\);/);
+  assert.match(ruleBody(css, '.check-gilt[aria-invalid="true"]'), /border-color: #f0b4a4;/);
+  const ring = ruleBody(css, ".check-gilt:focus-visible");
+  assert.match(ring, /outline: 2px solid #f0e7d3;/);
+  assert.match(ring, /outline-offset: 2px;/);
+  const forced = /@media \(forced-colors: active\)\s*\{\s*\.check-gilt\s*\{([^}]*)\}/.exec(css);
+  assert.ok(forced, "a forced-colors fallback exists");
+  assert.match(forced[1] ?? "", /appearance: auto;/);
+  const minted = ruleBody(css, ".minted-code:focus");
+  assert.match(minted, /outline: 2px solid #f0e7d3;/);
+  assert.match(minted, /outline-offset: 2px;/);
+});
+
+test("the phone tab bar height is defined for things that must clear it", () => {
+  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  const phone = css.indexOf("@media (max-width:767px){\n  /* The tab bar");
+  assert.ok(phone > -1);
+  assert.match(css.slice(phone, phone + 200), /:root\{--tabbar-h:57px\}/);
 });

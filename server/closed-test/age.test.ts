@@ -41,9 +41,12 @@ test("migration 0047 stores the two age times and leaves production moderation f
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/0010_moderation/.test(sql), false);
   assert.equal(sql.includes("board_csam_hold"), false);
-  // No made-up confirmation and no deletion.
+  // No made-up confirmation and no deletion, not even in the rollback notes.
   assert.equal(/set\s+age_attested_at/i.test(sql), false);
   assert.equal(/delete from|drop table|drop column/i.test(sql), false);
+  assert.match(sql, /-- Rollback \(by hand, owner's call; nothing in this file does it\)/);
+  assert.match(sql, /-- Deploy order: apply this file first, then deploy the API/);
+  assert.match(sql, /'invite_code'::regclass/);
 });
 
 test("minting and signup are refused without the 18+ confirmation, and the times are stored", async () => {

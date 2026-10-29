@@ -3,13 +3,13 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { AGE_SIGNUP_ERROR } from "../../src/lib/board/age.ts";
 import { createApp } from "../http.ts";
-import { AGE_REQUIRED, ageExempt } from "./age-gate.ts";
+import { AGE_EXEMPT_ROUTES, AGE_REQUIRED, ageExempt } from "./age-gate.ts";
 import { openTestDb } from "./test-db.ts";
 
 const origin = "http://localhost:8080";
 const now = new Date("2026-10-29T22:40:00Z");
 
-async function setup() {
+async function setup(options: { admin?: boolean } = {}) {
   const opened = await openTestDb({ ageUnconfirmed: true });
   const { db } = opened;
   const id = randomUUID();
@@ -19,11 +19,13 @@ async function setup() {
      values ($1, 'Ada', 'ada@example.com', true, now(), now())`,
     [id],
   );
+  if (options.admin) await db.query(`insert into member_role (user_id, is_admin) values ($1, true)`, [id]);
+  let clock = now;
   const signedOut: string[] = [];
   const app = createApp({
     db,
     origins: [origin],
-    now: () => now,
+    now: () => clock,
     createAccount: async () => ({ id: randomUUID() }),
     signIn: async (input) => ({ ok: true, user: { id: input.userId, name: input.name, email: input.email } }),
     readSession: async (headers) =>
@@ -48,7 +50,10 @@ async function setup() {
     if (init.body) headers.set("content-type", "application/json");
     return app(new Request(`http://127.0.0.1:8787${path}`, { ...init, headers }));
   };
-  return { ...opened, id, call, signedOut };
+  const advance = (ms: number) => {
+    clock = new Date(clock.getTime() + ms);
+  };
+  return { ...opened, id, call, signedOut, advance };
 }
 
 async function errorOf(response: Response): Promise<string | undefined> {
@@ -56,7 +61,7 @@ async function errorOf(response: Response): Promise<string | undefined> {
 }
 
 test("a member with no 18+ confirmation is held at every member route until they confirm", async () => {
-  const { db, id, call, close } = await setup();
+  const { db, id, call, close, advance } = await setup();
   try {
     for (const [method, path] of [
       ["GET", "/api/invite-log"],
@@ -113,7 +118,8 @@ test("a member with no 18+ confirmation is held at every member route until they
     const after = await call("/api/auth/get-session");
     assert.equal(((await after.json()) as { ageConfirmed?: boolean }).ageConfirmed, true);
 
-    // Never asked again: a repeat keeps the first time.
+    // Never asked again: a repeat, later, keeps the first time.
+    advance(60 * 60 * 1000);
     const again = await call("/api/age/confirm", { method: "POST", body: JSON.stringify({ adult: true }) });
     assert.equal(again.status, 200);
     const kept = await db.query<{ age_confirmed_at: Date }>(
@@ -137,16 +143,81 @@ test("sign-out works while the step is due", async () => {
   }
 });
 
-test("only the session read, sign-in and sign-out, the second factor, and the confirm step are exempt", () => {
-  assert.equal(ageExempt("/api/auth/get-session", "GET"), true);
-  assert.equal(ageExempt("/api/auth/sign-out", "POST"), true);
-  assert.equal(ageExempt("/api/auth/sign-in/email", "POST"), true);
-  assert.equal(ageExempt("/api/age/confirm", "POST"), true);
-  assert.equal(ageExempt("/api/mfa/challenge", "POST"), true);
-  assert.equal(ageExempt("/api/health", "GET"), true);
-  assert.equal(ageExempt("/api/age/confirm", "GET"), false);
-  assert.equal(ageExempt("/api/auth/change-password", "POST"), false);
-  assert.equal(ageExempt("/api/rooms/hall/posts", "POST"), false);
-  assert.equal(ageExempt("/api/invites", "POST"), false);
-  assert.equal(ageExempt("/api/profile", "GET"), false);
+test("the exemption list is exact method and path, and nothing else", () => {
+  assert.deepEqual(
+    AGE_EXEMPT_ROUTES.map(([method, path]) => `${method} ${path}`),
+    [
+      "GET /api/health",
+      "GET /api/auth/get-session",
+      "POST /api/auth/sign-in/email",
+      "POST /api/auth/sign-out",
+      "POST /api/signup",
+      "GET /api/mfa/status",
+      "POST /api/mfa/challenge",
+      "POST /api/mfa/enroll/start",
+      "POST /api/mfa/enroll/confirm",
+      "POST /api/age/confirm",
+      "GET /api/calls/status",
+      "GET /api/media/status",
+    ],
+  );
+  for (const [method, path] of AGE_EXEMPT_ROUTES) assert.equal(ageExempt(path, method), true, `${method} ${path}`);
+  for (const [method, path] of [
+    ["GET", "/api/age/confirm"],
+    ["POST", "/api/health"],
+    ["POST", "/api/auth/get-session"],
+    ["GET", "/api/auth/sign-out"],
+    ["POST", "/api/auth/sign-in/social"],
+    ["POST", "/api/auth/sign-in"],
+    ["POST", "/api/auth/change-password"],
+    ["GET", "/api/mfa/reset"],
+    ["POST", "/api/mfa/reset/request"],
+    ["POST", "/api/mfa/reset/abc-123/approve"],
+    ["POST", "/api/mfa/disable"],
+    ["POST", "/api/mfa/step-up"],
+    ["DELETE", "/api/mfa/status"],
+    ["PUT", "/api/mfa/challenge"],
+    ["POST", "/api/mfa/status"],
+    ["GET", "/api/mfa/challenge"],
+    ["GET", "/api/mfa/status/"],
+    ["GET", "/api/mfax"],
+    ["POST", "/api/calls/status"],
+    ["GET", "/api/calls/rings"],
+    ["POST", "/api/rooms/hall/posts"],
+    ["POST", "/api/invites"],
+    ["GET", "/api/profile"],
+  ] as const) {
+    assert.equal(ageExempt(path, method), false, `${method} ${path}`);
+  }
+});
+
+test("an unconfirmed admin gets 403 age_required on every /api/mfa route outside the sign-in steps", async () => {
+  const { call, close } = await setup({ admin: true });
+  try {
+    for (const [method, path, body] of [
+      ["GET", "/api/mfa/reset", undefined],
+      ["POST", "/api/mfa/reset/request", JSON.stringify({ userId: "someone" })],
+      ["POST", "/api/mfa/reset/abc-123/approve", "{}"],
+      ["POST", "/api/mfa/disable", JSON.stringify({ code: "123456" })],
+      ["POST", "/api/mfa/step-up", JSON.stringify({ action: "mfa-reset", code: "123456" })],
+      ["DELETE", "/api/mfa/status", undefined],
+      ["DELETE", "/api/mfa/reset", undefined],
+      ["PUT", "/api/mfa/enroll/start", "{}"],
+      ["GET", "/api/mfa/unknown", undefined],
+    ] as const) {
+      const held = await call(path, { method, body });
+      assert.equal(held.status, 403, `${method} ${path}`);
+      assert.equal(await errorOf(held), AGE_REQUIRED, `${method} ${path}`);
+    }
+
+    // The sign-in steps still answer for themselves.
+    const status = await call("/api/mfa/status");
+    assert.equal(status.status, 200);
+    const enroll = await call("/api/mfa/enroll/start", { method: "POST", body: JSON.stringify({ kind: "totp" }) });
+    assert.notEqual(await errorOf(enroll), AGE_REQUIRED);
+    const challenge = await call("/api/mfa/challenge", { method: "POST", body: JSON.stringify({ code: "000000" }) });
+    assert.notEqual(await errorOf(challenge), AGE_REQUIRED);
+  } finally {
+    await close();
+  }
 });

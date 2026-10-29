@@ -18,6 +18,17 @@
 -- "user".age_confirmed_at. No row is deleted and no time is made up.
 -- The mark is set once, when the column is first added, so a rerun of this
 -- file does not mark a code minted later.
+--
+-- Deploy order: apply this file first, then deploy the API that reads these
+-- columns. /api/health stays 200 on a database without them, so check the
+-- columns exist before the API goes out.
+--
+-- Rollback (by hand, owner's call; nothing in this file does it). Roll the
+-- API back to the build before #119 first, then remove the three columns this
+-- file adds: "user".age_confirmed_at, invite_code.minted_before_age_check and
+-- invite_code.age_attested_at. The statements are in the #119 description.
+-- Removing them loses every stored 18+ time, and a later re-run of this file
+-- would mark every code then on file as minted before the check.
 
 alter table invite_code
   add column if not exists age_attested_at timestamptz;
@@ -25,10 +36,10 @@ alter table invite_code
 do $$
 begin
   if not exists (
-    select 1 from information_schema.columns
-    where table_schema = current_schema()
-      and table_name = 'invite_code'
-      and column_name = 'minted_before_age_check'
+    select 1 from pg_attribute
+    where attrelid = 'invite_code'::regclass
+      and attname = 'minted_before_age_check'
+      and not attisdropped
   ) then
     alter table invite_code
       add column minted_before_age_check boolean not null default false;
