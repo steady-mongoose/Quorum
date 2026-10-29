@@ -141,3 +141,34 @@ test("the engravings sit under the words, and smooth scroll is the door's alone"
     /html:has\(> body\[data-section="landing"\]\),html:has\(> body\[data-section="signin"\]\)\{scroll-behavior:smooth\}/,
   );
 });
+
+test("WCAG 2.2.2: nothing on the door moves for more than 5s", () => {
+  const durations = [...door.matchAll(/animation:[a-z-]+ ([\d.]+)(m?s)/g)].map(([, n, u]) =>
+    u === "ms" ? Number(n) / 1000 : Number(n),
+  );
+  assert.ok(durations.length > 0, "door has animations");
+  for (const d of durations) assert.ok(d <= 5, `animation of ${d}s is over 5s`);
+  assert.match(door, /animation:door-drift 5s [a-z-]+ 1 forwards;/);
+  assert.doesNotMatch(door, /animation:door-motes/);
+  assert.doesNotMatch(door, /@keyframes door-motes/);
+  assert.doesNotMatch(door, /infinite/);
+});
+
+test("the aside has its own ground, so it reads over the bare engraving", () => {
+  const aside = door.match(/\.door-aside\{[^}]*\}/)?.[0] ?? "";
+  assert.match(aside, /background:color-mix\(in srgb,var\(--bg\) 82%,transparent\);/);
+  assert.match(aside, /padding:\.3rem \.6rem;/);
+  assert.match(aside, /border-radius:3px;/);
+  assert.match(aside, /width:fit-content;/);
+});
+
+test("parchment: the door scrim follows the palette, not fixed dark ink", () => {
+  assert.ok(
+    door.includes(
+      '[data-palette="parchment"] [data-section="landing"] .scrim,[data-palette="parchment"] [data-section="signin"] .scrim{background:var(--scrim)}',
+    ),
+  );
+  const at = door.indexOf('[data-palette="parchment"] [data-section="landing"] .scrim');
+  assert.ok(at > door.indexOf('[data-section="landing"] .scrim,[data-section="signin"] .scrim{\n'), "after the dark override");
+  assert.ok(at < door.indexOf("@media (max-width:640px){\n  [data-section=\"landing\"] .scrim"), "phones keep var(--bg)");
+});

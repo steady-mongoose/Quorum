@@ -25,15 +25,15 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   overflow:hidden;
   transform-origin:50% 30%;
 }
-/* One slow pass, then the plate rests where it ends. */
+/* One short pass (5s, WCAG 2.2.2), then the plate rests where it ends. */
 @media (prefers-reduced-motion:no-preference){
   [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{
-    animation:door-drift 26s ease-in-out 1 forwards;
+    animation:door-drift 5s ease-out 1 forwards;
   }
 }
 @keyframes door-drift{
   from{transform:scale(1) translate3d(0,0,0)}
-  to{transform:scale(1.11) translate3d(1.5%,-1.4%,0)}
+  to{transform:scale(1.04) translate3d(.6%,-.5%,0)}
 }
 
 /* 2. The light in the picture: still, not breathing. A warm radial at the plate's source of light, screened over the engraving. */
@@ -53,7 +53,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{--door-light:50% 34%}
 }
 
-/* 3. Motes rise through the light, faint and few, in one pass. */
+/* 3. Motes hang in the light, faint and few. They are still: nothing on the door moves for more than 5s. */
 [data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
   content:"";
   position:absolute;
@@ -61,15 +61,6 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   pointer-events:none;
   background:var(--door-motes) 0 0/320px 320px repeat,var(--door-motes) 160px 90px/480px 480px repeat;
   opacity:.45;
-}
-@media (prefers-reduced-motion:no-preference){
-  [data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
-    animation:door-motes 40s linear 1 forwards;
-  }
-}
-@keyframes door-motes{
-  from{background-position:0 0,160px 90px}
-  to{background-position:60px -640px,100px -1050px}
 }
 @media (prefers-reduced-data:reduce){
   .plate-ground::before,.plate-ground::after{display:none}
@@ -79,6 +70,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 [data-section="landing"] .scrim,[data-section="signin"] .scrim{
   background:linear-gradient(90deg,rgba(20,16,12,0) 0%,rgba(20,16,12,.3) 45%,rgba(20,16,12,.72) 70%);
 }
+[data-palette="parchment"] [data-section="landing"] .scrim,[data-palette="parchment"] [data-section="signin"] .scrim{background:var(--scrim)}
 @media (max-width:640px){
   [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34vh,var(--bg) 66vh)}
 }
@@ -231,6 +223,11 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   font-family:var(--font-display);
   font-size:1.15rem;
   color:var(--fg);
+  /* It is the one line on the bare engraving: give it a ground so it reads on both palettes. */
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  padding:.3rem .6rem;
+  border-radius:3px;
+  width:fit-content;
 }
 
 /* 6. The plates: laid paper under the ink. A warm light catches the top corner, a faint grain sits over the
