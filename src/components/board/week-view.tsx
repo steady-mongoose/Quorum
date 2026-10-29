@@ -50,10 +50,18 @@ export function WeekView() {
     [cards, posts, today],
   );
   const needs = useMemo(() => needsFor(cards), [cards]);
+  // The side column holds only the week's call and parish needs. With neither,
+  // it is left out so the week takes the full width instead of an empty strip.
+  const hasSide = deskOn || needs.length > 0;
 
   return (
     <div className="flex flex-col gap-10">
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12">
+      <div
+        className={cn(
+          "week-columns grid gap-8",
+          hasSide && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12",
+        )}
+      >
         <div className="flex min-w-0 flex-col gap-8">
           <section className="plate plate--hero flex flex-col gap-2">
             <Kicker>This week</Kicker>
@@ -104,19 +112,21 @@ export function WeekView() {
           ))}
         </div>
 
-        <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
-          {deskOn ? <TheCall /> : null}
-          {needs.length > 0 ? (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-                A parish needs
-              </h2>
-              {needs.map((card) => (
-                <NeedCard key={card.id} card={card} />
-              ))}
-            </section>
-          ) : null}
-        </aside>
+        {hasSide ? (
+          <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
+            {deskOn ? <TheCall /> : null}
+            {needs.length > 0 ? (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+                  A parish needs
+                </h2>
+                {needs.map((card) => (
+                  <NeedCard key={card.id} card={card} />
+                ))}
+              </section>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
       <HomePanel />
     </div>

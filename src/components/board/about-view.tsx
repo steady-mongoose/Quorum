@@ -54,7 +54,7 @@ function downloadBoardExport(json: string) {
 const HOW = [
   {
     title: "Getting in",
-    text: "Someone who hosts a meeting gives you a code. You enter your name and the code, and you are a member and on the list for that meeting. There is no public sign-up.",
+    text: "Someone who hosts a meeting gives you a code. You enter your name and the code, and you are a member and on the list for that meeting. There is no public sign-up. After that, you join each room only by an invite from someone inside the app.",
   },
   {
     title: "The week",
@@ -75,6 +75,10 @@ const HOW = [
   {
     title: "Posting",
     text: "In a room you can post something you did, with proof, or ask one question. Posts are in order of time; nothing is ranked and nothing refreshes on its own.",
+  },
+  {
+    title: "Stewards",
+    text: "Every room has a steward who keeps it on track. A room cannot lose its last steward. The last one can step down only by naming someone in the room to take over.",
   },
   {
     title: "Debates",
@@ -175,9 +179,9 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
 
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl text-fg">How it works</h2>
-        <dl className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+        <dl className="about-how columns-1 gap-x-8 lg:columns-2">
           {HOW.map((item) => (
-            <div key={item.title} className="flex flex-col gap-1">
+            <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
               <dt className="font-semibold text-fg">{item.title}</dt>
               <dd className="max-w-prose text-sm text-muted">{item.text}</dd>
             </div>
@@ -210,7 +214,12 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
           ))}
         </dl>
         <p className="max-w-prose text-sm text-muted">
-          Removed for: {RULES.map((rule) => RULE_LABEL[rule].toLowerCase()).join(", ")}. A second
+          Removed for:{" "}
+          {RULES.map((rule) => {
+            // Lowercase only the first letter, so God and Christ keep their capitals.
+            const label = RULE_LABEL[rule];
+            return label.charAt(0).toLowerCase() + label.slice(1);
+          }).join(", ")}. A second
           removal closes the account. Child sexual abuse material closes it the first time.
         </p>
         <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
