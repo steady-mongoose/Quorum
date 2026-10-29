@@ -20,15 +20,18 @@ export type MailDeps = {
 /**
  * The one outbound mail path. Resend is already how the box sends mail.
  * A missing key or from-address does not call out. This does not add a
- * second mail vendor.
+ * second mail vendor. `fromOverride` lets one kind of mail (claim codes)
+ * come from its own address; CSAM alerts always use RESEND_FROM.
  */
 export async function sendTextEmail(
   message: TextMail,
   deps: MailDeps = {},
+  fromOverride?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const env = deps.env ?? process.env;
   const apiKey = env.RESEND_API_KEY?.trim() ?? "";
-  const from = env.RESEND_FROM?.trim() ?? "";
+  // A caller may name its own From address. Blank or missing uses RESEND_FROM.
+  const from = fromOverride?.trim() || (env.RESEND_FROM?.trim() ?? "");
   const to = (Array.isArray(message.to) ? message.to : [message.to])
     .map((item) => item.trim())
     .filter(Boolean);

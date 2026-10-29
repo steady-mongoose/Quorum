@@ -375,6 +375,14 @@ function claimMail(name: string, code: string): { subject: string; text: string 
   };
 }
 
+/**
+ * Claim codes go to members, so they come from RESEND_CLAIM_FROM, not the
+ * CSAM alert address. Unset or blank falls back to RESEND_FROM.
+ */
+export function claimFromAddress(env: NodeJS.ProcessEnv = process.env): string {
+  return env.RESEND_CLAIM_FROM?.trim() || (env.RESEND_FROM?.trim() ?? "");
+}
+
 async function deliverCode(
   deps: ClaimDeps,
   input: { to: string; name: string; code: string; claimId: string },
@@ -382,7 +390,7 @@ async function deliverCode(
   const message = claimMail(input.name, input.code);
   const mail = { ...message, to: input.to, idempotencyKey: `claim-code/${input.claimId}` };
   if (deps.send) return deps.send(mail);
-  return sendTextEmail(mail, deps);
+  return sendTextEmail(mail, deps, claimFromAddress(deps.env ?? process.env));
 }
 
 export async function requestClaim(
