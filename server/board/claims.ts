@@ -363,15 +363,15 @@ export type ClaimDeps = MailDeps & {
   request?: PageRequest;
 };
 
-function claimMail(name: string, code: string): { subject: string; text: string } {
+export function claimMail(name: string, code: string): { subject: string; text: string } {
   return {
     subject: `${APP_NAME}: code to claim ${name}`,
     text: [
       `Someone asked to claim ${name} on ${APP_NAME}.`,
       `The code is ${code}.`,
       "It expires in 24 hours.",
-      "If you did not ask, ignore this message.",
       `Enter this code on the page where you asked to claim ${name}.`,
+      "If you did not ask, ignore this message.",
     ].join("\n"),
   };
 }
@@ -381,18 +381,26 @@ function claimMail(name: string, code: string): { subject: string; text: string 
  * CSAM alert address. Unset or blank falls back to a fixed noreply sender,
  * never to RESEND_FROM (the safety sender).
  */
+/** Members can reply to a claim code; CSAM alerts have no reply-to. */
+export const CLAIM_REPLY_TO = "contact@avouchsocial.com";
+
 export const DEFAULT_CLAIM_FROM = "Avouch Social <noreply@avouchsocial.com>";
 
 export function claimFromAddress(env: NodeJS.ProcessEnv = process.env): string {
   return env.RESEND_CLAIM_FROM?.trim() || DEFAULT_CLAIM_FROM;
 }
 
-async function deliverCode(
+export async function deliverCode(
   deps: ClaimDeps,
   input: { to: string; name: string; code: string; claimId: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const message = claimMail(input.name, input.code);
-  const mail = { ...message, to: input.to, idempotencyKey: `claim-code/${input.claimId}` };
+  const mail = {
+    ...message,
+    to: input.to,
+    idempotencyKey: `claim-code/${input.claimId}`,
+    replyTo: CLAIM_REPLY_TO,
+  };
   if (deps.send) return deps.send(mail);
   return sendTextEmail(mail, deps, claimFromAddress(deps.env ?? process.env));
 }

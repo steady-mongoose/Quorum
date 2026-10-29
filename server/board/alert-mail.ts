@@ -9,6 +9,8 @@ export type TextMail = {
   subject: string;
   text: string;
   idempotencyKey: string;
+  /** Resend reply_to. Only claim-code mail sets this; CSAM alerts never do. */
+  replyTo?: string;
 };
 
 export type MailDeps = {
@@ -46,7 +48,13 @@ export async function sendTextEmail(
         "content-type": "application/json",
         "Idempotency-Key": message.idempotencyKey,
       },
-      body: JSON.stringify({ from, to, subject: message.subject, text: message.text }),
+      body: JSON.stringify({
+        from,
+        to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.replyTo?.trim() ? { reply_to: message.replyTo.trim() } : {}),
+      }),
     });
     if (!response.ok) return { ok: false, error: `mail ${response.status}` };
     return { ok: true };

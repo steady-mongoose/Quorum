@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sendHoldAlert, sendTextEmail } from "./alert-mail.ts";
-import { claimFromAddress, DEFAULT_CLAIM_FROM } from "./claims.ts";
+import { CLAIM_REPLY_TO, claimFromAddress, claimMail, DEFAULT_CLAIM_FROM, deliverCode } from "./claims.ts";
 
 const SAFETY = "Avouch Social Safety <safety@example.com>";
 const CLAIM = "Avouch Social <noreply@example.com>";
@@ -61,4 +61,53 @@ test("the CSAM hold alert always uses RESEND_FROM", async () => {
     { env, fetch: fetchImpl },
   );
   assert.deepEqual(froms, [SAFETY]);
+});
+
+test("the claim email body lines are in order", () => {
+  const { text } = claimMail("Shop Co", "123456");
+  const lines = text.split("\n");
+  assert.deepEqual(lines.slice(1), [
+    "The code is 123456.",
+    "It expires in 24 hours.",
+    "Enter this code on the page where you asked to claim Shop Co.",
+    "If you did not ask, ignore this message.",
+  ]);
+  assert.match(lines[0], /^Someone asked to claim Shop Co on /);
+});
+
+function captureBodies() {
+  const bodies: Record<string, unknown>[] = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response("{}", { status: 200 });
+  };
+  return { bodies, fetchImpl };
+}
+
+test("claim-code mail sets reply_to contact@avouchsocial.com", async () => {
+  assert.equal(CLAIM_REPLY_TO, "contact@avouchsocial.com");
+  const env = { RESEND_API_KEY: "re_test", RESEND_CLAIM_FROM: CLAIM };
+  const { bodies, fetchImpl } = captureBodies();
+  const sent = await deliverCode(
+    { env, fetch: fetchImpl },
+    { to: "owner@shop.example", name: "Shop Co", code: "123456", claimId: "c1" },
+  );
+  assert.deepEqual(sent, { ok: true });
+  assert.equal(bodies[0].reply_to, "contact@avouchsocial.com");
+  assert.equal(bodies[0].from, CLAIM);
+});
+
+test("the CSAM hold alert never has a reply_to", async () => {
+  const env = {
+    RESEND_API_KEY: "re_test",
+    ADMIN_ALERT_EMAIL: "josh@example.com",
+    RESEND_FROM: SAFETY,
+    RESEND_CLAIM_FROM: CLAIM,
+  };
+  for (const kind of ["csam_hold", "csam_pending_seal"] as const) {
+    const { bodies, fetchImpl } = captureBodies();
+    await sendHoldAlert({ id: "a1", kind, holdId: "h", roomId: "r", postId: "p" }, { env, fetch: fetchImpl });
+    assert.equal(bodies.length, 1);
+    assert.equal("reply_to" in bodies[0], false);
+  }
 });
