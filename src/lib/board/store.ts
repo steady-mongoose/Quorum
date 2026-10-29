@@ -253,6 +253,14 @@ type BoardState = {
 };
 
 /** The undo bar hides itself. The snapshot stays until `UNDO_TTL_MS`. */
+/**
+ * A rooms page (/rooms, /rooms/<category>) can show this board without leaving:
+ * Rooms itself, or a conversation opened from a room's member list.
+ */
+export function keepsRoomsPage(state: { section: Section; dmFrom: unknown }): boolean {
+  return state.section === "rooms" || (state.section === "messages" && state.dmFrom != null);
+}
+
 export const UNDO_BAR_MS = 10_000;
 /** A reload inside this window can still put the cleared board back. */
 export const UNDO_TTL_MS = 10 * 60 * 1000;
@@ -1387,8 +1395,10 @@ export const useBoard = create<BoardState>()(
         backToRoom: () => {
           const from = get().dmFrom;
           if (!from) return;
-          set({ openThread: null, dmFrom: null, focusMember: from.memberId });
+          // dmFrom clears last, so a rooms page never sees the board leave it on the way back.
+          set({ openThread: null, focusMember: from.memberId });
           get().setRoom(from.room);
+          set({ dmFrom: null });
         },
         clearFocusMember: () => set({ focusMember: null }),
         createRoom: async (input) => {

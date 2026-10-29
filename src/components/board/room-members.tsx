@@ -24,6 +24,7 @@ function cameLine(row: MemberRow): string {
  * when each joined and last posted, and, in a room that takes roll, the
  * gatherings each came to. It never ranks anyone and shows no upcoming RSVPs.
  * Message shows where the server says you may write; it checks again on open.
+ * While you are new to the room, one line above the list says when you can.
  */
 export function RoomMembers({ room }: { room: Room }) {
   const remote = useBoard((state) => state.remote);
@@ -62,13 +63,16 @@ export function RoomMembers({ room }: { room: Room }) {
     [remote, room, posts, me, cards, rooms],
   );
   const list = remote ? live : local;
+  // The 3-day wait is about you, not anyone listed: say it once, above the list.
+  const waiting = Boolean(list?.members.some((row) => row.name !== me && row.message === "wait"));
 
   // Back from a conversation opened here: the list opens and that row's button takes focus.
   useEffect(() => {
     if (!focusMember || !list) return;
     const button = buttons.current.get(focusMember);
     if (details.current) details.current.open = true;
-    button?.focus();
+    // That row's button can be gone (today's starts used up): the list's summary takes focus.
+    (button ?? details.current?.querySelector("summary"))?.focus();
     clearFocusMember();
   }, [focusMember, list, clearFocusMember]);
 
@@ -81,6 +85,7 @@ export function RoomMembers({ room }: { room: Room }) {
       {list && list.members.length === 0 ? (
         <p className="text-sm text-muted">Nobody is listed in this room yet.</p>
       ) : null}
+      {waiting ? <p className="text-sm text-muted">{MEMBER_WAIT_LINE}</p> : null}
       {list ? (
         <ul className="flex flex-col gap-3 py-2">
           {list.members.map((row) => (
@@ -123,9 +128,6 @@ export function RoomMembers({ room }: { room: Room }) {
                   <MessageSquare className="size-4 shrink-0" aria-hidden="true" />
                   Message {row.name}
                 </button>
-              ) : null}
-              {row.name !== me && row.message === "wait" ? (
-                <span className="text-sm text-muted">{MEMBER_WAIT_LINE}</span>
               ) : null}
             </li>
           ))}
