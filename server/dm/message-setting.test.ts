@@ -7,13 +7,15 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
   BLOCKED,
+  NOT_REACHABLE,
   blockMember,
   mayMessage,
   memberMessageStates,
   openThread,
+  postMessage,
 } from "./store.ts";
 import { readMessageFrom, saveMessageFrom } from "./message-setting.ts";
-import { NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
+import { MESSAGES_OFF, NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
 
 const now = new Date("2026-10-29T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -138,20 +140,35 @@ test("each Messages choice decides who can reach you, and a block reads the same
       via: "room",
     });
 
-    // Ben and Anna already have a conversation; Cal does not.
-    assert.equal((await openThread(db, ben, anna, now)).ok, true);
+    // Ben and Anna have a conversation that only Ben has written in; Cal has none.
+    const thread = await openThread(db, ben, anna, now);
+    assert.equal(thread.ok, true);
+    if (!thread.ok) return;
+    await written(db, thread.value.id, ben);
     assert.deepEqual(await saveMessageFrom(db, anna, "conversations"), {
       ok: true,
       value: "conversations",
     });
     assert.equal(await readMessageFrom(db, anna), "conversations");
+    // Only the sender has written: Anna never replied, so Ben is turned away.
+    assert.deepEqual(await mayMessage(db, ben, anna, now), refused);
+    const benOpen = await openThread(db, ben, anna, now);
+    assert.deepEqual(benOpen.ok ? null : [benOpen.status, benOpen.error], [
+      403,
+      NOT_TAKING_MESSAGES,
+    ]);
+    // Anna has replied: Ben can keep the conversation going.
+    await written(db, thread.value.id, anna);
     assert.equal((await mayMessage(db, ben, anna, now)).ok, true);
     assert.equal((await openThread(db, ben, anna, now)).ok, true);
     assert.deepEqual(await mayMessage(db, cal, anna, now, { starting: true }), refused);
     const calOpen = await openThread(db, cal, anna, now);
-    assert.deepEqual(calOpen.ok ? null : [calOpen.status, calOpen.error], [403, NOT_TAKING_MESSAGES]);
+    assert.deepEqual(calOpen.ok ? null : [calOpen.status, calOpen.error], [
+      403,
+      NOT_TAKING_MESSAGES,
+    ]);
 
-    // Your own setting does not stop you writing to others.
+    // "Only people I've messaged before" does not stop you writing to others.
     assert.equal((await mayMessage(db, anna, cal, now, { starting: true })).ok, true);
 
     await saveMessageFrom(db, anna, "none");
@@ -296,10 +313,200 @@ test("the Messages setting sits in your own profile, with the three choices in p
   );
   assert.match(profile, /mine && server\.mode === "live" \? <MessageSetting \/> : null/);
   assert.ok(profile.indexOf("<MessageSetting />") < profile.indexOf("<MfaSettings />"));
-  for (const label of ["Anyone in my rooms", "Only people I've messaged before", "No one"]) {
+  for (const label of [
+    "People in my rooms or meetings",
+    "Only people I've messaged before",
+    "No one",
+  ]) {
     assert.ok(words.includes(`label: "${label}"`), label);
   }
-  assert.match(view, /<legend[^>]*>Messages<\/legend>/);
+  assert.match(view, /<legend[^>]*>\{MESSAGE_SETTING_LEGEND\}<\/legend>/);
+  assert.match(words, /MESSAGE_SETTING_LEGEND = "Who can message you"/);
+  assert.ok(words.includes("This member isn't taking messages right now."));
+  assert.match(view, /aria-disabled=/);
+  assert.match(words, /saved: "Saved\. No one can message you\."/);
+  const mailbox = readFileSync(
+    new URL("../../src/components/board/encrypted-mailbox.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    mailbox,
+    /messagesOff \? \(\s*<p className="text-sm text-muted">\{MESSAGES_OFF\}<\/p>/,
+  );
   assert.match(view, /type="radio"/);
   assert.equal(/like|score|count/i.test(words.replace(/couldn't|can't/g, "")), false);
 });
+
+test("No one closes your own writing too, and your conversations stay readable", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const handler = app(db);
+    const anna = await member(db, "Anna");
+    const ben = await member(db, "Ben");
+    const cal = await member(db, "Cal");
+    assert.equal(
+      MESSAGES_OFF,
+      "You've turned off messages. To write here, change Who can message you in your profile.",
+    );
+    const opened = await openThread(db, ben, anna, now);
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    await saveMessageFrom(db, anna, "none");
+
+    // Anna cannot write to Ben, nor start with Cal: the note names her own choice.
+    const off = { ok: false, status: 403, error: MESSAGES_OFF };
+    assert.deepEqual(await mayMessage(db, anna, ben, now), off);
+    assert.deepEqual(await mayMessage(db, anna, cal, now, { starting: true }), off);
+    const fresh = await openThread(db, anna, cal, now);
+    assert.deepEqual(fresh.ok ? null : [fresh.status, fresh.error], [403, MESSAGES_OFF]);
+    const posted = await postMessage(
+      db,
+      anna,
+      opened.value.id,
+      {
+        messageId: randomUUID(),
+        threadId: opened.value.id,
+        senderDeviceId: randomUUID(),
+        bodyNonce: "n",
+        bodyCiphertext: "c",
+        bodySig: "s",
+        envelopes: [
+          {
+            recipientDeviceId: null,
+            recipientUserBackup: null,
+            nonce: "n",
+            ciphertext: "c",
+            ephemeralPublic: "e",
+            prekeyId: null,
+            signedPrekeyId: null,
+          },
+        ],
+      } as never,
+      now,
+    );
+    assert.deepEqual(posted.ok ? null : [posted.status, posted.error], [403, MESSAGES_OFF]);
+    const keys = await sendRawGet(handler, anna, `/api/dm/keys?userId=${ben}`);
+    assert.equal(keys.status, 403);
+
+    // Ben sees exactly what a block shows him.
+    assert.deepEqual(await mayMessage(db, ben, anna, now), {
+      ok: false,
+      status: 403,
+      error: BLOCKED,
+    });
+
+    // The conversation stays: Anna can open it and read it.
+    const again = await openThread(db, anna, ben, now);
+    assert.equal(again.ok && again.value.id, opened.value.id);
+    const read = await sendRawGet(handler, anna, `/api/dm/threads/${opened.value.id}/messages`);
+    assert.equal(read.status, 200);
+
+    await saveMessageFrom(db, anna, "rooms");
+    assert.equal((await mayMessage(db, anna, ben, now)).ok, true);
+  } finally {
+    await close();
+  }
+});
+
+function counting(db: Db): { db: Db; count: () => number; reset: () => void } {
+  let n = 0;
+  const wrapped: Db = {
+    ...db,
+    query: (text, params) => {
+      n += 1;
+      return db.query(text, params);
+    },
+  } as Db;
+  return { db: wrapped, count: () => n, reset: () => (n = 0) };
+}
+
+test("a block and a setting refusal do the same work", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const caller = await member(db, "Caller");
+    const blocker = await member(db, "Blocker");
+    const quiet = await member(db, "Quiet");
+    const known = await member(db, "Known");
+    const open = await member(db, "Open");
+    await blockMember(db, blocker, caller, now);
+    await saveMessageFrom(db, quiet, "none");
+    await saveMessageFrom(db, known, "conversations");
+    // Two more who chose "conversations": one never replied, one did.
+    const unanswered = await member(db, "Unanswered");
+    const replied = await member(db, "Replied");
+    for (const [owner, ownerWrote] of [
+      [unanswered, false],
+      [replied, true],
+    ] as const) {
+      const thread = await openThread(db, caller, owner, now);
+      assert.equal(thread.ok, true);
+      if (!thread.ok) return;
+      await written(db, thread.value.id, caller);
+      if (ownerWrote) await written(db, thread.value.id, owner);
+      await saveMessageFrom(db, owner, "conversations");
+    }
+    const probe = counting(db);
+    const costs: Record<string, number[]> = {};
+    for (const [name, id] of [
+      ["blocked", blocker],
+      ["none", quiet],
+      ["conversations", known],
+      ["unanswered", unanswered],
+      ["open", open],
+      ["replied", replied],
+    ] as const) {
+      for (const starting of [false, true]) {
+        probe.reset();
+        const gate = await mayMessage(probe.db, caller, id, now, { starting });
+        assert.equal(gate.ok, name === "open" || name === "replied", name);
+        (costs[name] ??= []).push(probe.count());
+      }
+    }
+    assert.deepEqual(costs.none, costs.blocked);
+    assert.deepEqual(costs.conversations, costs.blocked);
+    assert.deepEqual(costs.unanswered, costs.blocked);
+    assert.deepEqual(costs.replied, costs.blocked);
+    // An allowed message reads the same things before deciding.
+    assert.deepEqual(costs.open, costs.blocked);
+  } finally {
+    await close();
+  }
+});
+
+test("someone who shares no room or meeting gets the usual note, whatever the block or setting", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const stranger = await member(db, "Stranger");
+    await db.query(`delete from room_join where user_id = $1`, [stranger]);
+    await db.query(`delete from access_log where user_id = $1 and room_id = 'shop'`, [stranger]);
+    const blocker = await member(db, "Blocker");
+    const quiet = await member(db, "Quiet");
+    const plain = await member(db, "Plain");
+    await blockMember(db, blocker, stranger, now);
+    await saveMessageFrom(db, quiet, "none");
+    const usual = { ok: false, status: 403, error: NOT_REACHABLE };
+    for (const id of [blocker, quiet, plain]) {
+      assert.deepEqual(await mayMessage(db, stranger, id, now, { starting: true }), usual);
+    }
+  } finally {
+    await close();
+  }
+});
+
+async function sendRawGet(
+  handler: (request: Request) => Promise<Response>,
+  userId: string,
+  path: string,
+) {
+  return send(handler, userId, path, "GET");
+}
+
+/** A message row in a conversation, written by `senderId`. */
+async function written(db: Db, threadId: string, senderId: string) {
+  await db.query(
+    `insert into dm_message (
+       id, thread_id, sender_user_id, body_nonce, body_ciphertext, body_sig, created_at, expires_at
+     ) values ($1, $2, $3, 'n', 'c', 's', $4, $5)`,
+    [randomUUID(), threadId, senderId, now, new Date(now.getTime() + 30 * 86_400_000)],
+  );
+}

@@ -7,23 +7,39 @@ export const MESSAGE_FROM = ["rooms", "conversations", "none"] as const;
 export type MessageFrom = (typeof MESSAGE_FROM)[number];
 export const DEFAULT_MESSAGE_FROM: MessageFrom = "rooms";
 
-export const MESSAGE_FROM_CHOICES: { value: MessageFrom; label: string; hint: string }[] = [
+export const MESSAGE_FROM_CHOICES: {
+  value: MessageFrom;
+  label: string;
+  hint: string;
+  saved: string;
+}[] = [
   {
     value: "rooms",
-    label: "Anyone in my rooms",
-    hint: "People in your rooms and people you've been to a meeting with.",
+    label: "People in my rooms or meetings",
+    hint: "Anyone who shares a room with you or has been to a meeting with you can start a conversation.",
+    saved: "Saved. People in your rooms or meetings can message you.",
   },
   {
     value: "conversations",
     label: "Only people I've messaged before",
-    hint: "Only people you already have a conversation with. Nobody new can start one.",
+    hint: "People you've written to can keep the conversation going. Nobody new can start one; they see the same notice.",
+    saved: "Saved. Only people you've messaged before can message you.",
   },
   {
     value: "none",
     label: "No one",
-    hint: "Nobody can message you. You can still write to others, but they can't reply until you change this.",
+    hint: "Nobody can start or continue a conversation with you, and you can't write in your conversations either. They stay here to read. People who try see the same notice.",
+    saved: "Saved. No one can message you.",
   },
 ];
+
+export const MESSAGE_SETTING_LEGEND = "Who can message you";
+export const MESSAGE_SETTING_INTRO =
+  "If someone you've turned away tries to message you, they see \u201cThis member isn't taking messages right now.\u201d They aren't told it was your choice, and it looks the same as a block.";
+
+/** Shown to a member who chose "No one", in place of their composer. */
+export const MESSAGES_OFF =
+  "You've turned off messages. To write here, change Who can message you in your profile.";
 
 /** The one note for a refusal from a block or from this setting. */
 export const NOT_TAKING_MESSAGES = "This member isn't taking messages right now.";

@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from "react";
 import { browserTransport } from "@/lib/e2ee/browser";
 import {
   MESSAGE_FROM_CHOICES,
+  MESSAGE_SETTING_INTRO,
+  MESSAGE_SETTING_LEGEND,
   readMessageSetting,
   saveMessageSetting,
   type MessageFrom,
@@ -41,7 +43,10 @@ export function MessageSetting() {
     setPending(false);
     if (result.ok) {
       setValue(result.messageFrom);
-      setNotice("Saved.");
+      setNotice(
+        MESSAGE_FROM_CHOICES.find((choice) => choice.value === result.messageFrom)?.saved ??
+          "Saved.",
+      );
     } else {
       setValue(before);
       setError(result.message);
@@ -51,22 +56,17 @@ export function MessageSetting() {
   return (
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
       <fieldset className="flex flex-col gap-3" aria-busy={value === null || pending}>
-        <legend className="mb-1 text-2xl text-fg">Messages</legend>
-        <p className="max-w-prose text-sm text-muted">
-          Choose who can message you. People you turn away are not told why. They see the same
-          note as when someone isn't taking messages.
-        </p>
+        <legend className="mb-1 text-2xl text-fg">{MESSAGE_SETTING_LEGEND}</legend>
+        <p className="max-w-prose text-sm text-muted">{MESSAGE_SETTING_INTRO}</p>
         {MESSAGE_FROM_CHOICES.map((choice) => (
-          <label
-            key={choice.value}
-            className="flex min-h-[44px] items-start gap-3 text-sm text-fg"
-          >
+          <label key={choice.value} className="flex min-h-[44px] items-start gap-3 text-sm text-fg">
             <input
               type="radio"
               className="mt-0.5 size-5 shrink-0"
               name={name}
               value={choice.value}
               checked={value === choice.value}
+              aria-disabled={value === null || pending || undefined}
               onChange={() => void choose(choice.value)}
             />
             <span className="flex flex-col gap-0.5">

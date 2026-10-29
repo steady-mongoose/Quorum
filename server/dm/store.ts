@@ -4,8 +4,8 @@ import { guardRoomAudience } from "../board/audience.ts";
 import { requireRoomMember } from "../chat/store.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
-import { NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
-import { settingRefuses } from "./message-setting.ts";
+import { MESSAGES_OFF, NOT_TAKING_MESSAGES } from "../../src/lib/e2ee/message-setting.ts";
+import { messageSettings } from "./message-setting.ts";
 import {
   BODY_CIPHER_MAX_BYTES,
   DM_MAX_DEVICES,
@@ -673,11 +673,13 @@ export type MessageGate =
   | { ok: false; status: number; error: string };
 
 /**
- * Whether the caller may message the other member. A block either way stops it,
- * and so does the other member's Messages setting, with the same refusal.
- * A verified meeting together allows it. Otherwise a room both stand in allows
- * it; starting a new conversation that way also needs three days in the room
- * and stays under five starts a day.
+ * Whether the caller may message the other member. A caller who chose "No one"
+ * cannot write either. A verified meeting together allows it. Otherwise a room
+ * both stand in allows it; starting a new conversation that way also needs
+ * three days in the room and stays under five starts a day. Someone who shares
+ * neither gets the reachability note. Last, a block either way and the other
+ * member's Messages setting refuse with the same words. Both are read together
+ * on every call, so a block and the setting cost the same work.
  */
 export async function mayMessage(
   db: Db,
@@ -689,10 +691,24 @@ export async function mayMessage(
   if (!callerId || !otherUserId) return { ok: false, status: 403, error: NOT_REACHABLE };
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
-  if (await blockedBetween(db, callerId, otherUserId))
-    return { ok: false, status: 403, error: BLOCKED };
-  if (await settingRefuses(db, otherUserId, callerId))
-    return { ok: false, status: 403, error: BLOCKED };
+  const [blocked, setting] = await Promise.all([
+    blockedBetween(db, callerId, otherUserId),
+    messageSettings(db, callerId, otherUserId),
+  ]);
+  if (setting.senderOff) return { ok: false, status: 403, error: MESSAGES_OFF };
+  const reach = await reachable(db, callerId, otherUserId, now, options);
+  if (!reach.ok) return reach;
+  if (blocked || setting.refused) return { ok: false, status: 403, error: BLOCKED };
+  return reach;
+}
+
+async function reachable(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+  now: Date,
+  options: { starting?: boolean },
+): Promise<MessageGate> {
   if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
@@ -976,9 +992,11 @@ export async function openThread(
     [low, high],
   );
   const gate = await mayMessage(db, userId, otherUserId, now, { starting: !existing[0] });
-  if (!gate.ok) return fail(gate.status, gate.error);
-  if (existing[0])
+  // "No one" closes your own writing, but your conversations stay open to read.
+  if (existing[0] && (gate.ok || gate.error === MESSAGES_OFF)) {
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
+  }
+  if (!gate.ok) return fail(gate.status, gate.error);
   const id = randomUUID();
   await db.query(
     `insert into dm_thread (

@@ -41,22 +41,47 @@ export async function saveMessageFrom(
 }
 
 /**
- * True when the recipient's setting turns the sender away. "rooms" keeps the
- * existing rules. "conversations" lets in only someone who already has a
- * conversation with the recipient. "none" turns everyone away.
+ * Both members' Messages settings, read in one query that always runs the same
+ * way, so a refusal costs the same work whatever its reason.
+ * refused: the recipient's setting turns the sender away. "rooms" keeps the
+ * existing rules, "conversations" lets in only someone the recipient has
+ * written to (the recipient sent at least one message in their conversation;
+ * a sender who wrote first and never got a reply is turned away), and "none"
+ * turns everyone away.
+ * senderOff: the sender chose "No one", which closes their own writing too.
  */
-export async function settingRefuses(
+export async function messageSettings(
   db: Db,
-  recipientId: string,
   senderId: string,
-): Promise<boolean> {
-  const choice = await readMessageFrom(db, recipientId);
-  if (choice === "rooms") return false;
-  if (choice === "none") return true;
+  recipientId: string,
+): Promise<{ refused: boolean; senderOff: boolean }> {
   const [low, high] = recipientId < senderId ? [recipientId, senderId] : [senderId, recipientId];
-  const rows = await db.query<{ id: string }>(
-    `select id from dm_thread where user_a = $1 and user_b = $2 limit 1`,
-    [low, high],
-  );
-  return !rows[0];
+  let row: { recipient: string | null; sender: string | null; talking: boolean } | undefined;
+  try {
+    const rows = await db.query<{
+      recipient: string | null;
+      sender: string | null;
+      talking: boolean;
+    }>(
+      `select
+         (select message_from from members where user_id = $1) as recipient,
+         (select message_from from members where user_id = $2) as sender,
+         exists (
+           select 1 from dm_thread t
+           join dm_message m on m.thread_id = t.id and m.sender_user_id = $1
+           where t.user_a = $3 and t.user_b = $4
+         ) as talking`,
+      [recipientId, senderId, low, high],
+    );
+    row = rows[0];
+  } catch (error) {
+    // Before migration 0046 is applied the column is missing: everyone has the default.
+    if (error && typeof error === "object" && "code" in error && error.code === "42703")
+      return { refused: false, senderOff: false };
+    throw error;
+  }
+  const recipient = parseMessageFrom(row?.recipient) ?? DEFAULT_MESSAGE_FROM;
+  const sender = parseMessageFrom(row?.sender) ?? DEFAULT_MESSAGE_FROM;
+  const refused = recipient === "none" || (recipient === "conversations" && !row?.talking);
+  return { refused, senderOff: sender === "none" };
 }
