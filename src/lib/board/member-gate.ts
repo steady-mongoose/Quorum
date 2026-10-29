@@ -18,3 +18,17 @@ export function canPostInRoom(input: {
   if (!input.remote) return true;
   return input.member || input.admin || input.stewardOfRoom;
 }
+
+/**
+ * Who gets Join the call: a member of this room or a steward of this room.
+ * Mirrors server/calls/membership.ts roomCallMember, which refuses a site
+ * admin who is not in the room with a 403, so admin does not count here.
+ */
+export function canJoinRoomCall(input: {
+  remote: boolean;
+  member: boolean;
+  stewardOfRoom: boolean;
+}): boolean {
+  if (!input.remote) return true;
+  return input.member || input.stewardOfRoom;
+}
