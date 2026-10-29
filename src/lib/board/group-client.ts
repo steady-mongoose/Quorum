@@ -11,6 +11,8 @@ export type GroupSummary = {
   about: string;
   joined: boolean;
   admin: boolean;
+  /** The inviter's name while this member holds an open invite. */
+  inviteFrom?: string;
   audience?: "men" | "women";
 };
 
@@ -49,7 +51,12 @@ export const GROUP_INVITE_ONLY =
 export type GroupInviteRow = { id: string; name: string; by: string; at: number };
 
 export type GroupDetail = {
-  group: GroupSummary & { admins: string[]; canInvite: boolean; invited: boolean };
+  group: GroupSummary & {
+    admins: string[];
+    canInvite: boolean;
+    invited: boolean;
+    invitedBy: string;
+  };
   posts: GroupPostRow[];
   marks: GroupMarkRow[];
   removals: GroupRemovalRow[];
@@ -120,6 +127,9 @@ function summary(value: unknown): GroupSummary | null {
     about,
     joined: row.joined,
     admin: row.admin,
+    ...(typeof row.inviteFrom === "string" && row.inviteFrom.length <= 200 && row.inviteFrom.trim()
+      ? { inviteFrom: row.inviteFrom }
+      : {}),
     ...(row.audience === "men" || row.audience === "women" ? { audience: row.audience } : {}),
   };
 }
@@ -203,6 +213,10 @@ export function parseGroupDetail(value: unknown): GroupDetail | null {
       admins,
       canInvite: groupRow.canInvite === true,
       invited: groupRow.invited === true,
+      invitedBy:
+        typeof groupRow.invitedBy === "string" && groupRow.invitedBy.length <= 200
+          ? groupRow.invitedBy
+          : "",
     },
     posts,
     marks,

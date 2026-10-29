@@ -138,7 +138,8 @@ test("migration 0045 adds group invites, is owner-approved, and replaces no func
   assert.match(sql, /Numbered 0045/);
   assert.match(sql, /owner must approve/i);
   assert.ok(sql.includes("create table if not exists theme_group_invite"));
-  assert.ok(sql.includes("'invite', 'revoke-invite'"));
+  assert.ok(sql.includes("'invite', 'revoke-invite', 'decline-invite'"));
+  assert.ok(sql.includes("declined_at timestamptz"));
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/drop table|delete from|update theme_group /i.test(sql), false);
   const code = sql

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -154,6 +154,9 @@ function GroupList({
               {group.name}
             </button>
             <RoomAudienceMark audience={group.audience} />
+            {group.inviteFrom && !group.joined ? (
+              <p className="mt-1 text-sm text-muted">Invite from {group.inviteFrom}</p>
+            ) : null}
             <p className="mt-2 max-w-prose text-base text-muted">{group.about}</p>
             {group.joined ? (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -161,8 +164,11 @@ function GroupList({
                   type="button"
                   className={btnQuiet}
                   aria-busy={busyId === group.id}
-                  disabled={busyId === group.id}
-                  onClick={() => void leave(group)}
+                  aria-disabled={busyId === group.id || undefined}
+                  onClick={() => {
+                    if (busyId === group.id) return;
+                    void leave(group);
+                  }}
                 >
                   Leave group
                 </button>
@@ -374,6 +380,8 @@ function GroupDetailView({
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const reload = () => setTick((value) => value + 1);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [joinedNote, setJoinedNote] = useState("");
 
   useEffect(() => {
     let cancel = false;
@@ -443,7 +451,12 @@ function GroupDetailView({
       {detail ? (
         <>
           <header className="flex flex-col gap-2">
-            <h2 className="text-3xl text-fg">{detail.group.name}</h2>
+            <h2 ref={headingRef} tabIndex={-1} className="text-3xl text-fg">
+              {detail.group.name}
+            </h2>
+            <p role="status" className="text-sm text-muted">
+              {joinedNote}
+            </p>
             <RoomAudienceMark audience={detail.group.audience} />
             <p className="max-w-prose text-base text-muted">{detail.group.about}</p>
             {line ? <p className="text-[0.8125rem] text-muted">{line}</p> : null}
@@ -475,7 +488,17 @@ function GroupDetailView({
           ) : (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-muted">{GROUP_INVITE_ONLY}</p>
-              {detail.group.invited ? <AcceptInvite groupId={id} onJoined={reload} /> : null}
+              {detail.group.invited ? (
+                <AcceptInvite
+                  groupId={id}
+                  inviter={detail.group.invitedBy || "A group admin"}
+                  onJoined={() => {
+                    setJoinedNote(`You joined ${detail.group.name}. You can post here now.`);
+                    reload();
+                    headingRef.current?.focus();
+                  }}
+                />
+              ) : null}
             </div>
           )}
           {detail.group.canInvite ? <InviteForm groupId={id} /> : null}
@@ -773,45 +796,86 @@ function AppealDecision({ appeal, onChanged }: { appeal: GroupAppealRow; onChang
   );
 }
 
-/** A member who holds an open invite joins here. */
-function AcceptInvite({ groupId, onJoined }: { groupId: string; onJoined: () => void }) {
+/** A member who holds an open invite joins or declines here. */
+function AcceptInvite({
+  groupId,
+  inviter,
+  onJoined,
+}: {
+  groupId: string;
+  inviter: string;
+  onJoined: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function accept() {
+  const [declined, setDeclined] = useState(false);
+  async function answer(path: "join" | "decline") {
+    if (busy) return;
     setBusy(true);
     setError("");
-    const saved = await postGroup(`/api/groups/${groupId}/join`, {});
+    const saved = await postGroup(`/api/groups/${groupId}/${path}`, {});
     setBusy(false);
     if (!saved.ok) {
       setError(saved.error);
       return;
     }
-    onJoined();
+    if (path === "decline") setDeclined(true);
+    else onJoined();
+  }
+  if (declined) {
+    return (
+      <p role="status" className="text-sm text-muted">
+        Invite declined.
+      </p>
+    );
   }
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm text-muted">You have an invite to this group.</p>
-      <button
-        type="button"
-        className={cn(btnSignal, "self-start")}
-        aria-busy={busy}
-        disabled={busy}
-        onClick={() => void accept()}
-      >
-        {busy ? "Joining…" : "Accept invite"}
-      </button>
+      <p className="text-sm text-muted">{inviter} invited you to join this group.</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={btnSignal}
+          aria-busy={busy}
+          aria-disabled={busy || undefined}
+          onClick={() => void answer("join")}
+        >
+          {busy ? "Saving…" : "Accept invite"}
+        </button>
+        <button
+          type="button"
+          className={btnGhost}
+          aria-disabled={busy || undefined}
+          onClick={() => void answer("decline")}
+        >
+          Decline
+        </button>
+      </div>
       <FormAlert message={error} />
     </div>
   );
 }
 
+function inviteDate(at: number): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 /** Group admins and stewards invite a member by email, and revoke an open invite. */
 function InviteForm({ groupId }: { groupId: string }) {
-  const [invites, setInvites] = useState<GroupInviteRow[]>([]);
+  const [invites, setInvites] = useState<GroupInviteRow[] | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [listError, setListError] = useState("");
+  const [revoking, setRevoking] = useState<GroupInviteRow | null>(null);
   const [tick, setTick] = useState(0);
+  const fieldRef = useRef<HTMLInputElement>(null);
+  const openRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -819,7 +883,7 @@ function InviteForm({ groupId }: { groupId: string }) {
       const loaded = await fetchGroupInvites(groupId);
       if (cancel) return;
       if (!loaded.ok) {
-        setError(loaded.error);
+        setListError(loaded.error);
         return;
       }
       setInvites(loaded.value);
@@ -831,27 +895,37 @@ function InviteForm({ groupId }: { groupId: string }) {
 
   async function send(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
-    const saved = await postGroup(`/api/groups/${groupId}/invites`, { email });
+    setNote("");
+    const sentTo = email.trim();
+    const saved = await postGroup(`/api/groups/${groupId}/invites`, { email: sentTo });
     setBusy(false);
     if (!saved.ok) {
       setError(saved.error);
+      fieldRef.current?.focus();
       return;
     }
     setEmail("");
+    setNote(`Invite sent to ${sentTo}.`);
+    fieldRef.current?.focus();
     setTick((value) => value + 1);
   }
 
   async function revoke(invite: GroupInviteRow) {
+    if (busy) return;
     setBusy(true);
-    setError("");
+    setListError("");
+    setNote("");
     const saved = await postGroup(`/api/groups/${groupId}/invites/${invite.id}/revoke`, {});
     setBusy(false);
     if (!saved.ok) {
-      setError(saved.error);
+      setListError(saved.error);
       return;
     }
+    setNote("Invite revoked.");
+    openRef.current?.focus();
     setTick((value) => value + 1);
   }
 
@@ -860,40 +934,87 @@ function InviteForm({ groupId }: { groupId: string }) {
       <h3 id="group-invite-heading" className="text-xl text-fg">
         Invite a member
       </h3>
-      <form className="flex flex-col gap-3" onSubmit={(event) => void send(event)}>
+      <form className="flex flex-col gap-3" noValidate onSubmit={(event) => void send(event)}>
         <label className="flex flex-col gap-2 text-sm text-muted">
-          Member's email
+          Member's email (required)
           <input
+            ref={fieldRef}
             type="email"
-            className={fieldClass}
+            required
+            aria-required="true"
+            aria-invalid={error ? true : undefined}
+            aria-describedby="group-invite-help"
+            className={cn(fieldClass, "min-h-[44px]")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
+        <p id="group-invite-help" className="text-[0.8125rem] text-muted">
+          They'll see the invite on this group's page and in their Groups list the next time they
+          sign in. Nothing is emailed.
+        </p>
         <FormAlert message={error} />
-        <button type="submit" className={cn(btnSignal, "self-start")} aria-busy={busy} disabled={busy}>
+        <button
+          type="submit"
+          className={cn(btnSignal, "self-start")}
+          aria-busy={busy}
+          aria-disabled={busy || undefined}
+        >
           {busy ? "Saving…" : "Send invite"}
         </button>
       </form>
-      {invites.length > 0 ? (
+      <p role="status" className="text-sm text-muted">
+        {note}
+      </p>
+      <h3 ref={openRef} tabIndex={-1} className="text-xl text-fg">
+        Open invites
+      </h3>
+      <FormAlert message={listError} />
+      {invites !== null && invites.length === 0 ? (
+        <p className="text-sm text-muted">No open invites.</p>
+      ) : null}
+      {invites && invites.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {invites.map((invite) => (
-            <li key={invite.id} className="flex flex-wrap items-center gap-3 text-sm text-muted">
-              <span>
-                {invite.name || "Member"}, invited by {invite.by}
-              </span>
-              <button
-                type="button"
-                className={btnGhost}
-                disabled={busy}
-                onClick={() => void revoke(invite)}
-              >
-                Revoke invite
-              </button>
-            </li>
-          ))}
+          {invites.map((invite) => {
+            const name = invite.name || "Member";
+            const date = inviteDate(invite.at);
+            return (
+              <li key={invite.id} className="flex flex-wrap items-center gap-3 text-sm text-muted">
+                <span>
+                  {name}, invited {date} by {invite.by}
+                </span>
+                <button
+                  type="button"
+                  className={btnGhost}
+                  aria-label={`Revoke invite for ${name}, ${date}`}
+                  aria-disabled={busy || undefined}
+                  onClick={() => {
+                    if (busy) return;
+                    setRevoking(invite);
+                  }}
+                >
+                  Revoke invite
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
+      <ConfirmDialog
+        open={revoking !== null}
+        title="Revoke this invite?"
+        description={`${revoking?.name || "Member"} won't be able to join with it. You can invite them again later.`}
+        confirmLabel="Revoke invite"
+        cancelLabel="Cancel"
+        tone="danger"
+        cancelFirst
+        onConfirm={() => {
+          const invite = revoking;
+          setRevoking(null);
+          if (invite) void revoke(invite);
+        }}
+        onCancel={() => setRevoking(null)}
+      />
     </section>
   );
 }

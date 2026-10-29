@@ -6,6 +6,8 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import type { Db } from "../db.ts";
 import {
   createGroupPost,
+  declineGroupInvite,
+  listGroups,
   GROUP_INVITE_ONLY,
   inviteToGroup,
   joinGroup,
@@ -215,4 +217,99 @@ test("a group steward can invite", async () => {
   } finally {
     await close();
   }
+});
+
+test("the invitee sees who invited them, and a declined invite does not let them join", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const owner = await member(db, "Owen");
+    const ada = await member(db, "Ada");
+    await groupAdmin(db, "literary", owner, "Owen");
+    const sent = await inviteToGroup(db, {
+      userId: owner,
+      name: "Owen",
+      groupId: "literary",
+      email: "ada@example.com",
+      now,
+    });
+    assert.equal(sent.ok, true);
+    const page = await listGroup(db, ada, "literary", now);
+    assert.equal(page.ok, true);
+    if (page.ok) assert.equal(page.value.group.invitedBy, "Owen");
+    const listed = await listGroups(db, ada, now);
+    assert.equal(listed.ok, true);
+    if (listed.ok) {
+      const row = listed.value.groups.find((group) => group.id === "literary") as
+        { inviteFrom?: string } | undefined;
+      assert.equal(row?.inviteFrom, "Owen");
+    }
+    const declined = await declineGroupInvite(db, {
+      userId: ada,
+      name: "Ada",
+      groupId: "literary",
+      now,
+    });
+    assert.equal(declined.ok, true);
+    const joined = await joinGroup(db, { userId: ada, name: "Ada", groupId: "literary", now });
+    assert.equal(joined.ok, false);
+    if (!joined.ok) assert.equal(joined.status, 403);
+    const again = await declineGroupInvite(db, {
+      userId: ada,
+      name: "Ada",
+      groupId: "literary",
+      now,
+    });
+    assert.equal(again.ok, false);
+    const open = await listGroupInvites(db, owner, "literary", now);
+    assert.equal(open.ok, true);
+    if (open.ok) assert.deepEqual(open.value.invites, []);
+    const reinvite = await inviteToGroup(db, {
+      userId: owner,
+      name: "Owen",
+      groupId: "literary",
+      email: "ada@example.com",
+      now,
+    });
+    assert.equal(reinvite.ok, true);
+  } finally {
+    await close();
+  }
+});
+
+test("the invite UI copy, roles, and controls match the design review", () => {
+  const view = readFileSync(
+    new URL("../../src/components/board/groups-view.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const copy of [
+    "{inviter} invited you to join this group.",
+    "Invite declined.",
+    "You joined ${detail.group.name}. You can post here now.",
+    "Invite from {group.inviteFrom}",
+    "Member's email (required)",
+    "They'll see the invite on this group's page and in their Groups list the next time they",
+    "sign in. Nothing is emailed.",
+    "Invite sent to ${sentTo}.",
+    "Open invites",
+    "No open invites.",
+    "{name}, invited {date} by {invite.by}",
+    "Revoke invite for ${name}, ${date}",
+    'title="Revoke this invite?"',
+    "won't be able to join with it. You can invite them again later.",
+    "Invite revoked.",
+    'tone="danger"',
+    "cancelFirst",
+    "aria-invalid={error ? true : undefined}",
+    'cn(fieldClass, "min-h-[44px]")',
+    "headingRef.current?.focus()",
+    "openRef.current?.focus()",
+    "fieldRef.current?.focus()",
+  ]) {
+    assert.ok(view.includes(copy), copy);
+  }
+  assert.ok((view.match(/role="status"/g) ?? []).length >= 3);
+  const invite = view.slice(view.indexOf("function AcceptInvite"));
+  assert.equal(invite.includes("disabled={busy}"), false);
+  assert.equal(view.includes("disabled={busyId === group.id}"), false);
+  assert.equal(invite.includes("{invite.email"), false);
 });

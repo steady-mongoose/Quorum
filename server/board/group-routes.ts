@@ -5,6 +5,7 @@ import {
   createGroupPost,
   decideGroupAppeal,
   decideGroupRequest,
+  declineGroupInvite,
   inviteToGroup,
   listGroupInvites,
   revokeGroupInvite,
@@ -84,7 +85,7 @@ export async function handleGroups(
   url: URL,
 ): Promise<Response | null> {
   const groupAction =
-    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log|audience|invites)$/.exec(
+    /^\/api\/groups\/([a-z0-9-]{1,32})\/(join|leave|posts|admins|stewards|log|audience|invites|decline)$/.exec(
       url.pathname,
     );
   const groupOne = /^\/api\/groups\/([a-z0-9-]{1,32})$/.exec(url.pathname);
@@ -106,6 +107,7 @@ export async function handleGroups(
     (action === "log" && request.method === "GET") ||
     (action === "invites" && (request.method === "GET" || request.method === "POST")) ||
     (inviteOne !== null && request.method === "POST") ||
+    (action === "decline" && request.method === "POST") ||
     ((action === "join" ||
       action === "leave" ||
       action === "posts" ||
@@ -174,6 +176,9 @@ export async function handleGroups(
           email: stringField(body, "email"),
         }),
       );
+    }
+    if (groupAction?.[1] && action === "decline") {
+      return fromResult(200, await declineGroupInvite(deps.db, { ...who, groupId: groupAction[1] }));
     }
     if (groupAction?.[1] && action === "join") {
       return fromResult(200, await joinGroup(deps.db, { ...who, groupId: groupAction[1] }));

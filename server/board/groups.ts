@@ -128,7 +128,8 @@ type LogAction =
   | "uphold"
   | "lift"
   | "invite"
-  | "revoke-invite";
+  | "revoke-invite"
+  | "decline-invite";
 
 type Err = {
   ok: false;
@@ -431,6 +432,7 @@ export async function listGroups(
     source_room_id: string;
     joined: unknown;
     admin: unknown;
+    invite_from: string | null;
     ban_reason: string | null;
     ban_strikes: number | string | null;
     ban_until: Date | string | null;
@@ -439,6 +441,10 @@ export async function listGroups(
     `select g.id, g.name, g.about, g.audience, g.source_room_id,
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
+            (select i.by_name from theme_group_invite i
+              where i.group_id = g.id and i.user_id = $1
+                and i.used_at is null and i.revoked_at is null and i.declined_at is null
+              limit 1) as invite_from,
             b.reason as ban_reason, b.strikes as ban_strikes, b.until_at as ban_until
      from theme_group g
      left join theme_group_request r
@@ -455,6 +461,7 @@ export async function listGroups(
     about: string;
     joined: boolean;
     admin: boolean;
+    inviteFrom: string | null;
     audience: string;
     sourceRoomId: string;
   }> = [];
@@ -468,6 +475,7 @@ export async function listGroups(
         about: row.about,
         joined: flag(row.joined),
         admin: flag(row.admin),
+        inviteFrom: row.invite_from,
         audience: row.audience,
         sourceRoomId: row.source_room_id,
       });
@@ -500,6 +508,7 @@ export async function listGroups(
         about: group.about,
         joined: group.joined,
         admin: group.admin,
+        ...(group.inviteFrom && !group.joined ? { inviteFrom: group.inviteFrom } : {}),
         ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
       })),
     },
@@ -514,7 +523,12 @@ export async function listGroup(
   query: { cursor?: string; limit?: number } = {},
 ): Promise<
   Result<{
-    group: ThemeGroup & { admins: string[]; canInvite: boolean; invited: boolean };
+    group: ThemeGroup & {
+      admins: string[];
+      canInvite: boolean;
+      invited: boolean;
+      invitedBy: string | null;
+    };
     posts: GroupPost[];
     marks: GroupMark[];
     removals: GroupRemoval[];
@@ -625,7 +639,10 @@ export async function listGroup(
         admin,
         admins: adminRows.map((row) => row.name),
         canInvite: seesRemovals,
-        invited: Boolean(await openInvite(db, groupId, userId)),
+        ...(await (async () => {
+          const held = await openInvite(db, groupId, userId);
+          return { invited: Boolean(held), invitedBy: held ? held.by_name : null };
+        })()),
         followsRoom,
         ...(liveAudience === "men" || liveAudience === "women" ? { audience: liveAudience } : {}),
       },
@@ -659,10 +676,11 @@ async function openInvite(
   db: Db,
   groupId: string,
   userId: string,
-): Promise<{ id: string } | null> {
-  const rows = await db.query<{ id: string }>(
-    `select id from theme_group_invite
-     where group_id = $1 and user_id = $2 and used_at is null and revoked_at is null
+): Promise<{ id: string; by_name: string } | null> {
+  const rows = await db.query<{ id: string; by_name: string }>(
+    `select id, by_name from theme_group_invite
+     where group_id = $1 and user_id = $2
+       and used_at is null and revoked_at is null and declined_at is null
      limit 1`,
     [groupId, userId],
   );
@@ -739,7 +757,8 @@ export async function revokeGroupInvite(
   const rows = await db.query<{ id: string; user_id: string; name: string }>(
     `select i.id, i.user_id, coalesce(u.name, '') as name
      from theme_group_invite i left join "user" u on u.id = i.user_id
-     where i.id = $1 and i.group_id = $2 and i.used_at is null and i.revoked_at is null`,
+     where i.id = $1 and i.group_id = $2
+       and i.used_at is null and i.revoked_at is null and i.declined_at is null`,
     [input.inviteId, input.groupId],
   );
   const invite = rows[0];
@@ -765,6 +784,33 @@ export async function revokeGroupInvite(
   return { ok: true, value: { revoked: true } };
 }
 
+/** The invited member turns down their own open invite. No one is told. */
+export async function declineGroupInvite(
+  db: Db,
+  input: { userId: string; name: string; groupId: string; now: Date },
+): Promise<Result<{ declined: true }>> {
+  const gated = await gate(db, input.userId, input.now);
+  if (!gated.ok) return gated;
+  if (!(await groupExists(db, input.groupId))) return fail(404, "That group is not here.");
+  const invite = await openInvite(db, input.groupId, input.userId);
+  if (!invite) return fail(404, "You have no open invite to this group.");
+  const who = input.name.trim() || "Member";
+  await db.transaction(async (tx) => {
+    await tx.query(`update theme_group_invite set declined_at = $2 where id = $1`, [
+      invite.id,
+      input.now,
+    ]);
+    await writeLog(tx, {
+      groupId: input.groupId,
+      actorUserId: input.userId,
+      actorName: who,
+      action: "decline-invite",
+      now: input.now,
+    });
+  });
+  return { ok: true, value: { declined: true } };
+}
+
 /** Open invites, oldest first, for the group's admins and stewards. */
 export async function listGroupInvites(
   db: Db,
@@ -780,7 +826,7 @@ export async function listGroupInvites(
   const rows = await db.query<{ id: string; name: string; by_name: string; created_at: Date | string }>(
     `select i.id, coalesce(u.name, '') as name, i.by_name, i.created_at
      from theme_group_invite i left join "user" u on u.id = i.user_id
-     where i.group_id = $1 and i.used_at is null and i.revoked_at is null
+     where i.group_id = $1 and i.used_at is null and i.revoked_at is null and i.declined_at is null
      order by i.created_at, i.id`,
     [groupId],
   );

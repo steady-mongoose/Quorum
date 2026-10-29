@@ -8,7 +8,8 @@
 --
 -- Theme groups are joined by invitation. A group admin or a steward of the
 -- group invites one member by email. The invite stays open until that member
--- joins or someone revokes it. A revoked invite does not let anyone join.
+-- joins, declines it, or someone revokes it. A revoked or declined invite
+-- does not let anyone join.
 -- Nothing here is a count, a like, a score, or a rank.
 
 create table if not exists theme_group_invite (
@@ -21,13 +22,14 @@ create table if not exists theme_group_invite (
   used_at timestamptz,
   revoked_at timestamptz,
   revoked_by_user_id text references "user" (id) on delete set null,
-  revoked_by_name text not null default ''
+  revoked_by_name text not null default '',
+  declined_at timestamptz
 );
 
 -- One open invite per member per group.
 create unique index if not exists theme_group_invite_open_idx
   on theme_group_invite (group_id, user_id)
-  where used_at is null and revoked_at is null;
+  where used_at is null and revoked_at is null and declined_at is null;
 
 create index if not exists theme_group_invite_group_idx
   on theme_group_invite (group_id, created_at desc);
@@ -43,7 +45,7 @@ alter table theme_group_log
     'grant-steward', 'revoke-steward',
     'post', 'mark', 'clear', 'remove',
     'appeal', 'uphold', 'lift',
-    'invite', 'revoke-invite'
+    'invite', 'revoke-invite', 'decline-invite'
   ));
 
 -- Deleting an account drops the name from invites it sent or revoked.

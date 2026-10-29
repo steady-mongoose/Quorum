@@ -18,6 +18,7 @@ export function ConfirmDialog({
   onCancel,
   confirmDisabled = false,
   tone = "danger",
+  cancelFirst = false,
   children,
 }: {
   open: boolean;
@@ -29,6 +30,8 @@ export function ConfirmDialog({
   onCancel: () => void;
   confirmDisabled?: boolean;
   tone?: "danger" | "neutral";
+  /** Put the cancel button before the confirm button. */
+  cancelFirst?: boolean;
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -81,6 +84,35 @@ export function ConfirmDialog({
       </p>
       {children}
       <div className="mt-5 flex flex-wrap gap-2">
+        {cancelFirst ? (
+          <>
+        <button
+          ref={cancelRef}
+          type="button"
+          className={cn(btnGhost, "min-h-[44px]")}
+          onClick={onCancel}
+        >
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            btnGhost,
+            "min-h-[44px]",
+            tone === "danger" && "border-danger/60 text-danger",
+          )}
+          disabled={confirmDisabled}
+          onClick={() => {
+            if (confirmDisabled) return;
+            confirming.current = true;
+            onConfirm();
+          }}
+        >
+          {confirmLabel}
+        </button>
+          </>
+        ) : (
+          <>
         <button
           type="button"
           className={cn(
@@ -105,6 +137,8 @@ export function ConfirmDialog({
         >
           {cancelLabel}
         </button>
+          </>
+        )}
       </div>
     </dialog>
   );
