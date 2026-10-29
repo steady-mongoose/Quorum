@@ -466,8 +466,12 @@ test("the section headings that take focus can take it, and show the team ring",
   }
   await view.cleanup();
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  assert.match(css, /\.focus-target:focus \{\s*outline: 2px solid #f0e7d3;\s*outline-offset: 2px;/);
-  assert.match(css, /\[data-palette="parchment"\] \.focus-target:focus \{\s*outline-color: #1f1912;/);
+  // Design r132 Low 4: the ring follows the heading's own text colour, on any ground.
+  assert.match(
+    css,
+    /\.focus-target:focus,\s*\[data-focus-ring\]:focus \{\s*outline: 2px solid currentColor;\s*outline-offset: 2px;/,
+  );
+  assert.doesNotMatch(css, /\[data-palette="parchment"\] \.focus-target:focus/, "no palette-only ring");
   // Unlayered, so it outranks backgrounds.css's :focus-visible ring.
   const at = css.indexOf(".focus-target:focus");
   const before = css.slice(0, at).replace(/\/\*[\s\S]*?\*\//g, "");
@@ -599,4 +603,208 @@ test("the global Set it up banner opens You and focuses #authenticator", async (
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   assert.match(app, /<MfaBanner onSetUp=\{\(\) => openSection\("profile"\)\} \/>/);
+});
+
+// ---- Design r132: a retry that lands on the gate, the ring after script focus, no jump.
+
+test("requests: a Try again that lands on the gate moves focus to the section heading, not body", async () => {
+  routes = { ...allOk(), "/api/group-requests": [500, { error: "oops" }] };
+  delays = {};
+  const view = await mount();
+  const retry = button(section(view.host, "Decide"), "Try again");
+  assert.ok(retry);
+  retry.focus();
+  routes["/api/group-requests"] = [403, ENROLL];
+  await act(async () => retry.click());
+  await flush();
+  const decide = section(view.host, "Decide");
+  assert.ok(decide.textContent.includes(REQUESTS_WAIT), "the gate note shows");
+  assert.equal(button(decide, "Try again"), undefined, "Try again is gone");
+  const summary = decide.querySelector("summary");
+  assert.equal(document.activeElement, summary, "focus is on Decide, not <body>");
+  assert.notEqual(document.activeElement, document.body);
+  assert.ok(summary.hasAttribute("data-focus-ring"), "script focus is marked for the ring");
+  await view.cleanup();
+});
+
+test("requests: a Try again that lands on a wait moves focus to the section heading", async () => {
+  routes = { ...allOk(), "/api/group-requests": [500, { error: "oops" }] };
+  const view = await mount();
+  const retry = button(section(view.host, "Decide"), "Try again");
+  retry.focus();
+  routes["/api/group-requests"] = [403, LOCKED];
+  await act(async () => retry.click());
+  await flush();
+  const decide = section(view.host, "Decide");
+  assert.ok(decide.textContent.includes(LOCKED.message));
+  assert.equal(document.activeElement, decide.querySelector("summary"));
+  await view.cleanup();
+});
+
+for (const where of SECTIONS.filter((s) => s.open)) {
+  test(`${where.name}: a Try again that lands on the gate moves focus to "Running this group", not body`, async () => {
+    routes = { ...allOk(), [where.path]: [500, { error: "oops" }] };
+    delays = {};
+    const view = await mount();
+    await openCarpentry(view);
+    const retry = button(where.find(view.host), "Try again");
+    assert.ok(retry);
+    retry.focus();
+    routes[where.path] = [403, ENROLL];
+    await act(async () => retry.click());
+    await flush();
+    const running = h3(view.host, "Running this group");
+    assert.ok(running, "the single gate note shows");
+    assert.equal(count(view.host, PAGE_WAIT), 1);
+    assert.equal(running.getAttribute("tabindex"), "-1");
+    assert.ok(running.className.includes("focus-target"));
+    assert.equal(document.activeElement, running, "focus is on Running this group, not <body>");
+    assert.notEqual(document.activeElement, document.body);
+    await view.cleanup();
+  });
+}
+
+test("the Decide summary carries the ring mark only while script focus lasts", async () => {
+  routes = { ...allOk(), "/api/group-requests": [500, { error: "oops" }] };
+  const view = await mount();
+  const retry = button(section(view.host, "Decide"), "Try again");
+  routes["/api/group-requests"] = [200, { requests: [] }];
+  await act(async () => retry.click());
+  await flush();
+  const summary = section(view.host, "Decide").querySelector("summary");
+  assert.equal(document.activeElement, summary);
+  assert.ok(summary.hasAttribute("data-focus-ring"), "ring after a mouse click on Try again");
+  assert.ok(!summary.className.includes("focus-target"), "Decide itself is no focus-target");
+  await act(async () => summary.blur());
+  assert.ok(!summary.hasAttribute("data-focus-ring"), "the mark comes off on blur");
+  // A plain focus (a mouse click on Decide) does not bring the mark back.
+  await act(async () => summary.focus());
+  assert.ok(!summary.hasAttribute("data-focus-ring"));
+  assert.ok(section(view.host, "Decide").textContent.includes("No open group requests."));
+  await view.cleanup();
+});
+
+test("focusWithRing marks, focuses, and unmarks on blur; null is a no-op", async () => {
+  const { focusWithRing } = await import("./focus-ring.ts");
+  focusWithRing(null);
+  const el = document.createElement("h3");
+  el.tabIndex = -1;
+  document.body.append(el);
+  focusWithRing(el);
+  assert.equal(document.activeElement, el);
+  assert.equal(el.getAttribute("data-focus-ring"), "");
+  el.blur();
+  assert.equal(el.hasAttribute("data-focus-ring"), false);
+  el.remove();
+});
+
+for (const where of SECTIONS) {
+  test(`${where.name}: during a retry the sentence stays on screen and Try again is dimmed, not moved`, async () => {
+    routes = { ...allOk(), [where.path]: [500, { error: "oops" }] };
+    delays = {};
+    const view = await mount();
+    if (where.open) await openCarpentry(view);
+    const box = where.find(view.host);
+    const retry = button(box, "Try again");
+    assert.ok(retry.className.includes("aria-disabled:opacity-60"));
+    assert.ok(retry.className.includes("aria-disabled:cursor-wait"));
+    delays = { [where.path]: 80 };
+    await act(async () => retry.click());
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
+    const note = box.querySelector("[data-section-note]");
+    const region = note.querySelector('[role="status"]');
+    assert.equal(region.textContent, "", "the live region is empty while busy");
+    const shown = note.querySelector('span[aria-hidden="true"]');
+    assert.equal(shown?.textContent, "That did not load.", "the visible sentence stays");
+    assert.equal(retry.getAttribute("aria-disabled"), "true");
+    assert.ok(retry.isConnected, "Try again stays put");
+    await act(async () => new Promise((r) => setTimeout(r, 120)));
+    await flush();
+    delays = {};
+    assert.equal(note.querySelector('span[aria-hidden="true"]'), null, "the copy goes once it answers");
+    assert.equal(region.textContent, "That did not load.");
+    await view.cleanup();
+  });
+}
+
+// ---- QA r5705622578 nit C: the wait's stop() is kept and used.
+
+function addAuthenticator() {
+  const h = document.createElement("h2");
+  h.id = "authenticator";
+  h.tabIndex = -1;
+  document.body.append(h);
+  return h;
+}
+
+test("a new wait for #authenticator stops the last one", async () => {
+  const { focusAuthenticator } = await import("./focus-authenticator.ts");
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  outside.focus();
+  focusAuthenticator(5_000);
+  const second = focusAuthenticator(5_000);
+  second();
+  const late = addAuthenticator();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(document.activeElement, outside, "neither wait is still watching");
+  late.remove();
+  outside.remove();
+});
+
+test("the wait for #authenticator ends when the person clicks or presses a key", async () => {
+  const { focusAuthenticator } = await import("./focus-authenticator.ts");
+  for (const type of ["keydown", "pointerdown"]) {
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    const stop = focusAuthenticator(5_000);
+    document.dispatchEvent(new Event(type, { bubbles: true }));
+    const late = addAuthenticator();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(document.activeElement, outside, `${type} ends the wait`);
+    stop();
+    late.remove();
+    outside.remove();
+  }
+});
+
+test("the Set it up banner stops its wait when it goes away", async () => {
+  const { MfaBanner } = await import("../../components/board/mfa-banner.tsx");
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(MfaBanner, { onSetUp: () => {} })));
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  await act(async () => button(host, "Set it up").click());
+  outside.focus();
+  await act(async () => root.unmount());
+  host.remove();
+  const late = addAuthenticator();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(document.activeElement, outside, "an unmounted banner no longer pulls focus");
+  late.remove();
+  outside.remove();
+});
+
+// ---- QA r5705622578 nit B: a hung invite list does not hide Appeals for good.
+
+test("an invite list that hangs holds Appeals back for a moment, not for good", async () => {
+  routes = { ...allOk(), "/api/group-appeals": [500, { error: "oops" }] };
+  delays = { "/api/groups/carpentry/invites": 4_500 };
+  const view = await mount();
+  await openCarpentry(view);
+  assert.equal(h3(view.host, "Appeals"), undefined, "held back while the gate is unknown");
+  await act(async () => new Promise((r) => setTimeout(r, 3_200)));
+  await flush();
+  const appeals = h3(view.host, "Appeals");
+  assert.ok(appeals, "Appeals shows after the wait, with invites still pending");
+  assert.ok(appeals.parentElement.textContent.includes("That did not load."));
+  assert.equal(h3(view.host, "Invite a member"), undefined, "the invite form still waits for its list");
+  await act(async () => new Promise((r) => setTimeout(r, 1_500)));
+  await flush();
+  delays = {};
+  assert.ok(h3(view.host, "Invite a member"), "the form shows once its list answers");
+  await view.cleanup();
 });

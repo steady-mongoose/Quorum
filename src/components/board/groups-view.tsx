@@ -26,7 +26,8 @@ import {
 import type { HomePayload } from "@/lib/board/home";
 import { MARK_LABEL, RULE_LABEL, RULE_SENTENCE, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
-import { focusAuthenticator } from "@/lib/board/focus-authenticator";
+import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
+import { focusWithRing } from "@/lib/board/focus-ring";
 import { RoomAudienceMark } from "@/components/board/audience";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -105,7 +106,9 @@ function loadNote(failure: GroupFailure, gateText: string): LoadNote {
  * A section's load note. The polite status region stays mounted for as long as the
  * section is on the page, so a note that appears later is announced. While a retry
  * is in flight the region is emptied, so a retry that fails again with the same
- * sentence is announced again. Try again stays put meanwhile, so focus is not lost.
+ * sentence is announced again. The sentence stays on screen meanwhile (aria-hidden, so
+ * it is not read twice), and Try again stays put, dimmed, so nothing moves under the
+ * pointer and focus is not lost.
  */
 function SectionNote({
   note,
@@ -119,6 +122,10 @@ function SectionNote({
   onSetUp?: () => void;
 }) {
   const text = note && !busy ? note.text : "";
+  // "Turn it on under You" switches to You, which takes Groups (and this button) off
+  // the page, so the wait must outlive the button. It still ends on the next click or
+  // key, or when another wait starts.
+  const focusAuthenticator = useFocusAuthenticator();
   return (
     <div
       data-section-note=""
@@ -134,10 +141,11 @@ function SectionNote({
       <p role="status" aria-live="polite" aria-atomic="true" className={text ? undefined : "sr-only"}>
         {text}
       </p>
+      {note && busy ? <span aria-hidden="true">{note.text}</span> : null}
       {note?.kind === "error" ? (
         <button
           type="button"
-          className="min-h-[44px] underline underline-offset-4"
+          className="min-h-[44px] underline underline-offset-4 aria-disabled:cursor-wait aria-disabled:opacity-60"
           aria-busy={busy || undefined}
           aria-disabled={busy || undefined}
           onClick={() => {
@@ -162,6 +170,13 @@ function SectionNote({
     </div>
   );
 }
+
+/**
+ * How long the group page holds Appeals back while the invite list has not answered,
+ * so a gated page does not flash Appeals and then swap it for "Running this group".
+ * After this, Appeals shows on its own, so a hung invite request cannot hide it.
+ */
+const INVITE_GATE_WAIT_MS = 3_000;
 
 const NO_ROOMS: { id: string; name: string }[] = [];
 
@@ -223,11 +238,13 @@ function GroupList({
     };
   }, [tick]);
 
-  // After a Try again that worked, focus goes to the section heading, not <body>.
+  // After a Try again, focus goes to the section heading, not <body>. Try again is only
+  // still there when the retry failed again; any other answer (loaded, the authenticator
+  // gate, a wait) takes it away.
   useEffect(() => {
     if (!focusRequests.current) return;
     focusRequests.current = false;
-    if (!requestsNote) requestsHeading.current?.focus();
+    if (requestsNote?.kind !== "error") focusWithRing(requestsHeading.current);
   }, [settled, requestsNote]);
 
   // Joining takes an invite, accepted on the group's page. Here a member can only leave.
@@ -424,7 +441,7 @@ function RequestDecisions({
         <SectionNote note={note} busy={busy} onRetry={onRetry} onSetUp={onSetUp} />
       </div>
       {open.length === 0 && !note ? (
-        <p className="mt-3 text-sm text-muted">No group requests waiting.</p>
+        <p className="mt-3 text-sm text-muted">No open group requests.</p>
       ) : null}
       {open.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-4">
@@ -527,9 +544,14 @@ function GroupDetailView({
   const [settled, setSettled] = useState(0);
   const appealsHeading = useRef<HTMLHeadingElement>(null);
   const focusAppeals = useRef(false);
+  // A Try again that lands on the gate swaps its section for "Running this group".
+  const runningHeading = useRef<HTMLHeadingElement>(null);
+  const focusRunning = useRef(false);
   // No authenticator yet: invites and appeals give way to one note.
   // null until the invite list answers, so the invite form never shows and then vanishes.
   const [invitesGated, setInvitesGated] = useState<boolean | null>(null);
+  // An invite list that hangs (rather than fails) must not hold Appeals back for good.
+  const [gateWaitOver, setGateWaitOver] = useState(false);
   const [error, setError] = useState("");
   const [body, setBody] = useState("");
   const [on, setOn] = useState("");
@@ -566,13 +588,6 @@ function GroupDetailView({
       cancel = true;
     };
   }, [id, tick]);
-
-  // After a Try again that worked, focus goes to the Appeals heading, not <body>.
-  useEffect(() => {
-    if (!focusAppeals.current) return;
-    focusAppeals.current = false;
-    if (!appealsNote) appealsHeading.current?.focus();
-  }, [settled, appealsNote]);
 
   async function publish(event: FormEvent) {
     event.preventDefault();
@@ -618,7 +633,32 @@ function GroupDetailView({
     ((canDecide && appealsNote?.kind === "gate") ||
       (Boolean(detail?.group.canInvite) && invitesGated === true));
   // Until the invite list answers, nothing that could give way to the gate note shows.
-  const gateKnown = gated || !detail?.group.canInvite || invitesGated !== null;
+  const gateKnown = gated || !detail?.group.canInvite || invitesGated !== null || gateWaitOver;
+  const waitingOnGate = Boolean(detail?.group.canInvite) && invitesGated === null;
+
+  useEffect(() => {
+    if (!waitingOnGate) return;
+    setGateWaitOver(false);
+    const timer = window.setTimeout(() => setGateWaitOver(true), INVITE_GATE_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waitingOnGate, id]);
+
+  // After a Try again on Appeals, focus goes to a heading, not <body>: Appeals when it
+  // loaded or says to wait, "Running this group" when it landed on the gate. Try again
+  // is only still there when the retry failed again.
+  useEffect(() => {
+    if (!focusAppeals.current) return;
+    focusAppeals.current = false;
+    if (appealsNote?.kind === "error") return;
+    focusWithRing(gated ? runningHeading.current : appealsHeading.current);
+  }, [settled, appealsNote, gated]);
+
+  // A Try again on Open invites that landed on the gate: the invite section is gone.
+  useEffect(() => {
+    if (!focusRunning.current || !gated) return;
+    focusRunning.current = false;
+    focusWithRing(runningHeading.current);
+  }, [gated]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -684,7 +724,12 @@ function GroupDetailView({
           )}
           {gated ? (
             <section className="flex max-w-xl flex-col gap-3" aria-labelledby="group-running-heading">
-              <h3 id="group-running-heading" className="text-xl text-fg">
+              <h3
+                id="group-running-heading"
+                ref={runningHeading}
+                tabIndex={-1}
+                className="focus-target text-xl text-fg"
+              >
                 Running this group
               </h3>
               <SectionNote
@@ -694,7 +739,13 @@ function GroupDetailView({
               />
             </section>
           ) : detail.group.canInvite ? (
-            <InviteForm groupId={id} onGate={setInvitesGated} />
+            <InviteForm
+              groupId={id}
+              onGate={(isGated, afterRetry) => {
+                if (isGated && afterRetry) focusRunning.current = true;
+                setInvitesGated(isGated);
+              }}
+            />
           ) : null}
           <ul className="flex max-w-2xl flex-col gap-4">
             {detail.posts.map((post) => (
@@ -1086,8 +1137,11 @@ function InviteForm({
   onGate,
 }: {
   groupId: string;
-  /** Told on each answer whether the list is held back for want of an authenticator. */
-  onGate?: (gated: boolean) => void;
+  /**
+   * Told on each answer whether the list is held back for want of an authenticator,
+   * and whether that answer came from a Try again (so the page can move focus).
+   */
+  onGate?: (gated: boolean, afterRetry: boolean) => void;
 }) {
   // Nothing renders until the list first answers, so a gated page never flashes the form.
   const [answered, setAnswered] = useState(false);
@@ -1118,7 +1172,7 @@ function InviteForm({
       setSettled((value) => value + 1);
       // No authenticator yet: the group page shows one note instead of this section.
       const gated = !loaded.ok && loaded.mfa === "enroll";
-      gateRef.current?.(gated);
+      gateRef.current?.(gated, focusOpen.current);
       if (gated) {
         focusOpen.current = false;
         return;
@@ -1145,12 +1199,14 @@ function InviteForm({
     };
   }, [groupId, tick]);
 
-  // After a Try again that worked, focus goes to the Open invites heading, not <body>.
+  // After a Try again, focus goes to the Open invites heading, not <body>, unless the
+  // retry failed again and Try again is still there. A wait note also takes Try again
+  // away; the gate takes the whole section away and the page focuses its own note.
   useEffect(() => {
     if (!focusOpen.current) return;
     focusOpen.current = false;
-    if (!listError && !listNote) openRef.current?.focus();
-  }, [settled, listError, listNote]);
+    if (!listError) focusWithRing(openRef.current);
+  }, [settled, listError]);
 
   async function send(event: FormEvent) {
     event.preventDefault();
