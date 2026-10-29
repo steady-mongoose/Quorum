@@ -22,8 +22,23 @@ text is drawn on either.
 | Rooms, hero band and margin. Messages hero band | Albrecht Dürer, *Saint Jerome in His Study*, 1514, engraving. National Gallery of Art scan, object 6642 | `durer-jerome-band-A.webp`, `durer-jerome-band-A-900.webp`, `durer-jerome-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Saint_Jerome_in_His_Study,_1514,_NGA_6642.jpg | CC0 (NGA Open Access) |
 | Messages, margin column | Albrecht Dürer, *Study of an Apostle's Hands (Praying Hands)*, 1508, brush drawing (Albertina) | `durer-hands-side-A.webp` (palette B: `durer-hands-side-B.webp`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_Praying_Hands,_1508_-_Google_Art_Project.jpg | Public domain (artist died 1528) |
 | Landing and sign-in only | John Martin, *Paradise Lost: The Creation of Light*, 1824–27, mezzotint. Cleveland Museum of Art 1983.84 | `martin-hero-A.webp` (palette B: `martin-hero-B.webp`) | https://commons.wikimedia.org/wiki/File:John_Martin_-_Paradise_Lost-_The_Creation_of_Light_-_1983.84_-_Cleveland_Museum_of_Art.tif | CC0 (CMA Open Access) |
+| Find, hero band and outer plates | Rembrandt van Rijn, *Christ Preaching (La Petite Tombe)*, about 1652, etching. Metropolitan Museum of Art | `rembrandt-preaching-band-A.webp`, `rembrandt-preaching-band-A-900.webp`, `rembrandt-preaching-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Christ_Preaching,_called_La_Petite_Tombe_MET_DP832290.jpg | CC0 (Met Open Access) |
+| Groups, hero band and margin | Jean-François Millet, *The Diggers (Les bêcheurs)*, about 1855–56, etching. National Gallery of Art 9192 | `millet-diggers-band-A.webp`, `millet-diggers-band-A-900.webp`, `millet-diggers-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Jean-Fran%C3%A7ois_Millet,_The_Diggers_(Les_becheurs),_NGA_9192.jpg | CC0 (NGA Open Access) |
+| You, hero band and margin | Rembrandt van Rijn, *Self-Portrait Leaning on a Stone Sill*, 1639, etching. National Gallery of Art 35136 | `rembrandt-self-band-A.webp`, `rembrandt-self-band-A-900.webp`, `rembrandt-self-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Rembrandt_van_Rijn,_Self-Portrait_Leaning_on_a_Stone_Sill,_1639,_NGA_35136.jpg | CC0 (NGA Open Access) |
+| About, Privacy, and Terms, hero band and margin | Rembrandt van Rijn, *The Three Trees*, 1643, etching. National Gallery of Art 43418 | `rembrandt-trees-band-A.webp`, `rembrandt-trees-band-A-900.webp`, `rembrandt-trees-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Rembrandt_van_Rijn,_The_Three_Trees,_1643,_NGA_43418.jpg | CC0 (NGA Open Access) |
+| The desk, hero band and margin | Asher B. Durand after John Trumbull, *The Declaration of Independence*, 1823, engraving. Metropolitan Museum of Art | `durand-declaration-band-A.webp`, `durand-declaration-band-A-900.webp`, `durand-declaration-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:The_Declaration_of_Independence_(July_4,_1776)_MET_49DD_388R3.jpg | CC0 (Met Open Access) |
+
+The five works added for Find, Groups, You, About, and the desk were made the same way as the
+Saint Jerome plates. Each scan was cut, turned to luminance, stretched between its 1st and 99th
+percentile, and mapped between the palette's two ends: band A `#17130e` to `#857f73`, margin A
+`#15110b` to `#76716a`, band B `#a29988` to `#ede2cd`, margin B `#a59c8a` to `#ece2cd`. The A
+margin end is a step lighter than the older margin plates so it never reads as murk on the dark
+ground. Bands are 1600×677 and 900×380, margins 1100 wide. The Declaration margin stays at 928
+wide, its scan's own width, so it is not upscaled. Their CSS lives in `public/page-art.css`, so
+`backgrounds.css` stays under its 3 KB budget.
 
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
+Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.
 
 Mobile (max-width 640px) uses the 900px-wide band files. Margin plates are desktop only
 (min-width 1024px). `prefers-reduced-data` drops every plate. The section attribute is

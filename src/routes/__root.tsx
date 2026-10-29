@@ -15,6 +15,7 @@ export const Route = createRootRoute({
       { rel: "stylesheet", href: appCss },
       { rel: "stylesheet", href: "/backgrounds.css" },
       { rel: "stylesheet", href: "/fluid.css" },
+      { rel: "stylesheet", href: "/page-art.css" },
       { rel: "stylesheet", href: "/gathering.css" },
       { rel: "stylesheet", href: "/engraved-adjust.css" },
       {
