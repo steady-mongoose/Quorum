@@ -23,6 +23,7 @@ import type { HomePayload } from "@/lib/board/home";
 import { MARK_LABEL, RULE_LABEL, RULE_SENTENCE, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { RoomAudienceMark } from "@/components/board/audience";
+import { setGroupOpen } from "@/lib/board/group-open";
 
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
@@ -37,6 +38,10 @@ export function GroupsView() {
   const steward = useBoard((state) => state.steward);
   const admin = useBoard((state) => state.admin);
   const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    setGroupOpen(openId !== null);
+    return () => setGroupOpen(false);
+  }, [openId]);
 
   return (
     <div className="flex flex-col gap-8">

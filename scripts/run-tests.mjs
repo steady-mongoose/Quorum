@@ -31,6 +31,8 @@ const appTests = [
   "src/lib/board/engraved.test.ts",
   "src/lib/board/page-art.test.ts",
   "src/lib/board/door-art.test.ts",
+  "src/lib/board/page-craft.test.ts",
+  "src/lib/board/inner-pages.render.test.mjs",
   "src/lib/board/phone-nav.test.ts",
   "src/lib/board/more-menu.render.test.mjs",
   "src/lib/board/dm-report.render.test.mjs",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
-import { artSection, heroLabel, showsHero } from "./engraved.ts";
+import { artSection, heroLabel } from "./engraved.ts";
 import type { Section } from "./model.ts";
 
 const pageArt = readFileSync(new URL("../../../public/page-art.css", import.meta.url), "utf8");
@@ -10,14 +10,12 @@ const backgrounds = readFileSync(new URL("../../../public/backgrounds.css", impo
 const NEW_PAGES = ["find", "groups", "profile", "about", "civic"] as const;
 const ALL: Section[] = ["week", "rooms", "messages", "find", "groups", "profile", "about", "civic"];
 
-test("every signed-in page carries a plate and names what it shows", () => {
+test("every signed-in section resolves to its own art key", () => {
   for (const section of ALL) {
     const art = artSection({ entered: true, section, signingIn: false });
     assert.equal(art, section);
-    assert.equal(showsHero(art), true, section);
     assert.ok(heroLabel(art), section);
   }
-  assert.equal(showsHero("landing"), false);
   assert.equal(heroLabel("signin"), null);
 });
 

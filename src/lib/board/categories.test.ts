@@ -172,7 +172,8 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(fluid, /\.room-column\{container-type:inline-size/);
   assert.match(backgrounds, /\.plate--hero\{margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/);
   assert.equal(/\.plate\{[^}]*margin-top:calc\(var\(--band-h\)/.test(backgrounds), false);
-  assert.match(app, /categoryPage/);
+  // The shell band is gone (inner pages v2), so a category page keeps only its own engraving.
+  assert.equal(/hero-band/.test(app), false);
   assert.match(week, /categoryNames\(roomCategoryIds\(roomById\(card\.room\)\)\)/);
   assert.match(about, /Choose a category/);
   assert.match(about, /categoryId/);

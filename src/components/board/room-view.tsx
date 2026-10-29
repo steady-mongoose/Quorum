@@ -204,7 +204,7 @@ export function RoomView() {
     const audience = held.code === "missing" ? undefined : (known?.audience ?? held.audience);
     return (
       <div className="flex flex-col gap-6">
-        <section className="plate flex flex-col gap-2">
+        <section className="plate pc-head flex flex-col gap-2">
           {held.code === "missing" ? null : (
             <>
               <Kicker>Room</Kicker>
@@ -242,7 +242,7 @@ export function RoomView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="plate plate--hero flex flex-col gap-2">
+      <section className="plate plate--hero pc-head flex flex-col gap-2">
         <Kicker>{meta.cardNoun === "Service" ? "Church" : "Room"}</Kicker>
         <h1
           id={ROOM_HEADING_ID}

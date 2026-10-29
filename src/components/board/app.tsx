@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
@@ -48,8 +48,9 @@ import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
-import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
-import { useEngravedDocument } from "@/components/board/engraved-ground";
+import { artSection, plateCaption, plateView } from "@/lib/board/engraved";
+import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
+import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
 
 const ICONS = {
   week: CalendarDays,
@@ -112,7 +113,6 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
-  const categoryPage = typeof categorySlug === "string" && categorySlug.length > 0;
   // A conversation opened from a member list shows on the rooms page itself, so
   // the address stays /rooms (or /rooms/<category>) and Back returns to the room.
   const memberConversation = useBoard(keepsRoomsPage) && section === "messages";
@@ -127,9 +127,12 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     section: shown,
     signingIn,
   });
-  const hero = heroLabel(art);
-  const margin = showsHero(art);
+  const browsing = useBoard((state) => state.browsing);
+  const groupOpen = useSyncExternalStore(subscribeGroupOpen, getGroupOpen, () => false);
+  const plate = plateView({ section: art, browsing, groupOpen });
+  const caption = entered ? plateCaption(art, plate) : null;
   useEngravedDocument(art);
+  usePlateView(plate);
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -268,7 +271,11 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   );
 
   return (
-    <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+    <div
+      className="shell min-h-dvh overflow-x-clip text-fg"
+      style={themeVars(theme)}
+      data-entered={entered ? "true" : undefined}
+    >
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
@@ -287,10 +294,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           }}
         />
       ) : null}
-      {art === "landing" || art === "signin" ? (
-        <div className="plate-ground" aria-hidden="true" />
-      ) : null}
-      {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
+      <div className="plate-ground" aria-hidden="true" />
+      <div className="scrim" aria-hidden="true" />
       <header className="top mast-bar">
         <div className="mast" data-entered={entered ? "true" : undefined}>
           <div className="mast-brand">
@@ -419,21 +424,10 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           </div>
         </div>
       ) : null}
-      {hero && !categoryPage ? (
-        <div className="hero-band full" role="img" aria-label={hero} />
-      ) : null}
       <div className="shell-body">
-        {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
-        {margin ? <div className="outer-art r" aria-hidden="true" /> : null}
         <main id="main" tabIndex={-1} aria-busy={busy || undefined}>
-          {margin ? (
-            <div className="with-side">
-              <div className="min-w-0">{page}</div>
-              <aside className="side-art" aria-hidden="true" />
-            </div>
-          ) : (
-            page
-          )}
+          {page}
+          {caption && !busy ? <p className="pc-credit">Plate: {caption}</p> : null}
         </main>
       </div>
       {entered ? <SessionLine /> : null}

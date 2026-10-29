@@ -23,6 +23,8 @@ export const Route = createRootRoute({
       { rel: "stylesheet", href: "/gathering.css" },
       { rel: "stylesheet", href: "/engraved-adjust.css" },
       { rel: "stylesheet", href: "/door.css" },
+      // Loads last: the full-bleed plate on every signed-in page (inner pages spec v2).
+      { rel: "stylesheet", href: "/page-craft.css" },
       {
         rel: "preload",
         href: "/fonts/EBGaramond-latin.woff2",

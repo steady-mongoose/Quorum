@@ -63,7 +63,7 @@ export function WeekView() {
         )}
       >
         <div className="flex min-w-0 flex-col gap-8">
-          <section className="plate plate--hero flex flex-col gap-2">
+          <section className="plate plate--hero pc-head flex flex-col gap-2">
             <Kicker>This week</Kicker>
             <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
               {week.length === 0 ? "Nothing on the calendar yet." : "This week"}
