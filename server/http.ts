@@ -383,6 +383,7 @@ async function route(
         password: stringField(body, "password"),
         code: stringField(body, "inviteCode"),
         headers: request.headers,
+        adult: body.adult,
       },
       deps.createAccount,
       deps.signIn,
@@ -433,6 +434,7 @@ async function route(
         expiresInDays: body.expiresInDays,
         note: body.note,
         roomId: body.roomId,
+        attestAdult: body.attestAdult,
       },
       deps.now(),
     );

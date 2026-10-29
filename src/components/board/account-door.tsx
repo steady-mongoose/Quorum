@@ -9,6 +9,7 @@ import {
 } from "@/lib/board/invite-entry";
 import { MfaChallenge } from "@/components/board/mfa-ui";
 import { SIGNED_UP_NO_SESSION } from "@/lib/account-result";
+import { AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } from "@/lib/board/age";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const SIGN_IN_EMPTY_ERROR = "Enter your email and password.";
@@ -40,6 +41,9 @@ export function AccountDoor() {
   const [nameInvalid, setNameInvalid] = useState(false);
   const [emailInvalid, setEmailInvalid] = useState(false);
   const [passwordInvalid, setPasswordInvalid] = useState(false);
+  const [adult, setAdult] = useState(false);
+  const [ageError, setAgeError] = useState(false);
+  const ageRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -98,15 +102,21 @@ export function AccountDoor() {
           focusFirst([nameBlank ? nameRef.current : null, codeRef.current]);
           return;
         }
+        if (mode === "sign-up" && !adult) {
+          setAgeError(true);
+          ageRef.current?.focus();
+          return;
+        }
         setCodeError(null);
         setSignAlert(null);
         setEmailInvalid(false);
         setPasswordInvalid(false);
+        setAgeError(false);
         setPending(true);
         const run =
           mode === "sign-in"
             ? server.signIn({ email, password })
-            : server.signUp({ name, email, password, inviteCode: code });
+            : server.signUp({ name, email, password, inviteCode: code, adult: true });
         void run.then((result) => {
           setPending(false);
           if (!result.ok) {
@@ -213,6 +223,26 @@ export function AccountDoor() {
           {codeError ? (
             <p id={INVITE_CODE_ERROR_ID} role="alert" className="text-sm text-danger">
               {codeError}
+            </p>
+          ) : null}
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
+            <input
+              type="checkbox"
+              className="size-5 shrink-0"
+              ref={ageRef}
+              checked={adult}
+              aria-invalid={ageError ? true : undefined}
+              aria-describedby="age-error"
+              onChange={(event) => {
+                setAdult(event.target.checked);
+                if (event.target.checked) setAgeError(false);
+              }}
+            />
+            {AGE_SIGNUP_LABEL}
+          </label>
+          {ageError ? (
+            <p id="age-error" role="alert" className="text-sm text-danger">
+              {AGE_SIGNUP_ERROR}
             </p>
           ) : null}
         </>

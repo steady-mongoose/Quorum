@@ -3,12 +3,19 @@ import { PGlite } from "@electric-sql/pglite";
 import { isSkipEmbedded } from "../../scripts/migration-plan.mjs";
 import type { Db } from "../db.ts";
 
-export async function openTestDb(): Promise<{ db: Db; pg: PGlite; close: () => Promise<void> }> {
+/**
+ * `before` stops at the first migration whose name sorts at or after it, so a
+ * test can build a database as it stood before a file and apply that file itself.
+ */
+export async function openTestDb(
+  options: { before?: string } = {},
+): Promise<{ db: Db; pg: PGlite; close: () => Promise<void> }> {
   const pg = new PGlite();
   await pg.waitReady;
   const dir = new URL("../../migrations/", import.meta.url);
   const names = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
   for (const name of names) {
+    if (options.before && name >= options.before) break;
     const sql = await readFile(new URL(name, dir), "utf8");
     // Logins are for the closed-test Postgres. The embedded database skips them.
     if (isSkipEmbedded(sql)) continue;
