@@ -150,7 +150,7 @@ test("body data-view is room while a room is open and group while a group is ope
   assert.equal(document.body.dataset.view, undefined, "removed on unmount");
 });
 
-test("the credit chip is real text naming the plate, and Groups has none yet", async () => {
+test("the credit chip is real text naming the plate, Groups and a group included", async () => {
   useBoard.setState({ member: true, me: "Ruth", section: "week", browsing: true });
   const page = await mount();
   try {
@@ -166,10 +166,13 @@ test("the credit chip is real text naming the plate, and Groups has none yet", a
       useBoard.setState({ section: "groups", browsing: true });
     });
     await frames();
-    assert.equal(chip(), null, "Groups waits for its v3 plate");
+    assert.equal(chip()?.textContent, "Plate: Albrecht Dürer · The Feast of the Rose Garlands · 1506");
     await act(async () => setGroupOpen(true));
     await frames();
-    assert.equal(chip(), null, "a group waits for its v3 plate");
+    assert.equal(chip()?.textContent, "Plate: Gustave Doré · Ruth and Boaz · 1866");
+    await act(async () => setGroupOpen(false));
+    await frames();
+    assert.equal(chip()?.textContent, "Plate: Albrecht Dürer · The Feast of the Rose Garlands · 1506");
   } finally {
     await page.unmount();
     setGroupOpen(false);

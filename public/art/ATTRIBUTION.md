@@ -37,7 +37,7 @@ ground. Bands are 1600×677 and 900×380, margins 1100 wide. The Declaration mar
 wide, its scan's own width, so it is not upscaled. Their CSS lives in `public/page-art.css`, so
 `backgrounds.css` stays under its 3 KB budget.
 
-## Signed-in plates (inner pages spec v2)
+## Signed-in plates (inner pages spec v3)
 
 Every signed-in page now has one full-bleed plate behind the whole viewport, under a scrim, the door's
 technique. The files are `plate-<key>-A.webp` (1600×1000, the You plate 1365×853 because its source is
@@ -51,14 +51,13 @@ as one family. Printed captions and borders are trimmed off the Doré pages. CSS
 | This week | Gustave Doré, *Jacob's Dream*, Doré's English Bible, 1866 | `plate-week-A.webp`, `plate-week-A-900.webp` | https://commons.wikimedia.org/wiki/File:021.Jacob%27s_Dream.jpg | Public domain (artist died 1883) |
 | Rooms | Albrecht Dürer, *Saint Jerome in His Study*, 1514, engraving. National Gallery of Art 6642 | `plate-rooms-A.webp`, `plate-rooms-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Saint_Jerome_in_His_Study,_1514,_NGA_6642.jpg | CC0 (NGA Open Access) |
 | A room | Gustave Doré, *The Sermon on the Mount*, Doré's English Bible, 1866 | `plate-room-A.webp`, `plate-room-A-900.webp` | https://commons.wikimedia.org/wiki/File:Dore_Bible_Sermon_on_the_Mount.jpg | Public domain (artist died 1883) |
+| Groups | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506, oil on panel (National Gallery Prague); toned to sepia monochrome like the others | `plate-groups-A.webp`, `plate-groups-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_Feast_of_Rose_Garlands_-_Google_Art_Project.jpg | Public domain (artist died 1528) |
+| A group | Gustave Doré, *Ruth and Boaz*, Doré's English Bible, 1866 | `plate-group-A.webp`, `plate-group-A-900.webp` | https://commons.wikimedia.org/wiki/File:069.Ruth_and_Boaz.jpg | Public domain (artist died 1883) |
 | Find | John Bauer, *Princess Tuvstarr gazing down into the dark waters of the forest tarn*, 1913 | `plate-find-A.webp`, `plate-find-A-900.webp` | https://commons.wikimedia.org/wiki/File:John_Bauer_-_Princess_Tuvstarr_gazing_down_into_the_dark_waters_of_the_forest_tarn._-_Google_Art_Project.jpg | Public domain (artist died 1918) |
 | Messages | Albrecht Dürer, *Erasmus of Rotterdam*, 1526, engraving. National Gallery of Art 6672 | `plate-messages-A.webp`, `plate-messages-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Erasmus_of_Rotterdam,_1526,_NGA_6672.jpg | CC0 (NGA Open Access) |
 | You | Albrecht Dürer, *Self-Portrait at Thirteen*, 1484, silverpoint (Albertina) | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Durer-self-portrait-at-the-age-of-thirteen.jpg | Public domain (artist died 1528) |
 | More / About | John Martin, *The Creation of Light* (the door's plate) | `martin-hero-A.webp` (no new file) | see the landing row above | CC0 (CMA Open Access) |
 | The desk | Gustave Doré, *The Judgment of Solomon*, Doré's English Bible, 1866 | `plate-desk-A.webp`, `plate-desk-A-900.webp` | https://commons.wikimedia.org/wiki/File:084.The_Judgment_of_Solomon.jpg | Public domain (artist died 1883) |
-
-Groups and a single group have no plate yet. Their replacement works are being chosen, so those pages
-show the solid ground under the scrim and no credit.
 
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.

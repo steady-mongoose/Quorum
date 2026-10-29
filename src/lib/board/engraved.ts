@@ -64,13 +64,15 @@ export function plateView(input: {
 }
 
 /**
- * The credit chip under each signed-in page: artist · title · year. A page whose plate is not
- * shipped yet (Groups and a group wait for the v3 plates) has no entry, so no chip is drawn.
+ * The credit chip under each signed-in page: artist · title · year, worded as spec v3 words it.
+ * A page with no entry here draws no chip.
  */
 const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   week: "Gustave Doré · Jacob’s Dream · 1866",
   rooms: "Albrecht Dürer · Saint Jerome in His Study · 1514",
   room: "Gustave Doré · The Sermon on the Mount · 1866",
+  groups: "Albrecht Dürer · The Feast of the Rose Garlands · 1506",
+  group: "Gustave Doré · Ruth and Boaz · 1866",
   find: "John Bauer · Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn · 1913",
   messages: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
   profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484",

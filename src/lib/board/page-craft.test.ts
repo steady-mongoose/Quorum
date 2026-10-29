@@ -61,20 +61,32 @@ test("page-craft.css loads last and stays at 3 KB or under gzipped", () => {
   assert.ok(size <= 3 * 1024, `page-craft.css is ${size} B gzipped`);
 });
 
-test("every plate the sheet names is in public/art, and Groups and a group have none yet", () => {
+test("every plate the sheet names is in public/art, Groups and a group included", () => {
   const urls = [...craft.matchAll(/url\((\/art\/[^)]+\.webp)\)/g)].map((m) => m[1]);
-  assert.equal(urls.length, 14, "seven plates, desktop and phone");
+  assert.equal(urls.length, 18, "nine plates, desktop and phone");
   for (const url of urls) {
     const file = new URL(`../../../public${url}`, import.meta.url);
     assert.ok(existsSync(file), url);
     assert.equal(readFileSync(file).subarray(8, 12).toString("ascii"), "WEBP", url);
     assert.ok(readFileSync(file).length < 100 * 1024, url);
+    if (url.endsWith("-900.webp")) assert.ok(readFileSync(file).length < 52 * 1024, url);
   }
-  assert.equal(/plate-groups?-A/.test(craft), false, "the Groups plates wait for v3");
-  assert.equal(existsSync(new URL("../../../public/art/plate-groups-A.webp", import.meta.url)), false);
-  assert.equal(existsSync(new URL("../../../public/art/plate-group-A.webp", import.meta.url)), false);
-  assert.equal(render({ section: "groups" }).ground.backgroundImage, "none");
-  assert.equal(render({ section: "groups", view: "group" }).ground.backgroundImage, "none");
+  const attribution = read("public/art/ATTRIBUTION.md");
+  assert.match(attribution, /plate-groups-A\.webp.*Feast_of_Rose_Garlands/);
+  assert.match(attribution, /plate-group-A\.webp.*069\.Ruth_and_Boaz/);
+  assert.equal(render({ section: "groups" }).ground.backgroundImage, 'url("/art/plate-groups-A.webp")');
+  assert.equal(
+    render({ section: "groups", view: "group" }).ground.backgroundImage,
+    'url("/art/plate-group-A.webp")',
+  );
+  assert.equal(
+    render({ section: "groups", width: 375 }).ground.backgroundImage,
+    'url("/art/plate-groups-A-900.webp")',
+  );
+  assert.equal(
+    render({ section: "groups", view: "group", width: 375 }).ground.backgroundImage,
+    'url("/art/plate-group-A-900.webp")',
+  );
 });
 
 test("each signed-in page sets its own plate, a room its own, and phones the 900px crop", () => {
@@ -92,13 +104,29 @@ test("each signed-in page sets its own plate, a room its own, and phones the 900
 });
 
 test("Save-Data clears the plate's background-image and hides the credit", () => {
-  for (const section of ["week", "rooms", "find", "messages", "profile", "about", "civic"]) {
+  for (const section of ["week", "rooms", "groups", "find", "messages", "profile", "about", "civic"]) {
     const page = render({ section, saveData: true });
     assert.equal(page.ground.backgroundImage, "none", section);
     assert.equal(page.ground.animation, "none", section);
     assert.equal(page.credit.display, "none", section);
   }
+  assert.equal(render({ section: "groups", view: "group", saveData: true }).ground.backgroundImage, "none");
   assert.match(block(craft, "(prefers-reduced-data:reduce)"), /\.plate-ground\{background-image:none;animation:none\}/);
+});
+
+test("Groups and a group sit under v3's scrim and Groups ink weights", () => {
+  // v3 §1 and §6: the radial Ink & Bone scrim, .62 in the middle and .28 at the edges, unchanged for the new plates.
+  const scrim = "radial-gradient(75% 95% at 50% 45%,rgba(20,16,12,.62),rgba(20,16,12,.28))";
+  assert.ok(craft.includes(`--pc-scrim:${scrim}`));
+  assert.match(craft, /\[data-entered\]>\.scrim\{[^}]*background:var\(--pc-scrim\)/);
+  assert.ok(
+    craft.includes('[data-section="groups"]{--pc-t1:#2e291c;--pc-t2:#221f15;--pc-t3:#13110b;'),
+    "the Groups card tints from v3",
+  );
+  for (const view of [undefined, "group"]) {
+    const page = render({ section: "groups", view });
+    assert.equal(page.scrim.position, "fixed", view ?? "groups");
+  }
 });
 
 test("reduced motion: the plate does not animate", () => {
@@ -156,8 +184,8 @@ test("the shell renders the plate for every section, and the credit names it", (
   assert.equal(plateCaption("rooms", "room"), "Gustave Doré · The Sermon on the Mount · 1866");
   assert.equal(plateCaption("civic", null), "Gustave Doré · The Judgment of Solomon · 1866");
   assert.equal(plateCaption("about", null), "John Martin · The Creation of Light · 1824–27");
-  assert.equal(plateCaption("groups", null), null);
-  assert.equal(plateCaption("groups", "group"), null);
+  assert.equal(plateCaption("groups", null), "Albrecht Dürer · The Feast of the Rose Garlands · 1506");
+  assert.equal(plateCaption("groups", "group"), "Gustave Doré · Ruth and Boaz · 1866");
   assert.equal(plateCaption("landing", null), null);
   assert.equal(plateCaption("signin", null), null);
   assert.equal(plateView({ section: "rooms", browsing: false, groupOpen: false }), "room");
