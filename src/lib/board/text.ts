@@ -43,6 +43,18 @@ export function looksLikeBlasphemy(value: string): boolean {
 }
 
 export const HARD_RULES = ["threat", "porn", "csam", "doxxing", "blasphemy"] as const;
+
+/**
+ * Pornography and child sexual abuse material act site-wide on the first offense.
+ * A steward's removal suspends the account until an admin reviews it; an admin's
+ * removal closes it at once. Every other rule is a 30-day bar first, and a second
+ * removal acts the same way.
+ */
+export const PERMANENT_ON_FIRST = ["porn", "csam"] as const;
+
+export function permanentOnFirst(value: string): boolean {
+  return value === "porn" || value === "csam";
+}
 export type HardRuleValue = (typeof HARD_RULES)[number];
 
 export function isHardRule(value: unknown): value is HardRuleValue {

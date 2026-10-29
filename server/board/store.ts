@@ -5,7 +5,13 @@ import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
 import { categoryForRoom, categorySlugOk } from "../../src/lib/board/categories.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
-import { isEnglish, isHardRule, isMarkValue, type MarkValue } from "../../src/lib/board/text.ts";
+import {
+  isEnglish,
+  isHardRule,
+  isMarkValue,
+  permanentOnFirst,
+  type MarkValue,
+} from "../../src/lib/board/text.ts";
 import { NO_STEWARD_ERROR } from "../../src/lib/board/access-rules.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { roomChatReady } from "../chat/ready.ts";
@@ -151,6 +157,11 @@ export type BanEntry = {
   until: number;
   strikes: number;
   at: number;
+  /**
+   * A steward's removal that would close the account: the member is suspended
+   * site-wide at once, and an admin makes it permanent or clears them.
+   */
+  pendingReview?: boolean;
 };
 
 export type AppealEntry = {
@@ -245,7 +256,7 @@ async function audienceBlock(
   };
 }
 
-class Stop extends Error {
+export class Stop extends Error {
   status: number;
   stops?: string[];
   constructor(status: number, message: string, stops?: string[]) {
@@ -947,6 +958,230 @@ export async function listBoard(
   };
 }
 
+/** Pornography flags one steward can raise in an hour before an admin has to look. */
+export const STEWARD_FLAG_LIMIT = 3;
+export const STEWARD_FLAG_WINDOW_MS = 60 * 60 * 1000;
+export const STEWARD_FLAG_LIMIT_ERROR =
+  "You have flagged 3 accounts for pornography in the last hour. An admin has to review those first. Try again later.";
+
+export const BANNED_ADMIN = "This account is banned and cannot act as an admin right now.";
+
+/** A banned admin cannot moderate, decide appeals, or close accounts. */
+export async function bannedAdminStop(
+  db: Db,
+  actor: BoardActor,
+  userId: string,
+  now: Date,
+): Promise<{ ok: false; status: number; error: string } | null> {
+  if (!actor.admin) return null;
+  if (await openBan(db, userId, now)) return { ok: false, status: 403, error: BANNED_ADMIN };
+  return null;
+}
+
+export type BanReview = {
+  id: string;
+  removalId: string | null;
+  userId: string | null;
+  name: string;
+  reason: string;
+  requestedBy: string;
+  roomId: string;
+  /** The admin reading the queue is the suspended member. Another admin decides. */
+  own: boolean;
+  at: number;
+};
+
+/** Members a steward suspended pending an admin's permanent-ban decision. Admins only. */
+export async function listBanReviews(db: Db, userId: string, now: Date): Promise<Result<BanReview[]>> {
+  const actor = await actorRole(db, userId);
+  if (!actor.admin) return fail(403, "Only an admin reviews permanent bans.");
+  const stopped = await bannedAdminStop(db, actor, userId, now);
+  if (stopped) return stopped;
+  const rows = await db.query<{
+    id: string;
+    removal_id: string | null;
+    user_id: string | null;
+    name: string;
+    reason: string;
+    requested_by_name: string;
+    room_id: string;
+    created_at: Date | string;
+  }>(
+    `select id, removal_id, user_id, name, reason, requested_by_name, room_id, created_at
+     from ban_review where status = 'open' order by created_at asc, id asc`,
+  );
+  return {
+    ok: true,
+    value: rows.map((row) => ({
+      id: row.id,
+      removalId: row.removal_id,
+      userId: row.user_id,
+      name: row.name,
+      reason: row.reason,
+      requestedBy: row.requested_by_name,
+      roomId: row.room_id,
+      own: row.user_id === userId,
+      at: new Date(row.created_at).getTime(),
+    })),
+  };
+}
+
+export type OwnSuspension = {
+  suspended: true;
+  reason: string;
+  /** The removed post to appeal, when the removal was a post. Never its content. */
+  postId: string | null;
+  appealable: boolean;
+};
+
+/**
+ * The signed-in member's own open suspension, if a steward's removal suspended
+ * them and an admin has not decided yet. It never returns the post, its text,
+ * the strike count or the steward's name.
+ */
+export async function ownSuspension(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<OwnSuspension | { suspended: false }> {
+  const rows = await db.query<{ reason: string; post_id: string | null }>(
+    `select r.reason, br.post_id
+     from ban_review r
+     left join board_ban b on b.id = r.ban_id
+     left join board_removal br on br.id = r.removal_id
+     where r.user_id = $1 and r.status = 'open'
+       and (b.id is null or b.until_at > $2)
+     order by r.created_at desc limit 1`,
+    [userId, now],
+  );
+  const row = rows[0];
+  if (!row) return { suspended: false };
+  return {
+    suspended: true,
+    reason: row.reason,
+    postId: row.post_id,
+    appealable: row.reason !== "csam" && Boolean(row.post_id),
+  };
+}
+
+/**
+ * An admin makes a steward's suspension a permanent ban ("closed"), or lifts it
+ * because the member is cleared ("cleared"). Both are logged and reversible
+ * only by a later admin action; a CSAM suspension cannot be cleared.
+ */
+// The posts a removal took down. Rows written before post_ids existed fall back to the
+// removed post itself, never its replies, so a reply removed on its own is not restored.
+async function removedByThis(tx: Db, removalId: string): Promise<string[]> {
+  const rows = await tx.query<{ post_id: string; post_ids: string[] | null }>(
+    `select post_id, post_ids from board_removal where id = $1`,
+    [removalId],
+  );
+  const row = rows[0];
+  if (!row) return [];
+  return row.post_ids ?? [row.post_id];
+}
+
+export async function decideBanReview(
+  db: Db,
+  input: { userId: string; name?: string; reviewId: string; decision: string; now: Date },
+): Promise<Result<{ id: string; decision: "closed" | "cleared" }>> {
+  const actor = await actorRole(db, input.userId);
+  if (!actor.admin) return fail(403, "Only an admin issues a permanent ban.");
+  const stopped = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (stopped) return stopped;
+  if (input.decision !== "closed" && input.decision !== "cleared") {
+    return fail(400, "Make the ban permanent or clear the member.");
+  }
+  const decision = input.decision;
+  const pending = await db.query<{ user_id: string | null; reason: string; status: string; requested_by_user_id: string | null }>(
+    `select user_id, reason, status, requested_by_user_id from ban_review where id = $1`,
+    [input.reviewId],
+  );
+  const current = pending[0];
+  if (!current) return fail(404, "That review is not here.");
+  if (current.user_id === input.userId) return fail(403, "Another admin decides your own case.");
+  if (current.requested_by_user_id === input.userId) {
+    return fail(403, "Another admin decides a suspension you asked for.");
+  }
+  if (current.status === decision) return fail(409, "That review already has this decision.");
+  if (decision === "cleared" && current.reason === "csam") {
+    return fail(400, "A child sexual abuse material ban is never lifted.");
+  }
+  const by = input.name?.trim() || "Admin";
+  const rows = await db.transaction(async (tx) => {
+    // Re-read under a row lock so two admins cannot decide it at once.
+    const locked = await tx.query<{
+      status: string;
+      ban_id: string | null;
+      user_id: string | null;
+      removal_id: string | null;
+      chat_removal_id: string | null;
+    }>(`select status, ban_id, user_id, removal_id, chat_removal_id from ban_review where id = $1 for update`, [
+      input.reviewId,
+    ]);
+    const review = locked[0];
+    if (!review || review.status === decision) return [];
+    await tx.query(
+      `update ban_review set status = $2, decided_by_user_id = $3, decided_at = $4 where id = $1`,
+      [input.reviewId, decision, input.userId, input.now],
+    );
+    await tx.query(
+      `insert into ban_review_event (id, review_id, decision, previous, by_user_id, at) values ($1, $2, $3, $4, $5, $6)`,
+      [randomUUID(), input.reviewId, decision, review.status, input.userId, input.now],
+    );
+    const postIds = review.removal_id ? await removedByThis(tx, review.removal_id) : [];
+    if (decision === "closed") {
+      if (review.ban_id) {
+        await tx.query(
+          `update board_ban set until_at = $2, room_id = '', by_user_id = $3, by_name = $4 where id = $1`,
+          [review.ban_id, new Date(input.now.getTime() + CLOSED_MS), input.userId, by],
+        );
+      }
+      // A reversal of a clearing takes the content down again and counts the strike again.
+      if (review.removal_id) {
+        await tx.query(`update board_removal set cleared_at = null where id = $1`, [review.removal_id]);
+        if (postIds.length) await tx.query(`update board_post set removed = true where id = any($1::text[])`, [postIds]);
+      }
+      if (review.chat_removal_id) {
+        await tx.query(`update room_chat_removal set cleared_at = null where id = $1`, [review.chat_removal_id]);
+        await tx.query(
+          `update room_chat_message set removed = true, removed_at = $2
+           where id = (select message_id from room_chat_removal where id = $1)`,
+          [review.chat_removal_id, input.now],
+        );
+      }
+    } else {
+      if (review.ban_id) await tx.query(`update board_ban set until_at = $2 where id = $1`, [review.ban_id, input.now]);
+      // Cleared: the removed content comes back, and the strike no longer counts.
+      if (review.removal_id) {
+        await tx.query(`update board_removal set cleared_at = $2 where id = $1`, [review.removal_id, input.now]);
+        if (postIds.length) await tx.query(`update board_post set removed = false where id = any($1::text[])`, [postIds]);
+      }
+      if (review.chat_removal_id) {
+        await tx.query(`update room_chat_removal set cleared_at = $2 where id = $1`, [review.chat_removal_id, input.now]);
+        await tx.query(
+          `update room_chat_message set removed = false, removed_at = null
+           where id = (select message_id from room_chat_removal where id = $1)`,
+          [review.chat_removal_id],
+        );
+      }
+    }
+    return [{ user_id: review.user_id, previous: review.status }];
+  });
+  if (!rows[0]) return fail(409, "That review already has this decision.");
+  console.log(
+    JSON.stringify({
+      event: "ban-review-decided",
+      id: input.reviewId,
+      decision,
+      previous: rows[0].previous,
+      by: input.userId,
+      userId: rows[0].user_id,
+    }),
+  );
+  return { ok: true, value: { id: input.reviewId, decision } };
+}
+
 export async function writeBan(
   tx: Db,
   input: {
@@ -959,17 +1194,27 @@ export async function writeBan(
     now: Date;
     /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
     roomId: string;
+    /** The room whose steward removed it, kept on the admin review even when the bar is site-wide. */
+    sourceRoomId?: string;
+    /** A room chat removal's id, so clearing the review restores that line. */
+    chatRemovalId?: string;
     /**
      * The new hard removal is already stored. A room chat line sets this
      * because its row lives in room_chat_removal, not board_removal.
      */
     removalAlreadyCounted?: boolean;
+    /**
+     * Only an admin closes an account for good. When anyone else's removal would,
+     * the member is suspended site-wide at once and flagged for an admin review.
+     */
+    byAdmin?: boolean;
   },
 ): Promise<BanEntry> {
   const prior = await queryBanTable<{ strikes: number }>(
     tx,
     `select strikes from board_ban
      where user_id = $1 and room_id = $2
+       and not exists (select 1 from ban_review v where v.ban_id = board_ban.id and v.status = 'cleared')
      order by created_at desc limit 1`,
     [input.userId, input.roomId],
   );
@@ -977,26 +1222,44 @@ export async function writeBan(
     ? await tx.query<{ id: string }>(
         `select r.id from board_removal r
          join board_post p on p.id = r.post_id
-         where r.author_user_id = $1 and p.room_id = $2`,
+         where r.author_user_id = $1 and p.room_id = $2 and r.cleared_at is null`,
         [input.userId, input.roomId],
       )
-    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1`, [
+    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1 and cleared_at is null`, [
         input.userId,
       ]);
   const chatRemovals = (await roomChatReady(tx))
     ? await tx.query<{ id: string }>(
         input.roomId
-          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2`
-          : `select id from room_chat_removal where author_user_id = $1`,
+          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2 and cleared_at is null`
+          : `select id from room_chat_removal where author_user_id = $1 and cleared_at is null`,
         input.roomId ? [input.userId, input.roomId] : [input.userId],
       )
     : [];
   const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
   const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
   const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
-  const until = new Date(
-    input.now.getTime() + (input.reason === "csam" || strikes >= 2 ? CLOSED_MS : BAN_MS),
-  );
+  const permanent = permanentOnFirst(input.reason) || strikes >= 2;
+  // A steward cannot ban for good. Their would-be permanent ban is a site-wide
+  // suspension, in force at once, until an admin closes the account or clears it.
+  const pendingReview = permanent && input.byAdmin !== true;
+  if (pendingReview && input.reason === "porn" && input.byUserId) {
+    // One steward cannot lock out a room before an admin looks. Serialize this
+    // steward's flags so simultaneous requests are counted, then cap them.
+    // CSAM is never capped: that content must come down at once.
+    await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [`steward-flag:${input.byUserId}`]);
+    const recent = await tx.query<{ n: number | string }>(
+      `select count(*) as n from ban_review
+       where requested_by_user_id = $1 and reason = 'porn' and created_at > $2`,
+      [input.byUserId, new Date(input.now.getTime() - STEWARD_FLAG_WINDOW_MS)],
+    );
+    if (Number(recent[0]?.n ?? 0) >= STEWARD_FLAG_LIMIT) {
+      console.log(JSON.stringify({ event: "steward-flag-limit", stewardId: input.byUserId }));
+      throw new Stop(429, STEWARD_FLAG_LIMIT_ERROR);
+    }
+  }
+  const until = new Date(input.now.getTime() + (permanent ? CLOSED_MS : BAN_MS));
+  const roomId = pendingReview ? "" : input.roomId;
   const id = randomUUID();
   await tx.query(
     `insert into board_ban
@@ -1012,12 +1275,33 @@ export async function writeBan(
       strikes,
       until,
       input.removalId,
-      input.roomId,
+      roomId,
       input.now,
     ],
   );
+  if (pendingReview) {
+    await tx.query(
+      `insert into ban_review
+       (id, ban_id, removal_id, user_id, name, reason, strikes, room_id, requested_by_user_id, requested_by_name, created_at, chat_removal_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        randomUUID(),
+        id,
+        input.removalId,
+        input.userId,
+        input.name,
+        input.reason,
+        strikes,
+        input.sourceRoomId ?? input.roomId,
+        input.byUserId || null,
+        input.byName,
+        input.now,
+        input.chatRemovalId ?? null,
+      ],
+    );
+  }
   console.log(
-    JSON.stringify({ event: "member-banned", userId: input.userId, reason: input.reason, strikes }),
+    JSON.stringify({ event: pendingReview ? "member-suspended" : "member-banned", userId: input.userId, reason: input.reason, strikes }),
   );
   return {
     id,
@@ -1026,6 +1310,7 @@ export async function writeBan(
     until: until.getTime(),
     strikes,
     at: input.now.getTime(),
+    ...(pendingReview ? { pendingReview: true } : {}),
   };
 }
 
@@ -1443,6 +1728,8 @@ export async function removePost(
   },
 ): Promise<Result<{ removal: RemovalEntry; ban: BanEntry }>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!isHardRule(input.reason)) return fail(400, RULE_ERROR);
   const reason = input.reason;
   const existing = await db.query<{
@@ -1492,19 +1779,21 @@ export async function removePost(
         publicKeys = relocated.files.map((item) => item.from);
         alert = relocated.alert;
       }
-      const gone = await tx.query<{ id: string }>(
-        `update board_post set removed = true where id = $1 or parent_id = $1 returning id`,
+      // Record exactly which posts this removal took down. Replies already removed on their
+      // own stay out of the list, so clearing or re-closing never touches them.
+      const taken = await tx.query<{ id: string }>(
+        `update board_post set removed = true where (id = $1 or parent_id = $1) and removed = false returning id`,
         [post.id],
       );
       await autoCloseReports(tx, {
         subjectKind: "post",
-        subjectIds: gone.map((row) => row.id),
+        subjectIds: taken.map((row) => row.id),
         actorUserId: input.userId,
         now: input.now,
       });
       await tx.query(
-        `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `insert into board_removal (id, post_id, author_user_id, author_name, by_user_id, by_name, reason, created_at, post_ids)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           removalId,
           post.id,
@@ -1514,10 +1803,12 @@ export async function removePost(
           by,
           reason,
           input.now,
+          taken.map((row) => row.id),
         ],
       );
-      const siteWide = actor.admin || reason === "csam";
+      const siteWide = actor.admin || permanentOnFirst(reason);
       return writeBan(tx, {
+        byAdmin: actor.admin,
         userId: post.author_user_id,
         name: post.author_name,
         reason,
@@ -1526,13 +1817,14 @@ export async function removePost(
         removalId,
         now: input.now,
         roomId: siteWide ? "" : post.room_id,
+        sourceRoomId: post.room_id,
       });
     });
     // The save committed. Drop the rollback list so a later error cannot delete the evidence.
     heldKeys.length = 0;
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
+    if (ban.pendingReview || actor.admin || permanentOnFirst(reason)) evictCallMember(post.author_user_id);
     else
       evictCallMember(post.author_user_id, [
         post.room_id,
@@ -1596,6 +1888,8 @@ async function banKeepingStewards(
     reason: Parameters<typeof writeBan>[1]["reason"];
     byName: string;
     roomId: string;
+    sourceRoomId?: string;
+    byAdmin?: boolean;
     now: Date;
   },
 ) {
@@ -1620,6 +1914,8 @@ async function banKeepingStewards(
         removalId: null,
         now: input.now,
         roomId: input.roomId,
+        sourceRoomId: input.sourceRoomId,
+        byAdmin: input.byAdmin,
       });
       await confirmStewardsLeft(tx, {
         outgoingId: input.person.id,
@@ -1630,7 +1926,7 @@ async function banKeepingStewards(
       return { ok: true as const, value: ban };
     });
   } catch (error) {
-    if (error instanceof StewardStop) return fail(error.status, error.message);
+    if (error instanceof StewardStop || error instanceof Stop) return fail(error.status, error.message);
     throw error;
   }
 }
@@ -1649,6 +1945,8 @@ export async function banMember(
   },
 ): Promise<Result<BanEntry>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!actor.admin && actor.stewardRooms.length === 0) {
     return fail(403, "Only a steward can bar an account.");
   }
@@ -1674,6 +1972,7 @@ export async function banMember(
       rooms: "all",
       replacementEmail: input.replacementEmail ?? "",
       inviterEmail: input.inviterEmail ?? "",
+      byAdmin: true,
       reason,
       byName,
       roomId: "",
@@ -1702,7 +2001,7 @@ export async function banMember(
   if (!(await offendedInRoom(db, person.id, roomId))) {
     return fail(403, "A steward can bar a member only for a post in a room they steward.");
   }
-  const siteWide = reason === "csam";
+  const siteWide = permanentOnFirst(reason);
   const banned = await banKeepingStewards(db, {
     actorId: input.userId,
     person,
@@ -1712,11 +2011,12 @@ export async function banMember(
     reason,
     byName,
     roomId: siteWide ? "" : roomId,
+    sourceRoomId: roomId,
     now: input.now,
   });
   if (!banned.ok) return banned;
   const ban = banned.value;
-  if (siteWide) evictCallMember(person.id);
+  if (ban.pendingReview || siteWide) evictCallMember(person.id);
   else evictCallMember(person.id, [roomId, ...(await groupsApprovedFrom(db, roomId))]);
   return { ok: true, value: ban };
 }
@@ -1775,9 +2075,53 @@ export async function listOwnAppeals(db: Db, userId: string): Promise<AppealEntr
   return visible;
 }
 
+/** The one ground a pornography removal can be appealed on. */
+export const COMPROMISE_GROUND = "account_compromise";
+/** Evidence of a compromise must be at least this long: what happened, when, and how it is shown. */
+export const COMPROMISE_EVIDENCE_MIN = 200;
+
+async function auditAppeal(
+  db: Db,
+  entry: {
+    appealId: string;
+    postId: string;
+    action: "filed" | "refused" | "uphold" | "lift";
+    actorUserId: string;
+    rule: string;
+    detail: string;
+    now: Date;
+  },
+): Promise<void> {
+  await db.query(
+    `insert into board_appeal_audit (id, appeal_id, post_id, action, actor_user_id, rule, detail, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      randomUUID(),
+      entry.appealId,
+      entry.postId,
+      entry.action,
+      entry.actorUserId || null,
+      entry.rule,
+      entry.detail.slice(0, 4000),
+      entry.now,
+    ],
+  );
+}
+
 export async function fileAppeal(
   db: Db,
-  input: { userId: string; name: string; postId: string; kind: string; reason: string; now: Date },
+  input: {
+    userId: string;
+    name: string;
+    postId: string;
+    kind: string;
+    reason: string;
+    now: Date;
+    /** Required for a pornography removal: "account_compromise". */
+    ground?: string;
+    /** Required with the compromise ground. */
+    evidence?: string;
+  },
 ): Promise<Result<AppealEntry>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "Only a member can appeal.");
@@ -1801,6 +2145,9 @@ export async function fileAppeal(
     return fail(404, "That post is not here.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can appeal.");
   let targetId = "";
+  let rule = "";
+  let ground = "";
+  let evidence = "";
   if (input.kind === "mark") {
     if (post.removed || !isMarkValue(post.mark)) return fail(404, "That mark is not here.");
     const marks = await db.query<{ id: string }>(
@@ -1809,21 +2156,55 @@ export async function fileAppeal(
     );
     targetId = marks[0]?.id ?? post.id;
   } else {
-    const removals = await db.query<{ id: string }>(
-      `select id from board_removal where post_id = $1 order by created_at desc limit 1`,
+    const removals = await db.query<{ id: string; reason: string }>(
+      `select id, reason from board_removal where post_id = $1 order by created_at desc limit 1`,
       [post.id],
     );
     const removal = removals[0];
     if (!removal) return fail(404, "That removal is not here.");
     targetId = removal.id;
+    rule = removal.reason;
+    const refuse = async (status: number, message: string) => {
+      await auditAppeal(db, {
+        appealId: "",
+        postId: post.id,
+        action: "refused",
+        actorUserId: input.userId,
+        rule,
+        detail: message,
+        now: input.now,
+      });
+      return fail(status, message);
+    };
+    if (rule === "csam") {
+      return refuse(403, "A removal for child sexual abuse material cannot be appealed.");
+    }
+    if (rule === "porn") {
+      if ((input.ground ?? "") !== COMPROMISE_GROUND) {
+        return refuse(
+          400,
+          "A pornography removal can be appealed only if your account was taken over by someone else.",
+        );
+      }
+      evidence = (input.evidence ?? "").trim();
+      if (evidence.length < COMPROMISE_EVIDENCE_MIN) {
+        return refuse(
+          400,
+          `Show how your account was taken over: what happened, when, and the proof, in at least ${COMPROMISE_EVIDENCE_MIN} characters.`,
+        );
+      }
+      if (evidence.length > 4000) return refuse(400, "Keep the evidence under 4,000 characters.");
+      ground = COMPROMISE_GROUND;
+    }
   }
   const id = randomUUID();
   const author = input.name.trim() || post.author_name;
   try {
     await db.query(
       `insert into board_appeal
-       (id, post_id, room_id, author_user_id, author_name, kind, target_id, reason, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (id, post_id, room_id, author_user_id, author_name, kind, target_id, reason, created_at,
+        ground, evidence)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         id,
         post.id,
@@ -1834,6 +2215,8 @@ export async function fileAppeal(
         targetId,
         sentence.text,
         input.now,
+        ground,
+        evidence,
       ],
     );
   } catch (error) {
@@ -1846,6 +2229,17 @@ export async function fileAppeal(
   );
   const row = saved[0];
   if (!row) return fail(500, "The appeal was not filed.");
+  if (input.kind === "removal") {
+    await auditAppeal(db, {
+      appealId: id,
+      postId: post.id,
+      action: "filed",
+      actorUserId: input.userId,
+      rule,
+      detail: ground ? `ground=${ground}` : "",
+      now: input.now,
+    });
+  }
   console.log(JSON.stringify({ event: "appeal-filed", postId: post.id, kind: input.kind }));
   return { ok: true, value: appealFrom(row) };
 }
@@ -1862,6 +2256,8 @@ export async function decideAppeal(
   },
 ): Promise<Result<{ appeal: AppealEntry; posts: BoardPost[] }>> {
   const actor = await actorRole(db, input.userId);
+  const adminBanned = await bannedAdminStop(db, actor, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (input.decision !== "uphold" && input.decision !== "lift")
     return fail(400, "Uphold or lift the appeal.");
   const sentence = sentenceOrStop(input.reason);
@@ -1874,13 +2270,56 @@ export async function decideAppeal(
     kind: string;
     target_id: string;
     decision: string | null;
+    ground: string;
+    evidence: string;
+    rule: string | null;
   }>(
-    `select id, room_id, post_id, author_user_id, kind, target_id, decision from board_appeal where id = $1`,
+    `select a.id, a.room_id, a.post_id, a.author_user_id, a.kind, a.target_id, a.decision,
+            a.ground, a.evidence, r.reason as rule
+     from board_appeal a
+     left join board_removal r on a.kind = 'removal' and r.id = a.target_id
+     where a.id = $1`,
     [input.appealId],
   );
   const appeal = open[0];
   if (!appeal || appeal.decision) return fail(404, "That appeal is not open.");
-  if (!stewardsRoom(actor, appeal.room_id)) {
+  const rule = appeal.rule ?? "";
+  const closing =
+    appeal.kind === "removal"
+      ? await db.query<{ id: string }>(
+          `select id from board_ban where removal_id = $1 and strikes >= 2 limit 1`,
+          [appeal.target_id],
+        )
+      : [];
+  if (closing[0] && !actor.admin) {
+    return fail(403, "Only an admin decides an appeal of a permanent ban.");
+  }
+  if (rule === "porn" || rule === "csam") {
+    if (!actor.admin) return fail(403, "Only an admin decides an appeal of a permanent ban.");
+    if (rule === "csam" && input.decision === "lift") {
+      return fail(400, "That removal stays. Child sexual abuse material is not put back.");
+    }
+    const banners = await db.query<{ by_user_id: string | null }>(
+      `select by_user_id from board_removal where id = $1
+       union select by_user_id from board_ban where removal_id = $1`,
+      [appeal.target_id],
+    );
+    if (banners.some((row) => row.by_user_id === input.userId)) {
+      return fail(403, "An admin who did not issue the ban decides this appeal.");
+    }
+    if (
+      input.decision === "lift" &&
+      (appeal.ground !== COMPROMISE_GROUND ||
+        appeal.evidence.trim().length < COMPROMISE_EVIDENCE_MIN)
+    ) {
+      return fail(
+        400,
+        rule === "csam"
+          ? "That removal stays. Child sexual abuse material is not put back."
+          : "A pornography ban is lifted only on evidence that the account was taken over.",
+      );
+    }
+  } else if (!stewardsRoom(actor, appeal.room_id)) {
     return fail(
       403,
       actor.stewardRooms.length > 0
@@ -1912,13 +2351,19 @@ export async function decideAppeal(
         if (removals[0]?.reason === "csam") {
           throw new Stop(400, "That removal stays. Child sexual abuse material is not put back.");
         }
-        await tx.query(`update board_post set removed = false where id = $1 or parent_id = $1`, [
-          appeal.post_id,
-        ]);
+        const lifted = await removedByThis(tx, appeal.target_id);
+        if (lifted.length)
+          await tx.query(`update board_post set removed = false where id = any($1::text[])`, [lifted]);
         await tx.query(
           `update board_ban set until_at = $2
-           where removal_id = $1 and strikes < 2 and (room_id = '' or room_id = $3)`,
+           where removal_id = $1 and reason <> 'csam'
+             and (strikes < 2 or reason = 'porn') and (room_id = '' or room_id = $3)`,
           [appeal.target_id, input.now, appeal.room_id],
+        );
+        await tx.query(
+          `update ban_review set status = 'cleared', decided_by_user_id = $2, decided_at = $3
+           where removal_id = $1 and status = 'open'`,
+          [appeal.target_id, input.userId, input.now],
         );
       }
       if (input.decision === "lift" && appeal.kind === "mark") {
@@ -1932,6 +2377,17 @@ export async function decideAppeal(
          where id = $1 and decision is null`,
         [appeal.id, input.decision, sentence.text, input.userId, by, input.now],
       );
+      if (appeal.kind === "removal") {
+        await auditAppeal(tx, {
+          appealId: appeal.id,
+          postId: appeal.post_id,
+          action: input.decision === "lift" ? "lift" : "uphold",
+          actorUserId: input.userId,
+          rule,
+          detail: sentence.text,
+          now: input.now,
+        });
+      }
       if (input.decision !== "lift") return [];
       return tx.query<PostRow>(
         `select ${POST_RETURNING} from board_post where id = $1 or parent_id = $1`,

@@ -70,8 +70,8 @@ function mount(rows, onClose) {
 }
 
 test("rowLabel names the reason and the reporter, or just the reason", () => {
-  assert.equal(rowLabel({ reason: "threat", reporterName: "Ana" }), "Threat of violence, reported by Ana");
-  assert.equal(rowLabel({ reason: "threat", reporterName: "" }), "Threat of violence");
+  assert.equal(rowLabel({ reason: "threat", reporterName: "Ana" }), "Calls for violence, threats, or plans to attack or intimidate, reported by Ana");
+  assert.equal(rowLabel({ reason: "threat", reporterName: "" }), "Calls for violence, threats, or plans to attack or intimidate");
 });
 
 test("each action has a unique accessible name", () => {
@@ -81,8 +81,8 @@ test("each action has a unique accessible name", () => {
   );
   const labels = [...host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
   assert.equal(new Set(labels).size, labels.length);
-  assert.ok(labels.includes("Mark resolved: Threat of violence, reported by Ana"));
-  assert.ok(labels.includes("Dismiss: Threat of violence, reported by Ben"));
+  assert.ok(labels.includes("Mark resolved: Calls for violence, threats, or plans to attack or intimidate, reported by Ana"));
+  assert.ok(labels.includes("Dismiss: Calls for violence, threats, or plans to attack or intimidate, reported by Ben"));
   assert.ok(labels.includes("Dismiss: Sharing someone's private details"));
   act(() => root.unmount());
   host.remove();

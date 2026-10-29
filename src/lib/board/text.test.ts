@@ -53,3 +53,27 @@ test("posts are English", () => {
   assert.equal(isEnglish("Слышал это в сети."), false);
   assert.equal(isEnglish("道路が閉まっている。"), false);
 });
+
+test("the removal list names every rule, and porn and CSAM are permanent on the first offense", async () => {
+  const { PERMANENT_ON_FIRST, permanentOnFirst } = await import("./text.ts");
+  const { RULE_LABEL, RULE_SENTENCE } = await import("./model.ts");
+  assert.deepEqual([...PERMANENT_ON_FIRST], ["porn", "csam"]);
+  assert.equal(permanentOnFirst("porn"), true);
+  assert.equal(permanentOnFirst("csam"), true);
+  for (const rule of ["threat", "doxxing", "blasphemy"]) assert.equal(permanentOnFirst(rule), false);
+  assert.match(RULE_LABEL.threat, /Calls for violence, threats, or plans to attack or intimidate/);
+  assert.match(RULE_LABEL.blasphemy, /^Blasphemy/);
+  assert.match(RULE_SENTENCE.porn, /suspends the account everywhere on Avouch until an admin reviews it/);
+  assert.match(RULE_SENTENCE.csam, /suspends the account everywhere on Avouch until an admin closes it/);
+});
+
+test("About's Moderation copy names no person and states the compromise-only appeal", async () => {
+  const { readFileSync } = await import("node:fs");
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const start = about.indexOf('title: "Moderation"');
+  const moderation = about.slice(start, about.indexOf("},", start));
+  assert.equal(moderation.includes("Josh"), false, "the public page names a role, not a person");
+  assert.match(moderation, /An admin files that report by hand\./);
+  assert.match(moderation, /the evidence is held for at least one year\./);
+  assert.match(moderation, /A pornography closure is lifted only if the member shows technical evidence that someone else took over the account\./);
+});

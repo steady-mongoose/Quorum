@@ -761,31 +761,11 @@ test("CSAM is removed, banned, held for one year, and never returned", async () 
       reason: "Please put the post back up.",
       now,
     });
-    assert.equal(appealed.ok, true);
-    if (!appealed.ok) return;
-    const lifted = await decideAppeal(db, {
-      userId: tom,
-      name: "Tom",
-      appealId: appealed.value.id,
-      decision: "lift",
-      reason: "The post should come back.",
-      now,
-    });
-    assert.equal(lifted.ok, false);
-    const upheld = await decideAppeal(db, {
-      userId: tom,
-      name: "Tom",
-      appealId: appealed.value.id,
-      decision: "uphold",
-      reason: "The removal stays on the record.",
-      now,
-    });
-    assert.equal(upheld.ok, true);
-    if (!upheld.ok) return;
-    assert.equal(upheld.value.appeal.decision, "uphold");
-    assert.equal(upheld.value.posts.length, 0);
-    const ownUpheld = await listOwnAppeals(db, maria);
-    assert.equal(ownUpheld.find((row) => row.kind === "removal")?.decision, "uphold");
+    // A CSAM removal cannot be appealed at all.
+    assert.equal(appealed.ok, false);
+    if (!appealed.ok) assert.equal(appealed.status, 403);
+    const ownAppeals = await listOwnAppeals(db, maria);
+    assert.equal(ownAppeals.some((row) => row.kind === "removal"), false);
     const stillOut = await listBoard(db, maria, now);
     assert.equal(stillOut.ok, false);
 
@@ -993,7 +973,8 @@ test("appeals and moderation logs stay with the author, that room's stewards, an
         reason: "Please put the post back up.",
         now,
       });
-      assert.equal(csamAppeal.ok, true);
+      // A CSAM removal cannot be appealed, so only the mark appeal is listed.
+      assert.equal(csamAppeal.ok, false);
 
       const author = await listBoard(db, maria, now);
       const shop = await listBoard(db, tom, now);
@@ -1002,27 +983,17 @@ test("appeals and moderation logs stay with the author, that room's stewards, an
       const admin = await listBoard(db, josh, now);
       assert.equal(author.ok, false);
       const own = await listOwnAppeals(db, maria);
-      const ownRemoval = own.find((row) => row.kind === "removal");
-      assert.equal(ownRemoval?.decision, null);
-      assert.equal(ownRemoval?.rule, "csam");
+      assert.equal(own.some((row) => row.kind === "removal"), false);
       assert.equal((await listOwnAppeals(db, sam)).length, 0);
       assert.equal(shop.ok, true);
       assert.equal(county.ok, true);
       assert.equal(member.ok, true);
       assert.equal(admin.ok, true);
       if (!shop.ok || !county.ok || !member.ok || !admin.ok) return;
-      assert.equal(shop.value.appeals.length, 2);
+      assert.equal(shop.value.appeals.length, 1);
       assert.equal(county.value.appeals.length, 0);
       assert.equal(member.value.appeals.length, 0);
-      assert.equal(admin.value.appeals.length, 2);
-      assert.equal(
-        shop.value.appeals.find((row) => row.kind === "removal")?.rule,
-        null,
-      );
-      assert.equal(
-        admin.value.appeals.find((row) => row.kind === "removal")?.rule,
-        "csam",
-      );
+      assert.equal(admin.value.appeals.length, 1);
       assert.equal(shop.value.removals.length, 1);
       assert.equal(shop.value.bans.length, 0);
       assert.equal(county.value.removals.length, 0);

@@ -262,11 +262,11 @@ export type DmMessage = {
 };
 
 export const RULE_LABEL: Record<HardRule, string> = {
-  threat: "Threat of violence",
+  threat: "Calls for violence, threats, or plans to attack or intimidate",
   porn: "Pornography",
   csam: "Child sexual abuse material",
   doxxing: "Sharing someone's private details",
-  blasphemy: "Mocking God or Christ",
+  blasphemy: "Blasphemy (mocking God or Christ)",
 };
 /**
  * Wording for the hard-removal confirmation. Every rule asks first, and
@@ -280,32 +280,47 @@ function lowerFirst(label: string): string {
 export function removalConfirm(
   rule: HardRule,
   target: "post" | "message",
+  author = "",
+  byAdmin = false,
 ): { title: string; description: string; confirmLabel: string; cancelLabel: string } {
   const thing = target === "post" ? "post" : "chat message";
+  const name = author.trim() || "the author";
+  // A steward's removal suspends pending admin review; an admin's removal closes the account at once.
+  const suspends = byAdmin
+    ? `This also closes ${name}'s account everywhere on Avouch at once.`
+    : `This also suspends ${name} everywhere on Avouch until an admin reviews it.`;
   if (rule === "csam") {
     return {
       title: `Remove this ${thing} as child sexual abuse material?`,
-      description:
-        "The account is banned from the whole site at once, and the file is held for the CyberTipline report without anyone opening it. This can't be undone.",
-      confirmLabel: "Remove and ban",
+      description: `The file is held for the CyberTipline report without anyone opening it. ${suspends} This can't be undone.`,
+      confirmLabel: "Remove",
+      cancelLabel: "Cancel",
+    };
+  }
+  if (rule === "porn") {
+    return {
+      title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
+      description: `The ${thing} comes down. ${suspends}`,
+      confirmLabel: "Remove",
       cancelLabel: "Cancel",
     };
   }
   return {
     title: `Remove this ${thing} for ${lowerFirst(RULE_LABEL[rule])}?`,
-    description: `The ${thing} comes down and the author can't post in this room for 30 days. A second removal closes the account. The author can appeal.`,
+    description: `The ${thing} comes down and the author can't post in this room for 30 days. If this is their second removal, ${suspends.replace(/^This also/, "this also")} The author can appeal.`,
     confirmLabel: "Remove",
     cancelLabel: "Cancel",
   };
 }
 /** One sentence a steward can apply the same way to every member. */
 export const RULE_SENTENCE: Record<HardRule, string> = {
-  threat: "A threat of violence is removed.",
-  porn: "Pornography is removed.",
-  csam: "Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel.",
+  threat:
+    "A call for violence, a threat, or a plan or instructions to attack or intimidate someone is removed.",
+  porn: "Pornography is removed. A steward's removal suspends the account everywhere on Avouch until an admin reviews it. An admin's removal closes it at once.",
+  csam: "Child sexual abuse material is removed at once and the evidence is held for at least one year. A steward's removal suspends the account everywhere on Avouch until an admin closes it. An admin's removal closes it at once.",
   doxxing:
     "Publishing a private person's home address, phone number, or other contact so strangers can find them is removed.",
-  blasphemy: "A post that mocks God or Christ is removed.",
+  blasphemy: "Blasphemy, a post that mocks God or Christ, is removed.",
 };
 export const MARK_LABEL: Record<Mark, string> = {
   sloppy: "Sloppy",

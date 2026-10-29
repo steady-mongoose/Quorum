@@ -28,7 +28,7 @@ test("about, privacy, and terms are public routes, outside the signed-in gate", 
     assert.equal(file.includes("RedirectToSignIn"), false);
     assert.equal(file.includes("SignedIn"), false);
   }
-  assert.match(app, /\{entered && shown === "about" && <AboutView \/>\}/);
+  assert.match(app, /\{entered && !suspended && shown === "about" && <AboutView \/>\}/);
 });
 
 test("privacy and terms say the notice is not published yet", () => {

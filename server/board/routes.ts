@@ -52,6 +52,9 @@ import {
   closeAsked,
   createRoom,
   decideAppeal,
+  decideBanReview,
+  listBanReviews,
+  ownSuspension,
   fileAppeal,
   listBoard,
   listOwnAppeals,
@@ -205,6 +208,7 @@ export async function handleBoard(
     /^\/api\/posts\/([A-Za-z0-9_-]{1,80})\/(replies|revise|close|mark|remove|appeal|council|delete)$/.exec(
       url.pathname,
     );
+  const banReview = /^\/api\/admin\/ban-reviews\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const appealAction = /^\/api\/appeals\/([A-Za-z0-9_-]{1,80})\/decide$/.exec(url.pathname);
   const fileHold = /^\/api\/csam-holds\/([A-Za-z0-9_-]{1,80})\/filed$/.exec(url.pathname);
   const roomJoin = /^\/api\/rooms\/([a-z0-9-]{1,32})\/(join|leave)$/.exec(url.pathname);
@@ -260,7 +264,10 @@ export async function handleBoard(
     Boolean(decide && request.method === "POST") ||
     Boolean(postAction && request.method === "POST") ||
     Boolean(appealAction && request.method === "POST") ||
-    Boolean(fileHold && request.method === "POST");
+    Boolean(fileHold && request.method === "POST") ||
+    (url.pathname === "/api/admin/ban-reviews" && request.method === "GET") ||
+    (url.pathname === "/api/suspension" && request.method === "GET") ||
+    Boolean(banReview && request.method === "POST");
   if (!matched) return null;
 
   try {
@@ -273,6 +280,28 @@ export async function handleBoard(
 
     if (url.pathname === "/api/claims" && request.method === "GET") {
       return fromResult(200, await listClaims(deps.db, { userId: session.id, now }));
+    }
+
+    if (url.pathname === "/api/suspension" && request.method === "GET") {
+      return json(200, await ownSuspension(deps.db, session.id, now));
+    }
+    if (url.pathname === "/api/admin/ban-reviews" && request.method === "GET") {
+      const listed = await listBanReviews(deps.db, session.id, now);
+      if (!listed.ok) return json(listed.status, { error: listed.error });
+      return json(200, { reviews: listed.value });
+    }
+    if (banReview && request.method === "POST") {
+      const body = (await request.json().catch(() => ({}))) as { decision?: unknown };
+      return fromResult(
+        200,
+        await decideBanReview(deps.db, {
+          userId: session.id,
+          name: session.name,
+          reviewId: banReview[1] ?? "",
+          decision: typeof body.decision === "string" ? body.decision : "",
+          now,
+        }),
+      );
     }
 
     if (url.pathname === "/api/appeals" && request.method === "GET") {
@@ -830,6 +859,8 @@ export async function handleBoard(
           postId,
           kind: stringField(body, "kind"),
           reason: stringField(body, "reason"),
+          ground: stringField(body, "ground"),
+          evidence: stringField(body, "evidence"),
           now,
         }),
       );

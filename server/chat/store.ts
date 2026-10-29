@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { autoCloseReports } from "../board/report-close.ts";
-import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
+import { isEnglish, isHardRule, permanentOnFirst } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
 import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
-import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
+import { bannedAdminStop, openBan, Stop, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import type { Db } from "../db.ts";
 import { CHAT_UNAVAILABLE, roomChatReady } from "./ready.ts";
@@ -273,6 +273,8 @@ export async function removeChatMessage(
     detail: "remove",
   });
   if (!gate.ok) return gate;
+  const adminBanned = await bannedAdminStop(db, gate.value, input.userId, input.now);
+  if (adminBanned) return adminBanned;
   if (!stewardsRoom(gate.value, input.roomId)) {
     return fail(
       403,
@@ -307,7 +309,9 @@ export async function removeChatMessage(
   }
   const by = input.name.trim().slice(0, 80) || "Steward";
   const removalId = randomUUID();
-  const saved = await db.transaction(async (tx) => {
+  let saved;
+  try {
+  saved = await db.transaction(async (tx) => {
     const updated = await tx.query<{ id: string }>(
       `update room_chat_message set removed = true, removed_at = $2
        where id = $1 and removed = false
@@ -338,8 +342,9 @@ export async function removeChatMessage(
       ],
     );
     if (!message.author_user_id) return { ban: null, siteWide: false };
-    const siteWide = gate.value.admin || reason === "csam";
+    const siteWide = gate.value.admin || permanentOnFirst(reason);
     const ban = await writeBan(tx, {
+      byAdmin: gate.value.admin,
       userId: message.author_user_id,
       name: message.author_name,
       reason,
@@ -349,9 +354,15 @@ export async function removeChatMessage(
       removalAlreadyCounted: true,
       now: input.now,
       roomId: siteWide ? "" : input.roomId,
+      sourceRoomId: input.roomId,
+      chatRemovalId: removalId,
     });
     return { ban, siteWide };
   });
+  } catch (error) {
+    if (error instanceof Stop) return fail(error.status, error.message);
+    throw error;
+  }
   if (!saved) return fail(404, "That message is not here.");
   if (message.author_user_id) {
     if (saved.siteWide) evictCallMember(message.author_user_id);

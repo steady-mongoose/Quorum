@@ -15,6 +15,11 @@ import {
   closeAsked,
   createRoom,
   decideAppeal,
+  decideBanReview,
+  STEWARD_FLAG_LIMIT,
+  STEWARD_FLAG_LIMIT_ERROR,
+  listBanReviews,
+  ownSuspension,
   fileAppeal,
   listBoard,
   listOwnAppeals,
@@ -272,12 +277,23 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       userId: tom,
       name: "Tom",
       postId: again.value.id,
-      reason: "porn",
+      reason: "threat",
       now: later,
     });
     assert.equal(second.ok, true);
     if (!second.ok) return;
     assert.equal(second.value.ban.strikes >= 2, true);
+    assert.equal(second.value.ban.pendingReview, true, "a steward's second strike suspends pending an admin");
+    const flagged = await db.query<{ status: string }>(
+      `select status from ban_review where user_id = $1`,
+      [maria],
+    );
+    assert.deepEqual(flagged, [{ status: "open" }]);
+    const bars = await db.query<{ room_id: string }>(
+      `select room_id from board_ban where user_id = $1 and until_at > $2`,
+      [maria, new Date(later.getTime() + 40 * 24 * 60 * 60 * 1000)],
+    );
+    assert.deepEqual(bars, [{ room_id: "" }], "suspended site-wide until an admin decides");
     const still = await createPost(db, {
       userId: maria,
       name: "Maria",
@@ -293,7 +309,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       body: did,
       now: new Date(later.getTime() + 40 * 24 * 60 * 60 * 1000),
     });
-    assert.equal(countyAfter.ok, true);
+    assert.equal(countyAfter.ok, false, "the suspension is site-wide");
   } finally {
     await close();
   }
@@ -878,15 +894,6 @@ test("a steward cannot bar the owner, an admin, or another steward", async () =>
     });
     assert.equal(adminPost.ok, true);
     if (!adminPost.ok) return;
-    const ownerRemovesAdmin = await removePost(db, {
-      userId: owner,
-      name: "Josh",
-      postId: adminPost.value.id,
-      reason: "threat",
-      now,
-    });
-    assert.equal(ownerRemovesAdmin.ok, true);
-
     const adminRemovesSteward = await withHoldKey("test-hold-key-value", () =>
       removePost(db, {
         userId: admin,
@@ -897,6 +904,25 @@ test("a steward cannot bar the owner, an admin, or another steward", async () =>
       }),
     );
     assert.equal(adminRemovesSteward.ok, true);
+
+    const ownerRemovesAdmin = await removePost(db, {
+      userId: owner,
+      name: "Josh",
+      postId: adminPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.equal(ownerRemovesAdmin.ok, true);
+
+    // The admin is now barred site-wide, so they cannot act as an admin.
+    const bannedAdmin = await removePost(db, {
+      userId: admin,
+      name: "Ada",
+      postId: adminPost.value.id,
+      reason: "threat",
+      now,
+    });
+    assert.deepEqual(bannedAdmin, { ok: false, status: 403, error: "This account is banned and cannot act as an admin right now." });
   } finally {
     await close();
   }
@@ -970,7 +996,7 @@ test("a room bar drops that room's call, and an admin bar drops every live call"
       userId: steward,
       name: "Tom",
       email: "ruth-call@example.com",
-      reason: "porn",
+      reason: "threat",
       roomId: "shop",
       now,
     });
@@ -1388,6 +1414,25 @@ test("a CSAM removal is never room-scoped", async () => {
     assert.equal(removed.ok, true);
     if (!removed.ok) return;
     assert.equal(removed.value.ban.reason, "csam");
+    assert.equal(removed.value.ban.pendingReview, true);
+    const flagged = await db.query<{ room_id: string; reason: string }>(
+      `select room_id, reason from ban_review where user_id = $1`,
+      [maria],
+    );
+    assert.deepEqual(flagged, [{ room_id: "shop", reason: "csam" }], "the review keeps the room it came from");
+    assert.equal(
+      (await db.query(`select id from board_ban where user_id = $1 and room_id = ''`, [maria])).length,
+      1,
+      "a steward's CSAM removal suspends site-wide at once",
+    );
+    const ada = randomUUID();
+    await user(db, ada, "Ada", "ada-csam@example.com");
+    await grant(db, ada, "Ada", "admin");
+    const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
+    const cleared = await decideBanReview(db, { userId: ada, reviewId: review!.id, decision: "cleared", now });
+    assert.equal(cleared.ok, false, "a CSAM suspension is never cleared");
+    const closed = await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "closed", now });
+    assert.equal(closed.ok, true, JSON.stringify(closed));
     const rows = await db.query<{ room_id: string; reason: string }>(
       `select room_id, reason from board_ban where user_id = $1`,
       [maria],
@@ -1406,6 +1451,242 @@ test("a CSAM removal is never room-scoped", async () => {
     if (board.ok) return;
     assert.equal(board.error, "banned");
     assert.equal(board.ban?.reason, "csam");
+  } finally {
+    await close();
+  }
+});
+
+test("a steward's pornography removal suspends site-wide at once pending an admin, who alone makes it permanent; a threat is 30 days in the room", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const sam = randomUUID();
+    const tom = randomUUID();
+    await user(db, maria, "Maria", "maria-porn@example.com");
+    await user(db, sam, "Sam", "sam-threat@example.com");
+    await user(db, tom, "Tom", "tom-porn@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, sam, "Sam", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    for (const [who, name, reason] of [
+      [maria, "Maria", "porn"],
+      [sam, "Sam", "threat"],
+    ] as const) {
+      const posted = await createPost(db, { userId: who, name, roomId: "shop", body: did, now });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason, now });
+      assert.equal(removed.ok, true, JSON.stringify(removed));
+    }
+    const pornBars = await db.query<{ room_id: string }>(`select room_id from board_ban where user_id = $1`, [maria]);
+    assert.deepEqual(pornBars, [{ room_id: "" }], "suspended site-wide at once");
+    const before = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now });
+    assert.equal(before.ok, false, "a suspended member has no access");
+    const reviews = await db.query<{ id: string; status: string }>(`select id, status from ban_review`);
+    assert.equal(reviews.length, 1, "only the pornography removal goes to an admin");
+    const stewardDecides = await decideBanReview(db, { userId: tom, reviewId: reviews[0]!.id, decision: "closed", now });
+    assert.equal(stewardDecides.ok, false);
+    const ada = randomUUID();
+    await user(db, ada, "Ada", "ada-review@example.com");
+    await grant(db, ada, "Ada", "admin");
+    const listed = await listBanReviews(db, ada, now);
+    assert.equal(listed.ok && listed.value.length, 1);
+    const kept = await decideBanReview(db, { userId: ada, reviewId: reviews[0]!.id, decision: "kept", now });
+    assert.equal(kept.ok, false, "only closed or cleared");
+    const closed = await decideBanReview(db, { userId: ada, name: "Ada", reviewId: reviews[0]!.id, decision: "closed", now });
+    assert.equal(closed.ok, true, JSON.stringify(closed));
+    const [after] = await db.query<{ until_at: Date; room_id: string; by_user_id: string }>(
+      `select until_at, room_id, by_user_id from board_ban where user_id = $1`,
+      [maria],
+    );
+    const years = (new Date(after!.until_at).getTime() - now.getTime()) / (365 * 24 * 3600 * 1000);
+    assert.ok(years > 99, `porn ban lasts ${years} years after the admin closes it`);
+    assert.equal(after!.room_id, "");
+    assert.equal(after!.by_user_id, ada, "the deciding admin is the banner");
+    const [threat] = await db.query<{ room_id: string; until_at: Date }>(
+      `select room_id, until_at from board_ban where user_id = $1`,
+      [sam],
+    );
+    assert.equal(threat!.room_id, "shop");
+    const days = (new Date(threat!.until_at).getTime() - now.getTime()) / (24 * 3600 * 1000);
+    assert.equal(Math.round(days), 30);
+    const county = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now });
+    assert.equal(county.ok, false);
+  } finally {
+    await close();
+  }
+});
+
+test("an admin who clears the member lifts the suspension, and it is logged", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-dismiss@example.com");
+    await user(db, tom, "Tom", "tom-dismiss@example.com");
+    await user(db, ada, "Ada", "ada-dismiss@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+    const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
+    const during = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now });
+    assert.equal(during.ok, false, "suspended before the admin decides");
+    const own = await ownSuspension(db, maria, now);
+    assert.deepEqual(own, { suspended: true, reason: "porn", postId: posted.value.id, appealable: true });
+    assert.equal(JSON.stringify(own).includes("Tom"), false, "never names the steward");
+    assert.deepEqual(await ownSuspension(db, tom, now), { suspended: false });
+    const queue = await listBanReviews(db, ada, now);
+    assert.equal(queue.ok && queue.value[0]?.roomId, "shop");
+    assert.equal(queue.ok && queue.value[0]?.own, false);
+    const later = new Date(now.getTime() + 60_000);
+    const cleared = await decideBanReview(db, { userId: ada, reviewId: review!.id, decision: "cleared", now: later });
+    assert.equal(cleared.ok, true, JSON.stringify(cleared));
+    const back = await createPost(db, { userId: maria, name: "Maria", roomId: "county", body: did, now: new Date(later.getTime() + 1) });
+    assert.equal(back.ok, true, "cleared: the suspension is lifted");
+    assert.deepEqual(await ownSuspension(db, maria, later), { suspended: false });
+    const [row] = await db.query<{ status: string; decided_by_user_id: string }>(
+      `select status, decided_by_user_id from ban_review where id = $1`,
+      [review!.id],
+    );
+    assert.deepEqual(row, { status: "cleared", decided_by_user_id: ada });
+  } finally {
+    await close();
+  }
+});
+
+async function stewardPornCase(db: Db, tag: string) {
+  const maria = randomUUID();
+  const tom = randomUUID();
+  const ada = randomUUID();
+  const bea = randomUUID();
+  await user(db, maria, "Maria", `maria-${tag}@example.com`);
+  await user(db, tom, "Tom", `tom-${tag}@example.com`);
+  await user(db, ada, "Ada", `ada-${tag}@example.com`);
+  await user(db, bea, "Bea", `bea-${tag}@example.com`);
+  await grant(db, maria, "Maria", "member");
+  await grant(db, tom, "Tom", "member");
+  await grant(db, tom, "Tom", "steward", "shop");
+  await grant(db, ada, "Ada", "admin");
+  await grant(db, bea, "Bea", "admin");
+  const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+  assert.equal(posted.ok, true);
+  if (!posted.ok) throw new Error("no post");
+  const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+  assert.equal(removed.ok, true, JSON.stringify(removed));
+  const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
+  return { maria, tom, ada, bea, postId: posted.value.id, reviewId: review!.id };
+}
+
+test("clearing a suspension restores the removed post, and a closure can be reversed and is logged", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const c = await stewardPornCase(db, "restore");
+    const removedFlag = async () =>
+      (await db.query<{ removed: boolean }>(`select removed from board_post where id = $1`, [c.postId]))[0]!.removed;
+    assert.equal(await removedFlag(), true);
+    const t1 = new Date(now.getTime() + 60_000);
+    const closed = await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "closed", now: t1 });
+    assert.equal(closed.ok, true, JSON.stringify(closed));
+    const t2 = new Date(now.getTime() + 120_000);
+    const reversed = await decideBanReview(db, { userId: c.bea, name: "Bea", reviewId: c.reviewId, decision: "cleared", now: t2 });
+    assert.equal(reversed.ok, true, JSON.stringify(reversed));
+    assert.equal(await removedFlag(), false, "the post is back");
+    assert.deepEqual(await ownSuspension(db, c.maria, t2), { suspended: false });
+    const again = await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "cleared", now: t2 });
+    assert.equal(again.ok, false, "same decision twice is refused");
+    const t3 = new Date(now.getTime() + 180_000);
+    const reclosed = await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "closed", now: t3 });
+    assert.equal(reclosed.ok, true, JSON.stringify(reclosed));
+    assert.equal(await removedFlag(), true, "closing again takes it down again");
+    const barred = await createPost(db, { userId: c.maria, name: "Maria", roomId: "county", body: did, now: t3 });
+    assert.equal(barred.ok, false, "closed again: barred again");
+    const log = await db.query<{ decision: string; previous: string; by_user_id: string }>(
+      `select decision, previous, by_user_id from ban_review_event where review_id = $1 order by at`,
+      [c.reviewId],
+    );
+    assert.deepEqual(log, [
+      { decision: "closed", previous: "open", by_user_id: c.ada },
+      { decision: "cleared", previous: "closed", by_user_id: c.bea },
+      { decision: "closed", previous: "cleared", by_user_id: c.ada },
+    ]);
+  } finally {
+    await close();
+  }
+});
+
+test("a cleared strike does not count toward escalation", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const c = await stewardPornCase(db, "strike");
+    const t1 = new Date(now.getTime() + 60_000);
+    assert.equal((await decideBanReview(db, { userId: c.ada, reviewId: c.reviewId, decision: "cleared", now: t1 })).ok, true);
+    const t2 = new Date(now.getTime() + 120_000);
+    const posted = await createPost(db, { userId: c.maria, name: "Maria", roomId: "shop", body: did, now: t2 });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, { userId: c.tom, name: "Tom", postId: posted.value.id, reason: "porn", now: t2 });
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    assert.equal(removed.ok && removed.value.ban.strikes, 1, "the cleared removal is not a strike");
+  } finally {
+    await close();
+  }
+});
+
+test("an admin cannot decide a suspension they asked for", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const c = await stewardPornCase(db, "self-ask");
+    await grant(db, c.tom, "Tom", "admin");
+    await db.query(`update ban_review set requested_by_user_id = $2 where id = $1`, [c.reviewId, c.tom]);
+    const own = await decideBanReview(db, { userId: c.tom, reviewId: c.reviewId, decision: "closed", now });
+    assert.equal(own.ok, false);
+    assert.equal(!own.ok && own.status, 403);
+  } finally {
+    await close();
+  }
+});
+
+test("a steward's pornography flags are capped per hour with a plain 429", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const tom = randomUUID();
+    await user(db, tom, "Tom", "tom-cap@example.com");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    const postIds: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      const m = randomUUID();
+      await user(db, m, `M${i}`, `m${i}-cap@example.com`);
+      await grant(db, m, `M${i}`, "member");
+      const p = await createPost(db, { userId: m, name: `M${i}`, roomId: "shop", body: did, now });
+      if (p.ok) postIds.push(p.value.id);
+    }
+    const results = await Promise.all(
+      postIds.map((postId) => removePost(db, { userId: tom, name: "Tom", postId, reason: "porn", now })),
+    );
+    assert.equal(results.filter((r) => r.ok).length, STEWARD_FLAG_LIMIT);
+    const refused = results.filter((r) => !r.ok);
+    assert.equal(refused.length, postIds.length - STEWARD_FLAG_LIMIT);
+    for (const r of refused) {
+      assert.equal(!r.ok && r.status, 429);
+      assert.equal(!r.ok && r.error, STEWARD_FLAG_LIMIT_ERROR);
+    }
+    const later = new Date(now.getTime() + 61 * 60_000);
+    const m = randomUUID();
+    await user(db, m, "Late", "late-cap@example.com");
+    await grant(db, m, "Late", "member");
+    const p = await createPost(db, { userId: m, name: "Late", roomId: "shop", body: did, now: later });
+    assert.equal(p.ok, true);
+    if (!p.ok) return;
+    const after = await removePost(db, { userId: tom, name: "Tom", postId: p.value.id, reason: "porn", now: later });
+    assert.equal(after.ok, true, "an hour later the steward can flag again");
   } finally {
     await close();
   }
@@ -1846,6 +2127,328 @@ test("a steward sees removals and bans only in rooms they steward", async () => 
     if (!shopAfter.ok || !adminAfter.ok) return;
     assert.equal(shopAfter.value.bans.length, 1);
     assert.equal(adminAfter.value.bans.length, 3);
+  } finally {
+    await close();
+  }
+});
+
+test("a pornography appeal needs the compromise ground and evidence, and only an admin decides it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-appeal@example.com");
+    await user(db, tom, "Tom", "tom-appeal@example.com");
+    await user(db, ada, "Ada", "ada-appeal@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "member");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+    assert.equal(removed.ok, true);
+
+    const plain = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "I did not mean any harm by it.", now,
+    });
+    assert.equal(plain.ok, false);
+    if (!plain.ok) assert.equal(plain.status, 400);
+
+    const thin = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise", evidence: "It was hacked.", now,
+    });
+    assert.equal(thin.ok, false);
+
+    const evidence =
+      "On October 18 I got a password-reset email I did not request at 2:14 AM. My email provider's " +
+      "security log shows a sign-in from an address in another country at 2:20 AM, and the post went up " +
+      "at 2:31 AM. I changed my passwords on October 19. Screenshots of both logs are attached to my email.";
+    const filed = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise", evidence, now,
+    });
+    assert.equal(filed.ok, true, JSON.stringify(filed));
+    if (!filed.ok) return;
+
+    const bySteward = await decideAppeal(db, {
+      userId: tom, name: "Tom", appealId: filed.value.id, decision: "lift",
+      reason: "The logs show a takeover.", now,
+    });
+    assert.equal(bySteward.ok, false);
+    if (!bySteward.ok) assert.equal(bySteward.status, 403);
+
+    const byAdmin = await decideAppeal(db, {
+      userId: ada, name: "Ada", appealId: filed.value.id, decision: "lift",
+      reason: "The provider's log shows a foreign sign-in before the post.", now,
+    });
+    assert.equal(byAdmin.ok, true, JSON.stringify(byAdmin));
+    const [flag] = await db.query<{ status: string }>(`select status from ban_review where user_id = $1`, [maria]);
+    assert.equal(flag!.status, "cleared", "a lifted appeal clears the suspension's review");
+
+    const audit = await db.query<{ action: string; rule: string; actor_user_id: string }>(
+      `select action, rule, actor_user_id from board_appeal_audit where post_id = $1 order by created_at, action`,
+      [posted.value.id],
+    );
+    const actions = audit.map((row) => row.action).sort();
+    assert.deepEqual(actions, ["filed", "lift", "refused", "refused"]);
+    assert.ok(audit.every((row) => row.rule === "porn"));
+    assert.equal(audit.find((row) => row.action === "lift")?.actor_user_id, ada);
+  } finally {
+    await close();
+  }
+});
+
+test("a pornography ban is lifted only on compromise evidence, by an admin who did not issue it; a CSAM ban is never lifted", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ada = randomUUID();
+    const bo = randomUUID();
+    await user(db, maria, "Maria", "maria-lift@example.com");
+    await user(db, ada, "Ada", "ada-lift@example.com");
+    await user(db, bo, "Bo", "bo-lift@example.com");
+    await grant(db, maria, "Maria", "member");
+    for (const [id, name] of [[ada, "Ada"], [bo, "Bo"]] as const) {
+      await grant(db, id, name, "member");
+      await grant(db, id, name, "admin");
+    }
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await removePost(db, { userId: ada, name: "Ada", postId: posted.value.id, reason: "porn", now });
+    assert.equal(removed.ok, true);
+    if (!removed.ok) return;
+    const years = (removed.value.ban.until - now.getTime()) / (365 * 24 * 3600 * 1000);
+    assert.ok(years > 99, "an admin's pornography ban is permanent");
+    const filed = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise",
+      evidence:
+        "My provider's security log shows a sign-in from an unknown device in another country twelve " +
+        "minutes before the post went up, followed by a password change I did not make. I regained the " +
+        "account through the provider's recovery process the next morning and can show both log entries.",
+      now,
+    });
+    assert.equal(filed.ok, true, JSON.stringify(filed));
+    if (!filed.ok) return;
+    const byBanner = await decideAppeal(db, {
+      userId: ada, name: "Ada", appealId: filed.value.id, decision: "lift",
+      reason: "The log shows a takeover before the post.", now,
+    });
+    assert.equal(byBanner.ok, false);
+    if (!byBanner.ok) assert.equal(byBanner.status, 403);
+    await db.query(`update board_appeal set evidence = 'hacked' where id = $1`, [filed.value.id]);
+    const thin = await decideAppeal(db, {
+      userId: bo, name: "Bo", appealId: filed.value.id, decision: "lift",
+      reason: "The member says it was hacked.", now,
+    });
+    assert.equal(thin.ok, false, "a lift needs recorded compromise evidence");
+    await db.query(`update board_appeal set evidence = $2 where id = $1`, [filed.value.id, "y".repeat(300)]);
+    const lifted = await decideAppeal(db, {
+      userId: bo, name: "Bo", appealId: filed.value.id, decision: "lift",
+      reason: "The provider's log shows a foreign sign-in before the post.", now,
+    });
+    assert.equal(lifted.ok, true, JSON.stringify(lifted));
+    const [ban] = await db.query<{ until_at: Date }>(`select until_at from board_ban where user_id = $1`, [maria]);
+    assert.ok(new Date(ban!.until_at).getTime() <= now.getTime(), "the ban is lifted");
+
+    const csamAuthor = randomUUID();
+    await user(db, csamAuthor, "Cy", "cy-lift@example.com");
+    await grant(db, csamAuthor, "Cy", "member");
+    const bad = await createPost(db, { userId: csamAuthor, name: "Cy", roomId: "shop", body: did, now });
+    assert.equal(bad.ok, true);
+    if (!bad.ok) return;
+    await withHoldKey("test-hold-key-value", () =>
+      removePost(db, { userId: ada, name: "Ada", postId: bad.value.id, reason: "csam", now }),
+    );
+    const appealId = randomUUID();
+    await db.query(
+      `insert into board_appeal (id, room_id, post_id, author_user_id, author_name, kind, target_id, reason, ground, evidence, created_at)
+       select $1, 'shop', $2, $3, 'Cy', 'removal', r.id, 'Someone else used my account.', 'account_compromise', $4, $5
+       from board_removal r where r.post_id = $2`,
+      [appealId, bad.value.id, csamAuthor, "z".repeat(300), now],
+    );
+    const csamLift = await decideAppeal(db, {
+      userId: bo, name: "Bo", appealId, decision: "lift", reason: "Trying to lift a CSAM ban.", now,
+    });
+    assert.equal(csamLift.ok, false);
+    const [csamBan] = await db.query<{ until_at: Date }>(`select until_at from board_ban where user_id = $1`, [csamAuthor]);
+    assert.ok(new Date(csamBan!.until_at).getTime() > now.getTime() + 99 * 365 * 24 * 3600 * 1000);
+  } finally {
+    await close();
+  }
+});
+
+test("a CSAM removal cannot be appealed, and the refusal is logged", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-csam@example.com");
+    await user(db, ada, "Ada", "ada-csam@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, ada, "Ada", "member");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    assert.equal(posted.ok, true);
+    if (!posted.ok) return;
+    const removed = await withHoldKey("test-hold-key-value", () =>
+      removePost(db, { userId: ada, name: "Ada", postId: posted.value.id, reason: "csam", now }),
+    );
+    assert.equal(removed.ok, true);
+    const filed = await fileAppeal(db, {
+      userId: maria, name: "Maria", postId: posted.value.id, kind: "removal",
+      reason: "Someone else used my account.", ground: "account_compromise",
+      evidence: "x".repeat(300), now,
+    });
+    assert.equal(filed.ok, false);
+    if (!filed.ok) assert.equal(filed.status, 403);
+    const audit = await db.query<{ action: string; rule: string }>(
+      `select action, rule from board_appeal_audit where post_id = $1`,
+      [posted.value.id],
+    );
+    assert.deepEqual(audit, [{ action: "refused", rule: "csam" }]);
+  } finally {
+    await close();
+  }
+});
+
+test("an appeal of a second-strike (permanent) ban is decided by an admin, not a steward; a banned admin is refused", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    const bo = randomUUID();
+    await user(db, maria, "Maria", "maria-two@example.com");
+    await user(db, tom, "Tom", "tom-two@example.com");
+    await user(db, ada, "Ada", "ada-two@example.com");
+    await user(db, bo, "Bo", "bo-two@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "admin");
+    await grant(db, bo, "Bo", "admin");
+    const ids: string[] = [];
+    for (const at of [now, new Date(now.getTime() + 1000)]) {
+      const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now: at });
+      assert.equal(posted.ok, true);
+      if (!posted.ok) return;
+      ids.push(posted.value.id);
+    }
+    const first = await removePost(db, { userId: ada, name: "Ada", postId: ids[0]!, reason: "threat", now });
+    assert.equal(first.ok, true);
+    const second = await removePost(db, { userId: ada, name: "Ada", postId: ids[1]!, reason: "threat", now });
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.equal(second.value.ban.strikes, 2);
+    const filed = await fileAppeal(db, {
+      userId: maria,
+      name: "Maria",
+      postId: ids[1]!,
+      kind: "removal",
+      reason: "I was quoting a film line to a friend.",
+      now: new Date(now.getTime() + 2000),
+    });
+    assert.equal(filed.ok, true, JSON.stringify(filed));
+    if (!filed.ok) return;
+    const decide = (userId: string, name: string) =>
+      decideAppeal(db, {
+        userId,
+        name,
+        appealId: filed.value.id,
+        decision: "uphold",
+        reason: "The removal stands as written.",
+        now,
+      });
+    const steward = await decide(tom, "Tom");
+    assert.deepEqual(steward, { ok: false, status: 403, error: "Only an admin decides an appeal of a permanent ban." });
+    await db.query(
+      `insert into board_ban (id, user_id, name, reason, by_user_id, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Bo', 'threat', null, 'owner', 1, $3, '', $4)`,
+      [randomUUID(), bo, new Date(now.getTime() + 86_400_000), now],
+    );
+    const banned = await decide(bo, "Bo");
+    assert.deepEqual(banned, { ok: false, status: 403, error: "This account is banned and cannot act as an admin right now." });
+    const admin = await decide(ada, "Ada");
+    assert.equal(admin.ok, true, JSON.stringify(admin));
+  } finally {
+    await close();
+  }
+});
+
+test("clearing or re-closing a review touches only what that removal took down", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const maria = randomUUID();
+    const joe = randomUUID();
+    const tom = randomUUID();
+    const ada = randomUUID();
+    await user(db, maria, "Maria", "maria-only@example.com");
+    await user(db, joe, "Joe", "joe-only@example.com");
+    await user(db, tom, "Tom", "tom-only@example.com");
+    await user(db, ada, "Ada", "ada-only@example.com");
+    await grant(db, maria, "Maria", "member");
+    await grant(db, joe, "Joe", "member");
+    await grant(db, tom, "Tom", "member");
+    await grant(db, tom, "Tom", "steward", "shop");
+    await grant(db, ada, "Ada", "admin");
+    const posted = await createPost(db, { userId: maria, name: "Maria", roomId: "shop", body: did, now });
+    if (!posted.ok) throw new Error(JSON.stringify(posted));
+    const innocent = await replyToPost(db, { userId: joe, name: "Joe", postId: posted.value.id, claim: "I saw it too.", now });
+    const threat = await replyToPost(db, { userId: joe, name: "Joe", postId: posted.value.id, claim: "Another reply.", now });
+    if (!innocent.ok || !threat.ok) throw new Error(JSON.stringify([innocent, threat]));
+    const replyId = (r: unknown) => (r as { value: { id: string } }).value.id;
+    // Another member's reply already removed on its own (e.g. by an admin for a threat).
+    await db.query(`update board_post set removed = true where id = $1`, [replyId(threat)]);
+    const removed = await removePost(db, { userId: tom, name: "Tom", postId: posted.value.id, reason: "porn", now });
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    const [review] = await db.query<{ id: string }>(`select id from ban_review where user_id = $1`, [maria]);
+    const state = async () => {
+      const rows = await db.query<{ id: string; removed: boolean }>(
+        `select id, removed from board_post where id = any($1::text[])`,
+        [[posted.value.id, replyId(innocent), replyId(threat)]],
+      );
+      return Object.fromEntries(rows.map((r) => [r.id, r.removed]));
+    };
+    const expect = (post: boolean, inn: boolean) => ({
+      [posted.value.id]: post,
+      [replyId(innocent)]: inn,
+      [replyId(threat)]: true,
+    });
+    assert.deepEqual(await state(), expect(true, true));
+    const t1 = new Date(now.getTime() + 60_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "cleared", now: t1 })).ok, true);
+    assert.deepEqual(await state(), expect(false, false), "the threat reply stays removed");
+    const t2 = new Date(now.getTime() + 120_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "closed", now: t2 })).ok, true);
+    assert.deepEqual(await state(), expect(true, true));
+    const t3 = new Date(now.getTime() + 180_000);
+    assert.equal((await decideBanReview(db, { userId: ada, name: "Ada", reviewId: review!.id, decision: "cleared", now: t3 })).ok, true);
+    assert.deepEqual(await state(), expect(false, false), "cleared again: still only this removal's content");
+  } finally {
+    await close();
+  }
+});
+
+test("re-closing a cleared review does not take down a reply posted after the removal", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const c = await stewardPornCase(db, "later");
+    const t1 = new Date(now.getTime() + 60_000);
+    assert.equal((await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "cleared", now: t1 })).ok, true);
+    const later = await replyToPost(db, { userId: c.tom, name: "Tom", postId: c.postId, claim: "Back up now.", now: t1 });
+    if (!later.ok) throw new Error(JSON.stringify(later));
+    const t2 = new Date(now.getTime() + 120_000);
+    assert.equal((await decideBanReview(db, { userId: c.ada, name: "Ada", reviewId: c.reviewId, decision: "closed", now: t2 })).ok, true);
+    const [row] = await db.query<{ removed: boolean }>(`select removed from board_post where id = $1`, [later.value.id]);
+    assert.equal(row!.removed, false, "an innocent later reply stays up");
   } finally {
     await close();
   }
