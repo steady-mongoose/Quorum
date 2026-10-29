@@ -10,6 +10,18 @@
   --flag-h:clamp(36px,4.5vw,56px);
 }
 html{-webkit-text-size-adjust:100%}
+/* Sticky and fixed layers on phones (Josh, 29 Oct: the Rooms chips stuck 60px under the header and the page
+   scrolled through the gap). --mast-h is the header's measured height (useMastHeight, app.tsx); the values here
+   are only the first-paint guess. --tabbar-h is the phone tab bar without the home-indicator inset (unset on wider screens, where each
+   use keeps its own fallback). */
+:root{--mast-h:70px}
+@media (min-width:768px){:root{--mast-h:97px}}
+@media (max-width:767px){:root{--tabbar-h:57px}}
+/* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
+html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
+/* An open modal dialog or sheet holds the page still behind it. The gutter keeps the page from shifting sideways. */
+html:has(dialog:modal){overflow:hidden;scrollbar-gutter:stable}
+dialog{overscroll-behavior:contain}
 body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 
 /* Content column. Outer art fills the margins from 1600px up. */
@@ -159,7 +171,11 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   background-image:none;
   border-bottom:1px solid var(--gold);
 }
-#your-rooms{scroll-margin-top:8rem}
+/* The phone chip row sticks flush under the header, whatever height the header has. html's scroll-padding covers
+   the header; this covers the chips under it. */
+.room-chips{top:var(--mast-h);overscroll-behavior-x:contain}
+#your-rooms{scroll-margin-top:4.5rem}
+@media (min-width:1024px){#your-rooms{scroll-margin-top:0}}
 
 /* Phone: five slots in one row. The rest sit in the More sheet. */
 .tabbar{display:none}
@@ -174,6 +190,14 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
     background:var(--surface);
     border-top:1px solid var(--line);
     padding-bottom:env(safe-area-inset-bottom);
+    padding-inline:env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  /* While the keyboard is up, iOS pins fixed bars to the layout viewport, so the tab bar and the 20-minute line
+     float over the composer and jump as the page scrolls. They step aside while the visual viewport says the
+     keyboard is open (useMastHeight sets data-keyboard), and, as a fallback, while a text field has focus. */
+  html[data-keyboard="open"] :is(.tabbar,.session-line){display:none}
+  @media (pointer:coarse){
+    body:has(:is(textarea,select,[contenteditable="true"],input:not([type="checkbox"],[type="radio"],[type="button"],[type="submit"],[type="reset"],[type="range"],[type="file"],[type="color"],[type="image"])):focus) :is(.tabbar,.session-line){display:none}
   }
   .tabbar button{
     flex:1;
@@ -239,12 +263,14 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 .mast-bar{
   position:sticky;
   top:0;
-  z-index:20;
+  z-index:40;
   display:grid;
   grid-template-columns:minmax(0,1fr) min(var(--content-max),100%) minmax(0,1fr);
   width:100%;
   background:var(--bg);
   border-bottom:1px solid #c9a45c;
+  /* With viewport-fit=cover, a home-screen app's status bar sits over the header's own colour, not the page. */
+  padding-top:env(safe-area-inset-top);
   container-name:mast;
   container-type:inline-size;
 }
@@ -343,7 +369,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
     overflow:hidden;
   }
 }
-#open-the-door,#sign-in{scroll-margin-top:6rem}
+/* html's scroll-padding-top already clears the measured header. */
+#open-the-door,#sign-in{scroll-margin-top:.5rem}
 /* The door column starts with Invite only, rather than sitting in the vertical centre. */
 .door-columns{align-items:start}
 /* Desktop door: the art and the page-height gold frame wrap the whole door grid, and "The rooms" sits under

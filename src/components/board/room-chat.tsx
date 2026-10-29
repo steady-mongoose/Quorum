@@ -218,7 +218,7 @@ export function RoomChat({ roomId }: { roomId: string }) {
           Older lines
         </button>
       ) : null}
-      <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto" aria-label="Room chat">
+      <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto overscroll-contain" aria-label="Room chat">
         {messages.length === 0 && !note ? (
           <li className="text-sm text-muted">Nothing in this room yet.</li>
         ) : null}

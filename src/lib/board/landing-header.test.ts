@@ -173,7 +173,9 @@ test("the door column starts with the invite line", () => {
   assert.match(door, /lg:order-last/);
   assert.match(account, /id="sign-in"/);
   assert.match(css, /\.door-columns\{align-items:start\}/);
-  assert.match(css, /#open-the-door,#sign-in\{scroll-margin-top:6rem\}/);
+  assert.match(css, /#open-the-door,#sign-in\{scroll-margin-top:\.5rem\}/);
+  // The 6rem guess is now the measured header height, through html's scroll-padding-top.
+  assert.match(css, /html\{[^}]*scroll-padding-top:calc\(var\(--mast-h\) \+ \.5rem\)/);
 });
 
 test("desktop door: frame wraps the grid and The rooms sits under Open the door", () => {
