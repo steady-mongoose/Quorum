@@ -242,7 +242,7 @@ export function publicGatheringHtml(
         `<p class="gathering-kicker">Avouch Social</p>
 <h1 class="gathering-title illum">This gathering is not shared.</h1>
 <p class="gathering-copy">${escapeHtml(INVITE_LINE)}</p>
-<p class="gathering-links"><a href="/">The door</a></p>`,
+<p class="gathering-links"><a href="/" class="inline-flex min-h-[44px] items-center">Sign in</a></p>`,
       ),
     };
   }
@@ -262,7 +262,7 @@ export function publicGatheringHtml(
       `<p class="gathering-kicker">Avouch Social</p>
 <h1 class="gathering-title illum">${escapeHtml(gathering.title)}</h1>${dateLine}${timeLine}${townLine}
 <p class="gathering-copy">${escapeHtml(INVITE_LINE)}</p>
-<p class="gathering-links"><a href="/">The door</a> <a href="#privacy">Privacy</a></p>
+<p class="gathering-links"><a href="/" class="inline-flex min-h-[44px] items-center">Sign in</a> <a href="#privacy">Privacy</a></p>
 <section id="privacy">
 <h2 class="gathering-kicker">Privacy</h2>
 <p class="gathering-copy">${escapeHtml(PRIVACY_LINE)}</p>

@@ -256,3 +256,28 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.match(http, /handlePublicGathering/);
   assert.match(http, /Sign in first/);
 });
+
+test("the gathering page links home as Sign in with a 44px target, on the server page and the view", () => {
+  const page = publicGatheringHtml(SHARED, ID);
+  assert.match(page.body, /<a href="\/" class="inline-flex min-h-\[44px\] items-center">Sign in<\/a>/);
+  assert.equal(page.body.includes("The door"), false);
+  const view = readFileSync(new URL("../../components/board/public-gathering-view.tsx", import.meta.url), "utf8");
+  assert.equal(view.match(/<a href="\/" className="inline-flex min-h-\[44px\] items-center">Sign in<\/a>/g)?.length, 2);
+  assert.equal(view.includes("The door"), false);
+});
+
+test("range tracks use the strong line colour", () => {
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(css, /::-webkit-slider-runnable-track\s*\{[^}]*background:\s*var\(--color-line-strong\)/);
+  assert.match(css, /::-moz-range-track\s*\{[^}]*background:\s*var\(--color-line-strong\)/);
+});
+
+test("dark surfaces, including the sign-in card, use the light focus ring in every palette", () => {
+  const css = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
+  const rule = css.match(/\n([^\n{]*\.bg-surface[^\n{]*)\{--focus:#f0e7d3\}/);
+  assert.ok(rule, "dark-surface focus rule missing");
+  for (const sel of [".bg-bg", ".bg-surface", ".bg-raised", '[data-palette="parchment"] .bg-surface']) assert.ok(rule[1].includes(sel), sel);
+  assert.match(css, /:focus-visible\{outline:2px solid var\(--focus\);outline-offset:2px;/);
+  const door = readFileSync(new URL("../../components/board/door.tsx", import.meta.url), "utf8");
+  assert.match(door, /id="sign-in"\s+className="[^"]*\bbg-surface\b/);
+});

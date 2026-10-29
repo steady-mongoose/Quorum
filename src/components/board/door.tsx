@@ -133,7 +133,7 @@ export function Door() {
           </section>
         </div>
 
-        <div className="door-side flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
+        <div className="door-side order-first flex flex-col gap-6 lg:sticky lg:top-28 lg:order-last">
           {apiDown ? (
             <section
               id="sign-in"

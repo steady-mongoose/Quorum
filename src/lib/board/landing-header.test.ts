@@ -77,11 +77,13 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /\{TAGLINE\}/);
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
-  assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);
-  assert.match(app, /\{signingIn \? "Sign in" : "Enter your invite code"\}/);
-  assert.match(app, /onClick=\{focusDoorField\}/);
-  assert.match(app, /querySelector<HTMLElement>\("input, textarea, select, button"\)/);
-  assert.match(app, /field\?\.focus\(\)/);
+  // UX pass H4: no header door link, so the door has one "Sign in" heading and one button,
+  // and no label flips after hydration.
+  assert.equal(app.includes('href={signingIn ? "#sign-in" : "#open-the-door"}'), false);
+  assert.equal(app.includes("focusDoorField"), false);
+  assert.equal(app.includes('"Enter your invite code"'), false);
+  // The signed-in-only Sign out dialog (and its h2) is not in the signed-out tree.
+  assert.match(app, /\{server\.user \? \(\s*<ConfirmDialog\s+open=\{confirmSignOut\}\s+title="Sign out"/);
   assert.equal(app.includes('size="header"'), false);
   assert.equal(app.includes("bg-[#f7f4ec]"), false);
 
@@ -121,7 +123,7 @@ test("a down API keeps Sign in and offers another check", () => {
   assert.doesNotMatch(door, /invitation only/);
   assert.doesNotMatch(door, /Invite only/);
   assert.doesNotMatch(door, /<Kicker>/);
-  assert.equal((door.match(/invite-only/g) ?? []).length <= 1, true);
+  assert.doesNotMatch(door, /invite-only/i);
   assert.match(door, /Enter your invite code/);
   assert.match(door, /Invite code\s+<input/);
   assert.doesNotMatch(door, /The code\s+<input/);
@@ -182,13 +184,11 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
   for (const name of ["door-main", "door-hero", "door-week", "door-rooms", "door-side"]) {
     assert.match(door, new RegExp(`className="${name} `));
   }
-  // Phone order stays DOM order: hero, week, rooms, then the door.
+  // UX pass H4: the h1 comes first in DOM order; CSS order-first keeps the form on top on phones.
   const at = (s: string) => door.indexOf(s);
-  assert.ok(
-    at('"door-hero ') < at('"door-week ') &&
-      at('"door-week ') < at('"door-rooms ') &&
-      at('"door-rooms ') < at('"door-side '),
-  );
+  assert.ok(at('"door-hero ') < at('"door-week ') && at('"door-week ') < at('"door-rooms ') && at('"door-rooms ') < at('"door-side '));
+  assert.ok(door.indexOf("<h1") < door.indexOf("<h2"));
+  assert.match(door, /className="door-side order-first /);
   const desk = css.slice(css.indexOf("/* Desktop door:"));
   assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
   assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
