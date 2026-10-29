@@ -77,7 +77,7 @@ test("about renders signed out, with no account", async () => {
   try {
     const text = document.body.textContent ?? "";
     assert.match(text, /What we stand for/);
-    assert.match(text, /Avouch exists so you can see what is happening in your community/);
+    assert.match(text, /Avouch Social exists so you can see what is happening in your community/);
     assert.match(text, /Josh files that report by hand/);
     assert.equal(text.includes("Invite someone"), false);
     assert.equal(text.includes("Your name, as it appears on your posts"), false);

@@ -1,4 +1,5 @@
 import type { HoldAlert } from "./csam.ts";
+import { APP_NAME } from "../../src/lib/board/model.ts";
 
 /** A few seconds. The removal does not wait on this. */
 export const ALERT_EMAIL_TIMEOUT_MS = 4_000;
@@ -64,8 +65,8 @@ export async function sendHoldAlert(alert: HoldAlert, deps: MailDeps = {}): Prom
   if (!apiKey || !to || !from) return;
   const sealed = alert.kind === "csam_hold";
   const subject = sealed
-    ? "Avouch: a CSAM hold is ready for the CyberTipline"
-    : "Avouch: a CSAM hold is waiting for an encryption key";
+    ? `${APP_NAME}: a CSAM hold is ready for the CyberTipline`
+    : `${APP_NAME}: a CSAM hold is waiting for an encryption key`;
   const text = [
     "A CSAM hold was recorded.",
     `Hold: ${alert.holdId}`,

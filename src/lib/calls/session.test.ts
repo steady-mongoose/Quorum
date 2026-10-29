@@ -142,7 +142,7 @@ test("the larger id offers, the smaller id answers, and neither records", async 
   await wary.pollOnce();
   assert.equal(
     stopped,
-    "This call tried to start recording, so you left it. Avouch calls are never recorded.",
+    "This call tried to start recording, so you left it. Avouch Social calls are never recorded.",
   );
   let stoppedOdd = "";
   const odd = new RoomCallSession({

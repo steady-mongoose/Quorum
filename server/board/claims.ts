@@ -25,6 +25,7 @@ import {
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { readPublicPage, type PageLookup, type PageRequest } from "./public-fetch.ts";
 import { canSeeHiddenRooms, listingColumnsReady } from "./room-visibility.ts";
+import { APP_NAME } from "../../src/lib/board/model.ts";
 
 type Fail = { ok: false; status: number; error: string };
 type Ok<T> = { ok: true; value: T };
@@ -364,9 +365,9 @@ export type ClaimDeps = MailDeps & {
 
 function claimMail(name: string, code: string): { subject: string; text: string } {
   return {
-    subject: `Avouch: code to claim ${name}`,
+    subject: `${APP_NAME}: code to claim ${name}`,
     text: [
-      `Someone asked to claim ${name} on Avouch.`,
+      `Someone asked to claim ${name} on ${APP_NAME}.`,
       `The code is ${code}.`,
       "It expires in 24 hours.",
       "If you did not ask, ignore this message.",

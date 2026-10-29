@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { APP_NAME } from "../../src/lib/board/model.ts";
 
 /** RFC 6238 defaults used by authenticator apps. SHA-1, 6 digits, 30 seconds. */
 export const TOTP_PERIOD_SEC = 30;
@@ -83,10 +84,10 @@ export function verifyTotp(
 }
 
 export function otpauthUrl(account: string, secretBase32: string): string {
-  const label = encodeURIComponent(`Avouch:${account}`);
+  const label = encodeURIComponent(`${APP_NAME}:${account}`);
   const params = new URLSearchParams({
     secret: secretBase32,
-    issuer: "Avouch",
+    issuer: APP_NAME,
     algorithm: "SHA1",
     digits: String(TOTP_DIGITS),
     period: String(TOTP_PERIOD_SEC),

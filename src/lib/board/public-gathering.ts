@@ -1,5 +1,6 @@
 import { heroLabel } from "./engraved.ts";
 import { hasStreetAddress, isEnglish } from "./text.ts";
+import { APP_NAME } from "./model.ts";
 
 /** The only fields a public gathering page may show. */
 export type PublicGathering = {
@@ -30,8 +31,7 @@ const GATHERING_ID =
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const PHONE = /\b(?:\+?1[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}\b/;
 
-export const INVITE_LINE =
-  "Avouch is a community you join by invitation. Ask the person who shared this for an invite code.";
+export const INVITE_LINE = `${APP_NAME} is a community you join by invitation. Ask the person who shared this for an invite code.`;
 export const PRIVACY_LINE =
   "This page shows the title, the date, the time, and the town. It does not show who is coming, a street, or what was written afterwards.";
 export const PUBLIC_TIME_NOTE =

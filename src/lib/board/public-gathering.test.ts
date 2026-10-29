@@ -37,7 +37,7 @@ test("a shared page is the title, the date, the time, and the town, with noindex
   assert.match(page.body, /Riverview/);
   assert.match(
     page.body,
-    /Avouch is a community you join by invitation\. Ask the person who shared this for an invite code\./,
+    /Avouch Social is a community you join by invitation\. Ask the person who shared this for an invite code\./,
   );
   assert.doesNotMatch(page.body, /invite-only/);
   assert.match(page.body, /the title, the date, the time, and the town/);

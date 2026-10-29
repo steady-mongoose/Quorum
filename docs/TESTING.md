@@ -38,7 +38,7 @@ Prod: https://avouchsocial.com. Use two accounts: **A** (host) and **B** (member
 2. As A, ban B from a room. **Expected:** B can't read that room or its groups.
 
 ## 8. About page
-1. Open More, then About. **Expected:** the mission text starts "Avouch exists so you can see what is happening in your community…". There's no "[OWNER TO WRITE]" placeholder, and the text is readable at body size.
+1. Open More, then About. **Expected:** the mission text starts "Avouch Social exists so you can see what is happening in your community…". There's no "[OWNER TO WRITE]" placeholder, and the text is readable at body size.
 
 ## 9. Audience rooms (#49)
 1. As an admin, open a room's settings and set an audience, for example women only. **Expected:** it saves.

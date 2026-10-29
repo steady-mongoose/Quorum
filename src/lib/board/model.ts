@@ -1031,7 +1031,7 @@ export function deskDid(input: DeskContact & { author: string }): Post {
     room: "county",
     type: "did",
     claim: `${input.waveLabel}: ${input.office}, ${input.role}. ${input.title}.`,
-    reason: `Logged on the Avouch desk by ${input.who.trim() || "me"}. Window ${input.window}.`,
+    reason: `Logged on the ${APP_NAME} desk by ${input.who.trim() || "me"}. Window ${input.window}.`,
     on: todayIso(),
     author: input.author,
     campaignId: input.campaignId,

@@ -240,11 +240,18 @@ test("steward-replacement refusals use the exact copy and are recognised for foc
   );
   assert.equal(
     replacementBarredError("Sam"),
-    "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+    "Sam is barred from this room or from Avouch Social, so they can't be the new steward. Name someone else.",
   );
   assert.equal(isReplacementError(replacementNotMemberError("Ann Lee")), true);
   assert.equal(isReplacementError(replacementBarredError("Ann Lee")), true);
   assert.equal(isReplacementError("That role was not changed."), false);
+  // A server still on the older wording is still recognized during a split deploy.
+  assert.equal(
+    isReplacementError(
+      "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+    ),
+    true,
+  );
 });
 
 test("a steward-replacement error focuses and marks the new steward field, as the door does", () => {

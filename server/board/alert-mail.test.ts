@@ -18,7 +18,7 @@ function configured(partial: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     RESEND_API_KEY: "re_test",
     ADMIN_ALERT_EMAIL: "josh@example.com",
-    RESEND_FROM: "Avouch <alerts@example.com>",
+    RESEND_FROM: "Avouch Social <alerts@example.com>",
     ...partial,
   };
 }
@@ -57,13 +57,13 @@ test("a hold alert email posts metadata to Resend and does not throw", async () 
     subject: string;
     text: string;
   };
-  assert.equal(first.from, "Avouch <alerts@example.com>");
+  assert.equal(first.from, "Avouch Social <alerts@example.com>");
   assert.deepEqual(first.to, ["josh@example.com"]);
-  assert.match(first.subject, /encryption key/);
+  assert.match(first.subject, /^Avouch Social: .*encryption key/);
   assert.match(first.text, /Hold: hold-1/);
   assert.equal(first.text.includes(claim), false);
   const second = JSON.parse(bodies[1] ?? "{}") as { subject: string; text: string };
-  assert.match(second.subject, /CyberTipline/);
+  assert.match(second.subject, /^Avouch Social: .*CyberTipline/);
   assert.equal(second.text.includes(claim), false);
 
   const errors: string[] = [];
