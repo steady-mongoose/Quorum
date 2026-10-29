@@ -371,16 +371,20 @@ function claimMail(name: string, code: string): { subject: string; text: string 
       `The code is ${code}.`,
       "It expires in 24 hours.",
       "If you did not ask, ignore this message.",
+      `Enter this code on the page where you asked to claim ${name}.`,
     ].join("\n"),
   };
 }
 
 /**
  * Claim codes go to members, so they come from RESEND_CLAIM_FROM, not the
- * CSAM alert address. Unset or blank falls back to RESEND_FROM.
+ * CSAM alert address. Unset or blank falls back to a fixed noreply sender,
+ * never to RESEND_FROM (the safety sender).
  */
+export const DEFAULT_CLAIM_FROM = "Avouch Social <noreply@avouchsocial.com>";
+
 export function claimFromAddress(env: NodeJS.ProcessEnv = process.env): string {
-  return env.RESEND_CLAIM_FROM?.trim() || (env.RESEND_FROM?.trim() ?? "");
+  return env.RESEND_CLAIM_FROM?.trim() || DEFAULT_CLAIM_FROM;
 }
 
 async function deliverCode(

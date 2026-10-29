@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sendHoldAlert, sendTextEmail } from "./alert-mail.ts";
-import { claimFromAddress } from "./claims.ts";
+import { claimFromAddress, DEFAULT_CLAIM_FROM } from "./claims.ts";
 
 const SAFETY = "Avouch Social Safety <safety@example.com>";
 const CLAIM = "Avouch Social <noreply@example.com>";
@@ -24,15 +24,27 @@ test("claim mail uses RESEND_CLAIM_FROM when it is set", async () => {
   assert.deepEqual(froms, [CLAIM]);
 });
 
-test("claim mail falls back to RESEND_FROM when RESEND_CLAIM_FROM is unset or blank", async () => {
+test("claim mail falls back to the fixed noreply sender when RESEND_CLAIM_FROM is unset or blank", async () => {
+  assert.equal(DEFAULT_CLAIM_FROM, "Avouch Social <noreply@avouchsocial.com>");
   for (const env of [
     { RESEND_API_KEY: "re_test", RESEND_FROM: SAFETY },
     { RESEND_API_KEY: "re_test", RESEND_FROM: SAFETY, RESEND_CLAIM_FROM: "  " },
+    { RESEND_API_KEY: "re_test" },
   ]) {
-    assert.equal(claimFromAddress(env), SAFETY);
+    assert.equal(claimFromAddress(env), DEFAULT_CLAIM_FROM);
     const { froms, fetchImpl } = capture();
     await sendTextEmail(mail, { env, fetch: fetchImpl }, claimFromAddress(env));
-    assert.deepEqual(froms, [SAFETY]);
+    assert.deepEqual(froms, [DEFAULT_CLAIM_FROM]);
+  }
+});
+
+test("claim mail never uses RESEND_FROM", () => {
+  for (const env of [
+    { RESEND_FROM: SAFETY },
+    { RESEND_FROM: SAFETY, RESEND_CLAIM_FROM: "" },
+    { RESEND_FROM: SAFETY, RESEND_CLAIM_FROM: CLAIM },
+  ]) {
+    assert.notEqual(claimFromAddress(env), SAFETY);
   }
 });
 
