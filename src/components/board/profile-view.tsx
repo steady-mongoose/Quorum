@@ -157,7 +157,7 @@ export function ProfileView() {
       </section>
 
       {named.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">Mentioned by a host</h2>
           <p className="text-sm text-muted">A host can single out one person after each meeting. The last few times that was {mine ? "you" : name}:</p>
           <ul className="flex flex-col gap-2">
@@ -175,7 +175,7 @@ export function ProfileView() {
       ) : null}
 
       {hosts.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">{mine ? "Meetings you host" : `Meetings ${name} hosts`}</h2>
           <ul className="flex flex-col gap-2">
             {hosts.map((card) => (
@@ -187,14 +187,14 @@ export function ProfileView() {
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-2">
+      <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
         <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
       </section>
 
       {mine && server.mode === "live" ? <MfaSettings /> : null}
       {mine ? (
-        <div className="border-t border-line pt-6">
+        <div className="card pc-card p-4 sm:p-5">
           <AccountRemoval live={server.mode === "live" && Boolean(server.user)} />
         </div>
       ) : null}

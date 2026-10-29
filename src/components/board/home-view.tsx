@@ -40,7 +40,7 @@ export function HomePanel() {
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
+      <div className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
         <Kicker>Home</Kicker>
         <h2 className="font-display text-3xl text-fg">Nearest first</h2>
         <p className="max-w-prose text-sm text-muted">
@@ -190,7 +190,7 @@ function HomeSectionBlock({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-[0.8125rem] font-semibold tracking-widest text-muted uppercase">
+      <h3 className="pc-h">
         {section.label}
       </h3>
       {section.tier === "council"

@@ -56,7 +56,7 @@ export function LoadView() {
 
   return (
     <div className="flex flex-col gap-10">
-      <section className="flex flex-col gap-4">
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex flex-col gap-2">
           <Kicker>Calls this week</Kicker>
           <h2 className="font-display text-3xl text-fg">{calls.some((c) => c.status.live) ? "A call is on right now." : "No call is on right now. Here is what is coming."}</h2>
@@ -121,7 +121,7 @@ export function LoadView() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4 border-t border-line pt-8">
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col gap-2">
             <Kicker>For whoever organizes</Kicker>

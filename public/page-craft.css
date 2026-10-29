@@ -4,7 +4,7 @@
    Signed-in rules are scoped to .shell[data-entered], so the landing, sign-in and public pages are unchanged.
    Motion: one settle of the plate (4.5s, once) and a 0.5s fade of list cards, only for no-preference. */
 :root{
-  --pc-gilt:#c9a45c;--pc-rubric:#e07f73;--pc-ink:#f0e7d3;--pc-solid:rgba(20,16,12,.9);
+  --pc-gilt:#c9a45c;--pc-rubric:#e07f73;--pc-ink:#f0e7d3;--pc-solid:#14100c;
   --pc-hair:color-mix(in srgb,var(--pc-gilt) 32%,var(--line));
   --pc-t1:#2d251c;--pc-t2:#241d16;--pc-t3:#17120d;--pc-plate:none;
   --pc-scrim:radial-gradient(75% 95% at 50% 45%,rgba(20,16,12,.62),rgba(20,16,12,.28));
@@ -31,7 +31,7 @@
   [data-section="profile"]{--pc-plate:url(/art/plate-you-A-900.webp)}
   [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-900.webp)}
 }
-[data-palette="parchment"],[data-palette="parchment"] [data-section]{--pc-gilt:#6f5420;--pc-rubric:#8e2f26;--pc-ink:#2a2117;--pc-solid:rgba(236,226,204,.92);--pc-t1:#fffaf0;--pc-t2:#f8f3e7;--pc-t3:#efe6d2}
+[data-palette="parchment"],[data-palette="parchment"] [data-section]{--pc-gilt:#6f5420;--pc-rubric:#8e2f26;--pc-ink:#2a2117;--pc-solid:#ece2cc;--pc-t1:#fffaf0;--pc-t2:#f8f3e7;--pc-t3:#efe6d2}
 
 /* The plate (landing and sign-in keep their own rules in backgrounds.css and door.css) */
 [data-entered]>.plate-ground{background:var(--pc-plate) center 35%/cover no-repeat;transform-origin:50% 40%}
@@ -41,25 +41,37 @@
 .mast[data-entered="true"] .mast-tagline{display:none}
 /* A narrower column at desktop, so the plate has room to be seen, as on the door */
 @media (min-width:1100px){[data-entered] .shell-body>main{width:min(60rem,100%);justify-self:center}}
-.pc-credit{width:fit-content;margin:2rem 0 1rem;padding:.3rem .7rem;border-radius:3px;background:var(--pc-solid);color:var(--muted);font-family:var(--font-display);font-variant-caps:all-small-caps;letter-spacing:.06em;font-size:.95rem}
+.pc-credit{position:relative;z-index:1;clear:both;width:fit-content;margin:2.5rem 0 1rem;padding:.3rem .7rem;border-radius:3px;background:var(--pc-solid);color:var(--muted);font-family:var(--font-display);font-variant-caps:all-small-caps;letter-spacing:.06em;font-size:.95rem}
 .pc-solid{width:fit-content;max-width:100%;padding:.3rem .7rem;border-radius:3px;background:var(--pc-solid)}
-/* Loose text outside a card gets the door-aside backing, so it never sits on the art */
-[data-entered] main :is(h2,h3,p,label,legend,dt,dd):not(:is(.card,.plate,dialog,[class*="bg-"],[role=alert]) *,[class*="bg-"],.sr-only){background:var(--pc-solid);border-radius:3px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+/* Text never sits on the art (QA #116 B1). Pages put their blocks on cards and plates (Design r131); loose text
+   left outside one gets a solid, fit-to-text backing. inner-pages.render.test.mjs walks every text node. */
+[data-entered] main :is(h1,h2,h3,h4,p,label,legend,dt,dd,li,td,th,small,blockquote,figcaption):not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *,.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"],.sr-only,.pc-h){width:fit-content;max-width:100%;padding:.15rem .5rem;border-radius:3px;background:var(--pc-solid)}
+[data-entered] main .pc-h:not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *){padding:.35rem .75rem;border-radius:3px;background:var(--pc-solid)}
+/* Focus over a plate: a light ring with a dark halo (Design r131 R7). Inside cards the app's own rings stay. */
+[data-entered] main :focus-visible:not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *){outline:2px solid var(--pc-ink);outline-offset:2px;box-shadow:0 0 0 5px var(--pc-solid)}
+/* Safety net: the old hero and side art never return over the plate (Design r131) */
+.shell[data-entered]>.hero-band,.shell[data-entered]>.shell-body>.outer-art,.shell[data-entered] .with-side>.side-art{display:none}
+/* A closed <details> lays its hidden form out under the credit (QA #116 N3); take it out of layout */
+[data-entered] main details:not([open])>:not(summary){display:none}
 
 /* Head: gilt kicker with hairline, serif title, gilt rule, serif lede */
 [data-entered] .kicker{display:flex;align-items:center;gap:.75rem;color:var(--pc-gilt);font-size:1rem;font-weight:600;letter-spacing:.14em}
 [data-entered] .kicker::after{content:"";flex:1;max-width:12rem;height:1px;background:linear-gradient(90deg,color-mix(in srgb,var(--pc-gilt) 45%,transparent),transparent)}
 .pc-head h1{letter-spacing:-.015em;line-height:1.05}
+.pc-rule{position:relative;width:min(15rem,70%);height:1px;margin:.25rem 0 .25rem 4px;background:linear-gradient(90deg,var(--pc-gilt),transparent)}
+.pc-rule::before{content:"";position:absolute;left:-4px;top:-3px;width:7px;height:7px;background:var(--pc-gilt);transform:rotate(45deg)}
+.pc-lede{max-width:40rem;font-family:var(--font-display);font-size:1.2rem;line-height:1.5;color:var(--pc-ink)}
 [data-entered] .illum::first-letter{color:var(--pc-rubric)}
 .pc-h{display:flex;align-items:center;gap:.75rem;font-family:var(--font-display);font-variant-caps:all-small-caps;font-size:1.25rem;font-weight:600;letter-spacing:.12em;color:var(--pc-gilt)}
 .pc-h::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,color-mix(in srgb,var(--pc-gilt) 40%,transparent),transparent)}
 
 /* Solid, grained card with an inner gilt hairline, toned per page */
-.pc-card,.plate.pc-head{position:relative;isolation:isolate;border:1px solid var(--pc-hair);border-radius:6px;
-  background:radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.4),transparent 62%),radial-gradient(70% 90% at 100% 0,color-mix(in srgb,var(--pc-gilt) 10%,transparent),transparent 65%),linear-gradient(170deg,var(--pc-t1),var(--pc-t2) 50%,var(--pc-t3));
+.pc-card,.plate.pc-head{position:relative;isolation:isolate;border:1px solid var(--pc-hair);border-radius:6px;background-color:var(--pc-t2);
+  background-image:radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.4),transparent 62%),radial-gradient(70% 90% at 100% 0,color-mix(in srgb,var(--pc-gilt) 10%,transparent),transparent 65%),linear-gradient(170deg,var(--pc-t1),var(--pc-t2) 50%,var(--pc-t3));
   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pc-gilt) 14%,transparent),inset 0 1px 0 rgba(240,231,211,.06),0 14px 34px -18px rgba(0,0,0,.8)}
 .pc-card::before,.plate.pc-head::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:var(--grain);opacity:.1;mix-blend-mode:overlay}
 .plate.pc-head{padding:clamp(18px,3vw,32px)}
+.pc-card:empty{display:none}
 [data-palette="parchment"] :is(.pc-card,.plate.pc-head){box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pc-gilt) 18%,transparent),0 10px 24px -18px rgba(60,40,10,.35)}
 
 /* Motion: once, gentle, opt-in. The head and the main action never move. */

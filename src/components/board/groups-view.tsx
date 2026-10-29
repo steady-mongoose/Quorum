@@ -45,14 +45,18 @@ export function GroupsView() {
 
   return (
     <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-2">
-        <Kicker>Groups</Kicker>
-        <h1 className="font-display text-4xl text-fg lg:text-5xl">Interest groups</h1>
-        <p className="max-w-prose text-base text-muted">
-          Carpentry, gardening, brewing, and whatever a member asks for next. They sit beside town
-          rooms. The list is alphabetical. A mark does not move a post.
-        </p>
-      </section>
+      {remote && openId ? null : (
+        // A group page has its own head: the group's name is that page's h1 (Design r131 R2).
+        <section className="plate pc-head flex flex-col gap-2">
+          <Kicker>Groups</Kicker>
+          <h1 className="illum font-display text-4xl text-fg lg:text-5xl">Interest groups</h1>
+          <div className="pc-rule" aria-hidden="true" />
+          <p className="pc-lede">
+            Carpentry, gardening, brewing, and whatever a member asks for next. They sit beside the
+            town rooms, listed A to Z.
+          </p>
+        </section>
+      )}
       {remote ? (
         openId ? (
           <GroupDetailView
@@ -148,9 +152,10 @@ function GroupList({
       <FormAlert message={loadError} />
       {groups === null ? <p className="text-sm text-muted">Loading groups.</p> : null}
       {groups?.length === 0 ? <p className="text-sm text-muted">No groups yet.</p> : null}
+      <h2 className="pc-h">The groups</h2>
       <ul className="grid gap-3 lg:grid-cols-2">
         {(groups ?? []).map((group) => (
-          <li key={group.id} className="rounded-lg border border-line bg-surface p-4">
+          <li key={group.id} className="card pc-card p-4">
             <button
               type="button"
               className="inline-flex min-h-[44px] items-center rounded-sm bg-raised px-3 text-left text-2xl text-fg"
@@ -456,19 +461,28 @@ function GroupDetailView({
       <FormAlert message={error} />
       {detail ? (
         <>
-          <header className="flex flex-col gap-2">
-            <h2 ref={headingRef} tabIndex={-1} className="text-3xl text-fg">
+          <section className="plate pc-head flex flex-col gap-2">
+            <Kicker>Group</Kicker>
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="illum font-display text-4xl text-fg lg:text-5xl"
+            >
               {detail.group.name}
-            </h2>
+            </h1>
+            <div className="pc-rule" aria-hidden="true" />
             <p role="status" className="text-sm text-muted">
               {joinedNote}
             </p>
             <RoomAudienceMark audience={detail.group.audience} />
-            <p className="max-w-prose text-base text-muted">{detail.group.about}</p>
+            <p className="pc-lede">{detail.group.about}</p>
             {line ? <p className="text-[0.8125rem] text-muted">{line}</p> : null}
-          </header>
+          </section>
           {canPost ? (
-            <form className="flex max-w-xl flex-col gap-3" onSubmit={(event) => void publish(event)}>
+            <form
+              className="card pc-card flex max-w-xl flex-col gap-3 p-4"
+              onSubmit={(event) => void publish(event)}
+            >
               <label className="flex flex-col gap-2 text-sm text-muted">
                 Post
                 <textarea
@@ -492,7 +506,7 @@ function GroupDetailView({
               </button>
             </form>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="card pc-card flex max-w-xl flex-col gap-3 p-4">
               <p ref={inviteNoteRef} tabIndex={-1} className="text-sm text-muted">
                 {GROUP_INVITE_ONLY}
               </p>
@@ -510,7 +524,11 @@ function GroupDetailView({
               ) : null}
             </div>
           )}
-          {detail.group.canInvite ? <InviteForm groupId={id} /> : null}
+          {detail.group.canInvite ? (
+            <div className="card pc-card max-w-xl p-4">
+              <InviteForm groupId={id} />
+            </div>
+          ) : null}
           <ul className="flex max-w-2xl flex-col gap-4">
             {detail.posts.map((post) => (
               <PostRow

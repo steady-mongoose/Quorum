@@ -117,7 +117,7 @@ export function WeekView() {
             {deskOn ? <TheCall /> : null}
             {needs.length > 0 ? (
               <section className="flex flex-col gap-3">
-                <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+                <h2 className="pc-h">
                   A parish needs
                 </h2>
                 {needs.map((card) => (
@@ -230,7 +230,7 @@ function TheCall() {
   if (live.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xs font-semibold tracking-widest text-signal uppercase">
+      <h2 className="pc-h">
         This week's call · window open
       </h2>
       {live.map((campaign) => {

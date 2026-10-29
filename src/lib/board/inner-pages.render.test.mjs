@@ -196,3 +196,159 @@ test("the door is unchanged: no data-entered, no credit, the door's plate and sc
     await page.unmount();
   }
 });
+
+// QA #116 B1: text never sits on the art. Every visible text node in main must have an ancestor with a
+// solid, opaque background before the walk reaches the plate behind main. The real public sheets load
+// in __root.tsx order, plus the Tailwind bg utilities built from the theme's opaque colour tokens.
+const { readFileSync } = await import("node:fs");
+const readRepo = (/** @type {string} */ path) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
+
+function installSheets() {
+  const rootSource = readRepo("src/routes/__root.tsx");
+  const sheets = [...rootSource.matchAll(/href: "\/([a-z-]+\.css)"/g)].map((m) => readRepo(`public/${m[1]}`));
+  const tokens = [...readRepo("src/styles.css").matchAll(/--color-([a-z-]+):\s*(#[0-9a-f]{6});/g)];
+  assert.ok(tokens.length > 5, "theme colour tokens");
+  const utilities = tokens.map(([, name, hex]) => `.bg-${name}{background-color:${hex}}`).join("");
+  const style = document.createElement("style");
+  style.textContent = sheets.join("\n") + utilities;
+  document.head.append(style);
+  return () => style.remove();
+}
+
+/** @param {Element} el */
+function opaque(el) {
+  const colour = getComputedStyle(el).backgroundColor || "";
+  if (/^#[0-9a-f]{6}$/i.test(colour)) return true;
+  const m = colour.match(/rgba?\(([^)]+)\)/);
+  if (!m) return false;
+  const parts = m[1].split(/[\s,/]+/).filter(Boolean);
+  return parts.length === 3 || Number(parts[3]) >= 1;
+}
+
+/** @param {Element} el */
+function hidden(el) {
+  for (let e = /** @type {Element | null} */ (el); e; e = e.parentElement) {
+    if (e.classList.contains("sr-only") || e.hasAttribute("hidden")) return true;
+    if (e.tagName === "DIALOG" && !(/** @type {HTMLDialogElement} */ (e).open)) return true;
+    if (getComputedStyle(e).display === "none") return true;
+  }
+  return false;
+}
+
+/** @param {Element} main */
+function textOnTheArt(main) {
+  const bare = [];
+  let checked = 0;
+  const walker = document.createTreeWalker(main, 4);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent?.trim();
+    const el = node.parentElement;
+    if (!text || !el || hidden(el)) continue;
+    checked++;
+    let backed = false;
+    for (let e = /** @type {Element | null} */ (el); e && e !== main.parentElement; e = e.parentElement) {
+      if (opaque(e)) {
+        backed = true;
+        break;
+      }
+    }
+    if (!backed) bare.push(`<${el.tagName.toLowerCase()}> "${text.slice(0, 50)}"`);
+  }
+  return { bare, checked };
+}
+
+const signedInPages = /** @type {const} */ ([
+  ["week", true],
+  ["rooms", true],
+  ["rooms", false],
+  ["groups", true],
+  ["find", true],
+  ["messages", true],
+  ["profile", true],
+  ["civic", true],
+  ["about", true],
+]);
+
+for (const persona of /** @type {const} */ (["member", "admin"])) {
+  test(`every text node in main sits on a solid backing on each inner page (${persona})`, async () => {
+    const removeSheets = installSheets();
+    const extra = persona === "admin" ? { admin: true, founded: true, steward: true } : { admin: false, founded: false, steward: false };
+    useBoard.setState({ member: true, me: "Ruth", section: "week", deskOn: true, remote: false, ...extra });
+    const page = await mount();
+    try {
+      for (const [section, browsing] of signedInPages) {
+        await act(async () => {
+          useBoard.setState({ section, browsing });
+        });
+        await frames();
+        const main = page.host.querySelector("main");
+        assert.ok(main, section);
+        const { bare, checked } = textOnTheArt(main);
+        const label = `${section}${browsing ? "" : " (a room)"}`;
+        assert.ok(checked > 3, `${label}: walked ${checked} text nodes`);
+        assert.deepEqual(bare, [], `${label}: text on the art`);
+      }
+    } finally {
+      await page.unmount();
+      removeSheets();
+    }
+  });
+}
+
+test("Groups and an open group: every text node sits on a solid backing (server groups)", async () => {
+  const removeSheets = installSheets();
+  const realFetch = globalThis.fetch;
+  const now = Date.now();
+  const group = { id: "carpentry", name: "Carpentry", about: "Joinery and the shop.", joined: true, admin: true };
+  /** @type {Record<string, unknown>} */
+  const replies = {
+    "/api/groups": { groups: [group, { id: "garden", name: "Gardening", about: "Beds.", joined: false, admin: false }] },
+    "/api/groups/carpentry": {
+      group: { ...group, admins: ["Ruth"], canInvite: true, invited: false, invitedBy: "" },
+      posts: [{ id: "p1", groupId: "carpentry", author: "Boaz", body: "Dovetails on Saturday.", on: "", at: now, mark: null }],
+      marks: [],
+      removals: [],
+      next: null,
+    },
+    "/api/group-requests": {
+      requests: [{ id: "r1", groupId: "brewing", name: "Brewing", about: "Cider.", by: "Naomi", roomId: "", status: "open", note: "", at: now }],
+    },
+    "/api/group-appeals": { appeals: [] },
+    "/api/groups/carpentry/invites": { invites: [] },
+  };
+  globalThis.fetch = /** @type {typeof fetch} */ (
+    async (/** @type {unknown} */ url) => {
+      const body = replies[new URL(String(url), "http://localhost").pathname];
+      return new Response(JSON.stringify(body ?? {}), {
+        status: body ? 200 : 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+  );
+  useBoard.setState({ member: true, me: "Ruth", section: "groups", browsing: true, remote: true, steward: true, admin: true });
+  const page = await mount();
+  try {
+    await frames();
+    await frames();
+    const main = () => /** @type {Element} */ (page.host.querySelector("main"));
+    assert.match(main().textContent ?? "", /Carpentry/, "the group list loaded");
+    let walk = textOnTheArt(main());
+    assert.deepEqual(walk.bare, [], "Groups: text on the art");
+    const open = [...main().querySelectorAll("button, a")].find((b) => /Carpentry/.test(b.textContent ?? ""));
+    assert.ok(open, "a button opens the group");
+    await act(async () => /** @type {HTMLElement} */ (open).click());
+    await frames();
+    await frames();
+    assert.equal(document.body.dataset.view, "group");
+    assert.match(main().textContent ?? "", /Dovetails on Saturday/, "the group loaded");
+    walk = textOnTheArt(main());
+    assert.ok(walk.checked > 3);
+    assert.deepEqual(walk.bare, [], "a group: text on the art");
+  } finally {
+    await page.unmount();
+    globalThis.fetch = realFetch;
+    setGroupOpen(false);
+    useBoard.setState({ remote: false, admin: false, steward: false });
+    removeSheets();
+  }
+});

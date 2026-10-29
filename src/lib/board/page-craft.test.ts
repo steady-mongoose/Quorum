@@ -165,7 +165,11 @@ test("the door keeps its own plate and scrim: the signed-in rules do not reach i
     if (/data-save-data/.test(rule)) continue;
     assert.match(rule, /\[data-entered\]>/, rule);
   }
-  assert.equal(/\.hero-band|\.side-art|\.outer-art|\.with-side/.test(craft), false);
+  // The old art is only ever hidden, and only inside the entered shell (Design r131 safety net).
+  const net =
+    ".shell[data-entered]>.hero-band,.shell[data-entered]>.shell-body>.outer-art,.shell[data-entered] .with-side>.side-art{display:none}";
+  assert.ok(craft.includes(net));
+  assert.equal(/\.hero-band|\.side-art|\.outer-art|\.with-side/.test(craft.replace(net, "")), false);
 });
 
 test("the 60rem column at 1100px and up, solid backing for loose text", () => {
@@ -173,7 +177,32 @@ test("the 60rem column at 1100px and up, solid backing for loose text", () => {
     block(craft, "(min-width:1100px)"),
     /\[data-entered\] \.shell-body>main\{width:min\(60rem,100%\);justify-self:center\}/,
   );
-  assert.match(craft, /\[data-entered\] main :is\(h2,h3,p,label,legend,dt,dd\)/);
+  // Blocks sit on cards; loose text (h1, li, td, small and the rest) gets a solid, fit-to-text backing.
+  // No full-width panels behind sections (Design r131 R6).
+  assert.equal(/main section:not\(/.test(craft), false);
+  assert.match(
+    craft,
+    /\[data-entered\] main :is\(h1,h2,h3,h4,p,label,legend,dt,dd,li,td,th,small,blockquote,figcaption\):not\([^{]*\)\{width:fit-content;max-width:100%;padding:\.15rem \.5rem;border-radius:3px;background:var\(--pc-solid\)\}/,
+  );
+  // A section heading outside a card carries its own backing.
+  assert.match(craft, /\[data-entered\] main \.pc-h:not\([^{]*\)\{padding:[^}]*background:var\(--pc-solid\)\}/);
+  // Fully opaque: no part of the plate shows through behind text, in either palette.
+  assert.match(craft, /--pc-solid:#14100c;/);
+  assert.match(craft, /--pc-solid:#ece2cc;/);
+});
+
+test("focus over a plate is a light ring with a dark halo, and cards keep the app's rings (Design r131 R7)", () => {
+  const rule = craft.match(/\[data-entered\] main :focus-visible:not\(([^{]*)\)\{([^}]*)\}/);
+  assert.ok(rule, "scoped focus ring");
+  assert.equal(rule[2], "outline:2px solid var(--pc-ink);outline-offset:2px;box-shadow:0 0 0 5px var(--pc-solid)");
+  for (const surface of [".card", ".plate", ".pc-card", "dialog"]) assert.ok(rule[1].includes(surface), surface);
+  // Only rings over the plate: #114's .focus-target / [data-focus-ring] rules are not restated here.
+  assert.equal(/focus-target|data-focus-ring/.test(craft), false);
+});
+
+test("the credit has room: a closed details lays out no hidden form under it (QA #116 N3)", () => {
+  assert.match(craft, /\[data-entered\] main details:not\(\[open\]\)>:not\(summary\)\{display:none\}/);
+  assert.match(craft, /\.pc-credit\{position:relative;z-index:1;clear:both;width:fit-content;margin:2\.5rem 0 1rem;/);
 });
 
 test("the shell renders the plate for every section, and the credit names it", () => {
