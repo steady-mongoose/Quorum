@@ -20,7 +20,7 @@ const HOW = [
   },
   {
     term: "Roll call",
-    what: "After the gathering, the host records who came.",
+    what: "After the gathering, the host records who actually came.",
   },
   {
     term: "Messages",
@@ -28,7 +28,7 @@ const HOW = [
   },
   {
     term: "No feed",
-    what: "No likes, reshares, scores, or algorithm. Posts show in the order they were written.",
+    what: "No likes, reshares, scores, or algorithm. Posts appear in the order they were written.",
   },
 ];
 
@@ -36,7 +36,7 @@ const HOW = [
 const ROOMS = [
   {
     term: "One group each",
-    what: "A room is one church, shop, club, or county. What's posted in a room stays in that room.",
+    what: "A room is one church, shop, club, or county. What's posted stays in that room.",
   },
   {
     term: "By invitation",
