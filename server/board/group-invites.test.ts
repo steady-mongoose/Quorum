@@ -57,7 +57,10 @@ test("the non-member copy is plain and the same on server and client", () => {
     new URL("../../src/components/board/groups-view.tsx", import.meta.url),
     "utf8",
   );
-  assert.ok(view.includes('<p className="text-sm text-muted">{GROUP_INVITE_ONLY}</p>'));
+  assert.match(
+    view,
+    /<p ref=\{inviteNoteRef\} tabIndex=\{-1\} className="text-sm text-muted">\s*\{GROUP_INVITE_ONLY\}\s*<\/p>/,
+  );
   assert.equal(view.includes('"Join"'), false, "the open Join button is gone");
   assert.equal(view.includes("Join the group before you post."), false);
 });
@@ -303,11 +306,15 @@ test("the invite UI copy, roles, and controls match the design review", () => {
     "aria-invalid={error ? true : undefined}",
     'cn(fieldClass, "min-h-[44px]")',
     "headingRef.current?.focus()",
+    "<p ref={inviteNoteRef} tabIndex={-1}",
+    "onDeclined={() => inviteNoteRef.current?.focus()}",
     "openRef.current?.focus()",
     "fieldRef.current?.focus()",
   ]) {
     assert.ok(view.includes(copy), copy);
   }
+  const accept = view.slice(view.indexOf("function AcceptInvite"));
+  assert.match(accept, /setDeclined\(true\);\s*onDeclined\(\);/);
   assert.ok((view.match(/role="status"/g) ?? []).length >= 3);
   const invite = view.slice(view.indexOf("function AcceptInvite"));
   assert.equal(invite.includes("disabled={busy}"), false);

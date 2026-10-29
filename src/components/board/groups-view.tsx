@@ -381,6 +381,7 @@ function GroupDetailView({
   const [tick, setTick] = useState(0);
   const reload = () => setTick((value) => value + 1);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const inviteNoteRef = useRef<HTMLParagraphElement>(null);
   const [joinedNote, setJoinedNote] = useState("");
 
   useEffect(() => {
@@ -487,11 +488,14 @@ function GroupDetailView({
             </form>
           ) : (
             <div className="flex flex-col gap-3">
-              <p className="text-sm text-muted">{GROUP_INVITE_ONLY}</p>
+              <p ref={inviteNoteRef} tabIndex={-1} className="text-sm text-muted">
+                {GROUP_INVITE_ONLY}
+              </p>
               {detail.group.invited ? (
                 <AcceptInvite
                   groupId={id}
                   inviter={detail.group.invitedBy || "A group admin"}
+                  onDeclined={() => inviteNoteRef.current?.focus()}
                   onJoined={() => {
                     setJoinedNote(`You joined ${detail.group.name}. You can post here now.`);
                     reload();
@@ -801,10 +805,12 @@ function AcceptInvite({
   groupId,
   inviter,
   onJoined,
+  onDeclined,
 }: {
   groupId: string;
   inviter: string;
   onJoined: () => void;
+  onDeclined: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -819,7 +825,10 @@ function AcceptInvite({
       setError(saved.error);
       return;
     }
-    if (path === "decline") setDeclined(true);
+    if (path === "decline") {
+      setDeclined(true);
+      onDeclined();
+    }
     else onJoined();
   }
   if (declined) {
