@@ -133,14 +133,18 @@ test("migration 0044 adds room options with roll call off, is owner-approved, an
   assert.equal(/drop table|delete from|update room/i.test(sql), false);
 });
 
-test("migration 0045 adds group invites, is owner-approved, and replaces no function", () => {
+test("migration 0045 adds group invites, is owner-approved, and replaces only its own function", () => {
   const sql = readFileSync(join(projectRoot(), "migrations/0045_group_invites.sql"), "utf8");
   assert.match(sql, /Numbered 0045/);
   assert.match(sql, /owner must approve/i);
   assert.ok(sql.includes("create table if not exists theme_group_invite"));
   assert.ok(sql.includes("'invite', 'revoke-invite', 'decline-invite'"));
   assert.ok(sql.includes("declined_at timestamptz"));
-  assert.equal(/create or replace function/i.test(sql), false);
+  // Only its own anonymize function, created or replaced so a rerun is safe.
+  assert.deepEqual(sql.match(/create or replace function \w+/gi), [
+    "create or replace function anonymize_theme_group_invite_user",
+  ]);
+  assert.equal(/^create (function|table|index|trigger) (?!if not exists)/im.test(sql.replace(/create trigger anonymize_theme_group_invite_user/, "")), false);
   assert.equal(/drop table|delete from|update theme_group /i.test(sql), false);
   const code = sql
     .split("\n")

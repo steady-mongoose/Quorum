@@ -313,3 +313,32 @@ test("the invite UI copy, roles, and controls match the design review", () => {
   assert.equal(view.includes("disabled={busyId === group.id}"), false);
   assert.equal(invite.includes("{invite.email"), false);
 });
+
+test("migration 0045 is safe to apply twice", async () => {
+  const { db, pg, close } = await openTestDb();
+  try {
+    const sql = readFileSync(
+      new URL("../../migrations/0045_group_invites.sql", import.meta.url),
+      "utf8",
+    );
+    await pg.exec(sql);
+    await pg.exec(sql);
+    const owner = await member(db, "Owen");
+    await member(db, "Ada");
+    await groupAdmin(db, "distilling", owner, "Owen");
+    const sent = await inviteToGroup(db, {
+      userId: owner,
+      name: "Owen",
+      groupId: "distilling",
+      email: "ada@example.com",
+      now,
+    });
+    assert.equal(sent.ok, true);
+    const triggers = await db.query<{ tgname: string }>(
+      `select tgname from pg_trigger where tgname = 'anonymize_theme_group_invite_user'`,
+    );
+    assert.equal(triggers.length, 1);
+  } finally {
+    await close();
+  }
+});

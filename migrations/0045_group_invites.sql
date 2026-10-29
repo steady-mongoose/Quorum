@@ -50,7 +50,7 @@ alter table theme_group_log
 
 -- Deleting an account drops the name from invites it sent or revoked.
 -- This is its own function and trigger.
-create function anonymize_theme_group_invite_user() returns trigger
+create or replace function anonymize_theme_group_invite_user() returns trigger
 language plpgsql
 as $$
 begin
