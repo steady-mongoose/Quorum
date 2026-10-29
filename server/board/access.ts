@@ -116,3 +116,81 @@ export function moderationStop(actor: BoardActor, target: BoardActor): string | 
   }
   return null;
 }
+
+/**
+ * actorRole for many people in three queries, for lists. Each entry matches
+ * what actorRole returns for that person.
+ */
+export async function actorRoles(db: Db, userIds: string[]): Promise<Map<string, BoardActor>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const actors = new Map<string, BoardActor>();
+  if (ids.length === 0) return actors;
+  const seats = await db.query<{ user_id: string }>(
+    `select user_id from bootstrap_seat where id = 'founding' and user_id = any ($1::text[])`,
+    [ids],
+  );
+  const owners = new Set(seats.map((row) => row.user_id));
+  const roles = await db.query<{ user_id: string; is_admin: boolean }>(
+    `select user_id, is_admin from member_role where user_id = any ($1::text[])`,
+    [ids],
+  );
+  const flagged = new Set(roles.filter((row) => row.is_admin).map((row) => row.user_id));
+  const log = await db.query<{
+    id: string;
+    user_id: string;
+    role: AccessRow["role"];
+    room_id: string;
+    action: "grant" | "revoke";
+    at: Date | string;
+  }>(
+    `select id, user_id, role, room_id, action, at from access_log
+     where user_id = any ($1::text[]) and role in ('member', 'admin', 'steward')`,
+    [ids],
+  );
+  const byUser = new Map<string, typeof log>();
+  for (const row of log) {
+    const mine = byUser.get(row.user_id) ?? [];
+    mine.push(row);
+    byUser.set(row.user_id, mine);
+  }
+  for (const userId of ids) {
+    const rows = byUser.get(userId) ?? [];
+    const live = (role: AccessRow["role"]) =>
+      isLiveGrant(
+        rows
+          .filter((row) => row.role === role)
+          .map((row) => ({
+            id: row.id,
+            userId,
+            role,
+            action: row.action,
+            at: new Date(row.at).getTime(),
+          })),
+        userId,
+        role,
+      );
+    const latest = new Map<string, { id: string; action: "grant" | "revoke"; at: number }>();
+    for (const row of rows) {
+      if (row.role !== "steward") continue;
+      const at = new Date(row.at).getTime();
+      const prev = latest.get(row.room_id);
+      if (!prev || at > prev.at || (at === prev.at && row.id > prev.id)) {
+        latest.set(row.room_id, { id: row.id, action: row.action, at });
+      }
+    }
+    const stewardRooms = [...latest.entries()]
+      .filter(([roomId, row]) => roomId.trim() !== "" && row.action === "grant")
+      .map(([roomId]) => roomId);
+    const owner = owners.has(userId);
+    const admin = owner || flagged.has(userId) || live("admin");
+    const member = admin || live("member");
+    actors.set(userId, {
+      member,
+      steward: admin || stewardRooms.length > 0,
+      admin,
+      owner,
+      stewardRooms,
+    });
+  }
+  return actors;
+}

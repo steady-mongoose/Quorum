@@ -13,7 +13,7 @@ import {
 } from "./model.ts";
 import { DEFAULT_ROOM_OPTIONS, roomOptionsFrom } from "./room-options.ts";
 import { localRoomMembers, parseMemberList } from "./room-members.ts";
-import { useBoard } from "./store.ts";
+import { keepsRoomsPage, useBoard } from "./store.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -77,8 +77,14 @@ test("admins get the options menu when setting up and editing a room; the room p
 test("the member list shows Message, the wait line, or nothing, as the server says", () => {
   const members = read("../../components/board/room-members.tsx");
   assert.ok(members.includes(`row.name !== me && row.message === "open" ? (`));
-  assert.ok(members.includes(`row.name !== me && row.message === "wait" ? (`));
-  assert.ok(members.includes("{MEMBER_WAIT_LINE}"));
+  // The wait line is about the viewer: once, above the list, never on each row.
+  assert.ok(members.includes(`row.name !== me && row.message === "wait"`));
+  assert.equal(members.split("{MEMBER_WAIT_LINE}").length, 2);
+  assert.ok(
+    members.indexOf("{MEMBER_WAIT_LINE}") < members.indexOf("{list.members.map((row) =>"),
+  );
+  // Back to a row whose button is gone: the list's summary takes focus.
+  assert.ok(members.includes(`(button ?? details.current?.querySelector("summary"))?.focus();`));
   assert.ok(members.includes(`"max-w-full self-start px-0 text-left [overflow-wrap:anywhere]"`));
   assert.ok(members.includes("text-base text-fg [overflow-wrap:anywhere]"));
   const parsed = parseMemberList({
@@ -131,8 +137,43 @@ test("Message from the member list opens the conversation; Back returns to the r
   assert.equal(useBoard.getState().dmFrom, null);
 });
 
-test("Message on a rooms page leaves the rooms page so the conversation shows", () => {
+test("Message on a rooms page shows the conversation there, so the address stays", () => {
   const app = read("../../components/board/app.tsx");
   assert.match(app, /if \(!onRoomsRoute\) return;\r?\n\s+return useBoard\.subscribe\(\(state, previous\) => \{/);
-  assert.match(app, /state\.section !== previous\.section && state\.section !== "rooms"/);
+  assert.match(app, /if \(keepsRoomsPage\(state\)\) return;/);
+  assert.match(app, /onRoomsRoute && !memberConversation\r?\n\s+\? "rooms"/);
+
+  assert.equal(keepsRoomsPage({ section: "rooms", dmFrom: null }), true);
+  assert.equal(keepsRoomsPage({ section: "messages", dmFrom: { room: "shop" } }), true);
+  assert.equal(keepsRoomsPage({ section: "messages", dmFrom: null }), false);
+  assert.equal(keepsRoomsPage({ section: "profile", dmFrom: null }), false);
+
+  // Message from the list and Back again never pass through a state that leaves the rooms page.
+  const shop = { ...ROOMS.find((room) => room.id === "shop")!, joined: true };
+  useBoard.setState({
+    remote: false,
+    me: "Me",
+    rooms: [shop],
+    posts: [newPost({ room: "shop", type: "shared", author: "Hank", claim: "The lathe is oiled." })],
+    cards: [],
+    threads: [],
+    section: "rooms",
+    room: "shop",
+    openThread: null,
+    dmFrom: null,
+    focusMember: null,
+  });
+  const seen: boolean[] = [];
+  const stop = useBoard.subscribe((state) => seen.push(keepsRoomsPage(state)));
+  try {
+    useBoard.getState().messageMember("shop", { id: "Hank", name: "Hank", userId: null });
+    assert.equal(useBoard.getState().section, "messages");
+    useBoard.getState().backToRoom();
+    assert.equal(useBoard.getState().section, "rooms");
+    assert.equal(useBoard.getState().focusMember, "Hank");
+  } finally {
+    stop();
+  }
+  assert.ok(seen.length > 0);
+  assert.deepEqual([...new Set(seen)], [true]);
 });

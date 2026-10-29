@@ -1,6 +1,6 @@
 import type { Db } from "../db.ts";
-import { requireRoomMember } from "../chat/store.ts";
-import { actorRole, stewardsRoom } from "./access.ts";
+import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
+import { stewardsRoom } from "./access.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
 
@@ -47,7 +47,8 @@ export async function listRoomMembers(
   const gate = await requireRoomMember(db, userId, roomId, now);
   if (!gate.ok) return { ok: false, status: gate.status, error: gate.error };
   const options = await roomOptions(db, roomId);
-  if (!options.includes("members")) return { ok: false, status: 404, error: ROOM_OPTION_OFF.members };
+  if (!options.includes("members"))
+    return { ok: false, status: 404, error: ROOM_OPTION_OFF.members };
   const rollCall = options.includes("roll_call");
 
   const people = await db.query<{ id: string; name: string; joined_at: Date | string | null }>(
@@ -65,12 +66,16 @@ export async function listRoomMembers(
   );
 
   // Only people who still stand in the room: not barred, not outside its audience.
-  const standing: typeof people = [];
-  for (const person of people) {
-    if (person.id === userId || (await requireRoomMember(db, person.id, roomId, now)).ok) {
-      standing.push(person);
-    }
-  }
+  // One batch for the whole list, as requireRoomMember would answer for each.
+  const standings = await roomStandings(
+    db,
+    people.map((person) => person.id),
+    [roomId],
+    now,
+  );
+  const standing = people.filter(
+    (person) => person.id === userId || standings.standing.has(standingKey(person.id, roomId)),
+  );
   const ids = standing.map((person) => person.id);
   if (ids.length === 0) return { ok: true, value: { members: [], rollCall } };
 
@@ -121,11 +126,11 @@ export async function listRoomMembers(
   const messaging = await memberMessageStates(db, userId, ids, now);
   const members: RoomMember[] = [];
   for (const person of standing) {
-    const actor = await actorRole(db, person.id);
+    const actor = standings.actors.get(person.id);
     members.push({
       id: person.id,
       name: person.name,
-      steward: stewardsRoom(actor, roomId),
+      steward: actor ? stewardsRoom(actor, roomId) : false,
       joinedOn: day(person.joined_at),
       lastPostedOn: lastPosted.get(person.id) ?? "",
       attended: [...(attended.get(person.id)?.values() ?? [])]

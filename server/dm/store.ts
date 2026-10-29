@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { actorRole, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
-import { requireRoomMember } from "../chat/store.ts";
+import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -705,9 +705,16 @@ export async function mayMessage(
 /**
  * What the room member list offers for each person. "open": a Message button.
  * "wait": the caller is new to every room they share (the 3-day wait). "none":
- * the caller blocked them, or has used today's room starts. A block by the
- * other person is not shown here: the button stays, and the server refuses
- * with the same words it uses for any block.
+ * the caller blocked them, they share no room or meeting, or the caller has
+ * used today's room starts. A block by the other person is not shown here:
+ * the row reads exactly as it would without it, and the server refuses with
+ * the same words it uses for any block.
+ *
+ * Apart from that block, this is mayMessage for the conversation the button
+ * would open: an existing conversation needs a meeting or a room they still
+ * share (starting: false), and a new one also needs the 3-day wait and the
+ * daily limit (starting: true). It reads the whole list in a fixed number of
+ * queries, however many members it has.
  */
 export type MemberMessage = "open" | "wait" | "none";
 
@@ -718,40 +725,101 @@ export async function memberMessageStates(
   now: Date,
 ): Promise<Map<string, MemberMessage>> {
   const states = new Map<string, MemberMessage>();
-  const others = otherIds.filter((id) => id && id !== callerId);
+  const others = [...new Set(otherIds.filter((id) => id && id !== callerId))];
   if (!callerId || others.length === 0) return states;
+
+  // Only the caller's own blocks. Whether they blocked the caller is not read.
   const mine = await db.query<{ blocked_user_id: string }>(
     `select blocked_user_id from dm_block
      where blocker_user_id = $1 and blocked_user_id = any ($2::text[])`,
     [callerId, others],
   );
   const iBlocked = new Set(mine.map((row) => row.blocked_user_id));
+  const open = others.filter((id) => !iBlocked.has(id));
+  for (const id of others) if (iBlocked.has(id)) states.set(id, "none");
+  if (open.length === 0) return states;
+
   const threads = await db.query<{ user_a: string; user_b: string }>(
     `select user_a, user_b from dm_thread
      where (user_a = $1 and user_b = any ($2::text[]))
         or (user_b = $1 and user_a = any ($2::text[]))`,
-    [callerId, others],
+    [callerId, open],
   );
   const talking = new Set(
     threads.map((row) => (row.user_a === callerId ? row.user_b : row.user_a)),
   );
+
+  const met = await db.query<{ user_id: string }>(
+    `select distinct theirs.user_id
+     from (${VERIFIED_ATTENDANCE}) mine
+     join (${VERIFIED_ATTENDANCE}) theirs
+       on theirs.meeting_id = mine.meeting_id and theirs.user_id = any ($2::text[])
+     where mine.user_id = $1`,
+    [callerId, open],
+  );
+  const metThem = new Set(met.map((row) => row.user_id));
+
+  // Rooms the caller and each of them are both in, with the caller's join date.
+  const common = await db.query<{
+    user_id: string;
+    room_id: string;
+    joined_at: Date | string | null;
+  }>(
+    `with mine as (
+       select room_id from room_member where user_id = $1
+       union
+       select room_id from room_join where user_id = $1
+     ),
+     theirs as (
+       select user_id, room_id from room_member where user_id = any ($2::text[])
+       union
+       select user_id, room_id from room_join where user_id = any ($2::text[])
+     )
+     select t.user_id, m.room_id, j.joined_at
+     from mine m
+     join theirs t on t.room_id = m.room_id
+     left join room_join j on j.room_id = m.room_id and j.user_id = $1
+     order by t.user_id, m.room_id`,
+    [callerId, open.filter((id) => !metThem.has(id))],
+  );
+  const { standing, actors } = await roomStandings(
+    db,
+    [callerId, ...new Set(common.map((row) => row.user_id))],
+    [...new Set(common.map((row) => row.room_id))],
+    now,
+  );
+  const actor = actors.get(callerId);
+  const wait = ROOM_MESSAGE_WAIT_DAYS * DAY_MS;
+  const shared = new Map<string, { settled: boolean }[]>();
+  for (const row of common) {
+    if (!standing.has(standingKey(callerId, row.room_id))) continue;
+    if (!standing.has(standingKey(row.user_id, row.room_id))) continue;
+    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
+    const settled =
+      (actor ? stewardsRoom(actor, row.room_id) : false) ||
+      (joined !== null && now.getTime() - joined >= wait);
+    const list = shared.get(row.user_id) ?? [];
+    list.push({ settled });
+    shared.set(row.user_id, list);
+  }
+
   const started = await db.query<{ count: string }>(
     `select count(*)::text as count from dm_thread
      where opened_by = $1 and opened_via = 'room' and created_at > $2`,
     [callerId, new Date(now.getTime() - DAY_MS)],
   );
   const capped = Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS;
-  for (const other of others) {
-    if (iBlocked.has(other)) {
-      states.set(other, "none");
-    } else if (talking.has(other) || (await sharesMeeting(db, callerId, other))) {
+
+  for (const other of open) {
+    if (metThem.has(other)) {
       states.set(other, "open");
-    } else {
-      const rooms = await roomsInCommon(db, callerId, other, now);
-      if (rooms.length === 0) states.set(other, "none");
-      else if (!rooms.some((room) => room.settled)) states.set(other, "wait");
-      else states.set(other, capped ? "none" : "open");
+      continue;
     }
+    const rooms = shared.get(other) ?? [];
+    if (rooms.length === 0) states.set(other, "none");
+    else if (talking.has(other)) states.set(other, "open");
+    else if (!rooms.some((room) => room.settled)) states.set(other, "wait");
+    else states.set(other, capped ? "none" : "open");
   }
   return states;
 }

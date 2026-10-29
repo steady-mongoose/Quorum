@@ -2,11 +2,20 @@ import { randomUUID } from "node:crypto";
 import { autoCloseReports } from "../board/report-close.ts";
 import { isEnglish, isHardRule } from "../../src/lib/board/text.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
-import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "../board/access.ts";
-import { canReadRoom, readRoomListing } from "../board/room-visibility.ts";
+import {
+  actorRole,
+  actorRoles,
+  moderationStop,
+  stewardsRoom,
+  type BoardActor,
+} from "../board/access.ts";
+import { canReadRoom, listingColumnsReady, readRoomListing } from "../board/room-visibility.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { groupsApprovedFrom } from "../board/group-rooms.ts";
 import { openBan, writeBan, type BanEntry, type RemovalEntry } from "../board/store.ts";
+import { banOpen } from "../board/ban.ts";
+import { queryBanTable } from "../board/ban-check.ts";
+import { GENDER_POLICY, audienceDecision, parseAudience, parseGender } from "../gender-policy.ts";
 import { evictCallMember } from "../calls/evict.ts";
 import { ROOM_OPTION_OFF, roomHas } from "../board/room-options.ts";
 import type { Db } from "../db.ts";
@@ -104,6 +113,122 @@ export async function requireRoomMember(
     };
   }
   return { ok: true, value: actor };
+}
+
+/** Key for one person in one room in the map roomStandings returns. */
+export function standingKey(userId: string, roomId: string): string {
+  return `${userId}\u0000${roomId}`;
+}
+
+/**
+ * requireRoomMember(db, user, room, now).ok for every pair of these people and
+ * rooms, in a constant number of queries, for lists. A pair is in `standing`
+ * exactly when requireRoomMember would let that person in with no moderate
+ * pass. `actors` holds actorRole for each person.
+ */
+export async function roomStandings(
+  db: Db,
+  userIds: string[],
+  roomIds: string[],
+  now: Date,
+): Promise<{ standing: Set<string>; actors: Map<string, BoardActor> }> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const rooms = [...new Set(roomIds)].filter((roomId) => ROOM_ID.test(roomId));
+  const actors = await actorRoles(db, ids);
+  const standing = new Set<string>();
+  const members = ids.filter((id) => actors.get(id)?.member);
+  if (members.length === 0 || rooms.length === 0) return { standing, actors };
+
+  const ready = await listingColumnsReady(db);
+  const listings = await db.query<{ id: string; name: string; status?: string }>(
+    ready
+      ? `select id, name, status from room where id = any ($1::text[])`
+      : `select id, name from room where id = any ($1::text[])`,
+    [rooms],
+  );
+  const listed = new Map(
+    listings.map((row) => [row.id, { name: row.name, status: row.status ?? "active" }]),
+  );
+  const audiences = await db.query<{ id: string; audience: string }>(
+    `select id, audience from room where name <> '' and id = any ($1::text[])`,
+    [rooms],
+  );
+  const audienceOf = new Map(
+    audiences.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
+  );
+
+  const bans = await queryBanTable<{
+    user_id: string;
+    room_id: string;
+    strikes: number;
+    until_at: Date | string;
+    reason: string;
+  }>(
+    db,
+    `select user_id, room_id, strikes, until_at, reason from board_ban
+     where user_id = any ($1::text[]) and (room_id = '' or room_id = any ($2::text[]))`,
+    [members, rooms],
+  );
+  const barred = new Set<string>();
+  for (const row of bans) {
+    const open = banOpen(
+      { reason: row.reason, strikes: Number(row.strikes), until: atMs(row.until_at) },
+      now.getTime(),
+    );
+    if (open) barred.add(standingKey(row.user_id, row.room_id));
+  }
+
+  const rows = await db.query<{ user_id: string; room_id: string }>(
+    `select user_id, room_id from room_member
+     where user_id = any ($1::text[]) and room_id = any ($2::text[])
+     union
+     select user_id, room_id from room_join
+     where user_id = any ($1::text[]) and room_id = any ($2::text[])`,
+    [members, rooms],
+  );
+  const inRoom = new Set(rows.map((row) => standingKey(row.user_id, row.room_id)));
+
+  const restricted = rooms.some((roomId) => (audienceOf.get(roomId) ?? "all") !== "all");
+  const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
+  if (restricted) {
+    const stated = await db.query<{
+      user_id: string;
+      gender: string | null;
+      gender_confirmed_at: Date | string | null;
+    }>(
+      `select user_id, gender, gender_confirmed_at from members where user_id = any ($1::text[])`,
+      [members],
+    );
+    for (const row of stated) {
+      if (genders.has(row.user_id)) continue;
+      genders.set(row.user_id, {
+        stated: parseGender(row.gender),
+        confirmed: Boolean(row.gender_confirmed_at),
+      });
+    }
+  }
+
+  for (const userId of members) {
+    const actor = actors.get(userId);
+    if (!actor) continue;
+    for (const roomId of rooms) {
+      const room = listed.get(roomId);
+      if (!room || !room.name || !canReadRoom(room.status, actor)) continue;
+      if (barred.has(standingKey(userId, "")) || barred.has(standingKey(userId, roomId))) continue;
+      if (!inRoom.has(standingKey(userId, roomId))) continue;
+      const audience = audienceOf.get(roomId);
+      if (audience && audience !== "all") {
+        const gender = genders.get(userId) ?? { stated: null, confirmed: false };
+        const decision = audienceDecision(
+          { audience, stated: gender.stated, confirmed: gender.confirmed, canModerate: false },
+          GENDER_POLICY,
+        );
+        if (!decision.allow) continue;
+      }
+      standing.add(standingKey(userId, roomId));
+    }
+  }
+  return { standing, actors };
 }
 
 type MessageRow = {

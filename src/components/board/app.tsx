@@ -18,6 +18,7 @@ import {
   UNDO_BAR_MS,
   UNDO_TTL_MS,
   canClearBoard,
+  keepsRoomsPage,
   localBoardOwner,
   useBoard,
 } from "@/lib/board/store";
@@ -112,7 +113,15 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
   const categoryPage = typeof categorySlug === "string" && categorySlug.length > 0;
-  const shown = onRoomsRoute ? "rooms" : section === "civic" && !deskOn ? "week" : section;
+  // A conversation opened from a member list shows on the rooms page itself, so
+  // the address stays /rooms (or /rooms/<category>) and Back returns to the room.
+  const memberConversation = useBoard(keepsRoomsPage) && section === "messages";
+  const shown =
+    onRoomsRoute && !memberConversation
+      ? "rooms"
+      : section === "civic" && !deskOn
+        ? "week"
+        : section;
   const art = artSection({
     entered,
     section: shown,
@@ -187,12 +196,14 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     setSection("rooms");
   }, [categorySlug, setSection]);
 
-  // A rooms page always shows Rooms. When an action elsewhere moves the board
-  // (Message someone, open a profile), leave the rooms page so it shows.
+  // A rooms page shows Rooms, or a conversation opened from a room's member
+  // list. When an action elsewhere moves the board (open a profile, all
+  // messages), leave the rooms page so it shows.
   useEffect(() => {
     if (!onRoomsRoute) return;
     return useBoard.subscribe((state, previous) => {
-      if (state.section !== previous.section && state.section !== "rooms") {
+      if (keepsRoomsPage(state)) return;
+      if (state.section !== previous.section || keepsRoomsPage(previous)) {
         void navigate({ to: "/" });
       }
     });
