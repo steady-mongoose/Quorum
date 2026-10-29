@@ -32,11 +32,12 @@
 /* Hero bands, the Rooms height */
 [data-section="find"] .hero-band,[data-section="groups"] .hero-band,[data-section="profile"] .hero-band,
 [data-section="about"] .hero-band,[data-section="civic"] .hero-band{--band-h:clamp(150px,18vw,240px)}
-[data-section="find"] .hero-band{--band:var(--art-find-band)}
-[data-section="groups"] .hero-band{--band:var(--art-groups-band)}
-[data-section="profile"] .hero-band{--band:var(--art-profile-band);background-position:center 38%}
+[data-section="find"] .hero-band{--band:var(--art-find-band);--band-pos:center 25%}
+[data-section="groups"] .hero-band{--band:var(--art-groups-band);--band-pos:center top}
+[data-section="profile"] .hero-band{--band:var(--art-profile-band);--band-pos:center 38%}
 [data-section="about"] .hero-band{--band:var(--art-about-band)}
-[data-section="civic"] .hero-band{--band:var(--art-civic-band)}
+/* The Desk band: the standing delegates' heads sit in the top tenth of the Trumbull plate. */
+[data-section="civic"] .hero-band{--band:var(--art-civic-band);--band-pos:center 8%}
 
 /* Side column, 1100 to 1599 */
 @media (min-width:1100px) and (max-width:1599px){
