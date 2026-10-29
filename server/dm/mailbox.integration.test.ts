@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp } from "../http.ts";
-import { openTestDb } from "../closed-test/test-db.ts";
+import { openRollCallDb } from "../closed-test/roll-call-db.ts";
 import { rememberNamedAccounts } from "./store.ts";
 import type { Db } from "../db.ts";
 import { DM_SEND_LIMIT, consumeLimit } from "../rate-limit.ts";
@@ -67,7 +67,7 @@ function transport(
 }
 
 test("two members, two devices, and a restored backup can read ciphertext the server cannot", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   let now = new Date("2026-10-19T12:00:00Z");
   const handler = createApp({
     db,
@@ -272,7 +272,7 @@ test("two members, two devices, and a restored backup can read ciphertext the se
 });
 
 test("a site ban, including an expired CSAM ban, blocks every private-message route", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   const now = new Date("2026-10-19T12:00:00Z");
   const handler = createApp({
     db,
@@ -330,7 +330,7 @@ test("a site ban, including an expired CSAM ban, blocks every private-message ro
 });
 
 test("posting came with someone else's meeting card does not make them a peer", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   const now = new Date("2026-10-19T12:00:00Z");
   const handler = createApp({
     db,
@@ -419,7 +419,7 @@ test("posting came with someone else's meeting card does not make them a peer", 
 });
 
 test("a deleted member's message stays readable, and a second read does not reuse a key", async () => {
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   const now = new Date("2026-10-19T12:00:00Z");
   const handler = createApp({
     db,
@@ -663,7 +663,7 @@ function installMemoryIndexedDb(): void {
 test("sign-out keeps the device keys, and sign-in still decrypts a new message", async () => {
   installMemoryIndexedDb();
   const nextText = "The next framing night needs the long saw.";
-  const { db, close } = await openTestDb();
+  const { db, close } = await openRollCallDb();
   const now = new Date("2026-10-19T12:00:00Z");
   const handler = createApp({
     db,

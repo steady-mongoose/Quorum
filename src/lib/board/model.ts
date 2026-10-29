@@ -1,6 +1,9 @@
 // Avouch Social: your church, your shop, your county. Show up.
 // Every rule lives here, not in the views.
 
+import { DEFAULT_ROOM_OPTIONS, ROOM_OPTION_OFF, type RoomOption } from "./room-options.ts";
+export type { RoomOption } from "./room-options.ts";
+
 import { categoryForRoom } from "./categories.ts";
 import {
   hasClock,
@@ -31,6 +34,11 @@ export type RoomId =
   | "orthodox"
   | "dispatch"
   | (string & {});
+/** Whether a room includes roll call, the member list, chat, or calls. */
+export function roomIncludes(room: { options?: readonly RoomOption[] }, option: RoomOption): boolean {
+  return (room.options ?? DEFAULT_ROOM_OPTIONS).includes(option);
+}
+
 export type PostType = "did" | "asked" | "noted" | "saw" | "hosted";
 export type Mark = MarkValue;
 export type Section =
@@ -77,6 +85,8 @@ export type Room = {
   requiresNextDate: boolean;
   /** Church rooms: the host may post a parish need. */
   parish: boolean;
+  /** What the room includes. Left out, everything but roll call. An admin sets it. */
+  options?: RoomOption[];
   /** Every category this room is listed in. */
   categoryIds: string[];
   /** Set when a steward of this room has pinned it. Absent means alphabetical. */
@@ -929,6 +939,9 @@ export function composerCheck(draft: Draft, ctx: CheckContext): Check {
   if (meta.closable && (claim.match(/\?/g) ?? []).length > 1)
     stop("claim", "One question per post. Ask the second one separately.");
 
+  if (meta.closes && !roomIncludes(room, "roll_call") && (draft.came.length > 0 || draft.named)) {
+    stop("form", ROOM_OPTION_OFF.roll_call);
+  }
   if (meta.cardPick === "own") {
     const card = ctx.cards.find((item) => item.id === draft.cardId);
     if (!card) stop("card", "Choose which meeting this is about.");

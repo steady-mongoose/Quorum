@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { RoomOptionsMenu } from "@/components/board/room-options-menu";
+import { DEFAULT_ROOM_OPTIONS, type RoomOption } from "@/lib/board/room-options";
 import { isReplacementError } from "@/lib/board/access-rules";
 import { InviteTracker } from "./invite-tracker";
 import { isMyRemoval } from "@/lib/board/removal-owner";
@@ -62,7 +64,15 @@ const HOW = [
   },
   {
     title: "After a meeting",
-    text: "The host writes it up: how it went, who came, and the next date. If someone did something worth mentioning, the host can name one person. There is no headcount and no score.",
+    text: "The host writes it up: how it went and the next date. In a room that takes roll, the host also records who came, and can name one person who did something worth mentioning. There is no headcount and no score.",
+  },
+  {
+    title: "What a room includes",
+    text: "An admin chooses what each room includes and can change it: roll call, a member list, room chat, and video calls. Roll call is off unless an admin turns it on. Not every room takes roll.",
+  },
+  {
+    title: "Members",
+    text: "In a room with a member list, everyone in the room can see who else is in it, when each joined, and when each last posted. In a room that also takes roll, members can see which gatherings each person came to. The list is in name order. Nobody is ranked, and who's going next time stays with the admins.",
   },
   {
     title: "Who can see you",
@@ -70,7 +80,7 @@ const HOW = [
   },
   {
     title: "Room chat",
-    text: "Each room has a chat for people who have stood in that room. Lines stay in time order. A removed or barred member loses access on the next check. A steward can remove a line only in a room they steward. The lines are plain text.",
+    text: "A room with chat has one for people who have stood in that room. Lines stay in time order. A removed or barred member loses access on the next check. A steward can remove a line only in a room they steward. The lines are plain text.",
   },
   {
     title: "Posting",
@@ -161,8 +171,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
           A private app for the people you see at church, at the shop, and at the county.
         </h1>
         <p className="max-w-prose text-base text-muted">
-          {APP_NAME} shows you the week's meetings, lets you say you will be there, and lets the
-          host record who came. You get in by invitation to a real meeting. There is no feed to
+          {APP_NAME} shows you the week's meetings, lets you say you will be there, and, in
+          rooms that take roll, lets the host record who came. You get in by invitation to a real meeting. There is no feed to
           scroll and nothing to like. Open it, see where to be, go.
         </p>
       </section>
@@ -1030,6 +1040,7 @@ function AdminTools({
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
+    options?: RoomOption[];
   }) => Promise<{ ok: boolean; error?: string }>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
@@ -1042,6 +1053,7 @@ function AdminTools({
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [stewardEmail, setStewardEmail] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
+  const [options, setOptions] = useState<RoomOption[]>([...DEFAULT_ROOM_OPTIONS]);
   const [zip, setZip] = useState("");
   const [town, setTown] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -1127,6 +1139,9 @@ function AdminTools({
             onChange={setAudience}
           />
         </div>
+        <div className="sm:col-span-2">
+          <RoomOptionsMenu selected={options} onChange={setOptions} />
+        </div>
       </div>
       <button
         type="button"
@@ -1137,7 +1152,16 @@ function AdminTools({
             setRoomError("Choose a category.");
             return;
           }
-          void createRoom({ id, name, what, categoryIds, audience, stewardEmail, inviterEmail }).then((result) => {
+          void createRoom({
+            id,
+            name,
+            what,
+            categoryIds,
+            audience,
+            stewardEmail,
+            inviterEmail,
+            options,
+          }).then((result) => {
             if (!result.ok) setRoomError(result.error ?? "The room was not added.");
             else {
               setId("");
@@ -1145,6 +1169,7 @@ function AdminTools({
               setWhat("");
               setCategoryIds([]);
               setAudience("all");
+              setOptions([...DEFAULT_ROOM_OPTIONS]);
               setStewardEmail("");
               setInviterEmail("");
             }
