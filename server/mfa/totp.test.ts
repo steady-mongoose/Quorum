@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hotp, totpAt, verifyTotp } from "./totp.ts";
+import { hotp, otpauthUrl, totpAt, verifyTotp } from "./totp.ts";
 import { openSecret, sealSecret } from "./secret.ts";
 
 test("HOTP matches the RFC 4226 SHA-1 vector", () => {
@@ -49,4 +49,10 @@ test("the sealed authenticator secret round-trips and is not the plaintext", () 
     if (previous === undefined) delete process.env.MFA_SECRET_KEY;
     else process.env.MFA_SECRET_KEY = previous;
   }
+});
+
+test("the authenticator entry is labelled Avouch Social", () => {
+  const url = new URL(otpauthUrl("ada@example.com", "JBSWY3DPEHPK3PXP"));
+  assert.equal(decodeURIComponent(url.pathname), "/Avouch Social:ada@example.com");
+  assert.equal(url.searchParams.get("issuer"), "Avouch Social");
 });

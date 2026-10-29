@@ -278,7 +278,7 @@ test("a barred replacement is refused with the reason", async () => {
       assert.equal(swap.status, 409);
       assert.equal(
         swap.error,
-        "Sam is barred from this room or from Avouch, so they can't be the new steward. Name someone else.",
+        "Sam is barred from this room or from Avouch Social, so they can't be the new steward. Name someone else.",
       );
     }
     assert.deepEqual(liveStewards(await readAccessLog(db), "bench"), [tom.id]);

@@ -136,7 +136,7 @@ test("mic denied shows the settings copy", async () => {
   await flush();
   assert.match(
     host.textContent,
-    /Avouch can't use your microphone\. Allow it in your browser's site settings, then choose Join the call again\./,
+    /Avouch Social can't use your microphone\. Allow it in your browser's site settings, then choose Join the call again\./,
   );
   await act(async () => root.unmount());
 });

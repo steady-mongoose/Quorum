@@ -7,7 +7,7 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
-test("a desk log uses Avouch wording and an older date matches the calendar", () => {
+test("a desk log uses Avouch Social wording and an older date matches the calendar", () => {
   const post = deskDid({
     title: "Put the ordinance on the commission agenda.",
     waveLabel: "Board office",
@@ -18,7 +18,7 @@ test("a desk log uses Avouch wording and an older date matches the calendar", ()
     campaignId: "county-agenda",
     author: "Josh",
   });
-  assert.match(post.reason, /^Logged on the Avouch desk by Josh\. Window 9am–11am local\.$/);
+  assert.match(post.reason, /^Logged on the Avouch Social desk by Josh\. Window 9am–11am local\.$/);
   assert.equal(post.reason.includes("Quorum"), false);
   const at = new Date(2026, 9, 20, 12).getTime();
   assert.equal(formatWhen(at, at + 3 * 24 * 60 * 60 * 1000), formatDate("2026-10-20"));
@@ -51,7 +51,7 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(app, /motion-reduce:animate-none/);
   assert.equal(door.includes("sample week"), false);
   assert.equal(model.includes("Logged on the Quorum desk"), false);
-  assert.match(model, /Logged on the Avouch desk/);
+  assert.match(model, /Logged on the \$\{APP_NAME\} desk/);
   assert.match(bits, /motion-safe:active:scale-95/);
   assert.equal(bits.includes(" active:scale-95"), false);
   assert.match(css, /color-scheme:\s*dark/);

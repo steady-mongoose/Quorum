@@ -1,6 +1,7 @@
 // Charter rule 9, on the server. The newest access_log row for a person and
 // role decides. Steward is per room. Admin is per person.
 // A grant with an empty room does not count as steward of a room.
+import { APP_NAME } from "./model.ts";
 
 export type AccessRole = "member" | "steward" | "admin";
 
@@ -295,16 +296,16 @@ export function replacementNotMemberError(name: string): string {
   return `${name} isn't a member of this room. Name a current member as the new steward.`;
 }
 
-/** The new steward named in a revoke is barred from the room or from Avouch. */
+/** The new steward named in a revoke is barred from the room or from the app. */
 export function replacementBarredError(name: string): string {
-  return `${name} is barred from this room or from Avouch, so they can't be the new steward. Name someone else.`;
+  return `${name} is barred from this room or from ${APP_NAME}, so they can't be the new steward. Name someone else.`;
 }
 
 /** True when a refusal is about the named new steward, so the form can point at that field. */
 export function isReplacementError(error: string): boolean {
   return (
     / isn't a member of this room\. Name a current member as the new steward\.$/.test(error) ||
-    / is barred from this room or from Avouch, so they can't be the new steward\. Name someone else\.$/.test(
+    / is barred from this room or from Avouch(?: Social)?, so they can't be the new steward\. Name someone else\.$/.test(
       error,
     )
   );

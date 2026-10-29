@@ -51,7 +51,7 @@ test("an open confirm dialog stays fixed in the viewport", () => {
     root.render(
       createElement(ConfirmDialog, {
         open: true,
-        title: "Sign out of Avouch?",
+        title: "Sign out of Avouch Social?",
         description: "You can sign in again with your code.",
         confirmLabel: "Sign out",
         cancelLabel: "Stay",
