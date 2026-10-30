@@ -213,6 +213,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   .door-week,.door-rooms{padding-inline-end:calc(clamp(6.5rem,24%,10rem) + 1.5rem)}
   .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:clamp(6.5rem,24%,10rem);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}
 }
+@media (min-width:1024px){.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-rooms .door-term{border-bottom:0;padding-bottom:0}}
 @media (min-width:1024px){
   .door-week::after,.door-rooms::after{background-size:auto 120%}
   .door-week::after{opacity:.4}

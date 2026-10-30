@@ -342,3 +342,13 @@ test("at 640px and up the engravings sit in a strip beside the words, not under 
   // Phones keep no ghosted art.
   assert.doesNotMatch(door, /@media \(max-width:6[34]\dpx\)\{[^@]*\.door-(week|rooms)::after\{[^}]*content/);
 });
+
+test("at 1024px and up the rooms card stacks term over description so the words get the column", () => {
+  const rule =
+    "@media (min-width:1024px){.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-rooms .door-term{border-bottom:0;padding-bottom:0}}";
+  const at = door.indexOf(rule);
+  assert.ok(at >= 0, "rooms stack rule");
+  assert.ok(at > door.indexOf(".door-week,.door-rooms{padding-inline-end:"), "after the strip block");
+  assert.match(doorTsx, /<dl className="[^"]*"/);
+  assert.match(doorTsx, /<dt className="door-term">/);
+});
