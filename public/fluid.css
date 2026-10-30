@@ -55,8 +55,6 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   [data-section="week"] .outer-art{background-image:var(--art-week-side);--focal:62% 40%}
   [data-section="rooms"] .outer-art{background-image:var(--art-rooms-side);--focal:58% 30%}
   [data-section="messages"] .outer-art{background-image:var(--art-messages-side);--focal:50% 20%}
-  /* One plate per page: the left margin carries it, the right stays plain ground. Side B is the palette tint, not a companion. */
-  .shell-body .outer-art.r{background-image:none}
 }
 
 /* Side column only between 1100 and 1599. Below that the page is one column. */
