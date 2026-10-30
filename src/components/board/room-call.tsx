@@ -463,7 +463,7 @@ export function CallPanel({
                 autoPlay
                 playsInline
                 muted
-                className="aspect-video w-full -scale-x-100 rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
+                className="aspect-video w-full -scale-x-100 rounded-md bg-fg/10 object-cover landscape:max-h-[50svh]"
               />
               <figcaption className="text-sm text-muted">You</figcaption>
             </figure>
@@ -474,7 +474,7 @@ export function CallPanel({
                 ref={(node) => bindStream(node, peer.stream as MediaStream | null)}
                 autoPlay
                 playsInline
-                className="aspect-video w-full rounded-md bg-fg/10 object-cover landscape:max-h-[50vh]"
+                className="aspect-video w-full rounded-md bg-fg/10 object-cover landscape:max-h-[50svh]"
                 aria-label={peer.name}
               />
               <figcaption className="text-sm text-muted">

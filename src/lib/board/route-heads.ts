@@ -14,7 +14,7 @@ export type RouteMeta =
 export function rootMeta(): RouteMeta[] {
   return [
     { charSet: "utf-8" },
-    { name: "viewport", content: "width=device-width, initial-scale=1" },
+    { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
     { title: APP_NAME },
     { name: "description", content: DESCRIPTION },
     { name: "application-name", content: APP_NAME },

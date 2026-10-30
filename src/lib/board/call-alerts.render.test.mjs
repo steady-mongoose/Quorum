@@ -539,8 +539,9 @@ test("S2: the prompt stays position: fixed under the shell's position: relative 
     )) {
       for (const sel of m[1].split(",")) {
         if (!/\.shell\b/.test(sel)) continue;
+        // An exclusion such as :not(.call-rings) is fine; a selector that targets it is not.
         assert.doesNotMatch(
-          sel.trim(),
+          sel.trim().replace(/:not\([^)]*\)/g, ""),
           /\.shell\s+(?!>)|\.shell\s*>\s*\*\s+|\.call-rings/,
           `${name}: "${sel.trim()}" would reach the call card`,
         );
