@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { artAttribute, artSection, heroLabel, isEveningHour, showsHero } from "./engraved.ts";
+import { artAttribute, artSection, heroLabel, isEveningHour } from "./engraved.ts";
 
 function contrast(foreground: string, background: string): number {
   const channel = (value: number) => {
@@ -193,9 +193,7 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-test("hero bands are week, rooms, and messages, and the label names the plate", () => {
-  assert.equal(showsHero("week"), true);
-  assert.equal(showsHero("landing"), false);
+test("the public pages' band labels still name the plate", () => {
   assert.match(heroLabel("week") ?? "", /Doré/);
   assert.match(heroLabel("rooms") ?? "", /Dürer/);
   assert.match(heroLabel("messages") ?? "", /Jerome/);

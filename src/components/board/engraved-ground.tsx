@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { artAttribute, isEveningHour, type ArtSection } from "@/lib/board/engraved";
+import { artAttribute, isEveningHour, type ArtSection, type PlateView } from "@/lib/board/engraved";
 
 /**
  * Puts the section on `<body>` after the first paint, and the evening warmth
@@ -26,4 +26,15 @@ export function useEngravedDocument(section: ArtSection | null) {
       cancelAnimationFrame(frame);
     };
   }, [section]);
+}
+
+/** `<body data-view="room|group">` while a room or a group is open; removed otherwise. */
+export function usePlateView(view: PlateView | null) {
+  useEffect(() => {
+    if (view) document.body.dataset.view = view;
+    else delete document.body.dataset.view;
+    return () => {
+      delete document.body.dataset.view;
+    };
+  }, [view]);
 }

@@ -175,10 +175,13 @@ export function AboutView({
   const changeAccess = useBoard((state) => state.changeAccess);
   const correctZip = useBoard((state) => state.correctZip);
 
+  // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
+  const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
+
   return (
     <div className="flex flex-col gap-10">
       {publicView ? null : <ServerInvite />}
-      <section className="flex flex-col gap-3">
+      <section className={publicView ? "flex flex-col gap-3" : "plate pc-head flex flex-col gap-3"}>
         <Kicker>About</Kicker>
         <h1 className="illum max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
           A private app for the people you see at church, at the shop, and at the county.
@@ -200,8 +203,8 @@ export function AboutView({
         </p>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">How it works</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>How it works</h2>
         <dl className="about-how columns-1 gap-x-8 lg:columns-2">
           {HOW.map((item) => (
             <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
@@ -212,8 +215,8 @@ export function AboutView({
         </dl>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">The rooms</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {rooms.map((room) => (
             <div key={room.id} className="contents">
@@ -226,8 +229,8 @@ export function AboutView({
         </dl>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">Kinds of post</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {POST_TYPES.map((type) => (
             <div key={type.id} className="contents">
@@ -412,7 +415,7 @@ export function AboutView({
       )}
 
       {!publicView && removals.length > 0 ? (
-        <section className="flex flex-col gap-3">
+        <section className="card pc-card flex flex-col gap-3 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">
             {steward || admin ? "Hard removals" : "Your removals"}
           </h2>

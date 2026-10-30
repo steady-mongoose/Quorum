@@ -6,14 +6,15 @@ const profile = readFileSync("src/components/board/profile-view.tsx", "utf8");
 const removal = readFileSync("src/components/board/account-removal.tsx", "utf8");
 const mfa = readFileSync("src/components/board/mfa-ui.tsx", "utf8");
 
-test("Authenticator comes after the profile content and Account is last, behind a divider", () => {
+test("Authenticator comes after the profile content and Account is last, set apart on its own card", () => {
   const met = profile.indexOf("People you've met here");
   const auth = profile.indexOf("<MfaSettings />");
   const account = profile.indexOf("<AccountRemoval");
   assert.ok(met > 0 && auth > met, "Authenticator sits below People you've met here");
   assert.ok(account > auth, "Account comes after Authenticator");
   assert.equal(profile.split("<AccountRemoval").length, 2, "Account is rendered once");
-  assert.match(profile.slice(auth, account), /border-t border-line/);
+  // Its own card over the plate (Design r131 R5), where it used to be a divider.
+  assert.match(profile.slice(auth, account), /className="card pc-card p-4 sm:p-5"/);
 });
 
 test("Account controls use aria-disabled, not disabled, and no red outside the confirm", () => {
