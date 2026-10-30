@@ -182,9 +182,15 @@ test("the RSVP button is aria-busy while saving, says when it failed, and only a
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.rule\{transition:/);
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.laurel\{transition:/);
   assert.doesNotMatch(css, /^\.rsvp-mark \.(rule|laurel)\{[^}]*transition/m);
-  // Design 5713940421 low 2: the mark is only as wide as the laurel, so no 120px gap before "I went".
-  assert.match(css, /\.rsvp-mark\{[^}]*width:max-content\}/);
+  // Design 5714690804 M1: no reserved laurel space. The mark is 0 wide (and
+  // cancels the row's gap-3) until "going", then grows in; reduced motion
+  // zeroes the transition with the sheet-wide rule.
   assert.doesNotMatch(css, /\.rsvp-mark\{[^}]*width:7\.5rem/);
+  assert.match(css, /\.rsvp-mark\{[^}]*width:max-content;max-width:0;overflow:hidden;margin-inline-start:-\.75rem;transition:max-width 240ms var\(--ease-press\),margin 240ms var\(--ease-press\)\}/);
+  assert.match(css, /\.btn-rsvp\.btn-primary \+ \.rsvp-mark\{max-width:4rem;margin-inline-start:0\}/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*\}\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important;transition-delay:0s!important\}/);
+  // The gap it cancels is the row's gap-3 (.75rem), with the mark right after the button.
+  assert.match(control, /<div className="flex flex-wrap items-center gap-3">/);
   // The sheet-wide reduced-motion rule (every transition at 0s) covers the mark;
   // a rule of its own would push the sheet past its 3 KB budget.
   assert.match(css, /prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important;transition-delay:0s!important\}/);
