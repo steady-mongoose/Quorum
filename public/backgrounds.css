@@ -74,7 +74,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .btn.btn-primary{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
 .illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;margin-right:-.06em}
-.rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:7.5rem}
+.rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:max-content}
 .rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0)}
 .rsvp-mark .laurel{width:46px;height:auto;opacity:0}
 .btn-rsvp[data-tapped] + .rsvp-mark .rule{transition:transform 360ms var(--ease-press)}

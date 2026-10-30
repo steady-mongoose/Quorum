@@ -80,6 +80,21 @@ async function roomIsOpen(db: Db, roomId: string): Promise<boolean> {
   return audience === null || audience === "all";
 }
 
+/** The refusal for moving a gathering into a room the mover is not in. */
+export const MOVE_NOT_YOUR_ROOM = "You can move a gathering only into a room you belong to or steward.";
+
+/** A real member of this room: a room_join or room_member row. No role grants it. */
+async function belongsTo(db: Db, userId: string, roomId: string): Promise<boolean> {
+  const rows = await db.query<{ one: number }>(
+    `select 1 as one from room_join where room_id = $1 and user_id = $2
+     union all
+     select 1 from room_member where room_id = $1 and user_id = $2
+     limit 1`,
+    [roomId, userId],
+  );
+  return Boolean(rows[0]);
+}
+
 async function roomExists(db: Db, roomId: string): Promise<boolean> {
   const room = await readRoomListing(db, roomId);
   return Boolean(room);
@@ -190,6 +205,16 @@ export async function saveGathering(
     if (!allowed) return fail(403, "Only the organizer can change this gathering.");
     if (existing.room_id !== roomId && !host && !realStewardOf(actor, roomId)) {
       return fail(403, "Only the organizer can change this gathering.");
+    }
+    // Josh via CoS, Oct 30 10:59 AM ET (QA's recommendation): a host, an admin
+    // who hosts included, moves a gathering only into a room they really
+    // belong to (room_join or room_member) or really steward. The admin grant
+    // never counts. Otherwise a host could carry its RSVPs into any room they
+    // can read and hand the names to that room's stewards.
+    // QA H2 (Oct 30): the check above let a host skip the target room, so an
+    // admin-host in r1 and r2 moved g2 into r3 and r3's steward saw its names.
+    if (existing.room_id !== roomId && !realStewardOf(actor, roomId) && !(await belongsTo(db, input.userId, roomId))) {
+      return fail(403, MOVE_NOT_YOUR_ROOM);
     }
     await db.query(
       `update public_gathering

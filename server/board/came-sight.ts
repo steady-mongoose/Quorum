@@ -2,6 +2,7 @@ import type { Db } from "../db.ts";
 import type { BoardActor } from "./access.ts";
 import { roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
+import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
 
 /**
  * Who came is private (Josh, Oct 29, 10:06 PM ET; admins dropped Oct 30,
@@ -16,7 +17,7 @@ export type CameViewer = {
   nameOwn?: boolean;
   actor: BoardActor;
   /** Write-ups whose roll call names this account by id (dm_named_account). */
-  namedIn?: ReadonlySet<string> & { resolved?: ReadonlySet<string> };
+  namedIn?: ReadonlySet<string> & { resolved?: ReadonlySet<string>; stale?: ReadonlySet<string> };
   /**
    * Gathering ids this account really hosts (public_gathering.host_user_id).
    * For a gathering's write-up the host role comes from here, never from who
@@ -81,6 +82,11 @@ export function cameFor(
   viewer: CameViewer,
   post: { id: string; roomId: string; hostId: string | null | undefined; cardId?: string | null },
 ): { came: string[]; youCame: boolean } {
+  // Older than 12 months (Josh's rule, QA N7): no "You came", whether or not
+  // OLD_WRITE_UPS_DROP_DM_LINKS kept the link for DMs.
+  if (viewer.namedIn?.stale?.has(post.id)) {
+    return { came: seesWhoCame(viewer, post.roomId, post.hostId, post.cardId) ? came : [], youCame: false };
+  }
   const byId = viewer.namedIn?.has(post.id) ?? false;
   const resolved = viewer.namedIn?.resolved?.has(post.id) ?? false;
   // A gathering's write-up is linked by the roll call's ids only (QA S3): a
@@ -96,10 +102,20 @@ export async function namedIn(
   db: Db,
   userId: string,
   postIds: string[],
-): Promise<Set<string> & { resolved?: Set<string> }> {
-  const out: Set<string> & { resolved?: Set<string> } = new Set();
+  now: Date = new Date(),
+): Promise<Set<string> & { resolved?: Set<string>; stale?: Set<string> }> {
+  const out: Set<string> & { resolved?: Set<string>; stale?: Set<string> } = new Set();
   out.resolved = new Set();
+  out.stale = new Set();
   if (postIds.length === 0) return out;
+  // Write-ups older than the 12-month cutoff read as nobody came, for "You came" (QA N7).
+  const cutoff = rsvpCutoff(now);
+  const old = await db.query<{ id: string }>(
+    `select p.id from board_post p
+     where p.id = any ($1::text[]) and p.type = 'hosted' and not ${writeUpWithin("$2", "$3")}`,
+    [postIds, cutoff.toISOString().slice(0, 10), cutoff],
+  );
+  for (const row of old) out.stale.add(row.id);
   const ready = await db.query<{ ready: string | null }>(
     `select to_regclass('public.dm_named_account')::text as ready`,
   );
@@ -121,7 +137,8 @@ export async function cameViewerFor(
   userId: string,
   actor: BoardActor,
   postId: string,
+  now: Date = new Date(),
 ): Promise<CameViewer> {
   const viewer = await cameViewer(db, userId, actor);
-  return { ...viewer, namedIn: await namedIn(db, userId, [postId]) };
+  return { ...viewer, namedIn: await namedIn(db, userId, [postId], now) };
 }

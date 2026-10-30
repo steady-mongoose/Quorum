@@ -62,7 +62,7 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, and a room\'s stewards see who is coming and who came in that room. Other admins see only totals, with small counts hidden. Press "I\'ll be there" on the ones you will attend.',
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, and a room\'s stewards see who is coming and who came in that room. An admin who isn\'t the host or a steward sees only totals, with small counts hidden. Press "I\'ll be there" on the ones you will attend.',
   },
   {
     title: "After a meeting",

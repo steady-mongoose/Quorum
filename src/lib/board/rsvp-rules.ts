@@ -74,8 +74,8 @@ export const MARK_NOT_GOING = "Only members who said they're going can be marked
  * "7:00 p.m.", "11:59 PM", "noon" and 24-hour "19:00" / "07:30" all read.
  * When the text has more than one time, the latest counts (QA N5): "Doors
  * 6:30 pm, talk at 7:15 pm" is 7:15 pm, so marking never opens early. "noon"
- * reads as 12:00 only when it is the only time in the text: "after noon
- * service, 3 pm" is 3 pm. A bare "9:30" with no am/pm and no leading zero
+ * is one of the times (12:00), so "after noon service, 3 pm" is 3 pm and
+ * "coffee 10:15 am, service at noon" is noon (QA N6). A bare "9:30" with no am/pm and no leading zero
  * could be morning or evening, so it reads as the later one (21:30). A bare
  * number with no colon and no am/pm ("Room 12", "talk at 7") is not a time.
  */
@@ -86,6 +86,7 @@ export function startMinutes(time: string | undefined): number | null {
   const keep = (minutes: number) => {
     if (latest === null || minutes > latest) latest = minutes;
   };
+  if (/\bnoon\b/.test(text)) keep(12 * 60);
   for (const match of text.matchAll(token)) {
     const [, h, m, meridiem] = match;
     const hour = Number(h);
@@ -102,8 +103,7 @@ export function startMinutes(time: string | undefined): number | null {
     // "12:15" is past noon at the latest; "9:30" could be either, so the later reading.
     else keep((hour === 12 ? 12 : hour + 12) * 60 + minute);
   }
-  if (latest !== null) return latest;
-  return /\bnoon\b/.test(text) ? 12 * 60 : null;
+  return latest;
 }
 
 /**

@@ -4,7 +4,7 @@ import { actorRole, stewardsRoom } from "./access.ts";
 import { cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
-import { rsvpCutoff } from "./rsvp.ts";
+import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
 
 /**
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
@@ -113,7 +113,7 @@ export async function listRoomMembers(
      from board_post p
      left join dm_named_account n on n.post_id = p.id and cardinality(p.came) > 0
      where p.room_id = $1 and p.type = 'hosted' and p.removed = false and p.parent_id is null
-       and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= $2 else p.created_at >= $3 end)
+       and ${writeUpWithin("$2", "$3")}
      order by p.created_at desc, p.id`,
     [roomId, cutoff.toISOString().slice(0, 10), cutoff],
   );

@@ -47,7 +47,7 @@ test("about copy says who sees the list", () => {
   assert.doesNotMatch(source, /who is going/);
   assert.match(
     source,
-    /Who\\'s coming stays private\. The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room\. Other admins see only totals, with small counts hidden\. Press "I\\'ll be there"/,
+    /Who\\'s coming stays private\. The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room\. An admin who isn\\'t the host or a steward sees only totals, with small counts hidden\. Press "I\\'ll be there"/,
   );
 });
 
@@ -182,6 +182,9 @@ test("the RSVP button is aria-busy while saving, says when it failed, and only a
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.rule\{transition:/);
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.laurel\{transition:/);
   assert.doesNotMatch(css, /^\.rsvp-mark \.(rule|laurel)\{[^}]*transition/m);
+  // Design 5713940421 low 2: the mark is only as wide as the laurel, so no 120px gap before "I went".
+  assert.match(css, /\.rsvp-mark\{[^}]*width:max-content\}/);
+  assert.doesNotMatch(css, /\.rsvp-mark\{[^}]*width:7\.5rem/);
   // The sheet-wide reduced-motion rule (every transition at 0s) covers the mark;
   // a rule of its own would push the sheet past its 3 KB budget.
   assert.match(css, /prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important;transition-delay:0s!important\}/);

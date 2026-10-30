@@ -761,7 +761,7 @@ export async function listBoard(
   );
   const sight = {
     ...(await cameViewer(db, userId, actor)),
-    namedIn: await namedIn(db, userId, postRows.map((row) => row.id)),
+    namedIn: await namedIn(db, userId, postRows.map((row) => row.id), now),
   };
   const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [], sight)));
   const councils = await councilMarks(
@@ -1259,7 +1259,7 @@ export async function createPost(
     });
     return {
       ok: true,
-      value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id))),
+      value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
     };
   } catch (error) {
     if (error instanceof Stop) return fail(error.status, error.message, error.stops);
@@ -1378,7 +1378,7 @@ export async function replyToPost(
   await standInRoom(db, input.userId, parent.room_id);
   return {
     ok: true,
-    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id))),
+    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
   };
 }
 
@@ -1435,7 +1435,7 @@ export async function revisePost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id))),
+      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
       mark: null,
     },
   };
@@ -1475,7 +1475,7 @@ export async function closeAsked(
   if (!row) return fail(404, "That question is not here.");
   return {
     ok: true,
-    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id))),
+    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
   };
 }
 
@@ -1551,7 +1551,7 @@ export async function markPost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id))),
+      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
       row: {
         id,
         room: post.room_id,

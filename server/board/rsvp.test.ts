@@ -1638,9 +1638,124 @@ test("QA F1: TEST Ava, an admin who neither hosts nor stewards, cannot edit or m
     assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 403);
     assert.equal(await roomOf(), "shop");
     assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { title: "Lifts" }))).status, 200);
-    // The real host may move it.
+    // The real host may move it, into a room they belong to (Josh via CoS, 10:59 AM ET).
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'county', now())`, [t.dale.id]);
     assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
     assert.equal(await roomOf(), "county");
+  } finally {
+    await t.close();
+  }
+});
+
+// ---- Josh via CoS, Oct 30 10:59 AM ET: a host moves a gathering only into a room they belong to or steward ----
+
+const roomOfGathering = async (t: Awaited<ReturnType<typeof setup>>) =>
+  (await t.db.query<{ room_id: string }>(`select room_id from public_gathering where id = $1`, [GATHERING]))[0]!.room_id;
+const leaksNoNames = async (t: Awaited<ReturnType<typeof setup>>, res: Response) => {
+  const text = await res.text();
+  for (const name of ["Tom", "Maria"]) assert.equal(text.includes(name), false, name);
+  for (const id of [t.tom.id, t.maria.id]) assert.equal(text.includes(id), false);
+  return text;
+};
+
+test("move rule: a host moves into a room they belong to (room_join or room_member)", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'county', now())`, [t.dale.id]);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
+    assert.equal(await roomOfGathering(t), "county");
+    // room_member counts too: back into shop after standing there.
+    await t.db.query(`insert into room_member (room_id, user_id) values ('shop', $1) on conflict do nothing`, [t.dale.id]);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop"))).status, 200);
+    assert.equal(await roomOfGathering(t), "shop");
+    // Editing in place never needs the rule.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { title: "Lifts" }))).status, 200);
+  } finally {
+    await t.close();
+  }
+});
+
+test("move rule: a host moving into a visible room they are not in gets 403, no change and no names", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    const res = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"));
+    assert.equal(res.status, 403);
+    const text = await leaksNoNames(t, res);
+    assert.match(text, /only into a room you belong to or steward/);
+    assert.equal(await roomOfGathering(t), "shop");
+    const title = await t.db.query<{ title: string }>(`select title from public_gathering where id = $1`, [GATHERING]);
+    assert.equal(title[0]?.title, "Saturday lifts", "nothing in the body was saved");
+  } finally {
+    await t.close();
+  }
+});
+
+for (const seesNames of [true, false]) test(`move rule: an admin who hosts moving into a room they are not in gets 403; the admin grant never counts (ADMIN_ROLE_SEES_NAMES=${seesNames})`, () => withAdminRoleSeesNames(seesNames, async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
+    const res = await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"));
+    assert.equal(res.status, 403);
+    await leaksNoNames(t, res);
+    assert.equal(await roomOfGathering(t), "shop");
+    // Once the admin really joins the room, the move is theirs to make.
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'county', now())`, [t.josh.id]);
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
+  } finally {
+    await t.close();
+  }
+}));
+
+test("move rule: QA's case (Abe moves g2 into r3, then Ava, r3's steward, sees names) now fails", async () => {
+  const t = await setup();
+  try {
+    // Abe = Dale, the real host of g2 (GATHERING, in shop, with Tom and Maria going).
+    // Ava = Cara, a real steward of r3 (county) only. Dale is not in county.
+    await scene(t);
+    const before = (await (await call(t.handler, t.cara, "GET", "/api/rsvps")).json()) as ListBody;
+    assert.deepEqual(before.rsvps.filter((row) => row.userId !== t.cara.id), [], "Ava sees no names while g2 is in shop");
+    const moved = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"));
+    assert.equal(moved.status, 403);
+    await leaksNoNames(t, moved);
+    assert.equal(await roomOfGathering(t), "shop");
+    const one = await call(t.handler, t.cara, "GET", `/api/gatherings/${GATHERING}/rsvps`);
+    await leaksNoNames(t, one);
+    const after = (await (await call(t.handler, t.cara, "GET", "/api/rsvps")).json()) as ListBody;
+    assert.deepEqual(after.rsvps.filter((row) => row.userId !== t.cara.id), [], "Ava still sees no names");
+    // A steward moving it still needs a real role in both rooms: Sam (shop) cannot, even into a room he joined.
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'county', now())`, [t.sam.id]);
+    assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 403);
+    assert.equal(await roomOfGathering(t), "shop");
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA H2: an admin-host in r1 and r2 only moving g2 from r2 into r3 gets 403, and r3's steward still sees no names", async () => {
+  // gathering-record.ts:191 let a host skip the target-room check (QA's live repro: 200, then Ava saw TEST Ben and TEST Dee).
+  const t = await setup();
+  try {
+    await scene(t);
+    const other = (await t.db.query<{ id: string }>(`select id from room where id not in ('shop', 'county') order by id limit 1`))[0];
+    assert.ok(other, "a third room to stand in for r1");
+    // Abe = Josh, an admin who hosts g2 (GATHERING) and belongs to r1 (another room) and r2 (shop) only.
+    for (const roomId of [other.id, "shop"]) {
+      await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, $2, now()) on conflict do nothing`, [t.josh.id, roomId]);
+    }
+    await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
+    const moved = await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"));
+    assert.equal(moved.status, 403);
+    await leaksNoNames(t, moved);
+    assert.equal(await roomOfGathering(t), "shop");
+    // Ava = Cara, r3's (county's) steward.
+    await leaksNoNames(t, await call(t.handler, t.cara, "GET", `/api/gatherings/${GATHERING}/rsvps`));
+    const list = (await (await call(t.handler, t.cara, "GET", "/api/rsvps")).json()) as ListBody;
+    assert.deepEqual(list.rsvps.filter((row) => row.userId !== t.cara.id), []);
+    // Moving within the rooms Abe belongs to still works.
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, other.id))).status, 200);
   } finally {
     await t.close();
   }
@@ -1923,7 +2038,7 @@ test("QA N2: startMinutes reads am/pm, p.m., noon and 24-hour times; a bare 9:30
 
 // ---- QA N5: more than one time reads as the latest; "noon" only on its own ----
 
-test("QA N5: the latest time in the text counts, and 'noon' counts only when it is the only time", () => {
+test("QA N5/N6: the latest time in the text counts, and 'noon' is one of the times", () => {
   const cases: Array<[string, number | null]> = [
     ["after noon service, 3 pm", 15 * 60],
     ["noon service, then 3 pm", 15 * 60],
@@ -1935,6 +2050,9 @@ test("QA N5: the latest time in the text counts, and 'noon' counts only when it 
     ["10 am and 7 pm", 19 * 60],
     ["19:00, coffee from 08:30", 19 * 60],
     ["9:30 or 10 am", 21 * 60 + 30],
+    ["coffee 10:15 am, service at noon", 12 * 60],
+    ["noon, coffee at 10:15 am", 12 * 60],
+    ["afternoon tea", null],
   ];
   for (const [text, minutes] of cases) assert.equal(startMinutes(text), minutes, text);
   // Never early: 'after noon service, 3 pm' is closed at 12:00 and 2:59 pm in New York, open at 3 pm.
@@ -1942,6 +2060,11 @@ test("QA N5: the latest time in the text counts, and 'noon' counts only when it 
   assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T16:00:00Z")), false);
   assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T18:59:00Z")), false);
   assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T19:00:00Z")), true);
+  // QA N6: 'coffee 10:15 am, service at noon' is closed at 10:45 and 11:59, open at 12:00 in New York (EDT: 16:00 UTC).
+  const six = "coffee 10:15 am, service at noon";
+  assert.equal(markOpen({ date: "2026-10-30", time: six }, new Date("2026-10-30T14:45:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: six }, new Date("2026-10-30T15:59:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: six }, new Date("2026-10-30T16:00:00Z")), true);
   // 'noon' alone still opens at noon.
   assert.equal(markOpen({ date: "2026-10-30", time: "noon" }, new Date("2026-10-30T15:59:00Z")), false);
   assert.equal(markOpen({ date: "2026-10-30", time: "noon" }, new Date("2026-10-30T16:00:00Z")), true);
@@ -2024,6 +2147,37 @@ test("QA N3: someone named only on a write-up older than 12 months loses that DM
     // And Tom can no longer confirm it.
     await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING]);
     assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+for (const dropDmLinks of [true, false]) test(`QA N7: a member's own 'You came' is false on a write-up older than 12 months (OLD_WRITE_UPS_DROP_DM_LINKS=${dropDmLinks})`, async () => {
+  const t = await setup();
+  const now = new Date("2026-11-01T12:00:00Z");
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id)] },
+      now,
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    const youCame = async () => {
+      const board = await listBoard(t.db, t.tom.id, now, { room: "shop" });
+      assert.equal(board.ok, true);
+      return board.ok ? board.value.posts.find((p) => p.type === "hosted")?.youCame : undefined;
+    };
+    assert.equal(await youCame(), true, "a recent write-up says You came");
+    await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
+    assert.equal(await youCame(), false, "older than 12 months, even before the purge runs");
+    await purgeOldRsvps(t.db, now, dropDmLinks);
+    const links = await t.db.query(`select 1 from dm_named_account where user_id = $1`, [t.tom.id]);
+    assert.equal(links.length, dropDmLinks ? 0 : 1, "the switch decides only the DM link");
+    assert.equal(await youCame(), false, "and after it, either way");
   } finally {
     await t.close();
   }

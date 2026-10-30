@@ -29,7 +29,7 @@ function copy(source: string): string {
 }
 
 const NEAR = 160;
-const ADMIN_CLAIM = /\badmins? (?:also )?(?:see|sees|can see|record|records|mark|marks)\b(?! only\b)|\band the admins\b|\bor an admin\b/gi;
+const ADMIN_CLAIM = /\badmins? (?:also )?(?:see|sees|can see|record|records|mark|marks)\b(?! only totals\b)|\band the admins\b|\bor an admin\b/gi;
 const HOST_ONLY = /\bonly the host (?:records|marks)\b|\bthe host (?:also )?records who came\b|\blets the host record who came\b/gi;
 
 function hits(text: string): string[] {
@@ -48,7 +48,12 @@ test("the guard catches the old wording", () => {
   assert.ok(hits(copy('"Only the host or an admin records who came."')).length > 0);
   assert.ok(hits(copy('"In a room that takes roll, the host records who came."')).length > 0);
   assert.ok(hits(copy("<p>Admins see who came.</p>")).length > 0);
+  assert.equal(hits(copy('"An admin who isn\'t the host or a steward sees only totals, with small counts hidden."')).length, 0);
   assert.equal(hits(copy('"Other admins see only totals."')).length, 0);
+  // The loophole Design found (5713940421 low 3): "only" alone is no pass.
+  assert.ok(hits(copy('"Admins see only names of who came."')).length > 0);
+  assert.ok(hits(copy('"Admins see only the list of who is going."')).length > 0);
+  assert.ok(hits(copy('"An admin sees only who came."')).length > 0);
   assert.equal(hits(copy('// admins see who is going (a comment)')).length, 0);
 });
 
@@ -65,7 +70,7 @@ test("the copy says what Josh's 7:55 rule says", () => {
   assert.ok(door.includes("Say you're going to a gathering. You see only your own answer. The host and the room's stewards see who is going."));
   assert.ok(door.includes("In a room that takes roll, the host or a steward records who came. Only they see the list. You see your own."));
   const about = readFileSync(join(root, "components/board/about-view.tsx"), "utf8");
-  assert.ok(about.includes("The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room. Other admins see only totals, with small counts hidden. Press \"I\\'ll be there\""));
+  assert.ok(about.includes("The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room. An admin who isn\\'t the host or a steward sees only totals, with small counts hidden. Press \"I\\'ll be there\""));
   assert.ok(about.includes("Who is going and who came stay with the host and the room's stewards."));
   const options = readFileSync(join(root, "lib/board/room-options.ts"), "utf8");
   assert.ok(options.includes("After a gathering, the host or a steward records who came. Only they see it. You see your own."));

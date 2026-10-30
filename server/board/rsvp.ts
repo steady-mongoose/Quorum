@@ -1,3 +1,4 @@
+import { rsvpCutoff } from "./rsvp-retention.ts";
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
 import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { rsvpSummary } from "./rsvp-summary.ts";
@@ -388,19 +389,12 @@ export async function markAttendance(
   return db.transaction(run);
 }
 
-/** RSVP and attendance rows are kept this many months (Josh, Oct 29, 9:29 PM ET). */
-export const RSVP_RETENTION_MONTHS = 12;
+export { RSVP_RETENTION_MONTHS, rsvpCutoff } from "./rsvp-retention.ts";
 /** One delete removes at most this many rows; a run stops after RSVP_PURGE_ROUNDS. */
 export const RSVP_PURGE_BATCH = 1000;
 const RSVP_PURGE_ROUNDS = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The same instant RSVP_RETENTION_MONTHS calendar months earlier (UTC). */
-export function rsvpCutoff(now: Date): Date {
-  const cutoff = new Date(now.getTime());
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - RSVP_RETENTION_MONTHS);
-  return cutoff;
-}
 
 /**
  * Retention: "Delete attendance records after 12 months." (Josh, Oct 29,
