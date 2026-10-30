@@ -288,3 +288,35 @@ The room's host (`room.host_user_id`), a steward of that room, or an admin can c
 ## What this box does not do
 
 It does not serve the static site. It does not run a feed, likes, reshares, or scores. It does not record room calls. Signup without an invite code is refused. The interface strings are English.
+
+## Media host behind Cloudflare
+
+`media.avouchsocial.com` is proxied by Cloudflare. Caddy serves it with a Cloudflare Origin CA certificate, not Let's Encrypt, because an ACME challenge does not reliably reach Caddy through the proxy, and with no valid certificate Cloudflare's Full (strict) mode answers 525. The host serves only the existing media API (`/api/media/*`, proxied to `api:8787`). Every other path is 404. It never serves stored file bytes: members still get the two-minute signed storage link, and the storage host must still not be `avouchsocial.com` or a subdomain of it.
+
+Manual steps. This repository does not do them, and nothing here changes DNS or Cloudflare:
+
+1. In the Cloudflare dashboard for `avouchsocial.com`: SSL/TLS → Origin Server → Create Certificate. Hostnames: `media.avouchsocial.com`. Key type RSA or ECDSA, validity up to 15 years. Copy the certificate and the private key. The private key is shown once.
+2. On the VPS, as root: `install -d -m 750 deploy/origin`, then write the certificate to `deploy/origin/media-origin.pem` and the key to `deploy/origin/media-origin.key` with mode `640`, readable by the Caddy container. Do not commit them; `deploy/origin/` is in `.gitignore`.
+3. Set SSL/TLS mode for the zone (or a Configuration Rule for `media.avouchsocial.com`) to **Full (strict)**. The Origin CA certificate is only trusted by Cloudflare, so the record must stay proxied (orange cloud). A grey-cloud record would show browsers an untrusted certificate.
+4. DNS: `media` A record to `140.82.61.209`, proxied. (Owner action; not done here.)
+5. Optional: turn on Authenticated Origin Pulls so only Cloudflare can reach this site.
+6. Reload: `docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d caddy`. Caddy refuses to start if the two files are missing, so place them before this step.
+7. Check: `curl -sS https://media.avouchsocial.com/api/media/status` answers JSON, and `curl -sS -o /dev/null -w '%{http_code}' https://media.avouchsocial.com/` is `404`.
+
+Not changed: the web app still calls `api.avouchsocial.com` for media. The session cookie is set for the API host, so a signed-in read through `media.avouchsocial.com` is answered 401 until the cookie scope or the client base URL is decided.
+
+## Real client address behind Cloudflare
+
+Caddy trusts Cloudflare's published IP ranges (`trusted_proxies static` in the
+global `servers` block) and, only for a peer in those ranges, reads the client
+address from `CF-Connecting-IP`. Rate-limit zones key on `{client_ip}`, and each
+`reverse_proxy` to the API sets `X-Forwarded-For` to that one address, so the
+API's per-IP limits see the visitor, not a Cloudflare edge. A direct caller
+outside those ranges keeps its socket address and cannot spoof the header.
+
+Manual upkeep: the ranges are pinned from https://www.cloudflare.com/ips-v4 and
+https://www.cloudflare.com/ips-v6 (fetched 2026-10-26). When Cloudflare changes
+them, update the Caddyfile line and `CLOUDFLARE_RANGES` in
+`scripts/deploy-edge.test.mjs` together. Keep the ranges on one line: Caddy
+2.10 silently ignores ranges written as a block. To run the live check locally,
+set `CADDY_BIN` to a Caddy binary and run `node --test scripts/deploy-edge.test.mjs`.

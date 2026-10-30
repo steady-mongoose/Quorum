@@ -1,5 +1,19 @@
 {
 	email {$ACME_EMAIL}
+	# Behind Cloudflare the socket peer is a Cloudflare edge, so every visitor
+	# would share a few addresses and the per-IP limits would trip for all.
+	# When, and only when, the peer is in Cloudflare's published ranges, Caddy
+	# takes the client address from CF-Connecting-IP. Any other peer keeps its
+	# socket address, so a direct caller cannot spoof the header. {client_ip}
+	# below is that resolved address.
+	# Ranges from https://www.cloudflare.com/ips-v4 and /ips-v6, fetched
+	# 2026-10-26. Recheck them when Cloudflare announces a change.
+	servers {
+		# One line on purpose: Caddy 2.10 ignores ranges given in a block.
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
+		trusted_proxies_strict
+	}
 }
 
 {$API_HOST} {
@@ -15,7 +29,7 @@
 				method POST
 				path /api/auth/sign-in/* /api/signup /api/invites
 			}
-			key {remote_host}
+			key {client_ip}
 			events 5
 			window 1m
 			ipv6_prefix 64
@@ -29,7 +43,7 @@
 				path /api/calls/*
 				not path /api/calls/rooms/*/signal
 			}
-			key {remote_host}
+			key {client_ip}
 			events 60
 			window 10s
 			ipv6_prefix 64
@@ -38,15 +52,19 @@
 			match {
 				path /api/calls/rooms/*/signal
 			}
-			key {remote_host}
+			key {client_ip}
 			events 120
 			window 10s
 			ipv6_prefix 64
 		}
 	}
 	# The API takes its URL from BETTER_AUTH_URL. It reads X-Forwarded-For
-	# only when the peer is this container (172.28.19.10).
-	reverse_proxy api:8787
+	# only when the peer is this container (172.28.19.10), and uses the first
+	# hop. Caddy replaces the header with the one resolved client address, so
+	# a client-supplied X-Forwarded-For never reaches the API's limiter.
+	reverse_proxy api:8787 {
+		header_up X-Forwarded-For {client_ip}
+	}
 	handle_errors {
 		@too_many expression `{http.error.status_code} == 429`
 		handle @too_many {
@@ -54,5 +72,33 @@
 			header Cache-Control "no-store"
 			respond `{"error":"Too many attempts. Wait and try again."}` 429
 		}
+	}
+}
+
+# media.avouchsocial.com is proxied by Cloudflare (orange cloud). Caddy cannot
+# finish an ACME challenge behind that proxy reliably, and with no certificate
+# Cloudflare's "Full (strict)" mode fails the handshake (error 525). So this
+# site uses a Cloudflare Origin CA certificate instead of Let's Encrypt. The
+# certificate and key are placed on the server by hand (see deploy/README.md,
+# "Media host behind Cloudflare"); they are not in this repository.
+# Only the existing media API is served here: /api/media/*. Everything else is
+# 404. No stored file bytes are served from this host; members still get the
+# two-minute signed storage link, and the storage host stays off avouchsocial.com.
+{$MEDIA_HOST:media.avouchsocial.com} {
+	tls /etc/caddy/origin/media-origin.pem /etc/caddy/origin/media-origin.key
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	@media path /api/media /api/media/*
+	handle @media {
+		reverse_proxy api:8787 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle {
+		respond `{"error":"Not found."}` 404
 	}
 }
