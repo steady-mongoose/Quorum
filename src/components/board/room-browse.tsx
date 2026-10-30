@@ -80,7 +80,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
 
       <nav
         aria-label="Categories"
-        className="sticky top-32 z-10 flex gap-2 overflow-x-auto bg-bg py-2 lg:hidden"
+        className="room-chips sticky z-10 flex gap-2 overflow-x-auto bg-bg py-2 lg:hidden"
       >
         <CategoryChips categories={browseCategories(categories, false)} focusSlug={focusSlug} />
       </nav>
@@ -88,7 +88,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       <div className="room-browse">
         <nav
           aria-label="Categories"
-          className="sticky top-28 hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
+          className="sticky top-[calc(var(--mast-h)+1rem)] hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
         >
           <CategoryLinks categories={browseCategories(categories, false)} focusSlug={focusSlug} />
         </nav>

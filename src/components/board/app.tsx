@@ -53,6 +53,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
+import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
   week: CalendarDays,
@@ -138,6 +139,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const wideCaption = entered ? plateCaptionWide(art, plate) : null;
   useEngravedDocument(art);
   usePlateView(plate);
+  // The Rooms chip row and anchor scrolling sit flush under the sticky header at its real height.
+  useMastHeight();
 
   useEffect(() => {
     void useBoard.persist.rehydrate();
@@ -273,7 +276,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     >
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
+        className="skip-link sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
       >
         Skip to content
       </a>
