@@ -517,6 +517,13 @@ export async function rememberNamedAccounts(db: Db, postId: string): Promise<voi
   );
 }
 
+/**
+ * Confirm the meetings you went to. Add-only: the cards sent are added (a card
+ * already recorded stays as it was) and nothing is removed, so a device that
+ * shows fewer "went" cards, or an empty list, never drops earlier rows. Only
+ * cards you can confirm are stored, and a card in a room you cannot read
+ * refuses the whole request.
+ */
 export async function recordAttendance(
   db: Db,
   userId: string,
@@ -547,13 +554,13 @@ export async function recordAttendance(
       }
     }
   }
-  await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
   if (requested.length === 0) return { ok: true, value: null };
   await db.query(
     `insert into dm_attendance (user_id, meeting_id, recorded_at)
      select $1, allowed.meeting_id, $2
      from (${CONFIRMABLE}) allowed
-     where allowed.meeting_id = any($3::text[])`,
+     where allowed.meeting_id = any($3::text[])
+     on conflict (user_id, meeting_id) do nothing`,
     [userId, now, requested],
   );
   return { ok: true, value: null };

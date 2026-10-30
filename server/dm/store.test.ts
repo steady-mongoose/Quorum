@@ -353,9 +353,12 @@ test("a claimed meeting id is not attendance, and peers do not reveal who went",
       [carol, now],
     );
     assert.deepEqual(await listPeers(db, carol), []);
+    // Attendance is add-only: an empty list removes nothing, so the invented
+    // row stays. It still grants nothing: no write-up names Carol.
     assert.equal((await recordAttendance(db, carol, now)).ok, true);
     const invented = await db.query(`select meeting_id from dm_attendance where user_id = $1`, [carol]);
-    assert.equal(invented.length, 0);
+    assert.equal(invented.length, 1);
+    assert.deepEqual(await listPeers(db, carol), []);
     assert.equal((await openThread(db, carol, alice, now)).ok, false);
 
     await meet(db, [alice, bob]);
