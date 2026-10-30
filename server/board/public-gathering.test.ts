@@ -219,7 +219,15 @@ test("the public page is the live stored gathering, and sharing loads from the s
     assert.match(html, /name="twitter:description" content="October 24, 2026 · 07:00 · Riverview"/);
     assert.match(html, /07:00/);
     assert.match(html, /Riverview/);
-    assert.match(html, /hero-band/);
+    assert.match(html, /class="plate-ground door-ground"/);
+    assert.doesNotMatch(html, /hero-band/);
+    assert.match(html, /<html lang="en">/);
+    assert.match(page.headers.get("vary") ?? "", /Save-Data/);
+
+    // QA #130: no script runs here, so the server honours Save-Data itself and the plate is never fetched.
+    const saver = await handler(new Request(`http://127.0.0.1:8787/e/${DALE_ID}`, { headers: { "save-data": "on" } }));
+    assert.equal(saver.status, 200);
+    assert.match(await saver.text(), /<html lang="en" data-save-data="1">/);
     assert.equal(html.includes("Free prize"), false);
     assert.equal(html.includes("Dale"), false);
     assert.equal(html.includes("Josh"), false);

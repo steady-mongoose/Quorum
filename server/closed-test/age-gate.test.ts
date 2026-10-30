@@ -221,3 +221,45 @@ test("an unconfirmed admin gets 403 age_required on every /api/mfa route outside
     await close();
   }
 });
+
+test("an unconfirmed admin with no authenticator can confirm their age, then reach the authenticator setup", async () => {
+  const { db, id, call, close } = await setup({ admin: true });
+  try {
+    // Before the fix this answered 403 mfa_required, step enroll: the age step
+    // dead-ended, and the setup on You sits behind it.
+    const confirmed = await call("/api/age/confirm", { method: "POST", body: JSON.stringify({ adult: true }) });
+    assert.equal(confirmed.status, 200);
+    assert.deepEqual(await confirmed.json(), { ok: true, ageConfirmed: true });
+    const stored = await db.query<{ age_confirmed_at: Date | null }>(
+      `select age_confirmed_at from "user" where id = $1`,
+      [id],
+    );
+    assert.notEqual(stored[0]?.age_confirmed_at, null);
+
+    // Through the step, the session says the authenticator is due, and the setup answers.
+    const session = await call("/api/auth/get-session");
+    const body = (await session.json()) as { ageConfirmed?: boolean; mfa?: string };
+    assert.equal(body.ageConfirmed, true);
+    assert.equal(body.mfa, "enroll");
+    const start = await call("/api/mfa/enroll/start", { method: "POST", body: JSON.stringify({ kind: "totp" }) });
+    assert.notEqual(start.status, 403);
+    const startError = await errorOf(start);
+    assert.notEqual(startError, "mfa_required");
+    assert.notEqual(startError, AGE_REQUIRED);
+
+    // MFA is not weakened elsewhere: admin work still waits on the authenticator.
+    for (const [method, path] of [
+      ["GET", "/api/admin/export"],
+      ["POST", "/api/access"],
+      ["GET", "/api/mfa/reset"],
+    ] as const) {
+      const held = await call(path, { method, body: method === "POST" ? "{}" : undefined });
+      assert.equal(held.status, 403, `${method} ${path}`);
+      const failure = (await held.json()) as { error?: string; step?: string };
+      assert.equal(failure.error, "mfa_required", `${method} ${path}`);
+      assert.equal(failure.step, "enroll", `${method} ${path}`);
+    }
+  } finally {
+    await close();
+  }
+});

@@ -41,6 +41,7 @@ function html(status: number, body: string): Response {
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      vary: "Save-Data",
       "cache-control": "no-store",
       "x-robots-tag": "noindex",
     },
@@ -69,8 +70,9 @@ export async function handlePublicGathering(
   if (!match) return null;
   const id = (match[1] ?? "").toLowerCase();
   const asHtml = !url.pathname.startsWith("/api/");
+  const saveData = { saveData: request.headers.get("save-data")?.trim().toLowerCase() === "on" };
   if (!isGatheringId(id)) {
-    return asHtml ? html(404, publicGatheringHtml(null, id).body) : json(404, { error: "Not found." });
+    return asHtml ? html(404, publicGatheringHtml(null, id, saveData).body) : json(404, { error: "Not found." });
   }
 
   const ip = clientIp(request);
@@ -79,7 +81,7 @@ export async function handlePublicGathering(
     if (!hit.allowed) return tooMany(hit.retryAfter);
     const gathering = await loadSharedGathering(deps.db, id, deps.now());
     if (asHtml) {
-      const page = publicGatheringHtml(gathering, id);
+      const page = publicGatheringHtml(gathering, id, saveData);
       return html(page.status, page.body);
     }
     const payload = publicGatheringJson(gathering);

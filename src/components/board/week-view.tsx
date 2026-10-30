@@ -66,76 +66,88 @@ export function WeekView() {
 
   return (
     <div className="flex flex-col gap-10">
-      <div
-        className={cn(
-          "week-columns grid gap-8",
-          hasSide && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12",
-        )}
-      >
-        <div className="flex min-w-0 flex-col gap-8">
-          <section className="plate plate--hero flex flex-col gap-2">
-            <Kicker>This week</Kicker>
-            <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
-              {week.length === 0 ? "Nothing on the calendar yet." : "This week"}
-            </h1>
-            {week.length > 0 ? (
-              <p className="max-w-prose text-base text-muted">
-                The next seven days. Press{" "}
-                <strong className="font-semibold text-fg">I'll be there</strong> on anything you
-                will go to; the host will take roll after.
-              </p>
-            ) : null}
-            {week.length === 0 ? (
-              <p className="max-w-2xl text-base text-muted">
-                {justCleared
-                  ? "The board is cleared, and nothing is on the calendar. "
-                  : "A card lands here when it has a date inside seven days. "}
-                <button
-                  type="button"
-                  className="text-signal underline"
-                  onClick={() => {
-                    setSection("rooms");
-                    void navigate({ to: "/rooms" });
-                  }}
-                >
-                  Look in the rooms
-                </button>{" "}
-                or list something under Find.
-              </p>
-            ) : null}
-          </section>
+      {/* The This week plate sits above the columns, so on a desktop it spans the full width
+          instead of sharing a row with the side column. On a phone the order and gaps are unchanged. */}
+      <div className="flex flex-col gap-8">
+        <section className="plate plate--hero pc-head flex flex-col gap-2">
+          <Kicker>This week</Kicker>
+          <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
+            {week.length === 0 ? "Nothing on the calendar yet." : "This week"}
+          </h1>
+          {/* v3 head rule under the title, desktop only so the phone card keeps Josh's look (29 Oct). */}
+          <div className="pc-rule hidden lg:block" aria-hidden="true" />
+          {week.length > 0 ? (
+            <p className="max-w-prose text-base text-muted">
+              The next seven days. Press{" "}
+              <strong className="font-semibold text-fg">I'll be there</strong> on anything you will
+              go to; the host will take roll after.
+            </p>
+          ) : null}
+          {week.length === 0 ? (
+            <p className="max-w-2xl text-base text-muted">
+              {justCleared
+                ? "The board is cleared, and nothing is on the calendar. "
+                : "A card lands here when it has a date inside seven days. "}
+              <button
+                type="button"
+                className="text-signal underline"
+                onClick={() => {
+                  setSection("rooms");
+                  void navigate({ to: "/rooms" });
+                }}
+              >
+                Look in the rooms
+              </button>{" "}
+              or list something under Find.
+            </p>
+          ) : null}
+        </section>
+        {/* An empty week with no side column renders no grid at all, so the plate's gap-8 opens no empty
+            row under it on a phone (QA #123: 72.8px vs 40.4px on the-board). */}
+        {week.length > 0 || hasSide ? (
+          <div
+            className={cn(
+              "week-columns grid gap-8",
+              hasSide && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12",
+            )}
+          >
+            {/* An empty week leaves this column empty. On a phone it is dropped so no extra gap opens. */}
+            <div
+              className={cn("flex min-w-0 flex-col gap-8", week.length === 0 && "max-lg:hidden")}
+            >
+              {week.map((day) => (
+                <section key={day.iso} className="day flex flex-col gap-3">
+                  <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
+                    <span className="font-display text-2xl text-fg">
+                      {dayHeading(day.iso, today)}
+                    </span>
+                    <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">
+                      {formatDate(day.iso)}
+                    </span>
+                  </h2>
+                  <div className="cards">
+                    {day.cards.map((card) => (
+                      <DayCard key={card.id} card={card} me={me} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
 
-          {week.map((day) => (
-            <section key={day.iso} className="day flex flex-col gap-3">
-              <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
-                <span className="font-display text-2xl text-fg">{dayHeading(day.iso, today)}</span>
-                <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">
-                  {formatDate(day.iso)}
-                </span>
-              </h2>
-              <div className="cards">
-                {day.cards.map((card) => (
-                  <DayCard key={card.id} card={card} me={me} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        {hasSide ? (
-          <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
-            {deskOn ? <TheCall /> : null}
-            {needs.length > 0 ? (
-              <section className="flex flex-col gap-3">
-                <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-                  A parish needs
-                </h2>
-                {needs.map((card) => (
-                  <NeedCard key={card.id} card={card} />
-                ))}
-              </section>
+            {hasSide ? (
+              <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
+                {deskOn ? <TheCall /> : null}
+                {needs.length > 0 ? (
+                  <section className="flex flex-col gap-3">
+                    <h2 className="pc-h">A parish needs</h2>
+                    {needs.map((card) => (
+                      <NeedCard key={card.id} card={card} />
+                    ))}
+                  </section>
+                ) : null}
+              </aside>
             ) : null}
-          </aside>
+          </div>
         ) : null}
       </div>
       <HomePanel />
@@ -239,7 +251,7 @@ function TheCall() {
   if (live.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xs font-semibold tracking-widest text-signal uppercase">
+      <h2 className="pc-h">
         This week's call · window open
       </h2>
       {live.map((campaign) => {

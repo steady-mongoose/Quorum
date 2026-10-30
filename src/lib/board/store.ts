@@ -71,6 +71,9 @@ async function closeOnce(
   return closed;
 }
 
+/** A save's result. `reloadFailed` means the server kept it but the page could not refresh. */
+export type SaveOutcome = { ok: boolean; error?: string; reloadFailed?: boolean };
+
 /** How long Find offers Undo before the DELETE is sent. */
 export const REMOVAL_UNDO_MS = 5000;
 import {
@@ -276,11 +279,11 @@ type BoardState = {
     action: "grant" | "revoke";
     note: string;
   }) => Promise<{ ok: boolean; error?: string }>;
-  savePlace: (input: PlaceInput) => Promise<{ ok: boolean; error?: string }>;
+  savePlace: (input: PlaceInput) => Promise<SaveOutcome>;
   joinRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
-  leaveRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
-  requestRoom: (input: RoomRequestInput) => Promise<{ ok: boolean; error?: string }>;
-  decideRoom: (id: string, input: RoomDecisionInput) => Promise<{ ok: boolean; error?: string }>;
+  leaveRoom: (roomId: string) => Promise<SaveOutcome>;
+  requestRoom: (input: RoomRequestInput) => Promise<SaveOutcome>;
+  decideRoom: (id: string, input: RoomDecisionInput) => Promise<SaveOutcome>;
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   changeAccess: (input: AccessInput) => Promise<{ ok: boolean; error?: string }>;
   setCouncil: (id: string, input: CouncilInput) => Promise<{ ok: boolean; error?: string }>;
@@ -843,9 +846,10 @@ export const useBoard = create<BoardState>()(
         });
       };
 
-      const pullHome = async () => {
+      const pullHome = async (): Promise<boolean> => {
         const loaded = await (await getBoardClient()).loadHome();
         if (loaded.ok) set({ home: loaded.home });
+        return loaded.ok;
       };
 
       const placeCall = async (
@@ -853,16 +857,24 @@ export const useBoard = create<BoardState>()(
           client: Awaited<ReturnType<typeof getBoardClient>>,
         ) => Promise<{ ok: true } | { ok: false; error: string }>,
         reloadBoard: boolean,
-      ): Promise<{ ok: boolean; error?: string }> => {
+      ): Promise<SaveOutcome> => {
         if (!get().remote) return { ok: false, error: "That is saved on the server." };
         const saved = await run(await getBoardClient());
         if (!saved.ok) return { ok: false, error: saved.error };
-        if (reloadBoard) {
-          const loaded = await (await getBoardClient()).load();
-          if (loaded.ok) applySnapshot(loaded.board);
+        // The save stands on its own: a reload that fails afterwards is reported as that, not as
+        // a failed save (QA #132 S3).
+        try {
+          let fresh = true;
+          if (reloadBoard) {
+            const loaded = await (await getBoardClient()).load();
+            if (loaded.ok) applySnapshot(loaded.board);
+            else fresh = false;
+          }
+          if (!(await pullHome())) fresh = false;
+          return fresh ? { ok: true } : { ok: true, reloadFailed: true };
+        } catch {
+          return { ok: true, reloadFailed: true };
         }
-        await pullHome();
-        return { ok: true };
       };
 
       type PendingRemoval = {

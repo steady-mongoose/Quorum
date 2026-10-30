@@ -198,9 +198,17 @@ function metaTags(gathering: PublicGathering | null, id: string): string {
     .join("\n");
 }
 
-function documentShell(title: string, gathering: PublicGathering | null, id: string, main: string): string {
+function documentShell(
+  title: string,
+  gathering: PublicGathering | null,
+  id: string,
+  main: string,
+  saveData: boolean,
+): string {
+  // No script runs on this page, so the server sets the data-saver flag the app's save-data.ts would: door.css
+  // then drops the plate, its light and motes, and the image is never fetched.
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${saveData ? ' data-save-data="1"' : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -209,11 +217,13 @@ ${metaTags(gathering, id)}
 <link rel="stylesheet" href="/backgrounds.css">
 <link rel="stylesheet" href="/fluid.css">
 <link rel="stylesheet" href="/gathering.css">
+<link rel="stylesheet" href="/door.css">
 <link rel="preload" href="/fonts/EBGaramond-latin.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
 <div class="shell gathering-page" data-section="week">
-<div class="hero-band" role="img" aria-label="${escapeHtml(HERO)}"></div>
+<div class="plate-ground door-ground" role="img" aria-label="${escapeHtml(HERO)}"></div>
+<div class="scrim" aria-hidden="true"></div>
 <div class="shell-body">
 <main>
 <article class="plate plate--hero gathering-plate">
@@ -227,10 +237,12 @@ ${main}
 `;
 }
 
-/** HTML for /e/<id>. A missing or unshared gathering is a 404. Both carry noindex. */
+/** HTML for /e/<id>. A missing or unshared gathering is a 404. Both carry noindex. `saveData` is the
+ *  request's `Save-Data: on` header: the page then ships without its plate. */
 export function publicGatheringHtml(
   gathering: PublicGathering | null,
   id = "",
+  { saveData = false }: { saveData?: boolean } = {},
 ): { status: 200 | 404; body: string } {
   if (!gathering) {
     return {
@@ -243,6 +255,7 @@ export function publicGatheringHtml(
 <h1 class="gathering-title illum">This gathering is not shared.</h1>
 <p class="gathering-copy">${escapeHtml(INVITE_LINE)}</p>
 <p class="gathering-links"><a href="/">The door</a></p>`,
+        saveData,
       ),
     };
   }
@@ -267,6 +280,7 @@ export function publicGatheringHtml(
 <h2 class="gathering-kicker">Privacy</h2>
 <p class="gathering-copy">${escapeHtml(PRIVACY_LINE)}</p>
 </section>`,
+      saveData,
     ),
   };
 }

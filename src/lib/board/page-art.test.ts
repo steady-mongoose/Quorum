@@ -1,80 +1,84 @@
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { artSection, heroLabel, showsHero } from "./engraved.ts";
+import { artSection, heroLabel } from "./engraved.ts";
 import type { Section } from "./model.ts";
 
 const pageArt = readFileSync(new URL("../../../public/page-art.css", import.meta.url), "utf8");
 const backgrounds = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
-const NEW_PAGES = ["find", "groups", "profile", "about", "civic"] as const;
 const ALL: Section[] = ["week", "rooms", "messages", "find", "groups", "profile", "about", "civic"];
+/** Josh's approved artists. */
+const ON_LIST = /Doré|Martin|Dürer|Rackham|Bauer/;
 
-test("every signed-in page carries a plate and names what it shows", () => {
+test("every signed-in section resolves to its own art key", () => {
   for (const section of ALL) {
     const art = artSection({ entered: true, section, signingIn: false });
     assert.equal(art, section);
-    assert.equal(showsHero(art), true, section);
     assert.ok(heroLabel(art), section);
   }
-  assert.equal(showsHero("landing"), false);
   assert.equal(heroLabel("signin"), null);
 });
 
-test("each page has its own work, except Messages, which shares the Rooms band", () => {
+test("each page names its own work, by an approved artist, except Messages, which shares the Rooms band", () => {
   const labels = ALL.filter((s) => s !== "messages").map((s) => heroLabel(s));
   assert.equal(new Set(labels).size, labels.length);
   assert.equal(heroLabel("messages"), heroLabel("rooms"));
-  // Messages has its own margin plate, the Praying Hands.
+  for (const s of ALL) assert.match(heroLabel(s) ?? "", ON_LIST, s);
   assert.match(backgrounds, /--art-messages-side:url\("\/art\/durer-hands-side-A\.webp"\)/);
 });
 
-test("the new pages have a band, a phone band, and a margin plate in both palettes", () => {
-  for (const page of NEW_PAGES) {
-    assert.ok(pageArt.includes(`[data-section="${page}"] .hero-band{--band:var(--art-${page}-band)`), `${page} band`);
-    assert.ok(pageArt.includes(`[data-section="${page}"] .outer-art{background-image:var(--art-${page}-side)`), `${page} outer plates`);
-  }
-  const urls = [...pageArt.matchAll(/url\("(\/art\/[^"]+\.webp)"\)/g)].map((m) => m[1]);
-  assert.equal(urls.length, 30, "five works, band, phone band, and margin, in A and B");
-  for (const url of urls) {
-    const file = new URL(`../../../public${url}`, import.meta.url);
-    const size = statSync(file).size;
-    assert.ok(size > 1000 && size < 400 * 1024, `${url} is ${size} bytes`);
-    const head = readFileSync(file).subarray(0, 12);
-    assert.equal(head.subarray(8, 12).toString("ascii"), "WEBP", url);
-  }
-  for (const palette of ["A", "B"]) {
-    for (const work of ["rembrandt-preaching", "millet-diggers", "rembrandt-self", "rembrandt-trees", "durand-declaration"]) {
-      for (const kind of ["band", "band-900", "side"]) {
-        const name = kind === "band-900" ? `${work}-band-${palette}-900` : `${work}-${kind}-${palette}`;
-        assert.ok(urls.includes(`/art/${name}.webp`), name);
-      }
-    }
-  }
+test("the public About band is gone (QA #130): About stands on Martin's whole plate instead", () => {
+  assert.doesNotMatch(pageArt, /\[data-section="about"\] \.hero-band/);
+  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.doesNotMatch(fluid, /\.hero-band\.category-engraving/);
+  assert.equal([...pageArt.matchAll(/url\(/g)].length, 0, "no file of its own");
+  assert.equal(heroLabel("about"), "John Martin, The Creation of Light, 1824–27");
 });
 
-test("Find keeps its own column, so its side plate shows only on the outer edges", () => {
-  assert.match(pageArt, /\[data-section="find"\] \.with-side\{grid-template-columns:minmax\(0,1fr\)\}/);
-  assert.match(pageArt, /\[data-section="find"\] \.side-art\{display:none\}/);
+test("the off-list works and the old right-margin crops are gone from public/art", () => {
+  const files = readdirSync(new URL("../../../public/art/", import.meta.url));
+  const stray = files.filter((f) => /rembrandt|millet|durand|trumbull|-side-R-/i.test(f));
+  assert.deepEqual(stray, []);
+  for (const css of [pageArt, backgrounds]) assert.doesNotMatch(css, /rembrandt|millet|durand/);
+});
+
+test("Save-Data and reduced-data drop the band, margin and side art", () => {
+  assert.ok(
+    pageArt.includes(
+      "[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art,[data-save-data] .shell .margin-art{background-image:none!important}",
+    ),
+  );
+  assert.ok(
+    pageArt.includes(
+      "@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art,.shell .margin-art{background-image:none!important}}",
+    ),
+  );
 });
 
 test("the page art loads after fluid.css and stays small", () => {
   const root = readFileSync(new URL("../../routes/__root.tsx", import.meta.url), "utf8");
   assert.ok(root.indexOf('href: "/page-art.css"') > root.indexOf('href: "/fluid.css"'));
   assert.ok(gzipSync(pageArt).length <= 2 * 1024);
-  assert.equal(pageArt.includes("martin"), false, "Martin stays on the door");
 });
 
-test("About, Privacy, and Terms carry the About plate", () => {
+test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for About, Jerome for the legal pages", () => {
   const doc = readFileSync(new URL("../../components/board/public-document.tsx", import.meta.url), "utf8");
   assert.match(doc, /useEngravedDocument\("about"\);/);
-  assert.match(doc, /<div className="hero-band full" role="img" aria-label=\{heroLabel\("about"\) \?\? undefined\} \/>/);
+  assert.match(doc, /className=\{jerome \? "plate-ground door-ground doc-jerome" : "plate-ground door-ground"\}/);
+  assert.match(doc, /aria-label=\{heroLabel\(jerome \? "rooms" : "about"\) \?\? undefined\}/);
+  const route = (name: string) => readFileSync(new URL(`../../routes/${name}.tsx`, import.meta.url), "utf8");
+  assert.match(route("privacy"), /<PublicDocument art="jerome">/);
+  assert.match(route("terms"), /<PublicDocument art="jerome">/);
+  assert.match(route("about"), /<PublicDocument>/);
+  assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
+  assert.doesNotMatch(doc, /hero-band/);
 });
 
-test("every new work is credited with its source and licence", () => {
+test("ATTRIBUTION credits no off-list artist", () => {
   const credits = readFileSync(new URL("../../../public/art/ATTRIBUTION.md", import.meta.url), "utf8");
-  for (const work of ["rembrandt-preaching", "millet-diggers", "rembrandt-self", "rembrandt-trees", "durand-declaration"]) {
-    assert.ok(credits.includes("`" + work + "-band-A.webp`"), work);
-  }
-  assert.equal((credits.match(/\| CC0 \(/g) ?? []).length >= 7, true);
+  const rows = credits.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| Screen") && /\.webp/.test(l));
+  assert.ok(rows.length >= 10);
+  for (const row of rows) assert.match(row.split("|")[2] + row.split("|")[3], ON_LIST, row.slice(0, 80));
+  assert.doesNotMatch(credits, /`(rembrandt|millet|durand)-/);
 });

@@ -116,7 +116,7 @@ export function FindView() {
     <div className="grid gap-8 pb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+9rem)] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <RemovalToast removal={removal} />
       <div className="flex flex-col gap-8">
-        <section className="flex flex-col gap-3">
+        <section className="plate pc-head flex flex-col gap-3">
           <Kicker>Find</Kicker>
           <h1
             id={FIND_LIST_HEADING}
@@ -215,7 +215,7 @@ function useUndoCardRemoval() {
 }
 
 const TOAST_CLASS =
-  "board-toast fixed inset-x-0 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-40 mx-auto flex w-[min(36rem,calc(100%-2rem))] flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface px-4 py-2 shadow-lg md:bottom-6 lg:bottom-6";
+  "board-toast fixed inset-x-0 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem+var(--call-card-h,0px))] z-40 mx-auto flex w-[min(36rem,calc(100%-2rem))] flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface px-4 py-2 shadow-lg md:bottom-[calc(1.5rem+var(--call-card-h,0px))]";
 
 function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemoval> }) {
   const boardError = useBoard((state) => state.boardError);
@@ -1006,7 +1006,11 @@ function AddCard({ me }: { me: string }) {
     );
   };
   const timeHint =
-    kind === "trade" ? FIELD_HINT.tradeWork : kind === "need" ? FIELD_HINT.needWhat : FIELD_HINT.meetingTime;
+    kind === "trade"
+      ? FIELD_HINT.tradeWork
+      : kind === "need"
+        ? FIELD_HINT.needWhat
+        : FIELD_HINT.meetingTime;
 
   const kindLabel = (item: CardKind) =>
     item === "meeting"

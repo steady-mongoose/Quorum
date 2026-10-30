@@ -1,65 +1,8 @@
-/* One engraving per page beyond This week, Rooms, and Messages (backgrounds.css holds those, under its 3 KB budget).
-   Palette A "Ink & Bone" by default, palette B "Parchment & Lapis" under [data-palette="parchment"]. Sources: public/art/ATTRIBUTION.md.
-   The section attribute is set only after first paint and never under reduced data, so none of these load then. */
-:root{
-  --art-find-band:url("/art/rembrandt-preaching-band-A.webp");--art-find-side:url("/art/rembrandt-preaching-side-A.webp");
-  --art-groups-band:url("/art/millet-diggers-band-A.webp");--art-groups-side:url("/art/millet-diggers-side-A.webp");
-  --art-profile-band:url("/art/rembrandt-self-band-A.webp");--art-profile-side:url("/art/rembrandt-self-side-A.webp");
-  --art-about-band:url("/art/rembrandt-trees-band-A.webp");--art-about-side:url("/art/rembrandt-trees-side-A.webp");
-  --art-civic-band:url("/art/durand-declaration-band-A.webp");--art-civic-side:url("/art/durand-declaration-side-A.webp");
-}
-[data-palette="parchment"]{
-  --art-find-band:url("/art/rembrandt-preaching-band-B.webp");--art-find-side:url("/art/rembrandt-preaching-side-B.webp");
-  --art-groups-band:url("/art/millet-diggers-band-B.webp");--art-groups-side:url("/art/millet-diggers-side-B.webp");
-  --art-profile-band:url("/art/rembrandt-self-band-B.webp");--art-profile-side:url("/art/rembrandt-self-side-B.webp");
-  --art-about-band:url("/art/rembrandt-trees-band-B.webp");--art-about-side:url("/art/rembrandt-trees-side-B.webp");
-  --art-civic-band:url("/art/durand-declaration-band-B.webp");--art-civic-side:url("/art/durand-declaration-side-B.webp");
-}
-/* Tablet and phone bands: the 900px files */
-@media (max-width:1023px){
-  :root{
-    --art-find-band:url("/art/rembrandt-preaching-band-A-900.webp");--art-groups-band:url("/art/millet-diggers-band-A-900.webp");
-    --art-profile-band:url("/art/rembrandt-self-band-A-900.webp");--art-about-band:url("/art/rembrandt-trees-band-A-900.webp");
-    --art-civic-band:url("/art/durand-declaration-band-A-900.webp");
-  }
-  [data-palette="parchment"]{
-    --art-find-band:url("/art/rembrandt-preaching-band-B-900.webp");--art-groups-band:url("/art/millet-diggers-band-B-900.webp");
-    --art-profile-band:url("/art/rembrandt-self-band-B-900.webp");--art-about-band:url("/art/rembrandt-trees-band-B-900.webp");
-    --art-civic-band:url("/art/durand-declaration-band-B-900.webp");
-  }
-}
-
-/* Hero bands, the Rooms height */
-[data-section="find"] .hero-band,[data-section="groups"] .hero-band,[data-section="profile"] .hero-band,
-[data-section="about"] .hero-band,[data-section="civic"] .hero-band{--band-h:clamp(150px,18vw,240px)}
-[data-section="find"] .hero-band{--band:var(--art-find-band)}
-[data-section="groups"] .hero-band{--band:var(--art-groups-band)}
-[data-section="profile"] .hero-band{--band:var(--art-profile-band);background-position:center 38%}
-[data-section="about"] .hero-band{--band:var(--art-about-band)}
-[data-section="civic"] .hero-band{--band:var(--art-civic-band)}
-
-/* Side column, 1100 to 1599 */
-@media (min-width:1100px) and (max-width:1599px){
-  [data-section="groups"] .side-art{background-image:var(--art-groups-side)}
-  [data-section="profile"] .side-art{background-image:var(--art-profile-side)}
-  [data-section="about"] .side-art{background-image:var(--art-about-side)}
-  [data-section="civic"] .side-art{background-image:var(--art-civic-side)}
-  /* Find already has its own sticky column, the List a card form, so it keeps the full width like Rooms. */
-  [data-section="find"] .with-side{grid-template-columns:minmax(0,1fr)}
-  [data-section="find"] .side-art{display:none}
-}
-
-/* Outer plates, 1600 and wider */
-@media (min-width:1600px){
-  [data-section="find"] .outer-art{background-image:var(--art-find-side);--focal:50% 30%}
-  [data-section="groups"] .outer-art{background-image:var(--art-groups-side);--focal:50% 40%}
-  [data-section="profile"] .outer-art{background-image:var(--art-profile-side);--focal:52% 40%}
-  [data-section="about"] .outer-art{background-image:var(--art-about-side);--focal:50% 55%}
-  [data-section="civic"] .outer-art{background-image:var(--art-civic-side);--focal:50% 40%}
-}
+/* No page has a band any more: the signed-in pages stand on one full-bleed plate each (page-craft.css), and
+   About, Privacy, Terms, /e and 404 on a whole plate with the door's light (door.css section 7). */
 
 /* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
-   navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because the per-section
-   band and margin rules above (0,2,0 and up) outrank the plain reduced-data rule in fluid.css. */
-[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art{background-image:none!important}
-@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art{background-image:none!important}}
+   navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because section rules
+   outrank the plain reduced-data rule in fluid.css. .margin-art too, should the old margin markup come back. */
+[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art,[data-save-data] .shell .margin-art{background-image:none!important}
+@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art,.shell .margin-art{background-image:none!important}}

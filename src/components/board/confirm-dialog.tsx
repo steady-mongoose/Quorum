@@ -60,7 +60,9 @@ export function ConfirmDialog({
   return (
     <dialog
       ref={ref}
-      aria-modal="true"
+      // Only while open: the dialog stays mounted when closed, and a closed
+      // dialog claiming to be modal makes the rest of the page look blocked.
+      aria-modal={open ? "true" : undefined}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       className="plate w-[min(28rem,calc(100%-2rem))] p-5 text-fg backdrop:bg-bg/80"

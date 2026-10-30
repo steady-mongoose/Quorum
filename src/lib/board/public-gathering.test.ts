@@ -41,7 +41,9 @@ test("a shared page is the title, the date, the time, and the town, with noindex
   );
   assert.doesNotMatch(page.body, /invite-only/);
   assert.match(page.body, /the title, the date, the time, and the town/);
-  assert.match(page.body, /hero-band/);
+  assert.match(page.body, /class="plate-ground door-ground"/);
+  assert.match(page.body, /<link rel="stylesheet" href="\/door\.css">/);
+  assert.doesNotMatch(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
   assert.match(page.body, /data-section="week"/);
   assert.equal(page.body.includes("Dale"), false);
@@ -81,7 +83,9 @@ test("an unshared gathering is a 404 and still noindex", () => {
   assert.equal(page.status, 404);
   assert.match(page.body, /noindex/);
   assert.match(page.body, /not shared/);
-  assert.match(page.body, /hero-band/);
+  assert.match(page.body, /class="plate-ground door-ground"/);
+  assert.match(page.body, /<link rel="stylesheet" href="\/door\.css">/);
+  assert.doesNotMatch(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
   assert.equal(page.body.includes("Saturday"), false);
   assert.equal(page.body.includes('property="og:title"'), false);
@@ -244,7 +248,8 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.equal(route.includes("useEffect"), false);
   assert.equal(route.includes("sharePublic"), false);
   assert.equal(/\bgoing\b|\.place\b|\bposts\b/.test(route), false);
-  assert.match(view, /hero-band/);
+  assert.match(view, /className="plate-ground door-ground"/);
+  assert.doesNotMatch(view, /hero-band/);
   assert.match(view, /gathering-kicker/);
   assert.match(view, /Loading\./);
   assert.match(client, /AbortSignal\.timeout/);
@@ -255,4 +260,16 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.match(share, /publicClock\(card\.time\)/);
   assert.match(http, /handlePublicGathering/);
   assert.match(http, /Sign in first/);
+});
+
+test("QA #130: Save-Data: on gets the /e page flagged, so door.css never fetches the plate", () => {
+  const plain = publicGatheringHtml(SHARED, ID);
+  assert.match(plain.body, /<html lang="en">/);
+  for (const page of [publicGatheringHtml(SHARED, ID, { saveData: true }), publicGatheringHtml(null, ID, { saveData: true })]) {
+    assert.match(page.body, /<html lang="en" data-save-data="1">/);
+    assert.match(page.body, /class="plate-ground door-ground"/);
+  }
+  const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8");
+  assert.ok(door.includes("[data-save-data] .plate-ground{background-image:none;animation:none}"));
+  assert.ok(door.includes("[data-save-data] .plate-ground::before,[data-save-data] .plate-ground::after,"));
 });

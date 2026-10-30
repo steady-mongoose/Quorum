@@ -56,7 +56,10 @@ test("the shell rule leaves the skip link, call rings, 20-minute line and dialog
     assert.ok(rule[1].includes(`:not(${keep})`), `shell rule excludes ${keep}`);
   }
   assert.match(app, /className="skip-link sr-only/);
-  assert.match(rings, /className="call-rings fixed/);
+  // #127: the ring card sits in a box-less `call-rings` wrapper (the shell's direct child),
+  // and the card inside it is position: fixed.
+  assert.match(rings, /WRAPPER = "call-rings contents"/);
+  assert.match(rings, /const CARD =\s*"fixed /);
   assert.match(line, /className="session-line fixed/);
 });
 
@@ -130,7 +133,7 @@ test("the chip row runs to the screen edge so the next chip peeks in; no fade ov
 test("focused controls clear the tab bar on phones and the chip row on Rooms below 1024px", () => {
   assert.match(
     fluid,
-    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem\)\}\}/,
+    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}\}/,
   );
   assert.match(
     fluid,
@@ -158,6 +161,32 @@ test("header controls cancel the scroll padding, so focusing them never scrolls 
   assert.match(fluid, /--chips-h:3\.75rem/);
 });
 
+test("desktop reserves a showing call card too, and the phone rules come after and win (Design M2 on #128)", () => {
+  // At 1280 the card (649-773) sat on the chat field (744-800): only the phone rules added --call-card-h.
+  const desktopPad = /^html\{scroll-padding-bottom:var\(--call-card-h,0px\)\}$/m;
+  const desktopMain = /^\.shell-body > main\{padding-bottom:calc\(var\(--space-4\) \+ var\(--call-card-h,0px\)\)\}$/m;
+  assert.match(fluid, desktopPad, "top level, not inside a media query");
+  assert.match(fluid, desktopMain, "top level, not inside a media query");
+  const phonePad = fluid.indexOf("@media (max-width:767px){html{scroll-padding-bottom:");
+  const phoneMain = fluid.indexOf(".shell-body > main{padding-bottom:calc(var(--tabbar-h,56px)");
+  assert.ok(phonePad > 0 && phoneMain > 0);
+  assert.ok(fluid.search(desktopPad) < phonePad, "the phone scroll padding comes later");
+  assert.ok(fluid.search(desktopMain) < phoneMain, "the phone main padding comes later");
+});
+
+test("from 768px a showing card's 1.5rem lift is reserved too, and nothing changes with no card (Design L1 on #128)", () => {
+  const block = fluid.match(/@media \(min-width:768px\)\{\n([^@]*?)\n\}/)?.[1] ?? "";
+  assert.match(block, /html\{scroll-padding-bottom:calc\(var\(--call-card-h,0px\) \+ min\(var\(--call-card-h,0px\),2rem\)\)\}/);
+  assert.match(
+    block,
+    /\.shell-body > main\{padding-bottom:calc\(var\(--space-4\) \+ var\(--call-card-h,0px\) \+ min\(var\(--call-card-h,0px\),1\.5rem\)\)\}/,
+  );
+  // Every extra term is the card's height or capped by it, so with no card (0px) both add nothing.
+  const mins = block.match(/min\(/g)?.length ?? 0;
+  assert.equal(mins, 2);
+  assert.equal(block.match(/min\(var\(--call-card-h,0px\),[\d.]+rem\)/g)?.length, mins);
+});
+
 test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {
   assert.match(fluid, /@media \(min-width:768px\)\{:root\{--mast-h:84px\}\}/);
   assert.doesNotMatch(fluid, /--mast-h:97px/);
@@ -166,7 +195,7 @@ test("the desktop --mast-h first-paint guess is the measured 84px board header (
 test("main reserves the tab bar's own height, and --tabbar-h:57px is declared exactly once", () => {
   assert.match(
     fluid,
-    /\.shell-body > main\{padding-bottom:calc\(var\(--tabbar-h,56px\) \+ 1rem \+ env\(safe-area-inset-bottom\)\)\}/,
+    /\.shell-body > main\{padding-bottom:calc\(var\(--tabbar-h,56px\) \+ 1rem \+ env\(safe-area-inset-bottom\) \+ var\(--call-card-h,0px\)\)\}/,
   );
   assert.doesNotMatch(fluid, /padding-bottom:calc\(56px \+ 1rem/);
   assert.equal(fluid.match(/--tabbar-h:57px/g)?.length, 1);

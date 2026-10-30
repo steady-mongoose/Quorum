@@ -1,0 +1,103 @@
+/* page-craft.css: the door's craft on every signed-in page. Loads last in __root.tsx; budget 3 KB gzipped
+   (page-craft.test.ts). One plate fills the viewport behind the content; text sits only on solid backings.
+   Rules are scoped to .shell[data-entered]. Motion: one 4.5s plate settle and a 0.5s card fade, no-preference only. */
+:root{
+  --pc-gilt:#c9a45c;--pc-rubric:#e07f73;--pc-ink:#f0e7d3;--pc-solid:#14100c;
+  --pc-hair:color-mix(in srgb,var(--pc-gilt) 32%,var(--line));
+  --pc-t1:#2d251c;--pc-t2:#241d16;--pc-t3:#17120d;--pc-plate:none;
+  --pc-scrim:radial-gradient(75% 95% at 50% 45%,rgba(20,16,12,.62),rgba(20,16,12,.28));
+}
+/* Plates: 1600px for wide screens, 900px for phones. A room and a group use [data-view]. */
+[data-section="week"]{--pc-t1:#2c2828;--pc-t2:#1f1d20;--pc-t3:#121115;--pc-plate:url(/art/plate-week-A.webp)}
+[data-section="rooms"]{--pc-t1:#3c2c1a;--pc-t2:#281e13;--pc-t3:#150f08;--pc-plate:url(/art/plate-rooms-A.webp)}
+[data-section="rooms"][data-view="room"]{--pc-plate:url(/art/plate-room-A.webp)}
+[data-section="groups"]{--pc-t1:#2e291c;--pc-t2:#221f15;--pc-t3:#13110b;--pc-plate:url(/art/plate-groups-A.webp)}
+[data-section="groups"][data-view="group"]{--pc-plate:url(/art/plate-group-A.webp)}
+[data-section="find"]{--pc-t1:#30261b;--pc-t2:#251c14;--pc-t3:#150f0a;--pc-plate:url(/art/plate-find-A.webp)}
+[data-section="messages"]{--pc-t1:#28262b;--pc-t2:#1d1c22;--pc-t3:#0f0e12;--pc-plate:url(/art/plate-messages-A.webp)}
+[data-section="profile"]{--pc-t1:#2d261e;--pc-t2:#221c17;--pc-t3:#14100c;--pc-plate:url(/art/plate-you-A.webp)}
+[data-section="civic"]{--pc-t1:#2c2824;--pc-t2:#1e1e1d;--pc-t3:#121211;--pc-plate:url(/art/plate-desk-A.webp)}
+[data-section="about"]{--pc-t1:#2b261d;--pc-t2:#1f1d17;--pc-t3:#13110c;--pc-plate:var(--art-landing)}
+@media (max-width:640px){
+  [data-section="week"]{--pc-plate:url(/art/plate-week-A-900.webp)}
+  [data-section="rooms"]{--pc-plate:url(/art/plate-rooms-A-900.webp)}
+  [data-section="rooms"][data-view="room"]{--pc-plate:url(/art/plate-room-A-900.webp)}
+  [data-section="groups"]{--pc-plate:url(/art/plate-groups-A-900.webp)}
+  [data-section="groups"][data-view="group"]{--pc-plate:url(/art/plate-group-A-900.webp)}
+  [data-section="find"]{--pc-plate:url(/art/plate-find-A-900.webp)}
+  [data-section="messages"]{--pc-plate:url(/art/plate-messages-A-900.webp)}
+  [data-section="profile"]{--pc-plate:url(/art/plate-you-A-900.webp)}
+  [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-900.webp)}
+  [data-section="civic"] [data-entered]>.plate-ground{background-position:80% 35%}
+}
+/* 1600px and wider: a different work or figure at each edge (Josh). 2400x1350. */
+.pc-wide{display:none}
+@media (min-width:1600px){
+  [data-section="week"]{--pc-plate:url(/art/plate-week-A-2400.webp)}
+  [data-section="rooms"]{--pc-plate:url(/art/plate-rooms-A-2400.webp)}
+  [data-section="rooms"][data-view="room"]{--pc-plate:url(/art/plate-room-A-2400.webp)}
+  [data-section="groups"]{--pc-plate:url(/art/plate-groups-A-2400.webp)}
+  [data-section="groups"][data-view="group"]{--pc-plate:url(/art/plate-group-A-2400.webp)}
+  [data-section="find"]{--pc-plate:url(/art/plate-find-A-2400.webp)}
+  [data-section="messages"]{--pc-plate:url(/art/plate-messages-A-2400.webp)}
+  [data-section="profile"]{--pc-plate:url(/art/plate-you-A-2400.webp)}
+  [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-2400.webp)}
+  .pc-narrow{display:none}
+  .pc-wide{display:block}
+}
+[data-palette="parchment"],[data-palette="parchment"] [data-section]{--pc-gilt:#6f5420;--pc-rubric:#8e2f26;--pc-ink:#2a2117;--pc-solid:#ece2cc;--pc-t1:#fffaf0;--pc-t2:#f8f3e7;--pc-t3:#efe6d2}
+
+/* The plate (the door keeps its own rules) */
+[data-entered]>.plate-ground{background:var(--pc-plate) center 35%/cover no-repeat;transform-origin:50% 40%}
+[data-entered]>.scrim{position:fixed;inset:0;z-index:0;pointer-events:none;background:var(--pc-scrim)}
+[data-palette="parchment"] [data-entered]>.scrim{background:var(--scrim)}
+[data-entered] .plate--hero{margin-top:var(--space-3,1.5rem)}
+.mast[data-entered="true"] .mast-tagline{display:none}
+/* A narrower column at desktop, so the plate has room to be seen, as on the door */
+@media (min-width:1100px){[data-entered] .shell-body>main{width:min(60rem,100%);justify-self:center}}
+.pc-credit{position:relative;z-index:1;clear:both;width:fit-content;margin:2.5rem 0 1rem;padding:.3rem .7rem;border-radius:3px;background:var(--pc-solid);color:var(--muted);font-family:var(--font-display);font-variant-caps:all-small-caps;letter-spacing:.06em;font-size:.95rem}
+.pc-solid{width:fit-content;max-width:100%;padding:.3rem .7rem;border-radius:3px;background:var(--pc-solid)}
+/* Text never sits on the art (QA #116 B1). Pages put their blocks on cards and plates (Design r131); loose text
+   left outside one gets a solid, fit-to-text backing. inner-pages.render.test.mjs walks every text node. */
+[data-entered] main :is(h1,h2,h3,h4,p,label,legend,dt,dd,li,td,th,small,blockquote,figcaption):not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *,.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"],.sr-only,.pc-h){width:fit-content;max-width:100%;padding:.15rem .5rem;border-radius:3px;background:var(--pc-solid)}
+[data-entered] main .pc-h:not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *){padding:.35rem .75rem;border-radius:3px;background:var(--pc-solid)}
+/* Focus over a plate: a light ring with a dark halo (Design r131 R7). Inside cards the app's own rings stay. */
+[data-entered] main :focus-visible:not(:is(.card,.plate,.pc-card,dialog,[class~="bg-surface"],[class~="bg-raised"],[class~="bg-bg"],[class~="bg-signal"]) *){outline:2px solid var(--pc-ink);outline-offset:2px;box-shadow:0 0 0 5px var(--pc-solid)}
+/* Safety net: the old hero and side art never return over the plate (Design r131) */
+.shell[data-entered]>.hero-band,.shell[data-entered]>.shell-body>.outer-art,.shell[data-entered] .with-side>.side-art{display:none}
+/* A closed <details> lays its hidden form out under the credit (QA #116 N3); take it out of layout */
+[data-entered] main details:not([open])>:not(summary){display:none}
+
+/* Head: gilt kicker with hairline, serif title, gilt rule, serif lede */
+[data-entered] .kicker{display:flex;align-items:center;gap:.75rem;color:var(--pc-gilt);font-size:1rem;font-weight:600;letter-spacing:.14em}
+[data-entered] .kicker::after{content:"";flex:1;max-width:12rem;height:1px;background:linear-gradient(90deg,color-mix(in srgb,var(--pc-gilt) 45%,transparent),transparent)}
+.pc-head h1{letter-spacing:-.015em;line-height:1.05}
+.pc-rule{position:relative;width:min(15rem,70%);height:1px;margin-block:.25rem .75rem;margin-inline:4px 0;background:linear-gradient(90deg,var(--pc-gilt),transparent)}
+.pc-rule::before{content:"";position:absolute;left:-4px;top:-3px;width:7px;height:7px;background:var(--pc-gilt);transform:rotate(45deg)}
+[data-entered] .pc-head h1+.pc-rule{margin-top:.5rem}
+.pc-lede{max-width:40rem;font-family:var(--font-display);font-size:1.2rem;line-height:1.5;color:var(--pc-ink)}
+[data-entered] .illum::first-letter{color:var(--pc-rubric)}
+.pc-h{display:flex;align-items:center;gap:.75rem;font-family:var(--font-display);font-variant-caps:all-small-caps;font-size:1.25rem;font-weight:600;letter-spacing:.12em;color:var(--pc-gilt)}
+.pc-h::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,color-mix(in srgb,var(--pc-gilt) 40%,transparent),transparent)}
+
+/* Solid, grained card with an inner gilt hairline, toned per page */
+.pc-card,.plate.pc-head{position:relative;isolation:isolate;border:1px solid var(--pc-hair);border-radius:6px;background-color:var(--pc-t2);
+  background-image:radial-gradient(130% 55% at 50% 112%,rgba(0,0,0,.4),transparent 62%),radial-gradient(70% 90% at 100% 0,color-mix(in srgb,var(--pc-gilt) 10%,transparent),transparent 65%),linear-gradient(170deg,var(--pc-t1),var(--pc-t2) 50%,var(--pc-t3));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pc-gilt) 14%,transparent),inset 0 1px 0 rgba(240,231,211,.06),0 14px 34px -18px rgba(0,0,0,.8)}
+.pc-card::before,.plate.pc-head::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:var(--grain);opacity:.1;mix-blend-mode:overlay}
+.plate.pc-head{padding:clamp(18px,3vw,32px)}
+.pc-card:empty{display:none}
+[data-palette="parchment"] :is(.pc-card,.plate.pc-head){box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pc-gilt) 18%,transparent),0 10px 24px -18px rgba(60,40,10,.35)}
+
+/* Motion: once, gentle, opt-in. The head and the main action never move. */
+@media (prefers-reduced-motion:no-preference){
+  [data-entered]>.plate-ground{animation:pc-settle 4.5s cubic-bezier(.22,.61,.36,1) 1 both}
+  .pc-rise{animation:pc-fade .5s ease-out 1 both}
+}
+@keyframes pc-settle{from{transform:scale(1.06)}to{transform:none}}
+@keyframes pc-fade{from{opacity:.001}}
+/* Save-Data and reduced data: no plate, solid ground, no credit for a picture that is not shown */
+@media (prefers-reduced-data:reduce){[data-entered]>.plate-ground{background-image:none;animation:none}.pc-credit{display:none}}
+[data-save-data] .plate-ground{background-image:none;animation:none}
+[data-save-data] .pc-card::before{content:none}
+[data-save-data] .pc-credit{display:none}

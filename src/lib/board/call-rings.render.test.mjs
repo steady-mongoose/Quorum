@@ -1,7 +1,7 @@
 // @ts-nocheck -- happy-dom render test; DOM globals are installed at runtime.
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import test from "node:test";
+import nodeTest, { after, afterEach } from "node:test";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -54,7 +54,35 @@ globalThis.fetch = async (input, init) => {
 };
 
 const { createElement, act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot: makeRoot } = await import("react-dom/client");
+
+/** Each test gets a deadline, so a regression fails the run instead of hanging CI. */
+const test = (name, fn) => nodeTest(name, { timeout: 30_000 }, fn);
+/** Roots still mounted. afterEach unmounts them even when a test fails part way. */
+const mounted = [];
+const createRoot = (host) => {
+  const root = makeRoot(host);
+  mounted.push({ root, host });
+  return root;
+};
+afterEach(async () => {
+  for (const { root, host } of mounted.splice(0)) {
+    try {
+      await act(async () => root.unmount());
+    } catch {
+      // Already unmounted.
+    }
+    host.remove();
+  }
+});
+// Stop happy-dom's timers so the file's process can exit.
+after(async () => {
+  try {
+    await window.happyDOM.abort();
+  } catch {
+    // Nothing left to stop.
+  }
+});
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { CallRings, focusRoomCall, CALL_STARTING_TEXT } =
   await import("../../components/board/call-rings.tsx");
@@ -63,7 +91,7 @@ const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
 };
 
-test("incoming call banner: polite status, ghost buttons, no autofocus, Escape dismisses", async () => {
+test("incoming call prompt: live line, Join and Decline, the card takes focus, Escape declines", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -87,28 +115,42 @@ test("incoming call banner: polite status, ghost buttons, no autofocus, Escape d
   await flush();
   const banner = host.querySelector("section");
   assert.ok(banner, "banner renders");
-  assert.equal(banner.getAttribute("role"), "status");
-  assert.equal(banner.getAttribute("aria-live"), "polite");
-  assert.equal(banner.getAttribute("aria-label"), "Incoming call");
+  assert.equal(banner.getAttribute("role"), "region", "a labelled region, not a live region");
+  assert.equal(banner.getAttribute("aria-live"), null);
+  const line = banner.querySelector("p");
+  assert.equal(line.textContent, "Josh is calling you into a room call.");
+  assert.equal(banner.getAttribute("aria-labelledby"), null, "not named by the sentence");
+  assert.equal(banner.getAttribute("aria-label"), "Incoming call", "a short name of its own");
+  const spoken = host.querySelector('p[role="status"]');
+  assert.equal(spoken.getAttribute("aria-live"), "assertive", "an incoming ring");
+  assert.equal(spoken.getAttribute("aria-atomic"), "true");
+  assert.equal(spoken.className, "sr-only");
+  assert.equal(spoken.textContent, "Josh is calling you into a room call.");
+  assert.equal(banner.contains(spoken), false, "the live line sits outside the card");
+  assert.match(banner.textContent, /Press Escape to decline\./);
   assert.match(
     banner.className,
     /bottom-\[calc\(var\(--tabbar-h,64px\)\+env\(safe-area-inset-bottom\)\+0\.75rem\)\]/,
   );
   assert.match(banner.className, /md:bottom-6/);
-  assert.ok(!banner.contains(document.activeElement), "no autofocus");
+  assert.equal(document.activeElement, banner, "nothing else had focus, so the card takes it");
+  assert.equal(banner.getAttribute("tabindex"), "-1");
+  assert.match(banner.className, /(^|\s)focus-target(\s|$)/);
   const buttons = [...banner.querySelectorAll("button")];
   assert.deepEqual(
     buttons.map((b) => b.textContent),
-    ["Go to the call", "Not now"],
+    ["Join", "Decline"],
   );
-  assert.equal(buttons[0].className, buttons[1].className, "both use the same ghost style");
+  assert.match(buttons[0].className, /btn-primary/, "Join is the main action");
+  assert.doesNotMatch(buttons[1].className, /btn-primary/);
 
   await act(async () => {
     banner.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   await flush();
   assert.equal(host.querySelector("section"), null);
-  assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/dismiss")));
+  assert.ok(host.querySelector('p[role="status"]'), "the live line stays mounted");
+  assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/decline")));
   assert.deepEqual(gone, []);
   await act(async () => root.unmount());
 });
@@ -147,13 +189,13 @@ async function enterFrom(banner, from) {
   into.dispatchEvent(new FocusEvent("focus", { relatedTarget: from }));
 }
 
-test("Not now returns focus to where it came from", async () => {
+test("Decline returns focus to where it came from", async () => {
   const before = document.createElement("button");
   before.textContent = "Elsewhere";
   document.body.append(before);
   const { root, banner } = await mountBanner();
   await act(async () => enterFrom(banner, before));
-  const notNow = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Not now");
+  const notNow = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Decline");
   await act(async () => notNow.click());
   await flush();
   assert.equal(document.activeElement, before);
@@ -185,7 +227,7 @@ async function waitFor(ok, ms = 2000) {
   while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
 }
 
-test("Go skips the focus return and lands on the call's Join button", async () => {
+test("Join skips the focus return and lands on the call's Join button", async () => {
   const before = document.createElement("button");
   document.body.append(before);
   const heading = document.createElement("h1");
@@ -204,7 +246,7 @@ test("Go skips the focus return and lands on the call's Join button", async () =
     requestAnimationFrame(() => focusRoomCall());
   });
   await act(async () => enterFrom(banner, before));
-  const go = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Go to the call");
+  const go = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Join");
   await act(async () => go.click());
   await waitFor(() => document.activeElement?.id === "room-call-join");
   assert.notEqual(document.activeElement, before, "no return to the old element");

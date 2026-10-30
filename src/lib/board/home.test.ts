@@ -147,10 +147,10 @@ test("home controls keep a 44px target, visible labels, and errors on the form",
   const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
   assert.match(bits, /min-h-\[44px\]/);
   assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
-  assert.match(home, /<summary[\s\S]*Request a town/);
+  assert.match(home, /aria-expanded=\{requestOpen\}[\s\S]*Request a new place/);
   assert.match(home, /<summary[\s\S]*Decide/);
   assert.match(home, /aria-live="polite"/);
-  assert.match(home, /No town for that ZIP/);
+  assert.match(home, /There is no town room for ZIP/);
   // Rooms are joined by invitation: Home offers only Leave on a room you are in.
   assert.match(home, /\{joined \? \(/);
   assert.doesNotMatch(home, /Joined ✓/);

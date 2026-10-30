@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
@@ -11,7 +11,7 @@ import {
   Search,
   User,
 } from "lucide-react";
-import { btnGhost, btnQuiet, btnSignal, IconNav } from "@/components/quorum/bits";
+import { btnGhost, btnQuiet, IconNav } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { userFacingError } from "@/lib/board/errors";
 import {
@@ -27,6 +27,7 @@ import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
 import { AboutView } from "@/components/board/about-view";
 import { watchInviteHash } from "@/lib/board/invite-hash";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
+import { MfaBanner } from "@/components/board/mfa-banner";
 import { DM_SIGNOUT_HISTORY_WARNING } from "@/lib/e2ee/copy";
 import { browserVaultStore } from "@/lib/e2ee/browser";
 import { signOutClearsReadHistory } from "@/lib/e2ee/read-history";
@@ -49,8 +50,9 @@ import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
-import { artSection, heroLabel, showsHero } from "@/lib/board/engraved";
-import { useEngravedDocument } from "@/components/board/engraved-ground";
+import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
+import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
+import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
 import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
@@ -116,7 +118,6 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
-  const categoryPage = typeof categorySlug === "string" && categorySlug.length > 0;
   // A conversation opened from a member list shows on the rooms page itself, so
   // the address stays /rooms (or /rooms/<category>) and Back returns to the room.
   const memberConversation = useBoard(keepsRoomsPage) && section === "messages";
@@ -131,9 +132,13 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     section: shown,
     signingIn,
   });
-  const hero = heroLabel(art);
-  const margin = showsHero(art);
+  const browsing = useBoard((state) => state.browsing);
+  const groupOpen = useSyncExternalStore(subscribeGroupOpen, getGroupOpen, () => false);
+  const plate = plateView({ section: art, browsing, groupOpen });
+  const caption = entered ? plateCaption(art, plate) : null;
+  const wideCaption = entered ? plateCaptionWide(art, plate) : null;
   useEngravedDocument(art);
+  usePlateView(plate);
   // The Rooms chip row and anchor scrolling sit flush under the sticky header at its real height.
   useMastHeight();
 
@@ -248,24 +253,13 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   ) : (
     <>
       {entered && server.mfa === "enroll" ? (
-        <div className="mfa-banner mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-prose text-sm text-fg">
-            Turn on an authenticator before you moderate, grant a role, approve a reset, or export.
-          </p>
-          <button
-            type="button"
-            className={cn(btnSignal, "w-full sm:w-auto")}
-            onClick={() => openSection("profile")}
-          >
-            Set it up
-          </button>
-        </div>
+        <MfaBanner onSetUp={() => openSection("profile")} />
       ) : null}
       {ageDue ? <AgeStep /> : null}
       {!entered && !ageDue && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
-      {entered && shown === "groups" && <GroupsView />}
+      {entered && shown === "groups" && <GroupsView onSetUp={() => openSection("profile")} />}
       {entered && shown === "find" && <FindView />}
       {entered && shown === "civic" && deskOn && <QuorumPanel />}
       {entered && shown === "messages" && <DmView />}
@@ -275,7 +269,25 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   );
 
   return (
-    <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
+    <div
+      className="shell min-h-dvh overflow-x-clip text-fg"
+      style={themeVars(theme)}
+      data-entered={entered ? "true" : undefined}
+    >
+      {/* First in the Tab order, so an incoming call is one Tab away. */}
+      {entered ? (
+        <CallRings
+          onGo={(roomId) => {
+            setSection("rooms");
+            setRoom(roomId as Parameters<typeof setRoom>[0]);
+            void navigate({ to: "/rooms" }).then(() =>
+              requestAnimationFrame(() =>
+                focusRoomCall(1000, Date.now(), document.activeElement, true),
+              ),
+            );
+          }}
+        />
+      ) : null}
       <a
         href="#main"
         className="skip-link sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
@@ -283,30 +295,16 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         Skip to content
       </a>
       <PrimaryHaptic />
-      {entered ? (
-        <CallRings
-          onGo={(roomId) => {
-            setSection("rooms");
-            setRoom(roomId as Parameters<typeof setRoom>[0]);
-            void navigate({ to: "/rooms" }).then(() =>
-              requestAnimationFrame(() => focusRoomCall()),
-            );
-          }}
-        />
-      ) : null}
-      {art === "landing" || art === "signin" ? (
-        <div className="plate-ground" aria-hidden="true" />
-      ) : null}
-      {art === "landing" || art === "signin" ? <div className="scrim" aria-hidden="true" /> : null}
+      <div className="plate-ground" aria-hidden="true" />
+      <div className="scrim" aria-hidden="true" />
       <header className="top mast-bar">
         <div className="mast" data-entered={entered ? "true" : undefined}>
           <div className="mast-brand">
             <AppealMark />
             <div className="mast-titles">
               <p className="mast-name">{APP_NAME}</p>
-              <p className={cn("mast-tagline", entered && "max-xl:hidden xl:whitespace-nowrap")}>
-                {TAGLINE}
-              </p>
+              {/* Signed in, the nav fills the bar and the one-line tagline was cut off, so it shows only at the door. */}
+              {entered ? null : <p className="mast-tagline">{TAGLINE}</p>}
             </div>
           </div>
           <div className="mast-actions">
@@ -426,21 +424,13 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           </div>
         </div>
       ) : null}
-      {hero && !categoryPage ? (
-        <div className="hero-band full" role="img" aria-label={hero} />
-      ) : null}
       <div className="shell-body">
-        {margin ? <div className="outer-art l" aria-hidden="true" /> : null}
-        {margin ? <div className="outer-art r" aria-hidden="true" /> : null}
         <main id="main" tabIndex={-1} aria-busy={busy || undefined}>
-          {margin ? (
-            <div className="with-side">
-              <div className="min-w-0">{page}</div>
-              <aside className="side-art" aria-hidden="true" />
-            </div>
-          ) : (
-            page
-          )}
+          {page}
+          {caption && !busy ? (
+            <p className={wideCaption ? "pc-credit pc-narrow" : "pc-credit"}>Plate: {caption}</p>
+          ) : null}
+          {wideCaption && !busy ? <p className="pc-credit pc-wide">Plates: {wideCaption}</p> : null}
         </main>
       </div>
       {entered ? <SessionLine /> : null}
