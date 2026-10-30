@@ -111,6 +111,7 @@ const appTests = [
   "server/calls/rings.test.ts",
   "src/lib/board/call-rings.render.test.mjs",
   "src/lib/board/call-panel.render.test.mjs",
+  "src/lib/board/call-alerts.render.test.mjs",
   "src/lib/media/bounds.test.ts",
   "src/lib/media/e2e.test.ts",
   "src/lib/media/upload.test.ts",

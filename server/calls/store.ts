@@ -197,6 +197,14 @@ export function createCallStore() {
       dropPeer(roomId, userId);
     },
 
+    /** People still in that call, after dropping anyone gone quiet. */
+    size(roomId: string, at: number): number {
+      const room = rooms.get(roomId);
+      if (!room) return 0;
+      sweep(roomId, room, at);
+      return rooms.get(roomId)?.peers.size ?? 0;
+    },
+
     /**
      * Drop this person from every room on this process. `evictCallMember`
      * is what a remove or ban calls. The slot is gone before the next poll.

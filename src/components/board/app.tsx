@@ -286,7 +286,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
             setSection("rooms");
             setRoom(roomId as Parameters<typeof setRoom>[0]);
             void navigate({ to: "/rooms" }).then(() =>
-              requestAnimationFrame(() => focusRoomCall()),
+              requestAnimationFrame(() =>
+                focusRoomCall(1000, Date.now(), document.activeElement, true),
+              ),
             );
           }}
         />

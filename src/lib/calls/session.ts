@@ -9,7 +9,22 @@ import {
   type CallIceServer,
   type CallPeerRow,
   type CallWire,
+  type RingOutcome,
 } from "./status.ts";
+
+/** Plain words for how a call ended, or for someone leaving a call that goes on. */
+export const CALL_LINES = {
+  ended: (name: string) => `${name} left. The call ended.`,
+  peerLeft: (name: string) => `${name} left the call.`,
+  declined: (name: string) => `${name} isn't available right now.`,
+  missed: (name: string) => `${name} didn't answer.`,
+};
+
+export function outcomeLine(outcome: RingOutcome): string {
+  return outcome.kind === "declined"
+    ? CALL_LINES.declined(outcome.name)
+    : CALL_LINES.missed(outcome.name);
+}
 
 export type CallTrack = { kind: string };
 export type CallStream = { getTracks(): CallTrack[] };
@@ -127,6 +142,13 @@ type RoomCallOptions = {
   createConnection?: (iceServers: CallIceServer[]) => CallPeerConnection;
   onPeers?: (peers: RemotePeer[]) => void;
   onStopped?: (message: string) => void;
+  /**
+   * The call is over for this person: the last other person left, or the
+   * one person rung declined or didn't answer. The session has closed.
+   */
+  onEnded?: (message: string) => void;
+  /** Something to say while the call goes on, e.g. "Ann left the call." */
+  onNote?: (message: string) => void;
 };
 
 export class RoomCallSession {
@@ -137,6 +159,8 @@ export class RoomCallSession {
   private iceServers: CallIceServer[];
   private closed = false;
   private stopped = false;
+  /** True once anyone else has been in the call with this person. */
+  private hadPeers = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly base: string;
@@ -162,10 +186,22 @@ export class RoomCallSession {
       if (slot) this.drop(peer.id);
       opening.push(this.enqueue(peer.id, () => this.openPeer(peer)));
     }
-    for (const id of [...this.slots.keys()]) {
-      if (!seen.has(id)) this.drop(id);
+    const gone: string[] = [];
+    for (const [id, slot] of [...this.slots]) {
+      if (!seen.has(id)) {
+        gone.push(slot.name);
+        this.drop(id);
+      }
     }
     await Promise.all(opening);
+    if (this.closed) return;
+    if (this.slots.size > 0) {
+      this.hadPeers = true;
+      for (const name of gone) this.opts.onNote?.(CALL_LINES.peerLeft(name));
+    } else if (this.hadPeers && gone.length > 0) {
+      this.end(CALL_LINES.ended(gone[gone.length - 1] ?? "Everyone"));
+      return;
+    }
     this.emit();
   }
 
@@ -208,8 +244,18 @@ export class RoomCallSession {
       }
       if (parsed.iceServers) this.applyIce(parsed.iceServers);
       await this.syncPeers(parsed.peers);
+      if (this.closed) return;
       for (const signal of parsed.signals) await this.acceptSignal(signal);
       this.cursor = parsed.cursor;
+      for (const outcome of parsed.outcomes) {
+        if (this.closed) return;
+        // Alone in the call: the person rung said no or didn't pick up, so it ends.
+        if (this.slots.size === 0) {
+          this.end(outcomeLine(outcome));
+          return;
+        }
+        this.opts.onNote?.(outcomeLine(outcome));
+      }
       this.emit();
     } catch {
       // The next poll tries again. The call is not stored anywhere.
@@ -441,6 +487,13 @@ export class RoomCallSession {
     if (!refusesRecording(body)) return false;
     this.fail(claimsRecording(body) ? RECORDING_LEFT : MALFORMED_LEFT);
     return true;
+  }
+
+  private end(message: string): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.close();
+    this.opts.onEnded?.(message);
   }
 
   private fail(message: string): void {

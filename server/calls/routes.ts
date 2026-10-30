@@ -2,7 +2,14 @@ import type { Db } from "../db.ts";
 import { CALLS_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { createIceSource, publicCallsStatus, type CallsConfig, type IceSource } from "./config.ts";
 import { bindTurnRelease } from "./evict.ts";
-import { canRing, createRingStore, type RingStore } from "./rings.ts";
+import {
+  canRing,
+  createRingStore,
+  dmOther,
+  memberName,
+  type Ring,
+  type RingStore,
+} from "./rings.ts";
 import { callDisplayName as ringName } from "./store.ts";
 import { roomCallMember } from "./membership.ts";
 import { dmCallMember, type DmCallCheck } from "./dm-membership.ts";
@@ -19,6 +26,13 @@ export type CallsRuntime = {
   rings?: RingStore;
   roomMember?: typeof roomCallMember;
   canRing?: (db: Db, userId: string, roomId: string) => Promise<boolean>;
+  /** Tests may stub these reads. Production reads "user" and dm_thread. */
+  memberName?: (db: Db, userId: string) => Promise<string>;
+  dmOther?: (
+    db: Db,
+    userId: string,
+    threadId: string,
+  ) => Promise<{ id: string; name: string } | null>;
 };
 
 const defaultIce = createIceSource();
@@ -58,7 +72,14 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
 }
 
 const roomPath = /^\/api\/calls\/rooms\/([a-z0-9-]{1,32})(\/(?:join|leave|signal|ring))?$/;
-const ringPath = /^\/api\/calls\/rings(?:\/(r\d{1,12})\/dismiss)?$/;
+const ringPath = /^\/api\/calls\/rings(?:\/(r\d{1,12})\/(dismiss|decline))?$/;
+
+/** What the person rung sees. Room rings keep the old shape. */
+function ringRow(ring: Ring) {
+  return ring.kind === "dm"
+    ? { id: ring.id, kind: "dm", threadId: ring.roomId, fromName: ring.fromName }
+    : { id: ring.id, kind: "room", roomId: ring.roomId, fromName: ring.fromName };
+}
 const dmPath = /^\/api\/calls\/dm\/([0-9a-f-]{36})(\/(?:join|leave|signal))?$/;
 
 /**
@@ -88,17 +109,17 @@ export async function handleCalls(
     if (!session) return json(401, { error: "Sign in first.", record: false });
     const at = runtime.now().getTime();
     if (!ringMatch[1] && request.method === "GET") {
-      return json(200, {
-        rings: rings.pending(session.id, at).map((ring) => ({
-          id: ring.id,
-          roomId: ring.roomId,
-          fromName: ring.fromName,
-        })),
-        record: false,
+      const live = rings.pending(session.id, at).filter((ring) => {
+        // Nobody is in that call any more (the caller hung up or dropped).
+        if (runtime.store.size(ring.key, at) > 0) return true;
+        rings.cancel(ring.key);
+        return false;
       });
+      return json(200, { rings: live.map(ringRow), record: false });
     }
     if (ringMatch[1] && request.method === "POST") {
-      rings.dismiss(session.id, ringMatch[1]);
+      if (ringMatch[2] === "decline") rings.decline(session.id, ringMatch[1], at);
+      else rings.dismiss(session.id, ringMatch[1]);
       return json(200, { ok: true, record: false });
     }
     return json(404, { error: "Not found.", record: false });
@@ -201,8 +222,9 @@ export async function handleCalls(
       if (target.kind !== "member") {
         return json(409, { error: "That member can't join this room's call.", record: false });
       }
+      const toName = ringName(await (runtime.memberName ?? memberName)(db, to));
       const rung = rings.ring(
-        { roomId: targetId, from: session.id, fromName: ringName(session.name), to },
+        { roomId: targetId, from: session.id, fromName: ringName(session.name), to, toName },
         at,
       );
       if (!rung) {
@@ -218,7 +240,7 @@ export async function handleCalls(
       return json(200, { ok: true, record: false });
     }
     if (action === "/join" && request.method === "POST") {
-      await readJson(request);
+      const asked = await readJson(request);
       const joined = runtime.store.join(
         roomId,
         { id: session.id, name: callDisplayName(session.name) },
@@ -226,8 +248,31 @@ export async function handleCalls(
         cap,
       );
       if (!joined.ok) return json(joined.status, { error: joined.error, record: false });
-      if (!dmMatch) rings.answer(session.id, targetId);
+      rings.answer(session.id, roomId);
+      // A DM call rings the other person when the caller starts it alone.
+      // A rejoin after a dropped poll sends no `ring`, so it never rings twice.
+      let ringing = false;
+      if (dmMatch && asked.ring === true && joined.peers.length === 0) {
+        const other = await (runtime.dmOther ?? dmOther)(db, session.id, targetId);
+        if (other && other.id !== session.id) {
+          ringing = Boolean(
+            rings.ring(
+              {
+                kind: "dm",
+                key: roomId,
+                roomId: targetId,
+                from: session.id,
+                fromName: ringName(session.name),
+                to: other.id,
+                toName: ringName(other.name),
+              },
+              at,
+            ),
+          );
+        }
+      }
       return json(200, {
+        ringing,
         selfId: session.id,
         peers: joined.peers,
         iceServers: await ice(
@@ -246,6 +291,8 @@ export async function handleCalls(
       await readJson(request);
       runtime.store.leave(roomId, session.id);
       ice.release(session.id, `${roomId}#`);
+      // Last one out: any ring into this call is stale, so it goes too.
+      if (runtime.store.size(roomId, at) === 0) rings.cancel(roomId);
       return json(200, { ok: true, record: false });
     }
     if (action === "/signal" && request.method === "POST") {
@@ -280,6 +327,7 @@ export async function handleCalls(
           at,
         ),
         cursor: polled.cursor,
+        rings: rings.outcomes(session.id, roomId, at),
         record: false,
       });
     }

@@ -8,6 +8,23 @@ export type CallIceServer = {
   credential?: string;
 };
 
+/** The caller hears that the person they rang declined or did not answer. */
+export type RingOutcome = { kind: "declined" | "missed"; name: string };
+
+/** Drops anything malformed. A missing list is an empty one. */
+export function parseRingOutcomes(value: unknown): RingOutcome[] {
+  if (!Array.isArray(value)) return [];
+  const out: RingOutcome[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { kind?: unknown; name?: unknown };
+    if (row.kind !== "declined" && row.kind !== "missed") continue;
+    if (typeof row.name !== "string" || !row.name || row.name.length > 80) continue;
+    out.push({ kind: row.kind, name: row.name });
+  }
+  return out;
+}
+
 export type CallWire = {
   id: number;
   from: string;
@@ -87,9 +104,11 @@ export function parseCallJoin(body: unknown): {
   peers: CallPeerRow[];
   iceServers: CallIceServer[];
   cursor: number;
+  ringing: boolean;
 } | null {
   if (refusesRecording(body) || !body || typeof body !== "object") return null;
   const record = body as {
+    ringing?: unknown;
     selfId?: unknown;
     peers?: unknown;
     iceServers?: unknown;
@@ -102,7 +121,13 @@ export function parseCallJoin(body: unknown): {
   const peers = peerRows(record.peers);
   const servers = iceServers(record.iceServers);
   if (!peers || !servers) return null;
-  return { selfId: record.selfId, peers, iceServers: servers, cursor: record.cursor };
+  return {
+    selfId: record.selfId,
+    peers,
+    iceServers: servers,
+    cursor: record.cursor,
+    ringing: record.ringing === true,
+  };
 }
 
 function iceServers(value: unknown): CallIceServer[] | null {
@@ -121,6 +146,7 @@ export function parseCallPoll(body: unknown): {
   signals: CallWire[];
   cursor: number;
   iceServers?: CallIceServer[];
+  outcomes: RingOutcome[];
 } | null {
   if (refusesRecording(body) || !body || typeof body !== "object") return null;
   const record = body as {
@@ -128,6 +154,7 @@ export function parseCallPoll(body: unknown): {
     signals?: unknown;
     cursor?: unknown;
     iceServers?: unknown;
+    rings?: unknown;
   };
   if (typeof record.cursor !== "number" || !Number.isInteger(record.cursor) || record.cursor < 0) {
     return null;
@@ -148,8 +175,9 @@ export function parseCallPoll(body: unknown): {
       payload: row.payload as Record<string, unknown>,
     });
   }
-  if (record.iceServers === undefined) return { peers, signals, cursor: record.cursor };
+  const outcomes = parseRingOutcomes(record.rings);
+  if (record.iceServers === undefined) return { peers, signals, cursor: record.cursor, outcomes };
   const servers = iceServers(record.iceServers);
   if (!servers) return null;
-  return { peers, signals, cursor: record.cursor, iceServers: servers };
+  return { peers, signals, cursor: record.cursor, iceServers: servers, outcomes };
 }

@@ -63,7 +63,7 @@ const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
 };
 
-test("incoming call banner: polite status, ghost buttons, no autofocus, Escape dismisses", async () => {
+test("incoming call prompt: live status, Join and Decline, no autofocus, Escape declines", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -88,7 +88,8 @@ test("incoming call banner: polite status, ghost buttons, no autofocus, Escape d
   const banner = host.querySelector("section");
   assert.ok(banner, "banner renders");
   assert.equal(banner.getAttribute("role"), "status");
-  assert.equal(banner.getAttribute("aria-live"), "polite");
+  assert.equal(banner.getAttribute("aria-live"), "assertive");
+  assert.equal(banner.querySelector("p").textContent, "Josh is calling you to a room call.");
   assert.equal(banner.getAttribute("aria-label"), "Incoming call");
   assert.match(
     banner.className,
@@ -99,16 +100,17 @@ test("incoming call banner: polite status, ghost buttons, no autofocus, Escape d
   const buttons = [...banner.querySelectorAll("button")];
   assert.deepEqual(
     buttons.map((b) => b.textContent),
-    ["Go to the call", "Not now"],
+    ["Join", "Decline"],
   );
-  assert.equal(buttons[0].className, buttons[1].className, "both use the same ghost style");
+  assert.match(buttons[0].className, /btn-primary/, "Join is the main action");
+  assert.doesNotMatch(buttons[1].className, /btn-primary/);
 
   await act(async () => {
     banner.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   await flush();
   assert.equal(host.querySelector("section"), null);
-  assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/dismiss")));
+  assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/decline")));
   assert.deepEqual(gone, []);
   await act(async () => root.unmount());
 });
@@ -147,13 +149,13 @@ async function enterFrom(banner, from) {
   into.dispatchEvent(new FocusEvent("focus", { relatedTarget: from }));
 }
 
-test("Not now returns focus to where it came from", async () => {
+test("Decline returns focus to where it came from", async () => {
   const before = document.createElement("button");
   before.textContent = "Elsewhere";
   document.body.append(before);
   const { root, banner } = await mountBanner();
   await act(async () => enterFrom(banner, before));
-  const notNow = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Not now");
+  const notNow = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Decline");
   await act(async () => notNow.click());
   await flush();
   assert.equal(document.activeElement, before);
@@ -185,7 +187,7 @@ async function waitFor(ok, ms = 2000) {
   while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
 }
 
-test("Go skips the focus return and lands on the call's Join button", async () => {
+test("Join skips the focus return and lands on the call's Join button", async () => {
   const before = document.createElement("button");
   document.body.append(before);
   const heading = document.createElement("h1");
@@ -204,7 +206,7 @@ test("Go skips the focus return and lands on the call's Join button", async () =
     requestAnimationFrame(() => focusRoomCall());
   });
   await act(async () => enterFrom(banner, before));
-  const go = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Go to the call");
+  const go = [...banner.querySelectorAll("button")].find((b) => b.textContent === "Join");
   await act(async () => go.click());
   await waitFor(() => document.activeElement?.id === "room-call-join");
   assert.notEqual(document.activeElement, before, "no return to the old element");

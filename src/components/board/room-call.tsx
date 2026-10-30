@@ -189,7 +189,17 @@ export type CallPanelProps = {
   onClose?: () => void;
   /** DOM id for the Join button, so a ring can send focus to it. */
   joinId?: string;
+  /** Join as soon as the panel opens (Join on an incoming-call alert). */
+  autoJoin?: boolean;
+  /** DM calls: starting the call rings this person. */
+  calleeName?: string;
+  /** The call ended without this person choosing Leave (they hear why). */
+  onEnded?: (message: string) => void;
+  /** This person chose Leave call. */
+  onLeave?: () => void;
 };
+
+export const YOU_LEFT = "You left the call.";
 
 export function CallPanel({
   callKey,
@@ -201,6 +211,10 @@ export function CallPanel({
   extra,
   onClose,
   joinId,
+  autoJoin,
+  calleeName,
+  onEnded,
+  onLeave,
 }: CallPanelProps) {
   const [phase, setPhase] = useState<"idle" | "joining" | "live">("idle");
   const [error, setError] = useState("");
@@ -208,6 +222,11 @@ export function CallPanel({
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [notice, setNotice] = useState("");
+  /** How the last call ended, shown once the panel is back to Join. */
+  const [ended, setEnded] = useState("");
+  /** "Calling Ann." or "Ben left the call." while the call goes on. */
+  const [callNote, setCallNote] = useState("");
+  const autoJoined = useRef(false);
   const soundOnlyId = useId();
   const muteRef = useRef<HTMLButtonElement | null>(null);
   const joinRef = useRef<HTMLButtonElement | null>(null);
@@ -254,11 +273,16 @@ export function CallPanel({
     setCameraOn(true);
     setCameraDenied(false);
     setNotice("");
+    setCallNote("");
+    setEnded(YOU_LEFT);
+    onLeave?.();
   };
 
   const join = async () => {
     setError("");
     setNotice("");
+    setEnded("");
+    setCallNote("");
     setPhase("joining");
     const opened = await openMedia((c) => navigator.mediaDevices.getUserMedia(c));
     if (!opened) {
@@ -280,7 +304,7 @@ export function CallPanel({
       credentials: "include",
       cache: "no-store",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: calleeName ? JSON.stringify({ ring: true }) : "{}",
     });
     const body = (await response.json().catch(() => null)) as unknown;
     if (!alive.current) {
@@ -307,7 +331,26 @@ export function CallPanel({
       cursor: joined.cursor,
       iceServers: joined.iceServers,
       localStream: stream,
-      onPeers: (peers) => setRemotes(peers),
+      onPeers: (peers) => {
+        setRemotes(peers);
+        if (peers.length > 0) setCallNote((line) => (line.startsWith("Calling ") ? "" : line));
+      },
+      onNote: (message) => setCallNote(message),
+      onEnded: (message) => {
+        focusJoin.current = true;
+        stream.getTracks().forEach((track) => track.stop());
+        remember(null);
+        sessionRef.current = null;
+        setRemotes([]);
+        setPhase("idle");
+        setMicOn(true);
+        setCameraOn(true);
+        setCameraDenied(false);
+        setNotice("");
+        setCallNote("");
+        setEnded(message);
+        onEnded?.(message);
+      },
       onStopped: (message) => {
         focusJoin.current = true;
         stream.getTracks().forEach((track) => track.stop());
@@ -327,6 +370,9 @@ export function CallPanel({
       }
       session.start();
       setPhase("live");
+      if (calleeName && joined.ringing && joined.peers.length === 0) {
+        setCallNote(`Calling ${calleeName}. They'll see it for one minute.`);
+      }
     } catch {
       session.close();
       sessionRef.current = null;
@@ -336,6 +382,14 @@ export function CallPanel({
       setError("The call did not start.");
     }
   };
+
+  useEffect(() => {
+    if (!autoJoin || autoJoined.current) return;
+    autoJoined.current = true;
+    void join();
+    // Once, when the panel opens from an incoming-call alert.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoJoin]);
 
   const toggle = (kind: "audio" | "video") => {
     const tracks = localStream?.getTracks().filter((track) => track.kind === kind) ?? [];
@@ -357,8 +411,13 @@ export function CallPanel({
           ? liveLine(micOn, cameraOn)
           : phase === "joining"
             ? "Joining the call."
-            : ""}
+            : ended}
       </p>
+      {phase === "live" && callNote ? (
+        <p className="text-sm text-fg" role="status">
+          {callNote}
+        </p>
+      ) : null}
       {notice ? (
         <p id={notice === CAMERA_DENIED ? soundOnlyId : undefined} className="text-sm text-fg">
           {notice}
