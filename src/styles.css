@@ -155,49 +155,21 @@ input[type="range"]::-moz-range-thumb {
   color: var(--color-muted);
 }
 
-/* v3 head rule and section heading. Copied from #116's public/page-craft.css (feat/inner-pages-plate, 079ab2a) so
-   #123 can use them before #116 lands. When #116 merges, page-craft.css carries these same rules: delete this block
-   in that merge. --pc-gilt is #c9a45c on Ink & Bone and #6f5420 on Parchment, as in page-craft.css. */
-:root {
-  --pc-gilt: #c9a45c;
-}
-[data-palette="parchment"],
-[data-palette="parchment"] [data-section] {
-  --pc-gilt: #6f5420;
-}
-.pc-rule {
-  position: relative;
-  width: min(15rem, 70%);
-  height: 1px;
-  margin: 0.25rem 0 0.25rem 4px;
-  background: linear-gradient(90deg, var(--pc-gilt), transparent);
-}
-.pc-rule::before {
-  content: "";
-  position: absolute;
-  left: -4px;
-  top: -3px;
-  width: 7px;
-  height: 7px;
-  background: var(--pc-gilt);
-  transform: rotate(45deg);
-}
-.pc-h {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-family: var(--font-display);
-  font-variant-caps: all-small-caps;
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--pc-gilt);
-}
-.pc-h::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--pc-gilt) 40%, transparent), transparent);
+/*
+ * A heading that script moves focus to (tabIndex -1), such as #authenticator after
+ * "Turn it on under You" or "Set it up", or a section heading after Try again; and any
+ * element focused with focusWithRing(), which marks it [data-focus-ring] until blur
+ * (the Decide summary, say, so a plain mouse click on Decide still draws no ring).
+ * Programmatic focus does not always match :focus-visible, so the ring is on :focus.
+ * The ring is the element's own text colour (text-fg), so it reads on whatever ground
+ * the element sits on, dark plate, parchment or a dark card on parchment. 2px offset.
+ * Unlayered so it outranks the plate's own :focus-visible rule in backgrounds.css.
+ */
+.focus-target:focus,
+[data-focus-ring]:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* The 18+ checkboxes (door and invite). Ink & Bone gilt, not the browser default.

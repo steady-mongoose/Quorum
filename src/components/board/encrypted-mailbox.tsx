@@ -379,59 +379,64 @@ export function EncryptedMailbox() {
   if (!vaultForAccount) {
     return (
       <div className="flex max-w-xl flex-col gap-4">
-        <Kicker>Messages</Kicker>
-        <h1 className="font-display text-4xl text-fg">Keys stay on this device</h1>
-        <p className="text-base text-muted">{DM_KEYS_MISSING}</p>
-        <p className="text-sm text-muted">{DM_PASSPHRASE_WARNING}</p>
-        {vault && vault.userId !== me.id ? (
-          <p className="text-sm text-muted">
-            This browser has keys for another account. Create keys for {me.name}, or restore that
-            account's backup.
-          </p>
-        ) : (
-          <p className="text-sm text-muted">
-            Create keys here, or restore a backup with the passphrase you chose on another device.
-          </p>
-        )}
-        <button
-          type="button"
-          className={btnSignal}
-          disabled={busy}
-          aria-busy={busy}
-          onClick={() => void createKeys()}
-        >
-          {busy ? "Saving…" : "Create keys on this device"}
-        </button>
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void restore();
-          }}
-        >
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Backup passphrase
-            <input
-              className={fieldClass}
-              type={showPassphrase ? "text" : "password"}
-              autoComplete="current-password"
-              value={passphrase}
-              onChange={(event) => setPassphrase(event.target.value)}
-            />
-          </label>
+        <section className="plate pc-head flex flex-col gap-3">
+          <Kicker>Messages</Kicker>
+          <h1 className="illum font-display text-4xl text-fg">Keys stay on this device</h1>
+          <div className="pc-rule" aria-hidden="true" />
+          <p className="pc-lede">{DM_KEYS_MISSING}</p>
+          <p className="text-sm text-muted">{DM_PASSPHRASE_WARNING}</p>
+          {vault && vault.userId !== me.id ? (
+            <p className="text-sm text-muted">
+              This browser has keys for another account. Create keys for {me.name}, or restore that
+              account's backup.
+            </p>
+          ) : (
+            <p className="text-sm text-muted">
+              Create keys here, or restore a backup with the passphrase you chose on another device.
+            </p>
+          )}
+        </section>
+        <div className="card pc-card flex flex-col gap-4 p-4">
           <button
             type="button"
-            className={btnQuiet}
-            aria-pressed={showPassphrase}
-            onClick={() => setShowPassphrase((current) => !current)}
+            className={btnSignal}
+            disabled={busy}
+            aria-busy={busy}
+            onClick={() => void createKeys()}
           >
-            {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+            {busy ? "Saving…" : "Create keys on this device"}
           </button>
-          <button type="submit" className={btnGhost} disabled={busy} aria-busy={busy}>
-            {busy ? "Saving…" : "Restore a backup"}
-          </button>
-        </form>
-        {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+          <form
+            className="flex flex-col gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void restore();
+            }}
+          >
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Backup passphrase
+              <input
+                className={fieldClass}
+                type={showPassphrase ? "text" : "password"}
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(event) => setPassphrase(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className={btnQuiet}
+              aria-pressed={showPassphrase}
+              onClick={() => setShowPassphrase((current) => !current)}
+            >
+              {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+            </button>
+            <button type="submit" className={btnGhost} disabled={busy} aria-busy={busy}>
+              {busy ? "Saving…" : "Restore a backup"}
+            </button>
+          </form>
+          {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+        </div>
       </div>
     );
   }

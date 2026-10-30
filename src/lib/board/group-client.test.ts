@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseGroupDetail, parseGroupList, runByLine } from "./group-client.ts";
+import {
+  fetchGroupAppeals,
+  fetchGroupInvites,
+  fetchGroupRequests,
+  GROUP_LOAD_FAILED,
+  GROUP_MFA_NEEDED,
+  GROUP_SAVE_FAILED,
+  groupFailure,
+  parseGroupDetail,
+  parseGroupList,
+  postGroup,
+  runByLine,
+} from "./group-client.ts";
 
 const zeta = {
   id: "zeta",
@@ -107,4 +119,94 @@ test("group controls meet the review: 44px, alerts, equal appeal buttons", () =>
   assert.equal(view.includes("text-signal"), false);
   assert.equal(view.includes("Admin:"), false);
   assert.equal(/\blikes?\b|\bscore\b|\breshare\b|\balgorithm\b/i.test(view), false);
+});
+
+function answer(status: number, body: unknown): void {
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+}
+
+test("a failed load says it did not load; only a failed save says it did not save", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    answer(500, { error: "oops" });
+    assert.deepEqual(await fetchGroupRequests(), { ok: false, error: GROUP_LOAD_FAILED });
+    assert.deepEqual(await fetchGroupAppeals(), { ok: false, error: GROUP_LOAD_FAILED });
+    assert.deepEqual(await fetchGroupInvites("carpentry"), { ok: false, error: GROUP_LOAD_FAILED });
+    assert.deepEqual(await postGroup("/api/groups/carpentry/leave", {}), {
+      ok: false,
+      error: GROUP_SAVE_FAILED,
+    });
+    assert.equal(GROUP_LOAD_FAILED, "That did not load.");
+    assert.equal(GROUP_SAVE_FAILED, "That did not save.");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("an authenticator 403 on a load keeps the server's sentence and is flagged", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    answer(403, {
+      error: "mfa_required",
+      message: "Turn on an authenticator before using this.",
+      step: "enroll",
+    });
+    for (const loaded of [
+      await fetchGroupRequests(),
+      await fetchGroupAppeals(),
+      await fetchGroupInvites("carpentry"),
+    ]) {
+      assert.deepEqual(loaded, {
+        ok: false,
+        error: "Turn on an authenticator before using this.",
+        mfa: "enroll",
+      });
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("groupFailure reads the server's sentence from error, then message, then falls back", () => {
+  assert.deepEqual(groupFailure({ error: "That group is not here." }, "x"), {
+    error: "That group is not here.",
+  });
+  assert.deepEqual(groupFailure({ error: "rate", message: "Wait a minute, then try again." }, "x"), {
+    error: "Wait a minute, then try again.",
+  });
+  assert.deepEqual(groupFailure({ error: "oops" }, "fallback here"), { error: "fallback here" });
+  assert.deepEqual(groupFailure(null, "fallback here"), { error: "fallback here" });
+  assert.deepEqual(groupFailure({ error: "banned" }, "x"), { error: "You are barred from that group." });
+  assert.deepEqual(groupFailure({ error: "mfa_required" }, "x"), { error: GROUP_MFA_NEEDED, mfa: "enroll" });
+  assert.deepEqual(
+    groupFailure(
+      { error: "mfa_required", message: "Enter the authenticator code to finish signing in." },
+      "x",
+    ),
+    { error: "Enter the authenticator code to finish signing in.", mfa: "verify" },
+  );
+  assert.deepEqual(
+    groupFailure(
+      { error: "mfa_required", message: "Turn on an authenticator before using this.", step: "enroll" },
+      "x",
+    ),
+    { error: GROUP_MFA_NEEDED, mfa: "enroll" },
+  );
+  assert.deepEqual(
+    groupFailure({ error: "mfa_step_up", message: "Enter your authenticator code first." }, "x"),
+    { error: "Enter your authenticator code first.", mfa: "verify" },
+  );
+  assert.deepEqual(
+    groupFailure({ error: "mfa_locked", message: "Too many attempts. Wait and try again." }, "x"),
+    { error: "Too many attempts. Wait and try again.", mfa: "verify" },
+  );
+});
+
+test("the enroll fallback is the server's own authenticator wording", () => {
+  const store = readFileSync(new URL("../../../server/mfa/store.ts", import.meta.url), "utf8");
+  assert.ok(store.includes(`"${GROUP_MFA_NEEDED}"`));
 });

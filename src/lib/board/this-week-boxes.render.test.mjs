@@ -296,7 +296,7 @@ test("week: the This week plate keeps its phone look, spans the desktop width, a
   // Josh (Oct 29, 7:51 PM): keep the drop cap, the kicker and the phone size; a larger desktop heading.
   assert.match(
     week,
-    /<section className="plate plate--hero flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>\s*<h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">/,
+    /<section className="plate plate--hero pc-head flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>\s*<h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">/,
   );
   // Design #123: the desktop title matches every other page head (lg:text-5xl, never 6xl).
   assert.doesNotMatch(week, /text-6xl/);
@@ -309,11 +309,14 @@ test("week: the This week plate keeps its phone look, spans the desktop width, a
   // No 3px gold top border, no .week-hero and no .list-label.
   assert.doesNotMatch(css, /week-hero|list-label|border-top: 3px/);
   assert.doesNotMatch(week, /week-hero/);
-  assert.match(css, /\.pc-rule \{[^}]*width: min\(15rem, 70%\);[^}]*height: 1px;[^}]*var\(--pc-gilt\)/);
-  assert.match(css, /\.pc-rule::before \{[^}]*width: 7px;[^}]*height: 7px;[^}]*rotate\(45deg\)/);
-  assert.match(css, /:root \{\s*--pc-gilt: #c9a45c;\s*\}/);
-  assert.match(css, /\[data-palette="parchment"\] \[data-section\] \{\s*--pc-gilt: #6f5420;\s*\}/);
-  assert.match(css, /\.pc-h \{[^}]*font-variant-caps: all-small-caps;[^}]*color: var\(--pc-gilt\)/);
+  // Since #116 merged, the v3 rule, pc-h and --pc-gilt live once, in public/page-craft.css (loaded on every page).
+  const craft = readFileSync(new URL("../../../public/page-craft.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /\.pc-rule|\.pc-h|--pc-gilt:/);
+  assert.match(craft, /\.pc-rule\{[^}]*width:min\(15rem,70%\);[^}]*height:1px;[^}]*var\(--pc-gilt\)/);
+  assert.match(craft, /\.pc-rule::before\{[^}]*width:7px;[^}]*height:7px;[^}]*rotate\(45deg\)/);
+  assert.match(craft, /:root\{[^}]*--pc-gilt:#c9a45c;/);
+  assert.match(craft, /\[data-palette="parchment"\] \[data-section\]\{--pc-gilt:#6f5420;/);
+  assert.match(craft, /\.pc-h\{[^}]*font-variant-caps:all-small-caps;[^}]*color:var\(--pc-gilt\)/);
   // The kicker the phone shows is unchanged; list labels use their own readable style.
   assert.match(
     css,
@@ -625,7 +628,7 @@ test("qa S3: an empty week with no side column renders no empty grid under the p
   // The phone card itself is unchanged.
   assert.match(
     week,
-    /<section className="plate plate--hero flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>/,
+    /<section className="plate plate--hero pc-head flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>/,
   );
 });
 
@@ -644,10 +647,11 @@ function contrast(a, b) {
 
 test("qa S3: the Home tier labels (pc-h, which replaced .list-label) are at least 4.5:1 in both palettes", () => {
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  const craft = readFileSync(new URL("../../../public/page-craft.css", import.meta.url), "utf8");
   const art = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /list-label/);
-  const ink = /:root \{\s*--pc-gilt: (#[0-9a-f]{6});/.exec(css)?.[1];
-  const parchment = /\[data-palette="parchment"\] \[data-section\] \{\s*--pc-gilt: (#[0-9a-f]{6});/.exec(css)?.[1];
+  const ink = /:root\{[^}]*--pc-gilt:(#[0-9a-f]{6});/.exec(craft)?.[1];
+  const parchment = /\[data-palette="parchment"\] \[data-section\]\{--pc-gilt:(#[0-9a-f]{6});/.exec(craft)?.[1];
   assert.ok(ink && parchment);
   /** @param {string} block */
   const grounds = (block) =>
@@ -667,8 +671,8 @@ test("qa S4: the gold rule and labels follow the palette (--pc-gilt), not the fi
     const src = readFileSync(new URL(`../../components/board/${file}`, import.meta.url), "utf8");
     assert.doesNotMatch(src, /gilt|#c9a45c/i, file);
   }
-  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  for (const rule of [".pc-rule {", ".pc-rule::before {", ".pc-h {"]) {
+  const css = readFileSync(new URL("../../../public/page-craft.css", import.meta.url), "utf8");
+  for (const rule of [".pc-rule{", ".pc-rule::before{", ".pc-h{"]) {
     const block = css.slice(css.indexOf(rule), css.indexOf("}", css.indexOf(rule)));
     assert.match(block, /var\(--pc-gilt\)/, rule);
     assert.doesNotMatch(block, /--color-gilt/, rule);

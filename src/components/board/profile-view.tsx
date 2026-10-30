@@ -70,7 +70,7 @@ export function ProfileView() {
 
   if (!allowed) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="plate pc-head flex flex-col gap-3">
         <Kicker>Profile</Kicker>
         <h1 className="illum font-display text-4xl text-fg">{name}</h1>
         <p className="max-w-2xl text-base text-muted">You can see a profile once you have been to the same meeting as that person. You and {name} have not been to one yet.</p>
@@ -80,7 +80,7 @@ export function ProfileView() {
 
   return (
     <div className="flex flex-col gap-8 lg:max-w-4xl">
-      <section className="flex flex-col gap-2">
+      <section className="plate pc-head flex flex-col gap-2">
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="illum font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
@@ -170,7 +170,7 @@ export function ProfileView() {
       </section>
 
       {named.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">Mentioned by a host</h2>
           <p className="text-sm text-muted">A host can single out one person after each meeting. The last few times that was {mine ? "you" : name}:</p>
           <ul className="flex flex-col gap-2">
@@ -188,7 +188,7 @@ export function ProfileView() {
       ) : null}
 
       {hosts.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">{mine ? "Meetings you host" : `Meetings ${name} hosts`}</h2>
           <ul className="flex flex-col gap-2">
             {hosts.map((card) => (
@@ -200,14 +200,14 @@ export function ProfileView() {
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-2">
+      <section className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
         <p className="text-sm text-muted">{theirs.size === 0 ? "No one yet. People you meet at a gathering will appear here." : [...theirs].join(", ")}</p>
       </section>
 
       {mine && server.mode === "live" ? <MfaSettings /> : null}
       {mine ? (
-        <div className="border-t border-line pt-6">
+        <div className="card pc-card p-4 sm:p-5">
           <AccountRemoval live={server.mode === "live" && Boolean(server.user)} />
         </div>
       ) : null}

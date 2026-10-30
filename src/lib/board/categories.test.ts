@@ -152,7 +152,9 @@ test("browse, the week, and room create follow the category layout", () => {
   const backgrounds = source("../../../public/backgrounds.css");
   const app = source("../../components/board/app.tsx");
   const card = browse.slice(browse.indexOf("function RoomCard"));
-  assert.match(browse, /sticky top-32/);
+  // The phone chip row sticks at the measured header height (.room-chips in fluid.css), not a fixed 8rem.
+  assert.match(browse, /room-chips sticky z-10/);
+  assert.doesNotMatch(browse, /sticky top-32/);
   assert.match(browse, /w-\[14rem\]/);
   assert.match(browse, /room-grid/);
   assert.match(browse, /Your rooms/);
@@ -172,7 +174,8 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(fluid, /\.room-column\{container-type:inline-size/);
   assert.match(backgrounds, /\.plate--hero\{margin-top:calc\(var\(--band-h\) \* -0\.42\)\}/);
   assert.equal(/\.plate\{[^}]*margin-top:calc\(var\(--band-h\)/.test(backgrounds), false);
-  assert.match(app, /categoryPage/);
+  // The shell band is gone (inner pages v2), so a category page keeps only its own engraving.
+  assert.equal(/hero-band/.test(app), false);
   assert.match(week, /categoryNames\(roomCategoryIds\(roomById\(card\.room\)\)\)/);
   assert.match(about, /Choose a category/);
   assert.match(about, /categoryId/);

@@ -1,4 +1,9 @@
 import { apiFetch } from "../api-base.ts";
+import {
+  PANEL_LOAD_FAILED,
+  panelFailure,
+  type PanelFailure,
+} from "../board/load-failure.ts";
 
 export type InviteRow = {
   id: string;
@@ -46,12 +51,16 @@ export function parseInvites(json: unknown): InviteRow[] {
     }));
 }
 
-export async function loadInvites(): Promise<{ ok: true; rows: InviteRow[] } | { ok: false; error: string }> {
+export async function loadInvites(): Promise<
+  { ok: true; rows: InviteRow[] } | ({ ok: false } & PanelFailure)
+> {
+  // apiFetch never throws: a transport failure comes back as a 503 api-unavailable.
   const response = await apiFetch("/api/admin/invites", { credentials: "include" });
   const json = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = json && typeof json === "object" ? str((json as { error?: unknown }).error) : "";
-    return { ok: false, error: error || "The invite tracker could not load." };
+  if (!response.ok) return { ok: false, ...panelFailure(json, PANEL_LOAD_FAILED) };
+  // A 2xx without an invite list (not JSON, say) did not load; it is not an empty list.
+  if (!json || typeof json !== "object" || !Array.isArray((json as { invites?: unknown }).invites)) {
+    return { ok: false, error: PANEL_LOAD_FAILED };
   }
   return { ok: true, rows: parseInvites(json) };
 }

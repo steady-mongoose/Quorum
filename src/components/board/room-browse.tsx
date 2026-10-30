@@ -71,7 +71,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
         <CategoryMast category={focus} />
       ) : (
         <section
-          className={focusSlug ? "flex flex-col gap-2" : "plate plate--hero flex flex-col gap-2"}
+          className={focusSlug ? "flex flex-col gap-2" : "plate plate--hero pc-head flex flex-col gap-2"}
         >
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Find your room</h1>
           <p className="max-w-prose text-base text-muted">A room can be listed in more than one category.</p>
@@ -80,7 +80,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
 
       <nav
         aria-label="Categories"
-        className="sticky top-32 z-10 flex gap-2 overflow-x-auto bg-bg py-2 lg:hidden"
+        className="room-chips sticky z-10 flex gap-2 overflow-x-auto bg-bg py-2 lg:hidden"
       >
         <CategoryChips categories={browseCategories(categories, false)} focusSlug={focusSlug} />
       </nav>
@@ -88,7 +88,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       <div className="room-browse">
         <nav
           aria-label="Categories"
-          className="sticky top-28 hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
+          className="sticky top-[calc(var(--mast-h)+1rem)] hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
         >
           <CategoryLinks categories={browseCategories(categories, false)} focusSlug={focusSlug} />
         </nav>
@@ -147,7 +147,7 @@ function CategoryMast({ category }: { category: RoomCategory }) {
   return (
     <div>
       <img className="hero-band category-engraving" src={art.src} alt={art.credit} />
-      <section className="plate plate--hero flex flex-col gap-2">
+      <section className="plate plate--hero pc-head flex flex-col gap-2">
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{category.name}</h1>
         <p className="max-w-prose text-sm text-muted">{category.description}</p>
       </section>

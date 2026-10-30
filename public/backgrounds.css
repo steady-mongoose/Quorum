@@ -32,13 +32,17 @@ body{background:var(--bg);color:var(--fg)}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:var(--grain);opacity:var(--grain-opacity);mix-blend-mode:overlay}
 /* Landing + sign-in: Martin on a sticky plate. iOS drops a fixed background attachment, and a fixed-position image has the same bug. */
 [data-section="landing"],[data-section="signin"]{background:var(--bg)}
-.plate-ground{position:sticky;top:0;height:100dvh;margin-bottom:-100dvh;z-index:0;pointer-events:none}
+.plate-ground{position:sticky;top:0;height:100lvh;margin-bottom:-100lvh;z-index:0;pointer-events:none}
 [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{background:var(--art-landing) center 30%/cover no-repeat}
-.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet){position:relative;z-index:1}
+/* Every in-flow child of the shell paints above the plate. Fixed and absolute layers keep their own position:
+   the skip link (absolute, so it adds no blank line above the header), the incoming-call card and the
+   20-minute line (both fixed above the tab bar), and dialogs (top layer). */
+.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet):not(.skip-link):not(.call-rings):not(.session-line):not(dialog){position:relative;z-index:1}
 [data-section="landing"] .scrim{position:fixed;inset:0;background:var(--scrim);pointer-events:none;z-index:0}
 @media (max-width:640px){
-  [data-section="landing"] .plate-ground{height:62vh;margin-bottom:-62vh;background-size:auto 62vh;background-position:center top}
-  [data-section="landing"] .scrim{background:linear-gradient(180deg,transparent 30vh,var(--bg) 62vh)}
+  /* lvh, not vh or dvh: the plate keeps one size while Safari's toolbar collapses, so the art does not rescale mid-scroll. */
+  [data-section="landing"] .plate-ground{height:62lvh;margin-bottom:-62lvh;background-size:auto 62lvh;background-position:center top}
+  [data-section="landing"] .scrim{background:linear-gradient(180deg,transparent 30lvh,var(--bg) 62lvh)}
 }
 /* Hero bands (This week, Rooms, Messages) */
 .hero-band{position:relative;height:var(--band-h);background:var(--band) center 45%/cover no-repeat;border-bottom:1px solid var(--gold)}
@@ -49,7 +53,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 /* Margin art column (desktop only) */
 @media (min-width:1024px){
   .with-margin{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:40px}
-  .margin-art{position:sticky;top:24px;height:calc(100vh - 48px);background:var(--side) center top/contain no-repeat;border-left:1px solid var(--line)}
+  .margin-art{position:sticky;top:24px;height:calc(100dvh - 48px);background:var(--side) center top/contain no-repeat;border-left:1px solid var(--line)}
   [data-section="week"] .margin-art{--side:var(--art-week-side)}
   [data-section="rooms"] .margin-art{--side:var(--art-rooms-side)}
   [data-section="messages"] .margin-art{--side:var(--art-messages-side)}

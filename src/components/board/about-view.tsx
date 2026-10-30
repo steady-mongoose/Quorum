@@ -17,6 +17,7 @@ import { MfaResetQueue } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
+import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -113,7 +114,14 @@ const HOW = [
   },
 ];
 
-export function AboutView({ publicView = false }: { publicView?: boolean }) {
+export function AboutView({
+  publicView = false,
+  onSetUp,
+}: {
+  publicView?: boolean;
+  /** Opens You, where the authenticator is turned on. */
+  onSetUp?: () => void;
+}) {
   const me = useBoard((state) => state.me);
   const setMe = useBoard((state) => state.setMe);
   const steward = useBoard((state) => state.steward);
@@ -128,6 +136,10 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
   const [exportError, setExportError] = useState("");
   const founded = useBoard((state) => state.founded);
   const remote = useBoard((state) => state.remote);
+  // No authenticator yet: the same state the app banner reads, so no extra
+  // request and no flash. One card stands in for the five lists that wait.
+  const noAuthenticator = server.mfa === "enroll";
+  const adminLists = !publicView && remote && admin && !noAuthenticator;
   const clearLocalBoard = useBoard((state) => state.clearLocalBoard);
   const undoClear = useBoard((state) => state.undoClear);
   const undoClearBoard = useBoard((state) => state.undoClearBoard);
@@ -163,10 +175,13 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
   const changeAccess = useBoard((state) => state.changeAccess);
   const correctZip = useBoard((state) => state.correctZip);
 
+  // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
+  const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
+
   return (
     <div className="flex flex-col gap-10">
       {publicView ? null : <ServerInvite />}
-      <section className="flex flex-col gap-3">
+      <section className={publicView ? "flex flex-col gap-3" : "plate pc-head flex flex-col gap-3"}>
         <Kicker>About</Kicker>
         <h1 className="illum max-w-2xl font-display text-4xl text-balance text-fg lg:text-5xl">
           A private app for the people you see at church, at the shop, and at the county.
@@ -188,8 +203,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         </p>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">How it works</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>How it works</h2>
         <dl className="about-how columns-1 gap-x-8 lg:columns-2">
           {HOW.map((item) => (
             <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
@@ -200,8 +215,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         </dl>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">The rooms</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {rooms.map((room) => (
             <div key={room.id} className="contents">
@@ -214,8 +229,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         </dl>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-2xl text-fg">Kinds of post</h2>
+      <section className={publicView ? "flex flex-col gap-4" : listCard}>
+        <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           {POST_TYPES.map((type) => (
             <div key={type.id} className="contents">
@@ -241,7 +256,8 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       </section>
 
       {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
-      {!publicView && remote && admin ? <MfaResetQueue /> : null}
+      {!publicView && remote && admin && noAuthenticator ? <AdminListsCard onSetUp={onSetUp} /> : null}
+      {adminLists ? <MfaResetQueue onSetUp={onSetUp} /> : null}
 
       {!publicView && remote && admin ? (
         <p>
@@ -259,14 +275,14 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         />
       ) : null}
 
-      {!publicView && remote && admin ? <DeletionRequestQueue /> : null}
-      {!publicView && remote && admin ? <RoomsManager /> : null}
+      {adminLists ? <DeletionRequestQueue onSetUp={onSetUp} /> : null}
+      {adminLists ? <RoomsManager onSetUp={onSetUp} /> : null}
 
       {!publicView && remote && admin ? <CsamQueue reports={csamReports} /> : null}
 
-      {!publicView && remote && admin ? <DmReportQueue /> : null}
+      {adminLists ? <DmReportQueue onSetUp={onSetUp} /> : null}
 
-      {!publicView && remote && admin ? <InviteTracker /> : null}
+      {adminLists ? <InviteTracker onSetUp={onSetUp} /> : null}
 
       {publicView ? null : (
         <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
@@ -399,7 +415,7 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
       )}
 
       {!publicView && removals.length > 0 ? (
-        <section className="flex flex-col gap-3">
+        <section className="card pc-card flex flex-col gap-3 p-4 sm:p-5">
           <h2 className="text-2xl text-fg">
             {steward || admin ? "Hard removals" : "Your removals"}
           </h2>
@@ -435,6 +451,41 @@ export function AboutView({ publicView = false }: { publicView?: boolean }) {
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * In place of the admin lists while the admin has no authenticator (#115):
+ * one note, not one per panel. Static text, so no role.
+ */
+function AdminListsCard({ onSetUp }: { onSetUp?: () => void }) {
+  // You replaces About, so the wait outlives this button (as on Groups, PR #114).
+  const focusAuthenticator = useFocusAuthenticator();
+  return (
+    <section
+      aria-labelledby="admin-lists-heading"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5"
+    >
+      <h2 id="admin-lists-heading" className="text-2xl text-fg">
+        Admin lists
+      </h2>
+      <p className="max-w-prose text-sm text-muted">
+        Deletion requests, authenticator resets, the room list, message reports, and the invite list
+        wait until you turn on an authenticator.
+      </p>
+      <p>
+        <button
+          type="button"
+          className="min-h-[44px] text-fg underline underline-offset-4"
+          onClick={() => {
+            onSetUp?.();
+            focusAuthenticator();
+          }}
+        >
+          Turn it on under You
+        </button>
+      </p>
+    </section>
   );
 }
 
