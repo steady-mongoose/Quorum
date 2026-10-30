@@ -4,6 +4,8 @@
    The section attribute is set only after first paint and never under reduced data. */
 [data-section="about"] .hero-band{--band:var(--art-landing);--band-h:clamp(150px,18vw,240px);background-position:75% 40%}
 
-/* Data savers skip the page art (Design r138 M2). !important because section rules outrank fluid.css. */
-[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art{background-image:none!important}
-@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art{background-image:none!important}}
+/* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
+   navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because section rules
+   outrank the plain reduced-data rule in fluid.css. .margin-art too, should the old margin markup come back. */
+[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art,[data-save-data] .shell .margin-art{background-image:none!important}
+@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art,.shell .margin-art{background-image:none!important}}

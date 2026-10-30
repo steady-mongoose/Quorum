@@ -48,12 +48,12 @@ test("the off-list works and the old right-margin crops are gone from public/art
 test("Save-Data and reduced-data drop the band, margin and side art", () => {
   assert.ok(
     pageArt.includes(
-      "[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art{background-image:none!important}",
+      "[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art,[data-save-data] .shell .margin-art{background-image:none!important}",
     ),
   );
   assert.ok(
     pageArt.includes(
-      "@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art{background-image:none!important}}",
+      "@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art,.shell .margin-art{background-image:none!important}}",
     ),
   );
 });
