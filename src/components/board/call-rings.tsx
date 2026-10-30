@@ -40,6 +40,8 @@ export function CallRings({
   /** The call-ended line, or the missed callers (names only, no counts). */
   const [notice, setNotice] = useState<{ text: string; missed: string[] }>(NO_NOTICE);
   const handled = useRef(new Set<string>());
+  /** Rings whose Join is in flight: hidden, but not used up yet. */
+  const joining = useRef(new Set<string>());
   const seen = useRef(new Map<string, IncomingRing>());
   const returnTo = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -61,13 +63,20 @@ export function CallRings({
         });
         if (!cancelled && response.ok) {
           const body = (await response.json()) as unknown;
-          const next = parseRings(body).filter((ring) => !handled.current.has(ring.id));
+          const next = parseRings(body).filter(
+            (ring) => !handled.current.has(ring.id) && !joining.current.has(ring.id),
+          );
           const settled = parseSettled(body);
           const ids = new Set(next.map((ring) => ring.id));
           for (const [id, old] of seen.current) {
             // Only a real miss: not answered or declined in another tab or
             // device, and not dropped because they left the room.
-            if (!ids.has(id) && !handled.current.has(id) && settled.get(id) === "missed") {
+            if (
+              !ids.has(id) &&
+              !handled.current.has(id) &&
+              !joining.current.has(id) &&
+              settled.get(id) === "missed"
+            ) {
               setNotice((now) => {
                 const missed = addMissed(now.missed, old.fromName);
                 return { text: missedLine(missed, Infinity), missed };
@@ -145,13 +154,17 @@ export function CallRings({
     };
   }, [enabled]);
 
-  const settle = (item: IncomingRing, how: "decline" | "dismiss", restore: boolean) => {
-    handled.current.add(item.id);
+  const markHandled = (id: string) => {
+    handled.current.add(id);
     try {
-      channel.current?.postMessage({ handled: item.id });
+      channel.current?.postMessage({ handled: id });
     } catch {
       // The other tabs catch up on their next poll.
     }
+  };
+
+  const settle = (item: IncomingRing, how: "decline", restore: boolean) => {
+    markHandled(item.id);
     if (restore) restoreFocus();
     else returnTo.current = null;
     setRings((list) => list.filter((row) => row.id !== item.id));
@@ -165,10 +178,23 @@ export function CallRings({
 
   // Join: the server checks the ring still stands (no block since, still in
   // the room) before anything opens. A refusal shows in plain words instead.
+  // Only a yes or a 409 uses the ring up (here and in other tabs). A 503 or
+  // a network failure leaves it unhandled, so it shows again on the next
+  // good poll while the caller is still ringing.
   const join = async (item: IncomingRing) => {
     setNotice(NO_NOTICE);
     const back = returnTo.current;
-    const res = await settle(item, "dismiss", false);
+    returnTo.current = null;
+    joining.current.add(item.id);
+    setRings((list) => list.filter((row) => row.id !== item.id));
+    const res = await apiFetch(`/api/calls/rings/${item.id}/dismiss`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }).catch(() => null);
+    joining.current.delete(item.id);
+    if (res && (res.ok || res.status === 409)) markHandled(item.id);
     if (!res || !res.ok) {
       returnTo.current = back;
       restoreFocus();

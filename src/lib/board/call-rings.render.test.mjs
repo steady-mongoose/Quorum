@@ -1,7 +1,7 @@
 // @ts-nocheck -- happy-dom render test; DOM globals are installed at runtime.
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import test from "node:test";
+import nodeTest, { after, afterEach } from "node:test";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -54,7 +54,35 @@ globalThis.fetch = async (input, init) => {
 };
 
 const { createElement, act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot: makeRoot } = await import("react-dom/client");
+
+/** Each test gets a deadline, so a regression fails the run instead of hanging CI. */
+const test = (name, fn) => nodeTest(name, { timeout: 30_000 }, fn);
+/** Roots still mounted. afterEach unmounts them even when a test fails part way. */
+const mounted = [];
+const createRoot = (host) => {
+  const root = makeRoot(host);
+  mounted.push({ root, host });
+  return root;
+};
+afterEach(async () => {
+  for (const { root, host } of mounted.splice(0)) {
+    try {
+      await act(async () => root.unmount());
+    } catch {
+      // Already unmounted.
+    }
+    host.remove();
+  }
+});
+// Stop happy-dom's timers so the file's process can exit.
+after(async () => {
+  try {
+    await window.happyDOM.abort();
+  } catch {
+    // Nothing left to stop.
+  }
+});
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { CallRings, focusRoomCall, CALL_STARTING_TEXT } =
   await import("../../components/board/call-rings.tsx");

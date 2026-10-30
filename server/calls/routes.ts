@@ -158,16 +158,24 @@ export async function handleCalls(
         return json(200, { ok: true, record: false });
       }
       // Join from the prompt: check the ring still stands before the join.
+      // A ring that is no longer out (dropped by another tab's check,
+      // declined, answered elsewhere, or run out) opens nothing.
       const ring = rings.get(session.id, ringMatch[1], at);
-      if (ring) {
-        const still = await ringStillValid(runtime, db, session.id, ring);
-        if (still === "error") return json(503, { error: CALLS_TRY_AGAIN, record: false });
-        if (still === "refused") {
-          rings.drop(ring.id, at);
-          return json(409, { error: RING_GONE, record: false });
-        }
+      if (!ring) return json(409, { error: RING_GONE, record: false });
+      if (runtime.store.size(ring.key, at) === 0) {
+        rings.cancel(ring.key, at);
+        return json(409, { error: RING_GONE, record: false });
       }
-      rings.dismiss(session.id, ringMatch[1], at);
+      const still = await ringStillValid(runtime, db, session.id, ring);
+      if (still === "error") return json(503, { error: CALLS_TRY_AGAIN, record: false });
+      if (still === "refused") {
+        rings.drop(ring.id, at);
+        return json(409, { error: RING_GONE, record: false });
+      }
+      // Recheck after the await: another request may have settled it meanwhile.
+      if (!rings.dismiss(session.id, ring.id, at)) {
+        return json(409, { error: RING_GONE, record: false });
+      }
       return json(200, { ok: true, record: false });
     }
     return json(404, { error: "Not found.", record: false });

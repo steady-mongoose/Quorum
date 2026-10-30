@@ -4,7 +4,7 @@
 // still focuses the call card and Escape still declines it.
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import test from "node:test";
+import nodeTest, { after, afterEach } from "node:test";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -72,7 +72,35 @@ globalThis.fetch = async (input, init) => {
 };
 
 const { createElement, act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot: makeRoot } = await import("react-dom/client");
+
+/** Each test gets a deadline, so a regression fails the run instead of hanging CI. */
+const test = (name, fn) => nodeTest(name, { timeout: 30_000 }, fn);
+/** Roots still mounted. afterEach unmounts them even when a test fails part way. */
+const mounted = [];
+const createRoot = (host) => {
+  const root = makeRoot(host);
+  mounted.push({ root, host });
+  return root;
+};
+afterEach(async () => {
+  for (const { root, host } of mounted.splice(0)) {
+    try {
+      await act(async () => root.unmount());
+    } catch {
+      // Already unmounted.
+    }
+    host.remove();
+  }
+});
+// Stop happy-dom's timers so the file's process can exit.
+after(async () => {
+  try {
+    await window.happyDOM.abort();
+  } catch {
+    // Nothing left to stop.
+  }
+});
 const { BoardApp } = await import("../../components/board/app.tsx");
 const { useBoard } = await import("./store.ts");
 const { dialogIsOpen, escapeBelongsElsewhere } =
@@ -110,41 +138,45 @@ test("in the real app, a closed Sign out dialog does not block the ring's focus 
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(BoardApp)));
-  await flush();
-  await act(async () => useBoard.getState().view(USER.name));
-  await flush();
+  try {
+    await act(async () => root.render(createElement(BoardApp)));
+    await flush();
+    await act(async () => useBoard.getState().view(USER.name));
+    await flush();
 
-  const signOut = [...document.querySelectorAll("dialog")].find((d) =>
-    d.textContent.includes("Stay signed in"),
-  );
-  assert.ok(signOut, "the Sign out dialog is mounted");
-  assert.equal(signOut.open, false, "and closed");
-  assert.equal(signOut.hasAttribute("aria-modal"), false, "a closed dialog does not claim modal");
-  assert.equal(dialogIsOpen(), false, "no dialog counts as open");
-  assert.equal(escapeBelongsElsewhere(document.body), false);
+    const signOut = [...document.querySelectorAll("dialog")].find((d) =>
+      d.textContent.includes("Stay signed in"),
+    );
+    assert.ok(signOut, "the Sign out dialog is mounted");
+    assert.equal(signOut.open, false, "and closed");
+    assert.equal(signOut.hasAttribute("aria-modal"), false, "a closed dialog does not claim modal");
+    assert.equal(dialogIsOpen(), false, "no dialog counts as open");
+    assert.equal(escapeBelongsElsewhere(document.body), false);
 
-  await waitFor(() => host.querySelector('section[role="region"]'));
-  const card = host.querySelector('section[role="region"]');
-  assert.ok(card, "the ring shows");
-  assert.match(card.textContent, /Josh is calling you into a room call\./);
-  await waitFor(() => document.activeElement === card);
-  assert.equal(document.activeElement, card, "the ring focuses the card region");
-  assert.equal(card.getAttribute("tabindex"), "-1");
-  assert.match(card.className, /\bfocus-target\b/);
+    await waitFor(() => host.querySelector('section[role="region"]'));
+    const card = host.querySelector('section[role="region"]');
+    assert.ok(card, "the ring shows");
+    assert.match(card.textContent, /Josh is calling you into a room call\./);
+    await waitFor(() => document.activeElement === card);
+    assert.equal(document.activeElement, card, "the ring focuses the card region");
+    assert.equal(card.getAttribute("tabindex"), "-1");
+    assert.match(card.className, /\bfocus-target\b/);
 
-  routes["/api/calls/rings"] = [
-    200,
-    { record: false, rings: [], settled: [{ id: "r1", how: "declined" }] },
-  ];
-  await act(async () => {
-    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  });
-  await flush();
-  assert.ok(seen.includes("POST /api/calls/rings/r1/decline"), "Escape declines");
-  assert.equal(host.querySelector('section[role="region"]'), null);
-  await act(async () => root.unmount());
-  host.remove();
+    routes["/api/calls/rings"] = [
+      200,
+      { record: false, rings: [], settled: [{ id: "r1", how: "declined" }] },
+    ];
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    assert.ok(seen.includes("POST /api/calls/rings/r1/decline"), "Escape declines");
+    assert.equal(host.querySelector('section[role="region"]'), null);
+  } finally {
+    // Unmount even on a failed assertion, so the ring's poll timer cannot keep CI waiting.
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });
 
 test("an aria-modal element counts as open only while it is shown", () => {

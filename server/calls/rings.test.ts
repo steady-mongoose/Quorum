@@ -411,6 +411,54 @@ test("a ring for a room the person was removed from goes away, with no missed ca
   assert.equal(poll.body.ringsOut, false);
 });
 
+test("S4: Join on a ring another tab's check already dropped is refused, not opened", async () => {
+  const members = new Set(["host", "ada"]);
+  const r: CallsRuntime = {
+    ...rt(["host"], []),
+    roomMember: (async (_db: Db, id: string) =>
+      members.has(id) ? { kind: "member" } : { kind: "outsider" }) as never,
+  };
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const id = ((await send(r, "ada", "/api/calls/rings")).body.rings as { id: string }[])[0]?.id;
+  assert.ok(id);
+  // Tab B's poll drops it (Ada was removed); tab A still shows the prompt.
+  members.delete("ada");
+  assert.deepEqual((await send(r, "ada", "/api/calls/rings")).body.rings, []);
+  members.add("ada");
+  const join = await send(r, "ada", `/api/calls/rings/${id}/dismiss`, "POST", {});
+  assert.equal(join.status, 409);
+  assert.equal(join.body.error, RING_GONE);
+  // Declined in another tab, then Join here: refused too.
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const id2 = ((await send(r, "ada", "/api/calls/rings")).body.rings as { id: string }[])[0]?.id;
+  assert.ok(id2);
+  await send(r, "ada", `/api/calls/rings/${id2}/decline`, "POST", {});
+  const join2 = await send(r, "ada", `/api/calls/rings/${id2}/dismiss`, "POST", {});
+  assert.equal(join2.status, 409);
+  // An unknown id is refused the same way.
+  const join3 = await send(r, "ada", "/api/calls/rings/r999999/dismiss", "POST", {});
+  assert.equal(join3.status, 409);
+});
+
+test("S4: after a failed check, the ring shows again once the check recovers", async () => {
+  let state: "clear" | "error" = "error";
+  const r: CallsRuntime = { ...rt(["host"], ["host", "ada"]), blockState: async () => state };
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const id = (r.rings!.pending("ada", Date.parse("2026-10-27T12:00:00Z"))[0] ?? { id: "" }).id;
+  assert.ok(id);
+  assert.equal((await send(r, "ada", `/api/calls/rings/${id}/dismiss`, "POST", {})).status, 503);
+  state = "clear";
+  const back = await send(r, "ada", "/api/calls/rings");
+  assert.deepEqual(
+    (back.body.rings as { id: string }[]).map((o) => o.id),
+    [id],
+    "a 503 does not use the ring up",
+  );
+  assert.equal((await send(r, "ada", `/api/calls/rings/${id}/dismiss`, "POST", {})).status, 200);
+});
+
 test("S3: a block either way mid-ring cancels the ring, and Join from the prompt is refused", async () => {
   for (const [id, name] of [
     ["kit", "TEST Kit"],

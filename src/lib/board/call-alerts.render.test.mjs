@@ -2,7 +2,7 @@
 // Incoming-call alert (ring), Decline, and "the call ended" on both sides.
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import test from "node:test";
+import nodeTest, { after, afterEach } from "node:test";
 import { readFileSync } from "node:fs";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
@@ -144,7 +144,40 @@ Object.defineProperty(navigator, "mediaDevices", {
 });
 
 const { createElement, act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot: makeRoot } = await import("react-dom/client");
+
+/** Each test gets a deadline, so a regression fails the run instead of hanging CI. */
+const test = (name, fn) => nodeTest(name, { timeout: 30_000 }, fn);
+/** Roots still mounted. afterEach unmounts them even when a test fails part way. */
+const mounted = [];
+const createRoot = (host) => {
+  const root = makeRoot(host);
+  mounted.push({ root, host });
+  return root;
+};
+afterEach(async () => {
+  for (const { root, host } of mounted.splice(0)) {
+    try {
+      await act(async () => root.unmount());
+    } catch {
+      // Already unmounted.
+    }
+    host.remove();
+  }
+});
+afterEach(() => {
+  overrides = {};
+  ringsReply = [];
+  settledReply = [];
+});
+// Stop happy-dom's timers so the file's process can exit.
+after(async () => {
+  try {
+    await window.happyDOM.abort();
+  } catch {
+    // Nothing left to stop.
+  }
+});
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
 const { CallPanel, RoomCall } = await import("../../components/board/room-call.tsx");
@@ -687,6 +720,40 @@ test("S3: a Join refused with a missing error says calls aren't working, in our 
   assert.equal(went, 0, "the room is not opened");
   assert.match(host.textContent, /Calls aren't working right now\. Try again in a moment\./);
   overrides = {};
+  await act(async () => root.unmount());
+});
+
+test("S4: a 503 on Join does not use the ring up; it shows again on the next good poll", async () => {
+  ringsReply = [{ id: "r58", kind: "dm", threadId: thread, fromName: "Ann" }];
+  overrides = { "/api/calls/rings/r58/dismiss": [503, { error: "x", record: false }] };
+  const spy = ringtoneSpy();
+  const { host, root, button } = await mountRings(spy.fn);
+  await act(async () => button("Join").click());
+  await flush();
+  assert.match(host.textContent, /Calls aren't working right now\. Try again in a moment\./);
+  assert.equal(button("Join"), undefined, "hidden while the check is down");
+  // The check recovers: the server still has the ring, and so does this tab.
+  overrides = {};
+  await waitFor(() => Boolean(button("Join")), 7000);
+  assert.ok(button("Join"), "the ring is back");
+  assert.match(host.querySelector('section[role="region"]').textContent, /Ann is calling you\./);
+  assert.equal(spy.started, 2, "it rings again");
+  ringsReply = [];
+  await act(async () => root.unmount());
+});
+
+test("S4: a 409 on Join uses the ring up, so a stale poll does not bring it back", async () => {
+  ringsReply = [{ id: "r59", kind: "dm", threadId: thread, fromName: "Ann" }];
+  overrides = { "/api/calls/rings/r59/dismiss": [409, { error: "x", record: false }] };
+  const { host, root, button } = await mountRings(ringtoneSpy().fn);
+  await act(async () => button("Join").click());
+  await flush();
+  assert.match(host.textContent, /That call isn't available anymore\./);
+  // Even if a poll still lists it, it stays gone.
+  await waitFor(() => false, 5600);
+  assert.equal(button("Join"), undefined);
+  overrides = {};
+  ringsReply = [];
   await act(async () => root.unmount());
 });
 
