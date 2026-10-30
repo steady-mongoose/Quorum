@@ -224,8 +224,16 @@ test("arrow keys move the active option and Enter picks a place on the map", asy
     assert.equal(view.input.value, "Grace Bible Church");
     assert.equal(view.input.getAttribute("aria-expanded"), "false");
     const note = described(view.input).find((text) => text.startsWith("On the map"));
-    assert.match(note ?? "", /^On the map · 10 Main Street/);
-    assert.match(note ?? "", /© OpenStreetMap contributors/);
+    // Design low 2: the field is described by "On the map · address" only.
+    assert.equal(note, "On the map · 10 Main Street, Brandon, Florida 33511");
+    // QA S4 b: after a pick the credit shows once, as the link below the field.
+    const shown = /** @type {HTMLElement} */ (view.host.cloneNode(true));
+    for (const node of shown.querySelectorAll('[hidden], [role="status"]')) node.remove();
+    assert.equal(
+      (shown.textContent ?? "").split("© OpenStreetMap contributors").length - 1,
+      1,
+      "one credit after a pick (the closed popup is hidden)",
+    );
     const mark = [...view.host.querySelectorAll("span")].find((span) => span.textContent === "On the map");
     assert.match(mark?.className ?? "", /text-\[var\(--gold\)\]/, "the label is gilt");
     assert.equal(/verified/i.test(view.host.textContent ?? ""), false);
@@ -360,7 +368,7 @@ test("only the hint is tied to the field; it sits below the input in text-xs, an
     const notice = [...view.host.querySelectorAll("p")].find((p) => /Photon/.test(p.textContent ?? ""));
     assert.equal(
       notice?.textContent?.replace(/\s+/g, " ").trim(),
-      "Searches go through our server to Photon (photon.komoot.io), a free OpenStreetMap search. We keep your words briefly in memory and never keep your location.",
+      "Searches go through our server to Photon (photon.komoot.io), a free OpenStreetMap search. We keep your words briefly in memory and never keep your location. Places you are shown are kept on our server for up to an hour, so you can save one.",
     );
     assert.ok(!(view.input.getAttribute("aria-describedby") ?? "").split(" ").includes(notice?.id ?? "x"));
     const credit = /** @type {HTMLAnchorElement | null} */ (
@@ -447,7 +455,7 @@ test("the list carries the phone-safe class and the links carry the house ring",
     await press(view.input, "ArrowDown");
     await press(view.input, "Enter");
     const links = [...view.host.querySelectorAll("a")];
-    // One credit link, under the field; the popup and the pick show the credit as text.
+    // One credit link, under the field; the open popup shows the credit as text.
     assert.equal(links.length, 1);
     for (const link of links) assert.match(link.className, /focus-target/);
   } finally {

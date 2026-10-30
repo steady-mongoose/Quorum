@@ -389,7 +389,8 @@ export function PlaceSearch({
 
       <p id={providerId} className="text-xs text-muted">
         Searches go through our server to Photon ({PLACE_PROVIDER_HOST}), a free OpenStreetMap
-        search. We keep your words briefly in memory and never keep your location.
+        search. We keep your words briefly in memory and never keep your location. Places
+        you are shown are kept on our server for up to an hour, so you can save one.
       </p>
       <p className="text-xs text-muted">
         Place data{" "}
@@ -444,11 +445,14 @@ export function PlaceSearch({
       ) : null}
 
       {picked ? (
-        <p id={onMapId} className="text-sm text-muted">
-          <span className="text-[var(--gold)]">On the map</span>
-          {value.address ? <> · {value.address}</> : null}
+        <p className="text-sm text-muted">
+          {/* Only "On the map · address" is read with the field (Design low 2).
+              The linked credit above covers the pick, so it is not repeated. */}
+          <span id={onMapId}>
+            <span className="text-[var(--gold)]">On the map</span>
+            {value.address ? <> · {value.address}</> : null}
+          </span>
           {pickedNote ? <span className="block">{pickedNote}</span> : null}
-          <span className="block text-xs">Place data {OSM_ATTRIBUTION}</span>
         </p>
       ) : null}
     </div>

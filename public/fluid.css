@@ -373,8 +373,3 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   scroll-margin-bottom:calc(var(--tabbar-h,57px) + env(safe-area-inset-bottom) + 1rem);
   scroll-margin-top:1rem;
 }
-
-/* House focus ring (#124, Design r148 N3). Unlayered, so it beats the
-   unlayered :focus-visible rule in backgrounds.css. #114 may bring the same
-   rule; keep one copy when both land. */
-.focus-target:focus-visible,[data-focus-ring]:focus-visible{outline:2px solid currentColor;outline-offset:2px}

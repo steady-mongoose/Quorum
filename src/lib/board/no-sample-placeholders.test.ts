@@ -273,15 +273,19 @@ test("Church has its own profile row, its note claims no display, and the house 
     /CHURCH_ADDRESS_NOTE =\s*"Kept with your account\. When church shows on profiles, the address will show only where your location does\.";/,
   );
   assert.doesNotMatch(profile, /Others see the church/);
-  assert.match(profile, /<div className="sm:col-span-3">\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<PlaceSearch\s+className="max-w-xl"/);
+  // Design low 1: a two-column grid; Name, Church and the status lines span it.
+  assert.match(profile, /<div className="mt-2 grid max-w-2xl gap-3 sm:grid-cols-2">/);
+  assert.match(profile, /<div className="sm:col-span-2">\s*<PlaceSearch\s+label="Church"/);
+  assert.doesNotMatch(profile, /sm:col-span-3|max-w-xl/);
+  assert.equal(profile.split('<p role="status" className="text-sm text-muted sm:col-span-2">').length - 1, 2);
   const search = readFileSync("src/components/board/place-search.tsx", "utf8");
   assert.match(search, /const describedBy = \[hintId, picked \? onMapId : ""\]/);
   assert.match(search, /<p id=\{hintId\} className="text-xs text-muted">/);
   assert.ok(search.indexOf("<input") < search.indexOf("<p id={hintId}"), "the Church hint sits below its input");
-  const fluid = readFileSync("public/fluid.css", "utf8");
-  assert.ok(
-    fluid.includes(
-      ".focus-target:focus-visible,[data-focus-ring]:focus-visible{outline:2px solid currentColor;outline-offset:2px}",
-    ),
+  // One copy of the house ring: #117 put it, unlayered, in src/styles.css.
+  assert.doesNotMatch(readFileSync("public/fluid.css", "utf8"), /focus-target/);
+  assert.match(
+    readFileSync("src/styles.css", "utf8"),
+    /\.focus-target:focus,\s*\[data-focus-ring\]:focus \{\s*outline: 2px solid currentColor;\s*outline-offset: 2px;/,
   );
 });

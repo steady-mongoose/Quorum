@@ -173,8 +173,8 @@ export function ProfileView() {
           <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
-          <div className="mt-2 grid gap-3 sm:grid-cols-3">
-            <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-3">
+          <div className="mt-2 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
               Name, as people know you
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
@@ -211,9 +211,8 @@ export function ProfileView() {
             </div>
             {/* Design r148 N2: Church gets its own row, so its search, notes and
                 button do not push Household and Trade out of line. */}
-            <div className="sm:col-span-3">
+            <div className="sm:col-span-2">
               <PlaceSearch
-                className="max-w-xl"
                 label="Church"
                 kind="church"
                 hint={FIELD_HINT.church}
@@ -230,12 +229,12 @@ export function ProfileView() {
               />
             </div>
             {saved ? (
-              <p role="status" className="text-sm text-muted sm:col-span-3">
+              <p role="status" className="text-sm text-muted sm:col-span-2">
                 Saved
               </p>
             ) : null}
             {churchNote ? (
-              <p role="status" className="text-sm text-muted sm:col-span-3">
+              <p role="status" className="text-sm text-muted sm:col-span-2">
                 {churchNote}
               </p>
             ) : null}
