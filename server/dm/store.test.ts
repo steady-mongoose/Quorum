@@ -33,13 +33,21 @@ import {
 
 const TEXT = "The framing night is Thursday, bring the saw.";
 
-async function member(db: Db, name: string): Promise<string> {
+async function member(db: Db, name: string, granted = true): Promise<string> {
   const id = randomUUID();
   await db.query(
     `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
      values ($1, $2, $3, true, now(), now())`,
     [id, name, `${name}-${id}@example.com`],
   );
+  // A live board membership: messaging needs one on both sides, as rooms do.
+  if (granted)
+    await db.query(
+      `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', now() - interval '30 days')`,
+      [randomUUID(), id, name],
+    );
   return id;
 }
 
@@ -755,13 +763,13 @@ test("existing hosted posts are named when the private-message migration runs", 
     const now = new Date("2026-10-19T12:00:00Z");
     const earlier = new Date("2026-10-19T11:00:00Z");
     const later = new Date("2026-10-20T12:00:00Z");
-    const host = await member(db, "Host");
-    const willa = await member(db, "Willa");
-    const firstBob = await member(db, "Bob");
-    const secondBob = await member(db, "Bob");
-    const peteThen = await member(db, "Pete");
-    const mallory = await member(db, "Mallory");
-    const peteNow = await member(db, "Pete");
+    const host = await member(db, "Host", false);
+    const willa = await member(db, "Willa", false);
+    const firstBob = await member(db, "Bob", false);
+    const secondBob = await member(db, "Bob", false);
+    const peteThen = await member(db, "Pete", false);
+    const mallory = await member(db, "Mallory", false);
+    const peteNow = await member(db, "Pete", false);
     const grant = async (userId: string, name: string, at: Date) => {
       await db.query(
         `insert into access_log
@@ -770,6 +778,7 @@ test("existing hosted posts are named when the private-message migration runs", 
         [randomUUID(), userId, name, at],
       );
     };
+    await grant(host, "Host", earlier);
     await grant(willa, "Willa", earlier);
     await grant(firstBob, "Bob", earlier);
     await grant(secondBob, "Bob", earlier);
