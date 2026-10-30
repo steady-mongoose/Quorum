@@ -77,14 +77,14 @@ import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
-import { forgetSavedClose, useBoard } from "@/lib/board/store";
+import { forgetSavedClose, savedCloseNames, useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
 import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
-import { rollCallFor, rollKey, toggleRoll, type RollPerson } from "@/lib/board/rsvp-api";
+import { rollCallFor, rollKey, toggleRoll, whoCameSavedLine, type RollPerson } from "@/lib/board/rsvp-api";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -522,6 +522,9 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
   const rollCallById = useBoard((state) => state.rollCall);
   const roll = closing ? rollCallFor(closing, rollCallById) : [];
+  // A close already saved for this date (here or in Find): lock to its names
+  // as soon as the form opens, so new picks are never silently ignored (QA S3, Design #126 M1).
+  const savedNames = closing ? savedCloseNames(closing.id, closing.next || todayIso()) : null;
   // Roll call picks by member id. They belong to one card and only while
   // that card's write-up still lists them.
   const [rollPicks, setRollPicks] = useState<{ cardId: string; keys: string[] }>({ cardId: "", keys: [] });
@@ -789,7 +792,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                 {rollCall ? (
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
-                  {closing && takesRoll(closing) && roll.length > 0 ? (
+                  {savedNames ? (
+                    <p role="status" className="text-fg">
+                      {whoCameSavedLine(savedNames)}
+                    </p>
+                  ) : closing && takesRoll(closing) && roll.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {roll.map((person) => (
                         <label

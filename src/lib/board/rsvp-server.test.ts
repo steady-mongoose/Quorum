@@ -1,6 +1,7 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { blankDraft } from "./model.ts";
 import { forViewer, newCard, seesCame, seesGoing, takesRoll, type MeetingCard } from "./model.ts";
 import { SEED_CARDS } from "./seed-cards.ts";
 import { ROOMS } from "./model.ts";
@@ -829,6 +830,58 @@ test("Design #126 M1: after a saved close, an empty re-read roll and a reopened 
     assert.equal(closes, 1);
     assert.deepEqual(drafts.at(-1), { came: ["Ann", "Ben"], cameIds: ["h_ann", "h_ben"] });
     assert.equal(savedCloseNames(G5, "2026-10-31"), null, "cleared once filed");
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("QA S3: after the composer's saved close, Find's close is locked to its names and does not close again", async () => {
+  const G6 = "1a6e7f8b-9cad-4fb0-8ac2-4d5e6f7a8b92";
+  const drafts: { came: string[]; cameIds?: string[] }[] = [];
+  let postFails = true;
+  const closes: unknown[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G6}/attendance`) {
+      closes.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const base = stubClient();
+  const createPost: BoardClient["createPost"] = async (draft) => {
+    drafts.push({ came: draft.came, ...(draft.cameIds ? { cameIds: draft.cameIds } : {}) });
+    return postFails ? { ok: false, error: "Not saved." } : base.createPost(draft);
+  };
+  try {
+    setBoardClient(new Proxy(base, { get: (t, key) => (key === "createPost" ? createPost : Reflect.get(t, key)) }));
+    const open = card(G6, { host: "Dale", next: "2026-10-31", going: ["Tom", "Ann"] });
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G6],
+      rollCall: { [G6]: [{ userId: "h_tom", name: "Tom" }, { userId: "h_ann", name: "Ann" }] },
+      cards: [open],
+    });
+    // The composer files the write-up: the close saves with Tom, the post fails.
+    const filed = await useBoard.getState().file(
+      { ...blankDraft("shop"), type: "hosted", claim: "Good.", on: "2026-10-31", next: "", came: ["Tom"], cardId: G6 },
+      { cameIds: ["h_tom"] },
+    );
+    assert.equal(filed.ok, false);
+    // Find opens on the same date: locked to Tom, shown before any submit.
+    assert.deepEqual(savedCloseNames(G6, "2026-10-31"), ["Tom"]);
+    // Even a pick of Ann does not reach the server or the write-up.
+    postFails = false;
+    const retry = await useBoard.getState().closeCard(G6, true, "", "Good.", ["Ann"], "", ["h_ann"]);
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(closes.length, 1, "attendance once, from the composer");
+    assert.deepEqual(drafts.at(-1), { came: ["Tom"], cameIds: ["h_tom"] });
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);

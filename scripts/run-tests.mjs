@@ -189,8 +189,10 @@ const appTests = [
 ];
 
 const suites = [
-  [process.execPath, ["--test", "scripts/**/*.test.mjs"]],
-  [process.execPath, ["--experimental-strip-types", "--test", ...appTests]],
+  // A hung test fails after 300s with its file and name, instead of the job
+  // running into the CI limit with no output (QA #126).
+  [process.execPath, ["--test", "--test-timeout=300000", "scripts/**/*.test.mjs"]],
+  [process.execPath, ["--experimental-strip-types", "--test", "--test-timeout=300000", ...appTests]],
 ];
 
 function run(command, args) {

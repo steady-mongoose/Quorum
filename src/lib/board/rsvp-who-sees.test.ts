@@ -237,3 +237,17 @@ test("Design #126 M1: a saved close locks the form from the store, so a remount 
   // L2: dropped names are not collapsed by name.
   assert.match(src, /const dropped = droppedLine\(droppedPeople\.map\(\(person\) => person\.name\)\);/);
 });
+
+test("QA S3: Find reopened after a failed write-up opens locked with the kept names", () => {
+  const src = read("find-view.tsx");
+  // Read on every render, not set by a failed submit: a reopen is locked at once.
+  assert.match(src, /const savedNames = savedCloseNames\(card\.id, card\.next \|\| todayIso\(\)\);/);
+  assert.doesNotMatch(src, /setWhoSaved/);
+  assert.match(src, /\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
+});
+
+test("QA S3: the composer opened after a saved close is locked with the kept names", () => {
+  const src = read("room-view.tsx");
+  assert.match(src, /const savedNames = closing \? savedCloseNames\(closing\.id, closing\.next \|\| todayIso\(\)\) : null;/);
+  assert.match(src, /\{savedNames \? \(\s*<p role="status" className="text-fg">\s*\{whoCameSavedLine\(savedNames\)\}/);
+});
