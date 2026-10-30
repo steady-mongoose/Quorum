@@ -1,15 +1,20 @@
 import type { Db } from "../db.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
-import { stewardsRoom } from "./access.ts";
+import { actorRole, stewardsRoom } from "./access.ts";
+import { NOW_SPECIAL, cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
+import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
 
 /**
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
- * every other member's name, when they joined, when they last posted, and the
- * gatherings the host's roll call says they came to, in a room that takes roll. The list is in name order,
- * never by activity, and carries no count or score. Upcoming RSVPs are not here;
- * they stay admin-only.
+ * every other member's name, when they joined, when they last posted. The list is
+ * in name order, never by activity, and carries no count or score. Upcoming RSVPs
+ * are not here. Who came is private (Josh, Oct 29; admins dropped Oct 30): a
+ * member's "attended" is sent only to the room's stewards (every gathering),
+ * to the gathering's real host (public_gathering.host_user_id, never whoever
+ * filed the write-up; QA S1), and to the member themselves. An admin as an
+ * admin gets counts only (rsvp-summary.ts).
  */
 export type RoomMember = {
   id: string;
@@ -89,25 +94,46 @@ export async function listRoomMembers(
   const lastPosted = new Map(posted.map((row) => [row.author_user_id, day(row.last_at)]));
 
   // The host's roll call: each write-up in this room, the host and the accounts it named.
+  // Dated from the came list, not from a dm_named_account link alone (QA N4):
+  // a link counts only while its write-up still has a came list, and nothing
+  // older than 12 months (Josh's rule, by the write-up's date or when it was
+  // filed) is shown, whatever OLD_WRITE_UPS_DROP_DM_LINKS keeps for DMs.
+  const cutoff = rsvpCutoff(now);
   const roll = await db.query<{
     post_id: string;
     host_id: string | null;
     host_name: string;
     on_date: string;
     created_at: Date | string;
+    card_id: string | null;
     user_id: string | null;
+    hidden: boolean;
   }>(
-    `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name,
-            p.on_date, p.created_at, n.user_id
+    `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name, p.card_id,
+            p.on_date, p.created_at, n.user_id,
+            (g.id is not null and not ${NOW_SPECIAL}) as hidden
      from board_post p
-     left join dm_named_account n on n.post_id = p.id
+     left join dm_named_account n on n.post_id = p.id and cardinality(p.came) > 0
+     left join public_gathering g on lower(g.id) = lower(p.card_id) and p.card_id <> ''
      where p.room_id = $1 and p.type = 'hosted' and p.removed = false and p.parent_id is null
+       and ${writeUpWithin("$2", "$3")}
      order by p.created_at desc, p.id`,
-    [roomId],
+    [roomId, cutoff.toISOString().slice(0, 10), cutoff],
   );
+  // The viewer's role from the batch above when they are listed; one lookup otherwise.
+  const self = people.find((person) => person.id === userId);
+  const selfActor = standings.actors.get(userId);
+  const viewer =
+    self && selfActor
+      ? { userId, name: self.name, actor: selfActor, hosts: await hostedGatherings(db, userId) }
+      : await cameViewer(db, userId, await actorRole(db, userId));
   const attended = new Map<string, Map<string, { on: string; host: string; hosted: boolean }>>();
   const note = (personId: string | null, row: (typeof roll)[number], hosted: boolean) => {
     if (!personId) return;
+    if (personId !== userId && !seesWhoCame(viewer, roomId, row.host_id, row.card_id)) return;
+    // A gathering that is not special now: who came is hidden from others
+    // until it is ticked again; each member keeps their own (Josh via Design, Oct 30 2:03 PM ET).
+    if (personId !== userId && !hosted && row.hidden) return;
     const mine = attended.get(personId) ?? new Map();
     if (!mine.has(row.post_id)) {
       mine.set(row.post_id, {

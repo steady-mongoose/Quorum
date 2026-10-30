@@ -21,7 +21,7 @@ export const ROOM_OPTION_LABEL: Record<RoomOption, string> = {
 /** One sentence each, for the menu. */
 export const ROOM_OPTION_WHAT: Record<RoomOption, string> = {
   roll_call:
-    "After a gathering the host records who came. Members of the room can see who came to what.",
+    "After a special event, the host or a steward records who came. Only they see it. You see your own.",
   members:
     "Members can see who is in the room, when each joined, and when each last posted.",
   chat: "A running chat for the members of the room.",

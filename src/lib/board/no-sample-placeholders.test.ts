@@ -27,7 +27,6 @@ const files = sources("src").map((path) => ({ path, text: readFileSync(path, "ut
  * compared by its text, whatever quotes it uses; an expression by its source.
  */
 const APPROVED: { file: string; value: string; why?: string }[] = [
-  { file: "components/board/find-view.tsx", value: "One line is enough" },
   {
     file: "components/board/find-view.tsx",
     value: "{options.placeholder}",

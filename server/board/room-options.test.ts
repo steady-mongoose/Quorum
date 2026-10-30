@@ -7,7 +7,7 @@ import { roomCallMember } from "../calls/membership.ts";
 import { listChat, sendChat } from "../chat/store.ts";
 import { listRoomMembers } from "./members.ts";
 import { parseRoomOptions, roomOptions } from "./room-options.ts";
-import { createRoom, updateRoom } from "./store.ts";
+import { createRoom, listBoard, updateRoom } from "./store.ts";
 import { createPost } from "./test-posting.ts";
 import { ROOM_OPTION_OFF } from "../../src/lib/board/room-options.ts";
 
@@ -206,7 +206,8 @@ test("members see each other in name order; attendance only in a room that takes
     assert.equal(after.value.rollCall, true);
     const byName = new Map(after.value.members.map((row) => [row.name, row]));
     assert.deepEqual(byName.get("Amos")?.attended, [{ on: "2026-10-22", host: "Zeb", hosted: false }]);
-    assert.deepEqual(byName.get("Zeb")?.attended, [{ on: "2026-10-22", host: "Zeb", hosted: true }]);
+    // Who came is private (Josh, 10:06 PM ET): Amos sees only his own.
+    assert.deepEqual(byName.get("Zeb")?.attended, []);
     assert.equal(byName.get("Zeb")?.lastPostedOn, "2026-10-29");
     assert.deepEqual(Object.keys(byName.get("Amos") ?? {}).sort(), [
       "attended",
@@ -231,3 +232,121 @@ test("members see each other in name order; attendance only in a room that takes
     await close();
   }
 });
+
+test("who came is private: host and the room's stewards see it; an admin as an admin and a member see only their own", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const admin = await person(db, "Ada", [["admin", ""]]);
+    const sue = await person(db, "Sue", [["steward", "shop"]]);
+    const hal = await person(db, "Hal");
+    const ann = await person(db, "Ann");
+    const ben = await person(db, "Ben");
+    const cal = await person(db, "Cal");
+    for (const id of [admin, sue, hal, ann, ben, cal]) await join(db, id, "shop", 10);
+    await updateRoom(db, { userId: admin, id: "shop", options: ["roll_call", "members"], now });
+    const posted = await createPost(db, {
+      userId: hal,
+      name: "Hal",
+      roomId: "shop",
+      body: hosted(["Ann", "Ben"]),
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (posted.ok) assert.deepEqual(posted.value.came, ["Ann", "Ben"], "the host's own reply");
+
+    const hostedFor = async (viewer: string) => {
+      const board = await listBoard(db, viewer, now, { room: "shop" });
+      assert.equal(board.ok, true);
+      if (!board.ok) return null;
+      return board.value.posts.find((item) => item.type === "hosted") ?? null;
+    };
+    const cameOnBoard = async (viewer: string) => (await hostedFor(viewer))?.came ?? null;
+    const attendedOf = async (viewer: string) => {
+      const list = await listRoomMembers(db, viewer, "shop", now);
+      assert.equal(list.ok, true);
+      if (!list.ok) return {};
+      return Object.fromEntries(list.value.members.map((row) => [row.name, row.attended.length]));
+    };
+
+    // The host and the room's steward read the whole roll call (Oct 30).
+    for (const viewer of [hal, sue]) {
+      assert.deepEqual(await cameOnBoard(viewer), ["Ann", "Ben"]);
+      const seen = await attendedOf(viewer);
+      assert.equal(seen.Ann, 1);
+      assert.equal(seen.Ben, 1);
+    }
+    // An admin, as an admin, gets no names (counts are in the admin summary).
+    assert.deepEqual(await cameOnBoard(admin), []);
+    const adminSees = await attendedOf(admin);
+    for (const name of ["Ann", "Ben", "Hal"]) assert.equal(adminSees[name], 0, name);
+    // A member who came gets no names, only youCame, matched on account id.
+    assert.deepEqual(await cameOnBoard(ann), []);
+    assert.equal((await hostedFor(ann))?.youCame, true);
+    assert.equal((await hostedFor(cal))?.youCame, false);
+    const annSees = await attendedOf(ann);
+    assert.equal(annSees.Ann, 1);
+    assert.equal(annSees.Ben, 0);
+    assert.equal(annSees.Hal, 0);
+    // A member who did not come sees nobody's attendance.
+    assert.deepEqual(await cameOnBoard(cal), []);
+    const calSees = await attendedOf(cal);
+    for (const name of ["Ann", "Ben", "Hal", "Cal"]) assert.equal(calSees[name], 0, name);
+    const raw = JSON.stringify(await listBoard(db, cal, now, { room: "shop" }));
+    assert.doesNotMatch(raw, /"Ann"|"Ben"/);
+  } finally {
+    await close();
+  }
+});
+
+// QA N4 (9fad3a8 pre-check): the member list dates "came" from the came lists
+// and shows nothing older than 12 months, so OLD_WRITE_UPS_DROP_DM_LINKS only
+// moves DM eligibility. Run with the switch on and off.
+for (const dropDmLinks of [true, false]) {
+  test(`member list: no 'came' older than 12 months, links kept or not (OLD_WRITE_UPS_DROP_DM_LINKS=${dropDmLinks})`, async () => {
+    const { purgeOldRsvps, OLD_WRITE_UPS_DROP_DM_LINKS } = await import("./rsvp.ts");
+    assert.equal(typeof OLD_WRITE_UPS_DROP_DM_LINKS, "boolean");
+    const { db, close } = await openTestDb();
+    try {
+      const admin = await person(db, "Ada", [["admin", ""]]);
+      const sue = await person(db, "Sue", [["steward", "shop"]]);
+      const hal = await person(db, "Hal");
+      const ann = await person(db, "Ann");
+      const ben = await person(db, "Ben");
+      for (const id of [admin, sue, hal, ann, ben]) await join(db, id, "shop", 400);
+      await updateRoom(db, { userId: admin, id: "shop", options: ["roll_call", "members"], now });
+      // Ann only on a write-up from 14 months ago; Ben on that one and a recent one.
+      const old = await createPost(db, {
+        userId: hal, name: "Hal", roomId: "shop", body: { ...hosted(["Ann", "Ben"]), on: "2025-08-20" }, now,
+      });
+      assert.equal(old.ok, true, old.ok ? "" : old.error);
+      const recent = await createPost(db, {
+        userId: hal, name: "Hal", roomId: "shop", body: hosted(["Ben"]), now,
+      });
+      assert.equal(recent.ok, true);
+      const dates = async () => {
+        const list = await listRoomMembers(db, sue, "shop", now);
+        assert.equal(list.ok, true);
+        if (!list.ok) return {};
+        return Object.fromEntries(list.value.members.map((row) => [row.name, row.attended.map((a) => a.on)]));
+      };
+      // Before the purge: the 12-month window already hides the old write-up.
+      const before = await dates();
+      assert.deepEqual(before.Ann, []);
+      assert.deepEqual(before.Ben, ["2026-10-22"]);
+      assert.deepEqual(before.Hal, ["2026-10-22"]);
+
+      await purgeOldRsvps(db, now, dropDmLinks);
+      const after = await dates();
+      assert.deepEqual(after.Ann, [], "no old came date, with or without the links");
+      assert.deepEqual(after.Ben, ["2026-10-22"]);
+      const links = await db.query<{ n: number }>(
+        `select count(*)::int as n from dm_named_account where post_id = $1`,
+        [old.ok ? old.value.id : ""],
+      );
+      assert.equal(links[0]?.n, dropDmLinks ? 0 : 2);
+      // The switch moves only the DM links (DM eligibility: rsvp.test.ts QA N3/N4).
+    } finally {
+      await close();
+    }
+  });
+}

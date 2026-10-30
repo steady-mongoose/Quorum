@@ -18,6 +18,7 @@ import {
   type MarkValue,
 } from "./text.ts";
 import { meetingDates, shiftLocalDate } from "./week-days.ts";
+import { roleCounts } from "./rsvp-rules.ts";
 
 export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
@@ -124,6 +125,8 @@ export type Post = {
   next: string;
   /** Hosted: who came, from the card's going list. They join wentBy. */
   came: string[];
+  /** Hosted: the server says this viewer came (matched on account id). */
+  youCame?: boolean;
   /** Hosted: one person the host names. Must be on `came`. */
   named: string;
   author: string;
@@ -165,6 +168,11 @@ export type MeetingCard = {
   next: string;
   /** Public /e page. Off until the organizer turns it on. */
   sharePublic?: boolean;
+  /**
+   * The host ticked "This is a special event". Only a special event takes
+   * RSVPs and a "who came" (Josh via CoS, Oct 30 12:47 PM ET).
+   */
+  special?: boolean;
   /** Host paused the series. It does not fill the week. */
   paused?: boolean;
   /** This meeting was cancelled. */
@@ -176,6 +184,12 @@ export type MeetingCard = {
   wentBy: string[];
   /** Names who said they would come next time. Never shown as a count. */
   going: string[];
+  /**
+   * Set only by forViewer: whose names this viewer may see on this card.
+   * "all" an admin, "host" this card's host, "steward" a steward of its room
+   * (going only). Left out, the viewer sees only their own.
+   */
+  seeing?: RsvpSight;
   pinned: boolean;
   unverified: boolean;
   firstTimer: boolean;
@@ -590,6 +604,17 @@ export function typeMeta(type: PostType): TypeMeta {
   return POST_TYPES.find((item) => item.id === type) ?? POST_TYPES[0];
 }
 
+/**
+ * The write-up's who-came line. Who came is private (Josh, Oct 29, 10:06 PM ET):
+ * the server sends the full list only to the host, the room's stewards and admins;
+ * anyone else gets no names, only `youCame` (matched on account id), shown as
+ * "You were there."
+ */
+export function cameText(came: string[], youCame: boolean, seesAll: boolean): string {
+  if (seesAll && came.length > 0) return `There: ${came.join(", ")}. `;
+  return youCame ? "You were there. " : "";
+}
+
 export function authorName(me: string): string {
   return me.trim() || "You";
 }
@@ -736,6 +761,10 @@ export type Draft = {
   postId: string;
   media: SharedMedia[];
   subject: "" | "candidate" | "business";
+  /** A gathering write-up: the roll call this close sent (handles), so the server links exactly them. */
+  cameIds?: string[];
+  /** A gathering write-up: false files "It did not happen", which names no one (QA S3). */
+  happened?: boolean;
 };
 
 export function blankDraft(room: RoomId): Draft {
@@ -1233,20 +1262,75 @@ export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
 }
 
+export type RsvpSight = "host" | "steward";
+
+/** Who is looking at the board, for forViewer. */
+export type RsvpViewer = {
+  admin: boolean;
+  name: string;
+  /** Gathering ids this viewer hosts, from the server. */
+  hosts?: readonly string[];
+  /** Rooms this viewer stewards. */
+  stewardRooms?: readonly string[];
+  /**
+   * Signed in: a server gathering's host is known only by id (`hosts`), never
+   * by name, so a member who shares the host's name is not the host.
+   */
+  byId?: boolean;
+};
+
+/** A server gathering id (a UUID). Seed and device-only cards are not. */
+const SERVER_CARD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
- * admins see everything; anyone else sees only their own name. The lists live
- * on this device today (the server never sends them), so this runs where the
- * views assemble their board data.
+ * Josh via CoS, Oct 30, 7:01–7:04 AM ET (replaces Oct 29's "admins see all";
+ * the rule is in rsvp-rules.ts):
+ *   - an admin, as an admin, sees no names here: counts are on the admin
+ *     stats page (GET /api/rsvps/summary);
+ *   - a card's host sees who is going and who came, and marks who came;
+ *   - a steward does the same on cards in the rooms they steward;
+ *   - an admin who hosts or stewards gets that role's view while
+ *     ADMIN_ROLE_SEES_NAMES is true;
+ *   - anyone else sees only their own "You're going".
+ * The server already filters the same way in SQL (server/board/rsvp.ts).
  */
-export function forViewer(
-  card: MeetingCard,
-  viewer: { admin: boolean; name: string },
-): MeetingCard {
-  if (viewer.admin) return card;
-  return {
-    ...card,
-    going: (card.going ?? []).filter((name) => name === viewer.name),
-    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
-  };
+export function rsvpSight(card: MeetingCard, viewer: RsvpViewer): RsvpSight | undefined {
+  if (!roleCounts(viewer.admin)) return undefined;
+  const byId = Boolean(viewer.byId) && SERVER_CARD_ID.test(card.id);
+  const host =
+    (!byId && viewer.name !== "" && card.host === viewer.name) ||
+    Boolean(viewer.hosts?.includes(card.id.toLowerCase()));
+  if (host) return "host";
+  if (viewer.stewardRooms?.includes(card.room)) return "steward";
+  return undefined;
+}
+
+export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
+  const seeing = rsvpSight(card, viewer);
+  const own = (names: string[] | undefined) => (names ?? []).filter((name) => name === viewer.name);
+  if (seeing === "host" || seeing === "steward") return { ...card, seeing };
+  const mine: MeetingCard = { ...card, going: own(card.going), wentBy: own(card.wentBy) };
+  delete mine.seeing;
+  return mine;
+}
+
+/**
+ * May this viewer see who is going? (After forViewer.) Only on a special
+ * event: any other gathering has no RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+ */
+export function seesGoing(card: MeetingCard): boolean {
+  return card.special === true && (card.seeing === "host" || card.seeing === "steward");
+}
+
+/** May this viewer read who came? The host or a steward of the room. */
+export function seesCame(card: MeetingCard): boolean {
+  return seesGoing(card);
+}
+
+/**
+ * May this viewer mark who came? The host or a steward of the room (Oct 30),
+ * and only on a special event (Josh via CoS, Oct 30 12:47 PM ET).
+ */
+export function takesRoll(card: MeetingCard): boolean {
+  return card.special === true && (card.seeing === "host" || card.seeing === "steward");
 }

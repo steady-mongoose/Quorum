@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { StatsView } from "@/components/board/stats-view";
+import { RsvpSummaryPanel } from "@/components/board/rsvp-summary-panel";
 import { APP_NAME } from "@/lib/board/model";
 import { isStatsPayload, type StatsDays, type StatsPayload } from "@/lib/board/stats";
 import { apiFetch } from "@/lib/api-base";
@@ -114,6 +115,10 @@ function AdminStatsPage() {
           csvError={csvError}
         />
       ) : null}
+      {/* Its own 403, 503 and error states: shown even when the main stats fail (Design #126 L2). */}
+      {load.kind === "message" && (load.text === "Sign in first." || load.text === "This page is for an admin.") ? null : (
+        <RsvpSummaryPanel />
+      )}
     </main>
   );
 }

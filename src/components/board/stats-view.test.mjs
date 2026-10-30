@@ -92,7 +92,7 @@ const stats = /** @type {import("../../lib/board/stats.ts").StatsPayload} */ ({
   intent: {
     attendance: [{ date: "2026-10-20", count: 6 }],
     rsvpNote:
-      "The going list stays on each member's board. It is not collected, so there is no RSVP count. Attendance is the host's roll.",
+      "RSVP counts are in their own panel below, with small counts hidden. No one is named there. Attendance is marked by the host or the room's stewards.",
     inPersonCount: 6,
     inPersonPercent: 60,
     crossRoomMembers: "<5",
@@ -137,7 +137,9 @@ test("the stats page shows four tiles, gold totals, a table, and hidden small co
   assert.match(text, /Not collected/);
   assert.match(text, /<5/);
   assert.match(text, /Most used: Board/);
-  assert.match(text, /no RSVP count/);
+  // The stale "there is no RSVP count" line is gone (QA F7).
+  assert.doesNotMatch(text, /no RSVP count/);
+  assert.match(text, /RSVP counts are in their own panel below, with small counts hidden\./);
   assert.match(
     text,
     /Category shows only rooms in that category and their gatherings\. A room in more than one category appears under each, but totals count it once\./,

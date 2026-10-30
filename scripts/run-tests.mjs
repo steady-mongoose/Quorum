@@ -10,7 +10,12 @@ const appTests = [
   "src/lib/board/find-invite.test.ts",
   "server/board/removal-mine.test.ts",
   "server/board/group-invites.test.ts",
-  "src/lib/board/rsvp-admin-only.test.ts",
+  "src/lib/board/rsvp-who-sees.test.ts",
+  "src/lib/board/rsvp-server.test.ts",
+  "src/lib/board/rsvp-summary-view.test.ts",
+  "src/lib/board/rsvp-panel.render.test.mjs",
+  "src/lib/board/rsvp-copy-guard.test.ts",
+  "server/board/rsvp.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "server/board/steward-rule.test.ts",
   "src/lib/board/appeal-a11y.test.ts",
@@ -171,6 +176,7 @@ const appTests = [
   "server/board/public-fetch.test.ts",
   "server/board/claim-attempts.pg.test.ts",
   "server/board/steward-race.pg.test.ts",
+  "server/board/rsvp-race.pg.test.ts",
   "server/board/public-gathering.test.ts",
   "server/board/gathering-visibility.test.ts",
   "server/board/groups.test.ts",
@@ -194,8 +200,10 @@ const appTests = [
 ];
 
 const suites = [
-  [process.execPath, ["--test", "scripts/**/*.test.mjs"]],
-  [process.execPath, ["--experimental-strip-types", "--test", ...appTests]],
+  // A hung test fails after 300s with its file and name, instead of the job
+  // running into the CI limit with no output (QA #126).
+  [process.execPath, ["--test", "--test-timeout=300000", "scripts/**/*.test.mjs"]],
+  [process.execPath, ["--experimental-strip-types", "--test", "--test-timeout=300000", ...appTests]],
 ];
 
 function run(command, args) {

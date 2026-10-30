@@ -251,10 +251,10 @@ test("the door explains how the app and the rooms work, in plain sentences", () 
     assert.equal(/[;:]/.test(text), false, `no semicolon or colon: ${text}`);
     assert.match(text, /\.$/, `a full sentence: ${text}`);
   }
-  // The rules the brief fixes: invite only, admins alone see who is going,
+  // The rules the brief fixes: invite only, the host and stewards see who is going (Josh 7:55),
   // shared-room messaging, no feed, a steward in every room.
   assert.match(how, /invite code/);
-  assert.match(how, /Only the room's admins see the full list/);
+  assert.match(how, /You see only your own answer\. The host and the room's stewards see who is going\./);
   assert.match(how, /people you've been at a gathering with/);
   assert.match(how, /No likes, reshares, scores, or algorithm/);
   assert.match(rooms, /Every room has a steward/);

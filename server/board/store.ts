@@ -1,3 +1,4 @@
+import { ADMIN_NO_NAMES, RSVP_SPECIAL_ONLY, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { randomUUID } from "node:crypto";
 import { autoCloseReports } from "./report-close.ts";
 import { setImmediate } from "node:timers";
@@ -54,9 +55,12 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
+import { cameFor, cameViewer, cameViewerFor, namedIn, type CameViewer } from "./came-sight.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
+import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
+import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 import {
   DEFAULT_ROOM_OPTIONS,
   LEGACY_ROOM_OPTIONS,
@@ -85,6 +89,8 @@ export type BoardPost = {
   on: string;
   next: string;
   came: string[];
+  /** Whether the roll call names this viewer (by account id where resolved). */
+  youCame: boolean;
   named: string;
   author: string;
   at: number;
@@ -381,6 +387,8 @@ function rulesOf(room: BoardRoom): RoomRules {
 type PostRow = {
   id: string;
   room_id: string;
+  /** The host of a write-up; decides who reads its roll call. */
+  author_user_id?: string | null;
   author_name: string;
   type: string;
   claim: string;
@@ -400,7 +408,11 @@ type PostRow = {
   created_at: Date | string;
 };
 
-function toPost(row: PostRow, media: BoardPost["media"] = []): BoardPost {
+/** A gathering's write-up is its real host's (QA S1). */
+export const WRITE_UP_HOST_ONLY = "Only this gathering's host can write it up.";
+export const GATHERING_NOT_FOUND = "That gathering is not here.";
+
+function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewer): BoardPost {
   const mark = isMarkValue(row.mark) ? row.mark : null;
   return {
     id: row.id,
@@ -410,7 +422,10 @@ function toPost(row: PostRow, media: BoardPost["media"] = []): BoardPost {
     reason: row.reason,
     on: row.on_date,
     next: row.next_date,
-    came: textList(row.came),
+    // Without a viewer the roll call is never sent (fail closed).
+    ...(viewer
+      ? cameFor(textList(row.came), viewer, { id: row.id, roomId: row.room_id, hostId: row.author_user_id, cardId: row.card_id })
+      : { came: [], youCame: false }),
     named: row.named,
     author: row.author_name,
     at: atMs(row.created_at),
@@ -577,7 +592,7 @@ async function pagePosts(
   limit: number,
 ): Promise<{ rows: PostRow[]; next: string | null }> {
   const rows = await db.query<PostRow>(
-    `select id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+    `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
      from board_post
      where removed = false
@@ -744,7 +759,11 @@ export async function listBoard(
     db,
     postRows.map((row) => row.id),
   );
-  const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [])));
+  const sight = {
+    ...(await cameViewer(db, userId, actor)),
+    namedIn: await namedIn(db, userId, postRows.map((row) => row.id), now),
+  };
+  const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [], sight)));
   const councils = await councilMarks(
     db,
     ordered.map((post) => post.id),
@@ -962,7 +981,9 @@ export async function listBoard(
       csamReports,
       adminAlerts,
       pages,
-      // TODO(rsvp-server): this board response carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
+      // RSVPs are not in this response. GET /api/rsvps (server/board/rsvp.ts)
+      // returns them, filtered in SQL the way forViewer (src/lib/board/model.ts)
+      // filters on the device: a member gets only their own rows.
     },
   };
 }
@@ -1085,10 +1106,38 @@ export async function createPost(
   const requestedId = field(input.body, "id").trim();
   if (requestedId && !OBJECT_ID.test(requestedId)) return fail(400, "That post id is not valid.");
   const cardId = field(input.body, "cardId").trim();
+  // The roll call of THIS close, as the host sent it to /attendance (handles;
+  // raw ids from an admin). Only these accounts are linked to the write-up.
+  const cameIdsRaw = Array.isArray(input.body.cameIds) ? input.body.cameIds : [];
+  const cameIds = cameIdsRaw
+    .filter((id): id is string => typeof id === "string" && id.length <= 64)
+    .slice(0, 200);
+  if ("happened" in input.body && typeof input.body.happened !== "boolean") {
+    return fail(400, "Say whether it happened: true or false.");
+  }
+  if (type === "hosted" && input.body.happened === false && (came.length > 0 || cameIds.length > 0 || named)) {
+    return fail(400, DID_NOT_NAMES);
+  }
+  // An admin never names who came, even on their own gathering's write-up
+  // while ADMIN_ROLE_SEES_NAMES is false. A write-up with no names is fine.
+  if (type === "hosted" && !roleCounts(actor.admin) && (came.length > 0 || cameIds.length > 0 || named)) {
+    return fail(403, ADMIN_NO_NAMES);
+  }
   const tradeId = field(input.body, "tradeId").trim();
   const campaignId = field(input.body, "campaignId").trim().slice(0, 80);
   if (cardId && !OBJECT_ID.test(cardId)) return fail(400, "That card is not valid.");
   if (tradeId && !OBJECT_ID.test(tradeId)) return fail(400, "That card is not valid.");
+  // Who came is marked only on a special event (Josh via CoS, Oct 30 12:47 PM
+  // ET). A write-up of any other gathering on the server names nobody; one
+  // with no names is fine. Read through to_jsonb: before 0050 nothing is special.
+  if (type === "hosted" && cardId && (came.length > 0 || cameIds.length > 0)) {
+    const gathering = await db.query<{ special: boolean }>(
+      `select coalesce((to_jsonb(g) ->> 'special')::boolean, false) as special
+       from public_gathering g where g.id = $1`,
+      [cardId.toLowerCase()],
+    );
+    if (gathering[0] && !gathering[0].special) return fail(409, RSVP_SPECIAL_ONLY);
+  }
   const mediaCount = typeof input.body.mediaCount === "number" ? input.body.mediaCount : 0;
   const stops = contentStops({
     type,
@@ -1143,6 +1192,20 @@ export async function createPost(
         await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
           `hosted-card:${cardId}`,
         ]);
+        // A server gathering's write-up is filed by its real host only. No one,
+        // an admin included, files it as a stand-in, so no one gains the host's
+        // roll call by filing (QA S1, Oct 30).
+        if (isGatheringId(cardId)) {
+          const gathering = await tx.query<{ host_user_id: string }>(
+            `select host_user_id from public_gathering where id = $1 and removed = false`,
+            [cardId.toLowerCase()],
+          );
+          // A gathering-shaped id with no row claims nothing (QA F6): 404.
+          if (!gathering[0]) throw new Stop(404, GATHERING_NOT_FOUND);
+          if (gathering[0].host_user_id !== input.userId) {
+            throw new Stop(403, WRITE_UP_HOST_ONLY);
+          }
+        }
         const owners = await tx.query<{ author_user_id: string | null }>(
           `select author_user_id from board_post where card_id = $1 and type = 'hosted' for update`,
           [cardId],
@@ -1171,7 +1234,7 @@ export async function createPost(
          (id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
           card_id, trade_id, campaign_id, subject, created_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+         returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                    parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
         [
           id,
@@ -1194,15 +1257,73 @@ export async function createPost(
       );
       const saved = inserted[0];
       if (!saved) throw new Stop(500, "The post was not filed.");
-      if (type === "hosted") await rememberNamedAccounts(tx, saved.id);
+      if (type === "hosted") {
+        // A gathering's write-up links only who the host marked in this close;
+        // any other card keeps the unique-name link.
+        if (isGatheringId(cardId)) {
+          await rememberRollCall(tx, { postId: saved.id, gatheringId: cardId, authorId: input.userId, sent: cameIds });
+        } else {
+          await rememberNamedAccounts(tx, saved.id);
+        }
+      }
       return saved;
     });
-    return { ok: true, value: await withCouncil(db, toPost(row)) };
+    return {
+      ok: true,
+      value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+    };
   } catch (error) {
     if (error instanceof Stop) return fail(error.status, error.message, error.stops);
     if (isUniqueViolation(error)) return fail(409, "That post was already filed.");
     throw error;
   }
+}
+
+/**
+ * Two members can share a name, and a member who cancelled can share a name
+ * with nobody, so a name alone cannot say who came (QA S3/S4). The write-up
+ * carries the roll call the host sent with this close (cameIds). Each entry
+ * links an account only when it maps to a row of THIS gathering that is
+ * marked attended, the author really hosts the gathering (no admin stand-in,
+ * QA S1), and the
+ * name is on the write-up. No time window: a late write-up links the same
+ * people, and last week's attendees are not linked unless picked again.
+ * Queries only; no schema change.
+ */
+async function rememberRollCall(
+  db: Db,
+  input: { postId: string; gatheringId: string; authorId: string; sent: string[] },
+): Promise<void> {
+  if (input.sent.length === 0) return;
+  const ready = await db.query<{ named: string | null; rsvp: string | null }>(
+    `select to_regclass('public.dm_named_account')::text as named,
+            to_regclass('public.gathering_rsvp')::text as rsvp`,
+  );
+  if (!ready[0]?.named || !ready[0]?.rsvp) return;
+  const gatheringId = input.gatheringId.toLowerCase();
+  const rows = await db.query<{ user_id: string }>(
+    `select r.user_id
+     from gathering_rsvp r
+     join public_gathering g on g.id = r.gathering_id
+     join board_post p on p.id = $3
+     join "user" u on u.id = r.user_id and u.name = any(p.came)
+     where r.gathering_id = $1 and r.attended and g.host_user_id = $2`,
+    [gatheringId, input.authorId, input.postId],
+  );
+  const sent = new Set(input.sent);
+  const ids = rows
+    .map((row) => row.user_id)
+    .filter(
+      (id) =>
+        sent.has(rsvpHandle(gatheringId, id)) || (id === input.authorId && sent.has(id)),
+    );
+  if (ids.length === 0) return;
+  await db.query(
+    `insert into dm_named_account (post_id, user_id)
+     select $1, unnest($2::text[])
+     on conflict do nothing`,
+    [input.postId, ids],
+  );
 }
 
 export async function replyToPost(
@@ -1250,7 +1371,7 @@ export async function replyToPost(
     `insert into board_post
      (id, room_id, author_user_id, author_name, type, claim, parent_id, created_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8)
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [
       id,
@@ -1266,7 +1387,10 @@ export async function replyToPost(
   const row = inserted[0];
   if (!row) return fail(500, "The reply was not filed.");
   await standInRoom(db, input.userId, parent.room_id);
-  return { ok: true, value: await withCouncil(db, toPost(row)) };
+  return {
+    ok: true,
+    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+  };
 }
 
 export async function revisePost(
@@ -1313,13 +1437,19 @@ export async function revisePost(
   if (stops.length > 0) return fail(400, stops[0] ?? "That revision was not saved.", stops);
   const updated = await db.query<PostRow>(
     `update board_post set claim = $2, reason = $3 where id = $1
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [post.id, input.claim.trim(), input.reason.trim()],
   );
   const saved = updated[0];
   if (!saved) return fail(404, "That post is not here.");
-  return { ok: true, value: { post: await withCouncil(db, toPost(saved)), mark: null } };
+  return {
+    ok: true,
+    value: {
+      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
+      mark: null,
+    },
+  };
 }
 
 export async function closeAsked(
@@ -1348,13 +1478,16 @@ export async function closeAsked(
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
      where id = $1 and author_user_id = $2 and type = 'asked' and parent_id is null and removed = false
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [input.postId, input.userId],
   );
   const row = updated[0];
   if (!row) return fail(404, "That question is not here.");
-  return { ok: true, value: await withCouncil(db, toPost(row)) };
+  return {
+    ok: true,
+    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+  };
 }
 
 export async function markPost(
@@ -1401,7 +1534,7 @@ export async function markPost(
   const saved = await db.transaction(async (tx) => {
     const updated = await tx.query<PostRow>(
       `update board_post set mark = $2 where id = $1 and removed = false
-       returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+       returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                  parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
       [post.id, mark],
     );
@@ -1429,7 +1562,7 @@ export async function markPost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved)),
+      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
       row: {
         id,
         room: post.room_id,
@@ -1971,11 +2104,15 @@ export async function decideAppeal(
       db,
       posts.map((post) => post.id),
     );
+    const sight = {
+      ...(await cameViewer(db, input.userId, actor)),
+      namedIn: await namedIn(db, input.userId, posts.map((post) => post.id)),
+    };
     return {
       ok: true,
       value: {
         appeal: appealFrom(row),
-        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [])),
+        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [], sight)),
       },
     };
   } catch (error) {
@@ -2171,7 +2308,8 @@ export async function updateRoom(
     const changing =
       options.length !== current.options.length ||
       options.some((option) => !current.options.includes(option));
-    if (changing && !actor.admin) return fail(403, "Only an admin can change what a room includes.");
+    if (changing && !actor.admin)
+      return fail(403, "Only an admin can change what a room includes.");
     if (changing && !(await optionsColumnReady(db)))
       return fail(503, "Room options are not set up on this server yet.");
     if (!changing) options = null;
