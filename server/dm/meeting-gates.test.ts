@@ -10,11 +10,16 @@ import {
   listPeers,
   mayMessage,
   memberMessageStates,
+  claimBundle,
   openThread,
+  postMessage,
+  previewBundle,
   rememberNamedAccounts,
   recordAttendance,
   sharesMeeting,
 } from "./store.ts";
+
+import type { MessageWire } from "../../src/lib/e2ee/protocol.ts";
 
 // The "met at a meeting" route must apply the same bar, ban, audience and block
 // gates as the shared-room route, for the sender and for the recipient, and
@@ -230,3 +235,56 @@ test("the shared-room route is unchanged when only the meeting fails its gate", 
     await close();
   }
 });
+
+/** A well-formed message that reaches the gate; it is never stored. */
+function wire(threadId: string): MessageWire {
+  return {
+    threadId,
+    messageId: randomUUID(),
+    senderDeviceId: randomUUID(),
+    bodyCiphertext: "x",
+    bodyNonce: "x",
+    bodySig: "x",
+    envelopes: [{}],
+  } as unknown as MessageWire;
+}
+
+for (const via of ["meeting", "room"] as const) {
+  test(`a board-wide ban on the recipient stops every DM route (${via})`, async () => {
+    const { db, close } = await openTestDb();
+    try {
+      const anna = await person(db, "Anna");
+      const ben = await person(db, "Ben");
+      const stranger = await person(db, "Stranger");
+      if (via === "meeting") await meet(db, anna, ben);
+      else {
+        await joined(db, anna, "baptist", daysAgo(10));
+        await joined(db, ben, "baptist", daysAgo(10));
+      }
+      // The conversation was open before the ban.
+      const opened = await openThread(db, anna, ben, now);
+      assert.equal(opened.ok, true);
+      if (!opened.ok) return;
+      assert.deepEqual(await mayMessage(db, anna, ben, now), { ok: true, via });
+
+      await ban(db, ben, "");
+      const never = [403, NOT_REACHABLE];
+      const result = (r: { ok: boolean; status?: number; error?: string }) =>
+        r.ok ? null : [r.status, r.error];
+      assert.deepEqual(result(await mayMessage(db, anna, stranger, now)), never);
+      assert.deepEqual(result(await mayMessage(db, anna, ben, now)), never);
+      assert.deepEqual(result(await mayMessage(db, anna, ben, now, { starting: true })), never);
+      assert.deepEqual(result(await openThread(db, anna, ben, now)), never);
+      assert.deepEqual(result(await claimBundle(db, anna, ben, now)), never);
+      assert.deepEqual(result(await previewBundle(db, anna, ben, now)), never);
+      assert.deepEqual(
+        result(await postMessage(db, anna, opened.value.id, wire(opened.value.id), now)),
+        never,
+      );
+      assert.equal((await memberMessageStates(db, anna, [ben], now)).get(ben), "none");
+      assert.deepEqual(await listPeers(db, anna, now), []);
+    } finally {
+      await close();
+    }
+  });
+}

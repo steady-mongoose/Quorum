@@ -3,6 +3,7 @@ import { actorRole, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
 import { banOpen } from "../board/ban.ts";
+import { openBan } from "../board/store.ts";
 import { queryBanTable } from "../board/ban-check.ts";
 import { GENDER_POLICY, audienceDecision, parseAudience, parseGender } from "../gender-policy.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
@@ -794,9 +795,10 @@ export type MessageGate =
   | { ok: false; status: number; error: string };
 
 /**
- * Whether the caller may message the other member. A block either way stops it.
- * A verified meeting together allows it. Otherwise a room both stand in allows
- * it; starting a new conversation that way also needs three days in the room
+ * Whether the caller may message the other member. A block either way stops it,
+ * as does a board-wide ban on either of them. A verified meeting together allows
+ * it while neither is barred from the meeting's room and its audience lets both
+ * in. Otherwise a room both stand in allows it; starting a new conversation that way also needs three days in the room
  * and stays under five starts a day.
  */
 export async function mayMessage(
@@ -811,6 +813,11 @@ export async function mayMessage(
   if (callerId === otherUserId) return { ok: true, via: "self" };
   if (await blockedBetween(db, callerId, otherUserId))
     return { ok: false, status: 403, error: BLOCKED };
+  // A board-wide ban on either person stops every route, sending and receiving.
+  // The words are the ones for someone you cannot reach, so nobody learns of
+  // another member's ban. (The DM routes answer the sender's own ban first.)
+  if ((await openBan(db, callerId, now)) || (await openBan(db, otherUserId, now)))
+    return { ok: false, status: 403, error: NOT_REACHABLE };
   if (await sharesMeeting(db, callerId, otherUserId, now)) return { ok: true, via: "meeting" };
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
