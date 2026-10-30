@@ -25,11 +25,11 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0.422, 0.055, 0.819, 0.505] },
   },
   "plate-rooms-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.091, 0.125, 0.509, 0.575] },
-    right: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.488, 0.3, 0.952, 0.8] },
+    left: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.423, 0.65, 0.749, 1.0] },
+    right: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.408, 0.287, 0.742, 0.647] },
   },
   "plate-room-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.364, 0.105, 0.796, 0.555] },
+    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.424, 0.105, 0.856, 0.555] },
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
   "plate-groups-A-2400.webp": {
@@ -169,7 +169,7 @@ test("the credit chip names both works where the right edge is a second work", (
  * gives), below the sticky header, inside the screen, and clear of the panel's fade into the dark middle.
  * The plate is drawn `center 35%/cover`, also read from the sheets. Boxes were measured on the files.
  */
-const HEADER_PX = 115; // the sticky header's height, measured in the real app at 1600-2560
+const HEADER_PX = 115; // the sticky header, measured in the real app at 1600-2560 (QA measured 113; 115 is the stricter)
 const HEADS: Record<string, { who: string; box: [number, number, number, number]; from: number }[]> = {
   "plate-messages-A-2400.webp": [{ who: "Erasmus", box: [2020, 210, 2150, 570], from: 1600 }],
   "plate-you-A-2400.webp": [
@@ -184,6 +184,11 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "the woman in the turban", box: [130, 400, 230, 560], from: 1600 },
     { who: "the mother", box: [2050, 330, 2240, 520], from: 1600 },
   ],
+  "plate-rooms-A-2400.webp": [
+    { who: "the lion", box: [40, 440, 360, 800], from: 1600 },
+    { who: "Saint Jerome", box: [2040, 600, 2250, 870], from: 1600 },
+  ],
+  "plate-room-A-2400.webp": [{ who: "Christ", box: [170, 600, 265, 710], from: 1600 }],
   "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1920 }],
 };
 

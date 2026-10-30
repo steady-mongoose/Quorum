@@ -64,7 +64,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 | Screen | Left edge | Right edge | File |
 |---|---|---|---|
 | This week | Doré, *Jacob's Dream*: Jacob asleep (lower left) | the same plate: the lit top of the ladder and angels | `plate-week-A-2400.webp` |
-| Rooms | Dürer, *Saint Jerome in His Study*: the window and sill | the same plate: Jerome at his desk | `plate-rooms-A-2400.webp` |
+| Rooms | Dürer, *Saint Jerome in His Study*: the sleeping lion | the same plate: Jerome at his desk | `plate-rooms-A-2400.webp` |
 | A room | Doré, *The Sermon on the Mount*: Christ and the hillside | the same plate: the listeners, lower right | `plate-room-A-2400.webp` |
 | Groups | Dürer, *The Feast of the Rose Garlands*: the pope's party | the same work: the emperor's party | `plate-groups-A-2400.webp` |
 | A group | Doré, *Ruth and Boaz*: the gleaners, left | the same plate: the reapers, right | `plate-group-A-2400.webp` |
