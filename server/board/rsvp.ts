@@ -1,10 +1,10 @@
 import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
-import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, RSVP_SPECIAL_ONLY, markOpen, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { rsvpSummary } from "./rsvp-summary.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
-import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
+import { GATHERING_0050_COLUMNS, GATHERING_IS_SPECIAL, listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
 import { actorRole } from "./access.ts";
 import { roomOptions } from "./room-options.ts";
 import { ROOM_OPTION_OFF } from "../../src/lib/board/room-options.ts";
@@ -142,6 +142,7 @@ function missingTable(error: unknown): boolean {
 type DbRow = {
   gathering_id: string;
   room_id: string;
+  moved_from: string[];
   user_id: string;
   name: string;
   going: boolean;
@@ -216,11 +217,13 @@ export async function readRsvps(
   if (input.gatheringIds.length === 0) return [];
   const rows = await db.query<DbRow>(
     `select r.gathering_id, g.room_id, r.user_id, u.name, r.going,
-            r.attended
+            r.attended, ${GATHERING_0050_COLUMNS}
      from gathering_rsvp r
      join "user" u on u.id = r.user_id
      join public_gathering g on g.id = r.gathering_id
      where r.gathering_id = any ($1::text[])
+       -- Only a special event has RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+       and ${GATHERING_IS_SPECIAL}
        and (
          r.user_id = $3
          or ($2::boolean and g.host_user_id = $3)
@@ -229,7 +232,9 @@ export async function readRsvps(
      order by r.gathering_id, u.name, r.user_id`,
     [input.gatheringIds, roleCounts(input.admin), input.userId, [...input.stewardRooms]],
   );
-  return hideBanned(db, rows.map(toRow), { viewer: input.userId, now: input.now ?? new Date() });
+  // The rooms each gathering was in before a move: a bar there still hides (0050).
+  const movedFrom = new Map(rows.map((row) => [row.gathering_id, row.moved_from ?? []]));
+  return hideBanned(db, rows.map(toRow), { viewer: input.userId, now: input.now ?? new Date(), movedFrom });
 }
 
 /**
@@ -238,7 +243,11 @@ export async function readRsvps(
  * reads back to them. The rule is banOpen's, applied in code, not copied
  * into SQL.
  */
-async function hideBanned(db: Db, rows: RsvpRow[], input: { viewer: string; now: Date }): Promise<RsvpRow[]> {
+async function hideBanned(
+  db: Db,
+  rows: RsvpRow[],
+  input: { viewer: string; now: Date; movedFrom?: ReadonlyMap<string, readonly string[]> },
+): Promise<RsvpRow[]> {
   const others = [...new Set(rows.filter((row) => row.userId !== input.viewer).map((row) => row.userId))];
   if (others.length === 0) return rows;
   const bans = await queryBanTable<{ user_id: string; room_id: string; strikes: number; until_at: Date | string; reason: string }>(
@@ -251,7 +260,10 @@ async function hideBanned(db: Db, rows: RsvpRow[], input: { viewer: string; now:
     bans.some(
       (ban) =>
         ban.user_id === row.userId &&
-        (ban.room_id === "" || ban.room_id === row.roomId) &&
+        (ban.room_id === "" ||
+          ban.room_id === row.roomId ||
+          // Barred in a room this gathering moved out of: still hidden (Josh, Oct 30 12:47 PM ET).
+          (input.movedFrom?.get(row.gatheringId) ?? []).includes(ban.room_id)) &&
         banOpen(
           {
             reason: ban.reason,
@@ -451,7 +463,8 @@ export async function purgeOldRsvps(
 }
 
 /**
- * The one switch for QA N3 (Oct 30; QA is asking Josh). dm_named_account links
+ * QA N3, decided: "the purge also deletes write-up DM links older than 12
+ * months" (Josh via CoS, Oct 30 12:47 PM ET), so this stays true. dm_named_account links
  * a write-up to the accounts its roll call named, and those links are what
  * make two people "met at a meeting" for DMs: whether they may message, the
  * peer list, and confirming attendance (server/dm/store.ts REAL_MEETINGS).
@@ -552,6 +565,8 @@ export async function moveMyRsvps(
   for (const raw of input.entries) {
     const gate = await rsvpGatheringFor(db, { userId: input.userId, id: raw.gatheringId, now: input.now });
     if (!gate.ok) continue;
+    // Not a special event: it takes no RSVPs, so the device's is not moved.
+    if (!gate.gathering.special) continue;
     const marks = marksCame(
       { userId: input.userId, admin: gate.actor.admin, stewardRooms: gate.actor.stewardRooms },
       gate.gathering,
@@ -651,6 +666,11 @@ export async function handleRsvp(
     const gate = await rsvpGatheringFor(deps.db, { userId: session.id, id: one?.[1] ?? "", now, clearingOwn });
     if (!gate.ok) return json(gate.status, { error: gate.error });
     const gatheringId = gate.gathering.id;
+    // Only a special event takes an RSVP or a mark (Josh via CoS, Oct 30
+    // 12:47 PM ET). Clearing my own "going" is always allowed.
+    if (action !== "rsvps" && !clearingOwn && !gate.gathering.special) {
+      return json(409, { error: RSVP_SPECIAL_ONLY });
+    }
 
     const reader: RsvpReader = {
       userId: session.id,

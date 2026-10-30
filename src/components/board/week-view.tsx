@@ -21,6 +21,7 @@ import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { HomePanel } from "@/components/board/home-view";
 import { GatheringShareControl } from "@/components/board/gathering-share";
 import { RsvpControl } from "@/components/board/rsvp-control";
+import { isSpecial } from "@/lib/board/rsvp-rules";
 import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
@@ -189,7 +190,7 @@ function DayCard({ card, me }: { card: MeetingCard; me: string }) {
         <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        {card.host !== me ? (
+        {card.host !== me && isSpecial(card) ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
         <GatheringShareControl card={card} />

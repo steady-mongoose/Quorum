@@ -510,6 +510,7 @@ export async function handleBoard(
         date: body.date,
         time: body.time,
         place: body.place,
+        ...("special" in body ? { special: body.special } : {}),
         now,
       });
       if (!saved.ok) return json(saved.status, { error: saved.error });

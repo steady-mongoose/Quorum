@@ -2,7 +2,7 @@ import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blankDraft } from "./model.ts";
-import { forViewer, newCard, seesCame, seesGoing, takesRoll, type MeetingCard } from "./model.ts";
+import { forViewer, newCard, seesCame, seesGoing, takesRoll, type MeetingCard, type RsvpViewer } from "./model.ts";
 import { SEED_CARDS } from "./seed-cards.ts";
 import { ROOMS } from "./model.ts";
 import {
@@ -30,7 +30,7 @@ const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const G2 = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
 
 function card(id: string, over: Partial<MeetingCard> = {}): MeetingCard {
-  return newCard({ id, room: "shop", kind: "meeting", name: "Lifts", place: "Garage", time: "7", host: "Dale", ...over });
+  return newCard({ id, room: "shop", kind: "meeting", name: "Lifts", place: "Garage", time: "7", host: "Dale", special: true, ...over });
 }
 
 test("the move sends only my own name, and never a seed card", () => {
@@ -1152,4 +1152,133 @@ test("QA F4 + Design lows: the form starts from saved marks, sends unmark, and b
   assert.match(src, /aria-disabled:opacity-70/);
   // A saved "did not happen" close says so.
   assert.match(src, /saved\.happened \? whoCameSavedLine\(savedNames \?\? \[\]\) : DID_NOT_SAVED_LINE/);
+});
+
+// ---- Josh's card answers via CoS, Oct 30 12:47 PM ET ----
+
+function gatheringFetch() {
+  const saves: Record<string, unknown>[] = [];
+  const rsvps: string[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === "/api/gatherings" && init?.method === "POST") {
+      saves.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ gathering: {} }), { status: 200 });
+    }
+    if (url.pathname.includes("/rsvp") || url.pathname.includes("/attendance")) {
+      rsvps.push(url.pathname);
+      return new Response(JSON.stringify({ mine: {} }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  return { saves, rsvps, restore: () => (globalThis.fetch = priorFetch) };
+}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+test("Josh 1 (app): the host's 'special event' tick is saved with the gathering; a steward's edit leaves it alone", async () => {
+  const net = gatheringFetch();
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Dale", boardError: "", rsvpHosts: [], cards: [] });
+    useBoard.getState().addCard({ room: "shop", kind: "meeting", name: "Lifts", place: "Garage", time: "7", host: "Dale", next: "2026-11-07", special: true });
+    await settle();
+    assert.equal(net.saves.at(-1)?.special, true);
+    const id = useBoard.getState().cards[0]!.id;
+    useBoard.getState().updateCard(id, { special: false });
+    await settle();
+    assert.equal(net.saves.at(-1)?.special, false);
+    assert.equal(useBoard.getState().cards[0]?.special, false);
+    // Sam (a steward, not the host) edits: the body carries no "special".
+    useBoard.setState({ me: "Sam", rsvpHosts: [] });
+    useBoard.getState().updateCard(id, { name: "Saturday lifts" });
+    await settle();
+    assert.equal("special" in (net.saves.at(-1) ?? {}), false);
+  } finally {
+    net.restore();
+    setBoardClient(null);
+  }
+});
+
+test("Josh 1 (app): the server's 'special' reaches the card", async () => {
+  const { loadGatherings } = await import("./gathering-public.ts");
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        gatherings: [
+          { id: G1, roomId: "shop", title: "A", special: true },
+          { id: G2, roomId: "shop", title: "B" },
+        ],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+  try {
+    const loaded = await loadGatherings();
+    assert.equal(loaded.ok, true);
+    assert.deepEqual(loaded.ok ? loaded.gatherings.map((row) => row.special) : [], [true, false]);
+  } finally {
+    globalThis.fetch = priorFetch;
+  }
+});
+
+test("Josh 2 (app): a gathering that is not special shows no going, no came, no roll call, and sends no RSVP or mark", async () => {
+  const plain = card(G1, { special: false, going: ["Ann"], wentBy: ["Dale", "Ann"], next: "2026-10-28" });
+  const viewers: RsvpViewer[] = [{ admin: false, name: "Dale", hosts: [G1] }, { admin: false, name: "Sam", stewardRooms: ["shop"] }];
+  for (const viewer of viewers) {
+    const seen = forViewer(plain, viewer);
+    assert.equal(seesGoing(seen), false);
+    assert.equal(seesCame(seen), false);
+    assert.equal(takesRoll(seen), false);
+    // The same card, special, shows them.
+    const special = forViewer({ ...plain, special: true }, viewer);
+    assert.equal(seesGoing(special) && takesRoll(special), true);
+  }
+  const net = gatheringFetch();
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Sam", stewardRooms: ["shop"], boardError: "", rsvpFailed: [], rsvpPending: [], cards: [plain] });
+    useBoard.getState().rsvp(G1);
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(net.rsvps, []);
+    assert.deepEqual(useBoard.getState().cards[0]?.going, ["Ann"]);
+    assert.deepEqual(useBoard.getState().rsvpPending, []);
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ stewardRooms: [] });
+  }
+});
+
+test("Josh 4 (app): a host's move sends the new room (the server checks they joined it)", async () => {
+  const net = gatheringFetch();
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Dale", rsvpHosts: [G1], boardError: "", cards: [card(G1)] });
+    useBoard.getState().updateCard(G1, { room: "county" });
+    await settle();
+    assert.equal(net.saves.at(-1)?.roomId, "county");
+    assert.equal(net.saves.at(-1)?.special, true, "the move keeps it a special event");
+  } finally {
+    net.restore();
+    setBoardClient(null);
+  }
+});
+
+test("Josh 5 (app): a steward's new date is saved with the gathering", async () => {
+  const net = gatheringFetch();
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Sam", stewardRooms: ["shop"], rsvpHosts: [], boardError: "", cards: [card(G1, { next: "2026-10-31" })] });
+    useBoard.getState().updateCard(G1, { next: "2026-11-07" });
+    await settle();
+    assert.equal(net.saves.at(-1)?.date, "2026-11-07");
+    assert.equal("special" in (net.saves.at(-1) ?? {}), false);
+    assert.equal(useBoard.getState().cards[0]?.next, "2026-11-07");
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ stewardRooms: [] });
+  }
 });

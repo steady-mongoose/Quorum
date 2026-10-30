@@ -71,7 +71,7 @@ test("the mark-who-came form shows for an admin only as a real host or steward (
   const { forViewer, takesRoll } = await import("./model.ts");
   const { ADMIN_ROLE_SEES_NAMES, withAdminRoleSeesNames } = await import("./rsvp-rules.ts");
   assert.equal(ADMIN_ROLE_SEES_NAMES, true);
-  const card = { id: "0123456789abcdef01234567", room: "shop", host: "Dale", going: ["Ann"], wentBy: [] } as unknown as Parameters<typeof forViewer>[0];
+  const card = { id: "0123456789abcdef01234567", room: "shop", host: "Dale", going: ["Ann"], wentBy: [], special: true } as unknown as Parameters<typeof forViewer>[0];
   const steward = { admin: true, name: "Josh", stewardRooms: ["shop"] };
   const host = { admin: true, name: "Josh", hosts: [card.id] };
   const alone = { admin: true, name: "Josh" };

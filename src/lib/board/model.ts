@@ -168,6 +168,11 @@ export type MeetingCard = {
   next: string;
   /** Public /e page. Off until the organizer turns it on. */
   sharePublic?: boolean;
+  /**
+   * The host ticked "This is a special event". Only a special event takes
+   * RSVPs and a "who came" (Josh via CoS, Oct 30 12:47 PM ET).
+   */
+  special?: boolean;
   /** Host paused the series. It does not fill the week. */
   paused?: boolean;
   /** This meeting was cancelled. */
@@ -1309,9 +1314,12 @@ export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
   return mine;
 }
 
-/** May this viewer see who is going? (After forViewer.) */
+/**
+ * May this viewer see who is going? (After forViewer.) Only on a special
+ * event: any other gathering has no RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+ */
 export function seesGoing(card: MeetingCard): boolean {
-  return card.seeing === "host" || card.seeing === "steward";
+  return card.special === true && (card.seeing === "host" || card.seeing === "steward");
 }
 
 /** May this viewer read who came? The host or a steward of the room. */
@@ -1319,7 +1327,10 @@ export function seesCame(card: MeetingCard): boolean {
   return seesGoing(card);
 }
 
-/** May this viewer mark who came? The host or a steward of the room (Oct 30). */
+/**
+ * May this viewer mark who came? The host or a steward of the room (Oct 30),
+ * and only on a special event (Josh via CoS, Oct 30 12:47 PM ET).
+ */
 export function takesRoll(card: MeetingCard): boolean {
-  return card.seeing === "host" || card.seeing === "steward";
+  return card.special === true && (card.seeing === "host" || card.seeing === "steward");
 }

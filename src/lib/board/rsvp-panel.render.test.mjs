@@ -162,6 +162,8 @@ function card(over) {
     lastFour: [],
     wentBy: [],
     going: ["Ann", "Ben"],
+    // Only a special event takes RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+    special: true,
     seeing: "steward",
     pinned: false,
     unverified: false,
@@ -263,5 +265,108 @@ test("a host gets no 'I went' and no going-first line they could not act on (low
     } finally {
       await row.unmount();
     }
+  }
+});
+
+// ---- Josh's card answers via CoS, Oct 30 12:47 PM ET ----
+
+const { AddCard } = await import("../../components/board/find-view.tsx");
+const { RsvpControl } = await import("../../components/board/rsvp-control.tsx");
+const label = (host, text) => [...host.querySelectorAll("label")].find((l) => (l.textContent ?? "").includes(text));
+
+test("Josh 2 (app): a gathering that is not a special event shows no RSVP, no 'I went', no roll call and no going list", async () => {
+  useBoard.setState({ rollCall: {}, stewardRooms: [] });
+  const plain = await mount(createElement(MeetingRow, { card: card({ special: false }), shown: true, ...rowProps }));
+  try {
+    const text = plain.host.textContent ?? "";
+    assert.doesNotMatch(text, /I'll be there|You're going|I went|You've been|Mark who came|going: |has been: /);
+  } finally {
+    await plain.unmount();
+  }
+  const special = await mount(createElement(MeetingRow, { card: card({}), shown: true, ...rowProps }));
+  try {
+    assert.match(special.host.textContent ?? "", /I'll be there/);
+    assert.match(special.host.textContent ?? "", /I went/);
+  } finally {
+    await special.unmount();
+  }
+  // The control itself draws nothing for a gathering that is not special.
+  const bare = await mount(createElement(RsvpControl, { card: card({ special: false }), going: false, onToggle: () => {} }));
+  try {
+    assert.equal(bare.host.innerHTML, "");
+  } finally {
+    await bare.unmount();
+  }
+});
+
+test("Josh 1 (app): the host has a 'This is a special event' checkbox on the card and in the add form; nobody else does", async () => {
+  const patches = [];
+  const updateCard = useBoard.getState().updateCard;
+  useBoard.setState({ rollCall: {}, stewardRooms: [], updateCard: (id, patch) => patches.push([id, patch]) });
+  try {
+    const row = await mountRouted(
+      createElement(MeetingRow, { card: card({ special: false }), shown: true, ...rowProps, me: "Dale", steward: false }),
+    );
+    try {
+      const box = label(row.host, "This is a special event")?.querySelector("input");
+      assert.ok(box);
+      assert.equal(box.type, "checkbox");
+      assert.equal(box.checked, false);
+      await act(async () => box.click());
+      assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { special: true }]);
+    } finally {
+      await row.unmount();
+    }
+    const steward = await mount(createElement(MeetingRow, { card: card({}), shown: true, ...rowProps }));
+    try {
+      assert.equal(label(steward.host, "This is a special event"), undefined);
+    } finally {
+      await steward.unmount();
+    }
+    const form = await mount(createElement(AddCard, { me: "Dale" }));
+    try {
+      const box = label(form.host, "This is a special event")?.querySelector("input");
+      assert.ok(box);
+      assert.equal(box.checked, false, "off unless the host ticks it");
+    } finally {
+      await form.unmount();
+    }
+  } finally {
+    useBoard.setState({ updateCard });
+  }
+});
+
+test("Josh 5 (app): a steward of the card's room can change its date; a member cannot", async () => {
+  const patches = [];
+  const updateCard = useBoard.getState().updateCard;
+  useBoard.setState({ rollCall: {}, stewardRooms: ["shop"], updateCard: (id, patch) => patches.push([id, patch]) });
+  try {
+    const row = await mount(createElement(MeetingRow, { card: card({ special: false }), shown: true, ...rowProps }));
+    try {
+      const input = label(row.host, "Change the date")?.querySelector("input");
+      assert.ok(input);
+      assert.equal(input.type, "date");
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        setter.call(input, "2026-11-07");
+        input.dispatchEvent(new window.Event("input", { bubbles: true }));
+        input.dispatchEvent(new window.Event("change", { bubbles: true }));
+      });
+      const save = [...row.host.querySelectorAll("button")].find((b) => b.textContent === "Save the date");
+      assert.ok(save);
+      await act(async () => save.click());
+      assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { next: "2026-11-07" }]);
+    } finally {
+      await row.unmount();
+    }
+    useBoard.setState({ stewardRooms: ["county"] });
+    const other = await mount(createElement(MeetingRow, { card: card({}), shown: true, ...rowProps, steward: false, me: "Tom" }));
+    try {
+      assert.equal(label(other.host, "Change the date"), undefined);
+    } finally {
+      await other.unmount();
+    }
+  } finally {
+    useBoard.setState({ updateCard, stewardRooms: [] });
   }
 });

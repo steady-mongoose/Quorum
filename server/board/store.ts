@@ -1,4 +1,4 @@
-import { ADMIN_NO_NAMES, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, RSVP_SPECIAL_ONLY, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { randomUUID } from "node:crypto";
 import { autoCloseReports } from "./report-close.ts";
 import { setImmediate } from "node:timers";
@@ -1127,6 +1127,17 @@ export async function createPost(
   const campaignId = field(input.body, "campaignId").trim().slice(0, 80);
   if (cardId && !OBJECT_ID.test(cardId)) return fail(400, "That card is not valid.");
   if (tradeId && !OBJECT_ID.test(tradeId)) return fail(400, "That card is not valid.");
+  // Who came is marked only on a special event (Josh via CoS, Oct 30 12:47 PM
+  // ET). A write-up of any other gathering on the server names nobody; one
+  // with no names is fine. Read through to_jsonb: before 0050 nothing is special.
+  if (type === "hosted" && cardId && (came.length > 0 || cameIds.length > 0)) {
+    const gathering = await db.query<{ special: boolean }>(
+      `select coalesce((to_jsonb(g) ->> 'special')::boolean, false) as special
+       from public_gathering g where g.id = $1`,
+      [cardId.toLowerCase()],
+    );
+    if (gathering[0] && !gathering[0].special) return fail(409, RSVP_SPECIAL_ONLY);
+  }
   const mediaCount = typeof input.body.mediaCount === "number" ? input.body.mediaCount : 0;
   const stops = contentStops({
     type,

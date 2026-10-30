@@ -147,6 +147,8 @@ async function setup() {
       date: "2026-10-31",
       time: "7 a.m.",
       place: "Dale's garage, Riverview",
+      // Only a special event takes RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+      special: true,
     });
     assert.equal(saved.status, 200, await saved.clone().text());
   }
@@ -1605,6 +1607,7 @@ const gatheringBody = (id: string, roomId: string, extra: Record<string, unknown
   date: "2026-10-31",
   time: "7 a.m.",
   place: "Dale's garage, Riverview",
+  special: true,
   ...extra,
 });
 
@@ -2295,4 +2298,169 @@ test("QA N9: the write-up purge strips exactly what writeUpWithin no longer keep
   } finally {
     await t.close();
   }
+});
+
+// ---- Josh's card answers via CoS, Oct 30 12:47 PM ET ----
+
+const specialOf = async (t: Awaited<ReturnType<typeof setup>>, id = GATHERING) =>
+  (await t.db.query<{ special: boolean }>(`select special from public_gathering where id = $1`, [id]))[0]?.special;
+const PLAIN = "5a0e1b2c-3d4e-4f5a-8b6c-7d8e9f0a1b2c";
+
+test("Josh 1: 'This is a special event' is the host's checkbox, stored by 0050 (0049 untouched)", async () => {
+  const t = await setup();
+  try {
+    // A new gathering is not special unless the host says so.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: undefined }))).status, 200);
+    assert.equal(await specialOf(t, PLAIN), false);
+    // The host ticks it, and unticks it.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: true }))).status, 200);
+    assert.equal(await specialOf(t, PLAIN), true);
+    // A steward may edit the gathering but not say whether it is special; an admin grant does nothing.
+    const sam = await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: false }));
+    assert.equal(sam.status, 403);
+    assert.match(await sam.text(), /Only the host can say whether this is a special event/);
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: false }))).status, 403);
+    // Leaving it out (or sending the same value) is fine for a steward's other edits.
+    assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: undefined, title: "Lifts" }))).status, 200);
+    assert.equal(await specialOf(t, PLAIN), true);
+    // Only a true or false.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: "yes" }))).status, 400);
+    // 0049 is byte-for-byte what it was; 0050 adds the columns with safe defaults.
+    const { createHash } = await import("node:crypto");
+    const sha = (file: string) => createHash("sha256").update(readFileSync(new URL(`../../migrations/${file}`, import.meta.url))).digest("hex");
+    assert.equal(sha("0049_gathering_rsvp.sql"), "32360246292276f1feb569b9f187e3ea3f0af9e2840f8a718286f3992e47c362");
+    const sql = readFileSync(new URL("../../migrations/0050_gathering_special.sql", import.meta.url), "utf8");
+    assert.match(sql, /add column if not exists special boolean not null default false/);
+    assert.match(sql, /add column if not exists moved_from text\[\] not null default '\{\}'/);
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 1: before 0050 is applied the API still reads, nothing is special, and ticking it says not ready", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`alter table public_gathering drop column special, drop column moved_from`);
+    assert.equal((await call(t.handler, t.dale, "GET", "/api/rsvps")).status, 200);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: undefined }))).status, 200);
+    const tick = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: true }));
+    assert.equal(tick.status, 503);
+    const rsvp = await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal(rsvp.status, 409);
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 2: a gathering that is not a special event takes no RSVP, no mark, and no names on its write-up", async () => {
+  const t = await setup();
+  try {
+    await inShop(t, [t.dale.id, t.tom.id]);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: false }))).status, 200);
+    const rsvp = await call(t.handler, t.tom, "POST", `/api/gatherings/${PLAIN}/rsvp`, { going: true });
+    assert.equal(rsvp.status, 409);
+    assert.match(await rsvp.text(), /only for special events/);
+    const mark = await call(t.handler, t.dale, "POST", `/api/gatherings/${PLAIN}/attendance`, { userIds: [rsvpHandle(PLAIN, t.tom.id)] });
+    assert.equal(mark.status, 409);
+    // Clearing my own going is always allowed (nothing to clear here).
+    assert.notEqual((await call(t.handler, t.tom, "POST", `/api/gatherings/${PLAIN}/rsvp`, { going: false })).status, 409);
+    const rows = await t.db.query(`select 1 from gathering_rsvp where gathering_id = $1`, [PLAIN]);
+    assert.equal(rows.length, 0);
+    // A hosted write-up of it may not name who came; one with no names files.
+    const named = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-29", came: ["Tom"], cardId: PLAIN, cameIds: [t.tom.id] },
+      now: WRITE_NOW,
+    });
+    assert.equal(named.ok, false);
+    assert.equal(named.ok ? 0 : named.status, 409);
+    const plain = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-29", came: [], cardId: PLAIN, cameIds: [] },
+      now: WRITE_NOW,
+    });
+    assert.equal(plain.ok, true, JSON.stringify(plain));
+    // Unticking special drops the RSVPs it had; nobody reads them any more.
+    await scene(t);
+    assert.ok((await seen(t, t.dale)).rows.length > 0);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: false }))).status, 200);
+    assert.deepEqual((await seen(t, t.dale)).rows.filter((row) => row.startsWith("G:")), []);
+    assert.equal((await t.db.query(`select 1 from gathering_rsvp where gathering_id = $1`, [GATHERING])).length, 0);
+    assert.equal((await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true })).status, 409);
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 3: a member barred in the old room stays hidden after the gathering moves to another room", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    await t.db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
+      [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
+    );
+    const names = async () =>
+      ((await (await call(t.handler, t.dale, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as { people?: { name: string }[] }).people?.map((p) => p.name);
+    assert.deepEqual(await names(), ["Maria"]);
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'county', now())`, [t.dale.id]);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
+    assert.equal(await roomOfGathering(t), "county");
+    const moved = await t.db.query<{ moved_from: string[] }>(`select moved_from from public_gathering where id = $1`, [GATHERING]);
+    assert.deepEqual(moved[0]?.moved_from, ["shop"]);
+    assert.deepEqual(await names(), ["Maria"], "Tom is still hidden in county");
+    assert.equal((await seen(t, t.dale)).rows.some((row) => row.includes(":Tom:")), false);
+    // Tom still sees his own.
+    assert.equal((await seen(t, t.tom)).rows.some((row) => row.startsWith("G:Tom:")), true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 4: a host joins a room through the app and then moves a gathering into it (the existing rule)", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 403);
+    // Rooms are joined by invitation: Dale holds a county invite (a room-scoped member grant).
+    await t.db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
+       values ($1, $2, 'Dale', 'member', 'county', 'grant', 'test', 'test', 'test', 'Invited for the test.')`,
+      [randomUUID(), t.dale.id],
+    );
+    const joined = await call(t.handler, t.dale, "POST", "/api/rooms/county/join", {});
+    assert.equal(joined.status, 200, await joined.clone().text());
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
+    assert.equal(await roomOfGathering(t), "county");
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 5: a steward changes a gathering's date in a room they steward; another room's steward and a member cannot", async () => {
+  const t = await setup();
+  try {
+    const dateOf = async () =>
+      String((await t.db.query<{ gather_on: string }>(`select gather_on::text as gather_on from public_gathering where id = $1`, [GATHERING]))[0]?.gather_on);
+    assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { date: "2026-11-07" }))).status, 200);
+    assert.equal(await dateOf(), "2026-11-07");
+    assert.equal((await call(t.handler, t.cara, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { date: "2026-11-14" }))).status, 403);
+    assert.equal((await call(t.handler, t.tom, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { date: "2026-11-14" }))).status, 403);
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { date: "2026-11-14" }))).status, 403);
+    assert.equal(await dateOf(), "2026-11-07");
+  } finally {
+    await t.close();
+  }
+});
+
+test("Josh 6: the purge deletes write-up DM links older than 12 months (decided, not a switch left open)", () => {
+  assert.equal(OLD_WRITE_UPS_DROP_DM_LINKS, true);
+  const code = readFileSync(new URL("./rsvp.ts", import.meta.url), "utf8");
+  assert.match(code, /QA N3, decided: "the purge also deletes write-up DM links older than 12\s*\n\s*\* months" \(Josh via CoS, Oct 30 12:47 PM ET\)/);
 });

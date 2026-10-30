@@ -51,7 +51,7 @@ import {
   DID_NOT_SAVED_LINE,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
-import { markOpen, ONLY_GOING_CAN_SAY_WENT } from "@/lib/board/rsvp-rules";
+import { isSpecial, markOpen, ONLY_GOING_CAN_SAY_WENT } from "@/lib/board/rsvp-rules";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
@@ -565,6 +565,9 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   const visited = useBoard((state) => state.visited);
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
+  const stewardsHere = useBoard((state) => state.stewardRooms.includes(card.room));
+  const [newDate, setNewDate] = useState(card.next);
+  useEffect(() => setNewDate(card.next), [card.next]);
   const closeCard = useBoard((state) => state.closeCard);
   const reloadRsvps = useBoard((state) => state.reloadRsvps);
   const [closing, setClosing] = useState(false);
@@ -703,7 +706,7 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
       ) : null}
       {/* items-center and min-h-[44px] on both, so "I went" and "I'll be there" are one height (low 2). */}
       <div className={cn("flex flex-wrap items-center gap-2", wentReason ? "mt-2" : "mt-3")}>
-        {!isHost && card.next ? (
+        {!isHost && card.next && isSpecial(card) ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} className="" />
         ) : null}
         {showWent ? (
@@ -735,6 +738,42 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
           </button>
         ) : null}
         <GatheringShareControl card={card} />
+        {/* The host's checkbox: only a special event takes RSVPs and a "who came"
+            (Josh via CoS, Oct 30 12:47 PM ET). */}
+        {isHost && card.kind === "meeting" ? (
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-muted">
+            <input
+              type="checkbox"
+              className="size-5"
+              checked={card.special === true}
+              onChange={(event) => updateCard(card.id, { special: event.target.checked })}
+            />
+            This is a special event
+          </label>
+        ) : null}
+        {/* A steward of this room may change the date (Josh via CoS, Oct 30 12:47 PM ET). */}
+        {!isHost && stewardsHere && card.kind === "meeting" ? (
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (newDate && newDate !== card.next) updateCard(card.id, { next: newDate });
+            }}
+          >
+            <label className="flex items-center gap-2 text-sm text-muted">
+              Change the date
+              <input
+                type="date"
+                className="min-h-[44px] rounded-md border border-line bg-transparent px-2 text-fg"
+                value={newDate}
+                onChange={(event) => setNewDate(event.target.value)}
+              />
+            </label>
+            <button type="submit" className={btnQuiet} disabled={!newDate || newDate === card.next}>
+              Save the date
+            </button>
+          </form>
+        ) : null}
         {isHost ? (
           <button
             type="button"
@@ -950,7 +989,8 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   );
 }
 
-function AddCard({ me }: { me: string }) {
+/** The add form. Exported for render tests. */
+export function AddCard({ me }: { me: string }) {
   const addCard = useBoard((state) => state.addCard);
   const rooms = useBoard((state) => state.rooms);
   const [room, setRoom] = useState<RoomId>("shop");
@@ -962,6 +1002,7 @@ function AddCard({ me }: { me: string }) {
     host: "",
     next: "",
     firstTimer: false,
+    special: false,
     book: "",
     pages: "",
   });
@@ -984,6 +1025,7 @@ function AddCard({ me }: { me: string }) {
       host: fields.host || me,
       next: kind === "meeting" || kind === "candidate" ? fields.next : "",
       firstTimer: kind === "meeting" && fields.firstTimer,
+      special: kind === "meeting" && fields.special,
       slots: kind === "need" ? days.map((day) => ({ day, by: "" })) : [],
       book: reading ? fields.book : "",
       pages: reading ? fields.pages : "",
@@ -995,6 +1037,7 @@ function AddCard({ me }: { me: string }) {
       host: "",
       next: "",
       firstTimer: false,
+      special: false,
       book: "",
       pages: "",
     });
@@ -1158,6 +1201,17 @@ function AddCard({ me }: { me: string }) {
                   onChange={(event) => set({ firstTimer: event.target.checked })}
                 />
                 New people welcome. Someone who has been once can message you.
+              </label>
+            ) : null}
+            {kind === "meeting" ? (
+              <label className="flex items-center gap-3 self-end text-sm text-muted">
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  checked={fields.special}
+                  onChange={(event) => set({ special: event.target.checked })}
+                />
+                This is a special event. Members can say they're going, and you mark who came.
               </label>
             ) : null}
           </>

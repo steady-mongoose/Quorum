@@ -14,6 +14,8 @@ export type StoredGathering = {
   place: string;
   shared: boolean;
   mine: boolean;
+  /** The host ticked "This is a special event" (0050). Only these take RSVPs. */
+  special: boolean;
 };
 
 const LOAD_MS = 8000;
@@ -41,6 +43,7 @@ function storedFrom(value: unknown): StoredGathering | null {
     place: typeof row.place === "string" ? row.place : "",
     shared: row.shared === true,
     mine: row.mine === true,
+    special: row.special === true,
   };
 }
 
@@ -76,6 +79,8 @@ export async function saveGathering(input: {
   date: string;
   time: string;
   place: string;
+  /** Sent only by the host; left out, the server keeps what it has. */
+  special?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const response = await apiFetch("/api/gatherings", {
     method: "POST",
@@ -88,6 +93,7 @@ export async function saveGathering(input: {
       date: input.date,
       time: input.time,
       place: input.place,
+      ...(input.special === undefined ? {} : { special: input.special }),
     }),
   });
   if (response.ok) return { ok: true };

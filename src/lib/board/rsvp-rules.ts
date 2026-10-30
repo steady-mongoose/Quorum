@@ -66,6 +66,15 @@ export const MARK_TOO_EARLY = "You can mark who came once the gathering has star
 
 /** The "I went" line on a started gathering for a member who did not say going (Design #126 review 5713515017). */
 export const ONLY_GOING_CAN_SAY_WENT = "Only members who said they were going can mark “I went”.";
+/**
+ * Josh via CoS, Oct 30 12:47 PM ET: RSVPs and marking who came work only on a
+ * special event (the host's checkbox, 0050). Any other gathering takes none.
+ */
+export const RSVP_SPECIAL_ONLY = "RSVPs and who came are only for special events.";
+/** The app shows RSVP and attendance controls only where this is true. */
+export function isSpecial(card: { special?: boolean }): boolean {
+  return card.special === true;
+}
 export const MARK_NOT_GOING = "Only members who said they're going can be marked as came.";
 
 /**

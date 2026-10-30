@@ -42,6 +42,8 @@ export function RsvpControl({
     const timer = setTimeout(() => setTapped(false), RSVP_DRAW_MS);
     return () => clearTimeout(timer);
   }, [tapped, pending]);
+  // Only a special event takes RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+  if (card.special !== true) return null;
   return (
     <div className={cn("flex flex-col items-start gap-2", className)}>
       <div className="flex flex-wrap items-center gap-3">

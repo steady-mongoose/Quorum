@@ -20,6 +20,8 @@ export type GatheringRecord = {
   town: string;
   place: string;
   shared: boolean;
+  /** The host's "This is a special event" (0050). Only these take RSVPs. */
+  special: boolean;
   /** True when the caller is the host. A steward may still change sharing. */
   mine: boolean;
 };
@@ -37,6 +39,8 @@ type Row = {
   shared: boolean;
   removed: boolean;
   host_user_id: string;
+  special: boolean;
+  moved_from: string[];
 };
 
 function fail(status: number, error: string): Fail {
@@ -53,6 +57,7 @@ function toRecord(row: Row, userId: string): GatheringRecord {
     town: row.town,
     place: row.place,
     shared: row.shared,
+    special: row.special === true,
     mine: row.host_user_id === userId,
   };
 }
@@ -112,10 +117,36 @@ async function hidden(db: Db, row: Row, now: Date): Promise<boolean> {
   return ban !== null;
 }
 
+/**
+ * The 0050 columns, read through to_jsonb so this API also runs before 0050
+ * is applied: then nothing is special and nothing has moved. `g` is
+ * public_gathering.
+ */
+export const GATHERING_0050_COLUMNS = `coalesce((to_jsonb(g) ->> 'special')::boolean, false) as special,
+       coalesce(array(select jsonb_array_elements_text(to_jsonb(g) -> 'moved_from')), '{}'::text[]) as moved_from`;
+
+/** SQL: gathering `g` is a special event (false before 0050). */
+export const GATHERING_IS_SPECIAL = `coalesce((to_jsonb(g) ->> 'special')::boolean, false)`;
+
+/** The refusal for setting "special" before 0050 is applied. */
+export const SPECIAL_NOT_READY = "Special events are not ready yet. Try again later.";
+/** Only the host ticks or unticks "This is a special event" (Josh via CoS, Oct 30 12:47 PM ET). */
+export const SPECIAL_HOST_ONLY = "Only the host can say whether this is a special event.";
+
+/** Whether 0050 is applied. */
+async function specialReady(db: Db): Promise<boolean> {
+  const rows = await db.query<{ ready: number }>(
+    `select count(*)::int as ready from information_schema.columns
+     where table_name = 'public_gathering' and column_name in ('special', 'moved_from')`,
+  );
+  return Number(rows[0]?.ready ?? 0) >= 2;
+}
+
 async function loadRow(db: Db, id: string): Promise<Row | null> {
   const rows = await db.query<Row>(
-    `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id
-     from public_gathering where id = $1`,
+    `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id,
+       ${GATHERING_0050_COLUMNS}
+     from public_gathering g where id = $1`,
     [id.toLowerCase()],
   );
   return rows[0] ?? null;
@@ -170,10 +201,16 @@ export async function saveGathering(
     date: unknown;
     time: unknown;
     place: unknown;
+    /** The host's checkbox. Left out (undefined), it stays as it is. */
+    special?: unknown;
     now: Date;
   },
 ): Promise<{ ok: true; gathering: GatheringRecord } | Fail> {
   if (!isGatheringId(input.id)) return fail(404, "Not found.");
+  if (input.special !== undefined && typeof input.special !== "boolean") {
+    return fail(400, "Say whether this is a special event: true or false.");
+  }
+  const special = input.special as boolean | undefined;
   const id = input.id.toLowerCase();
   const roomId = input.roomId.trim();
   if (!ROOM_ID.test(roomId) || !(await roomExists(db, roomId))) {
@@ -216,10 +253,53 @@ export async function saveGathering(
     if (existing.room_id !== roomId && !realStewardOf(actor, roomId) && !(await belongsTo(db, input.userId, roomId))) {
       return fail(403, MOVE_NOT_YOUR_ROOM);
     }
+    // A real steward of its room may change the date (Josh via CoS, Oct 30
+    // 12:47 PM ET); "special" is the host's alone.
+    const changesSpecial = special !== undefined && special !== existing.special;
+    if (changesSpecial && !host) return fail(403, SPECIAL_HOST_ONLY);
+    const ready = await specialReady(db);
+    if (changesSpecial && !ready) return fail(503, SPECIAL_NOT_READY);
+    const values = [
+      id,
+      fields.gathering.title,
+      fields.gathering.date,
+      fields.gathering.time,
+      fields.gathering.town,
+      fields.place,
+      roomId,
+    ];
+    if (ready) {
+      // A move remembers the room it left, so a member barred there stays
+      // hidden from this gathering's lists in the new room (Josh, Oct 30 12:47 PM ET).
+      await db.query(
+        `update public_gathering
+         set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7,
+             special = coalesce($8::boolean, special),
+             moved_from = case
+               when room_id <> $7 and room_id <> '' and not (room_id = any (moved_from))
+               then array_append(moved_from, room_id)
+               else moved_from
+             end,
+             updated_at = now()
+         where id = $1 and removed = false`,
+        [...values, special ?? null],
+      );
+    } else {
+      await db.query(
+        `update public_gathering
+         set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7, updated_at = now()
+         where id = $1 and removed = false`,
+        values,
+      );
+    }
+    // No longer a special event: it keeps no RSVPs or attendance, as a removed one.
+    if (changesSpecial && special === false) await dropGatheringRsvps(db, id);
+  } else if (special === true) {
+    if (!(await specialReady(db))) return fail(503, SPECIAL_NOT_READY);
     await db.query(
-      `update public_gathering
-       set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7, updated_at = now()
-       where id = $1 and removed = false`,
+      `insert into public_gathering
+       (id, title, gather_on, gather_time, town, place, room_id, shared, removed, host_user_id, special)
+       values ($1, $2, $3, $4, $5, $6, $7, false, false, $8, true)`,
       [
         id,
         fields.gathering.title,
@@ -228,6 +308,7 @@ export async function saveGathering(
         fields.gathering.town,
         fields.place,
         roomId,
+        input.userId,
       ],
     );
   } else {
@@ -356,8 +437,9 @@ export async function listGatheringsFor(
   // who can read the room sees it, so they can RSVP, mark "I went", and meet
   // the host. A member barred from the room does not.
   const rows = await db.query<Row>(
-    `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id
-     from public_gathering
+    `select id, room_id, title, gather_on, gather_time, town, place, shared, removed, host_user_id,
+       ${GATHERING_0050_COLUMNS}
+     from public_gathering g
      where removed = false
      order by updated_at desc
      limit 500`,
@@ -403,7 +485,17 @@ export async function rsvpGatheringFor(
 ): Promise<
   | {
       ok: true;
-      gathering: { id: string; roomId: string; hostUserId: string; date: string; time: string };
+      gathering: {
+        id: string;
+        roomId: string;
+        hostUserId: string;
+        date: string;
+        time: string;
+        /** Only a special event takes RSVPs and marks (0050). */
+        special: boolean;
+        /** Rooms it was in before a move (0050). */
+        movedFrom: string[];
+      };
       actor: Awaited<ReturnType<typeof actorRole>>;
     }
   | Fail
@@ -426,7 +518,15 @@ export async function rsvpGatheringFor(
   }
   return {
     ok: true,
-    gathering: { id: row.id, roomId: row.room_id, hostUserId: row.host_user_id, date: row.gather_on, time: row.gather_time },
+    gathering: {
+      id: row.id,
+      roomId: row.room_id,
+      hostUserId: row.host_user_id,
+      date: row.gather_on,
+      time: row.gather_time,
+      special: row.special === true,
+      movedFrom: row.moved_from ?? [],
+    },
     actor,
   };
 }

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { readDemoFlag } from "../api-mode.ts";
-import { MARK_TOO_EARLY, markOpen, roleCounts } from "./rsvp-rules.ts";
+import { MARK_TOO_EARLY, isSpecial, markOpen, roleCounts } from "./rsvp-rules.ts";
 import {
   getBoardClient,
   type AccessInput,
@@ -683,6 +683,9 @@ export const useBoard = create<BoardState>()(
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
       const rememberGathering = (card: MeetingCard) => {
+        // Only the host says whether it is a special event; a steward's edit
+        // leaves it as the server has it (Josh via CoS, Oct 30 12:47 PM ET).
+        const hosting = card.host === me() || get().rsvpHosts.includes(card.id.toLowerCase());
         void saveGathering({
           id: card.id,
           roomId: card.room,
@@ -690,6 +693,7 @@ export const useBoard = create<BoardState>()(
           date: card.next,
           time: card.time,
           place: card.place,
+          ...(hosting ? { special: card.special === true } : {}),
         }).then((result) => {
           if (!result.ok) {
             set({ boardError: result.error });
@@ -724,6 +728,7 @@ export const useBoard = create<BoardState>()(
             place: row.place || card.place,
             room: row.roomId,
             sharePublic: row.shared,
+            special: row.special,
           };
         });
         for (const row of rows) {
@@ -739,6 +744,7 @@ export const useBoard = create<BoardState>()(
               host: row.mine ? mine : "",
               next: row.date,
               sharePublic: row.shared,
+              special: row.special,
             }),
           );
         }
@@ -746,9 +752,12 @@ export const useBoard = create<BoardState>()(
       };
       /**
        * The host of this card, or a steward of its room: the only people who
-       * mark who came (Oct 30). An admin as an admin does not.
+       * mark who came (Oct 30), and only on a special event. An admin as an
+       * admin does not.
        */
       const marksCame = (card: MeetingCard) =>
+        // Who came is marked only on a special event (Josh via CoS, Oct 30 12:47 PM ET).
+        isSpecial(card) &&
         roleCounts(get().admin) &&
         (get().stewardRooms.includes(card.room) ||
         // Signed in: the host is known by id, from the server (a member who
@@ -1043,7 +1052,10 @@ export const useBoard = create<BoardState>()(
             if (get().remote) {
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
-                if (closing) {
+                if (closing && !isSpecial(closing)) {
+                  // Not a special event: no roll call and no names (Josh, Oct 30 12:47 PM ET).
+                  draft = { ...draft, came: [], named: "", cameIds: [] };
+                } else if (closing) {
                   const kept = savedCloseNames(closing.id, closing.next || todayIso());
                   const keptClose = savedClose(closing.id, closing.next || todayIso());
                   if (draft.happened === false || keptClose?.happened === false) {
@@ -1443,7 +1455,8 @@ export const useBoard = create<BoardState>()(
             "place" in patch ||
             "time" in patch ||
             "next" in patch ||
-            "room" in patch
+            "room" in patch ||
+            "special" in patch
           )) {
             return;
           }
@@ -1465,6 +1478,11 @@ export const useBoard = create<BoardState>()(
             cameIds = [];
           } else if (saved0) {
             came = saved0.names;
+          }
+          // Not a special event: its write-up names nobody (Josh, Oct 30 12:47 PM ET).
+          if (!isSpecial(card)) {
+            came = [];
+            cameIds = [];
           }
           const claim = line.trim() || (happened ? "It happened." : "It did not happen.");
           const draft: Draft = {
@@ -1552,7 +1570,8 @@ export const useBoard = create<BoardState>()(
         },
         rsvp: (id) => {
           const card = get().cards.find((item) => item.id === id);
-          if (!card) return;
+          // Only a special event takes RSVPs (Josh via CoS, Oct 30 12:47 PM ET).
+          if (!card || !isSpecial(card)) return;
           /** Set the value that was sent, never a blind toggle. */
           const put = (going: boolean) =>
             patchCard(id, (item) => ({

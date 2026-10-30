@@ -81,7 +81,7 @@ test("a first-time RSVP that lands during a close's transaction survives it", as
     const ann = await person(db, "Ann");
     const gathering = randomUUID();
     await db.query(
-      `insert into public_gathering (id, title, gather_on, room_id, host_user_id) values ($1, 'Lifts', '2026-10-31', 'shop', $2)`,
+      `insert into public_gathering (id, title, gather_on, room_id, host_user_id, special) values ($1, 'Lifts', '2026-10-31', 'shop', $2, true)`,
       [gathering, dale],
     );
     await setMyRsvp(db, { userId: tom, gatheringId: gathering, going: true });
