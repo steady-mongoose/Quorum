@@ -246,7 +246,7 @@ test("the door explains how the app and the rooms work, in plain sentences", () 
   const how = between("const HOW = [", "];");
   const rooms = between("const ROOMS = [", "];");
   const entries = [...(how + rooms).matchAll(/what: "([^"]+)"/g)].map((match) => match[1]);
-  assert.equal(entries.length, 8, "five app rules and three room rules");
+  assert.equal(entries.length, 9, "five app rules and four room rules");
   for (const text of entries) {
     assert.equal(/[;:]/.test(text), false, `no semicolon or colon: ${text}`);
     assert.match(text, /\.$/, `a full sentence: ${text}`);

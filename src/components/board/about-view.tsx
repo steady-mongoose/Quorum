@@ -89,6 +89,10 @@ const HOW = [
     text: "Every room has a steward who keeps it on track. A room cannot lose its last steward. The last one can step down only by naming someone in the room to take over.",
   },
   {
+    title: "Interest groups",
+    text: "A room is one place. A group is one interest, such as carpentry, gardening, or brewing, and it sits beside the rooms. A member asks for a group from a room they have joined, and a steward of that room approves it. You join a group only by an invite from one of its admins or stewards. A group has its own posts and its own admins. Someone barred from the room a group came from cannot read or post in the group.",
+  },
+  {
     title: "Debates",
     text: "Debate Night is a monthly debate at a brewery or a hall: one question, two sides, a host, anyone welcome. The card shows this month's question and where. Afterwards the host writes up how it went and sets next month's question.",
   },
