@@ -61,8 +61,8 @@ test("authenticator code fields take six digits and the start button hides while
   assert.equal(ui.split('maxLength={6}\n').length - 1 >= 2, true);
   assert.equal(ui.split('pattern="[0-9]*"\n').length - 1 >= 2, true);
   assert.match(ui, /!status\?\.enrolled && !modules && !recovery \?/);
-  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
-  assert.match(app, /before you moderate, grant a role, approve a reset, or export/);
+  const banner = readFileSync(new URL("../../components/board/mfa-banner.tsx", import.meta.url), "utf8");
+  assert.match(banner, /before you moderate, grant a role, approve a reset, or export/);
 });
 
 test("the authenticator banner follows the server's enroll phase, with no app-side role check", async () => {

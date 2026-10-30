@@ -228,6 +228,9 @@ test("the authenticator banner is not covered by the hero at 390px", () => {
   const backgrounds = source("../../../public/backgrounds.css");
   assert.match(backgrounds, /\.mfa-banner\{position:relative;z-index:2\}/);
   assert.match(backgrounds, /\.mfa-banner ~ \* \.plate--hero\{margin-top:0\}/);
+  // The banner moved into its own component so "Set it up" can share the focus helper.
   const app = source("../../components/board/app.tsx");
-  assert.match(app, /className="mfa-banner /);
+  assert.match(app, /<MfaBanner onSetUp=/);
+  const banner = source("../../components/board/mfa-banner.tsx");
+  assert.match(banner, /className="mfa-banner /);
 });

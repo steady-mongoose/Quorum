@@ -4,7 +4,7 @@ import test from "node:test";
 
 const css = (name: string) => readFileSync(new URL(`../../../public/${name}`, import.meta.url), "utf8");
 const pageArt = css("page-art.css");
-const LAYERS = [".hero-band", ".outer-art", ".side-art"] as const;
+const LAYERS = [".hero-band", ".outer-art", ".side-art", ".margin-art"] as const;
 
 // Every rule that paints one of the page-art layers, in every stylesheet the board loads.
 function paintingRules(): string[] {
@@ -17,21 +17,23 @@ function paintingRules(): string[] {
   return out;
 }
 
-test("Save-Data: <html data-save-data> drops the band, margin and side images", () => {
-  const rule = pageArt.match(/\[data-save-data\] \.shell \.hero-band,\[data-save-data\] \.shell \.outer-art,\[data-save-data\] \.shell \.side-art\{([^}]*)\}/);
+test("Save-Data: <html data-save-data> drops the band, margin, side and old margin-art images", () => {
+  const rule = pageArt.match(/\[data-save-data\] \.shell \.hero-band,\[data-save-data\] \.shell \.outer-art,\[data-save-data\] \.shell \.side-art,\[data-save-data\] \.shell \.margin-art\{([^}]*)\}/);
   assert.ok(rule, "the Save-Data rule is in page-art.css");
   assert.equal(rule[1], "background-image:none!important");
 });
 
-test("prefers-reduced-data drops the band, margin and side images", () => {
-  const rule = pageArt.match(/@media \(prefers-reduced-data:reduce\)\{\.shell \.hero-band,\.shell \.outer-art,\.shell \.side-art\{([^}]*)\}\}/);
+test("prefers-reduced-data drops the band, margin, side and old margin-art images", () => {
+  const rule = pageArt.match(/@media \(prefers-reduced-data:reduce\)\{\.shell \.hero-band,\.shell \.outer-art,\.shell \.side-art,\.shell \.margin-art\{([^}]*)\}\}/);
   assert.ok(rule, "the reduced-data rule is in page-art.css");
   assert.equal(rule[1], "background-image:none!important");
 });
 
 test("no other page-art rule is !important, so the data-saver rules always win", () => {
   const rules = paintingRules();
-  assert.ok(rules.length > 10, "found the band and margin rules");
+  // #116 moved the signed-in pages to one full-bleed plate, so few band/margin rules are left; the door's and
+  // the old margin rules in backgrounds.css still paint, and must stay plain.
+  assert.ok(rules.length > 2, "found the band and margin rules");
   const important = rules.filter((r) => r.includes("!important"));
   assert.equal(important.length, 2, important.join("\n"));
   for (const r of important) assert.match(r, /background-image:none!important/);

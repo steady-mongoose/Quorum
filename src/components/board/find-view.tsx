@@ -88,7 +88,7 @@ export function FindView() {
     <div className="grid gap-8 pb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+9rem)] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <RemovalToast removal={removal} />
       <div className="flex flex-col gap-8">
-        <section className="flex flex-col gap-3">
+        <section className="plate pc-head flex flex-col gap-3">
           <Kicker>Find</Kicker>
           <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
             Every meeting, in one list.
