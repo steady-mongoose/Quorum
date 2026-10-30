@@ -11,7 +11,7 @@ export const Route = createFileRoute("/about")({
 /** About, with no sign-in. The member account section stays on the board. */
 function AboutPage() {
   return (
-    <PublicDocument>
+    <PublicDocument wide>
       <AboutView publicView />
     </PublicDocument>
   );

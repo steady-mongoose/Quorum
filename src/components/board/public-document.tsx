@@ -10,7 +10,15 @@ import { APP_NAME } from "@/lib/board/model";
  * Dürer's Saint Jerome in His Study (`art="jerome"`). Every word sits on one solid card; the plate shows
  * around it. Data savers get no plate.
  */
-export function PublicDocument({ children, art = "martin" }: { children: ReactNode; art?: "martin" | "jerome" }) {
+export function PublicDocument({
+  children,
+  art = "martin",
+  wide = false,
+}: {
+  children: ReactNode;
+  art?: "martin" | "jerome";
+  wide?: boolean;
+}) {
   useEngravedDocument("about");
   const jerome = art === "jerome";
   return (
@@ -23,7 +31,7 @@ export function PublicDocument({ children, art = "martin" }: { children: ReactNo
       <div className="scrim" aria-hidden="true" />
       <main
         id="main"
-        className="mx-auto w-full max-w-[64rem] min-w-0 px-[clamp(0.75rem,4vw,4rem)] py-[clamp(1.5rem,6vh,4rem)]"
+        className={`mx-auto w-full ${wide ? "max-w-[72rem]" : "max-w-[64rem]"} min-w-0 px-[clamp(0.75rem,4vw,4rem)] py-[clamp(1.5rem,6vh,4rem)]`}
       >
         <div className="card pc-card flex min-w-0 flex-col gap-8 p-[clamp(1rem,3vw,2.5rem)]">
           <p className="font-display text-3xl leading-none text-fg">

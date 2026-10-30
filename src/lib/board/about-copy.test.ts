@@ -43,3 +43,15 @@ test("the door and About keep rooms and interest groups apart", () => {
   assert.ok(door.includes(`term: "Interest groups"`));
   assert.ok(about.includes(`title: "Interest groups"`));
 });
+
+test("How it works is grouped, and every entry sits in exactly one group", () => {
+  const titles = [...about.slice(about.indexOf("const HOW = ["), about.indexOf("const HOW_HEADINGS")).matchAll(/title: "([^"]+)"/g)].map((match) => match[1]);
+  const groups = about.slice(about.indexOf("const HOW_HEADINGS"), about.indexOf("const HOW_GROUPS"));
+  const grouped = [...groups.matchAll(/titles: \[([^\]]+)\]/g)].flatMap((match) =>
+    [...match[1].matchAll(/"([^"]+)"/g)].map((name) => name[1]),
+  );
+  assert.equal(titles.length, 15);
+  assert.deepEqual([...grouped].sort(), [...titles].sort());
+  assert.ok(about.includes(`max-w-prose text-base text-fg/85`));
+  assert.ok(source("../../routes/about.tsx").includes("<PublicDocument wide>"));
+});
