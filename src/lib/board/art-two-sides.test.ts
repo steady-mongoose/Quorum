@@ -17,7 +17,8 @@ const sheets = [...root.matchAll(/href: "\/([a-z-]+\.css)"/g)].map((m) => read(`
 const ON_LIST = /^(Gustave Doré|John Martin|Albrecht Dürer|Arthur Rackham|John Bauer)$/;
 
 type Panel = { artist: string; work: string; box: [number, number, number, number] };
-/** What each edge of each wide plate shows: source work and crop box (x0, y0, x1, y1, as fractions of the scan). */
+/** What each edge of each wide plate shows: source work and crop box (x0, y0, x1, y1, as fractions of the scan;
+ *  below 0 or above 1 where the panel runs past the scan and fades to the dark ground). */
 const PLATES: Record<string, { left: Panel; right: Panel }> = {
   "plate-week-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0.109, 0.5, 0.55, 1.0] },
@@ -45,11 +46,11 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
   },
   "plate-messages-A-2400.webp": {
     left: { artist: "Albrecht Dürer", work: "Praying Hands", box: [0.138, 0.1, 0.862, 0.8] },
-    right: { artist: "Albrecht Dürer", work: "Erasmus of Rotterdam", box: [0.487, 0.125, 0.993, 0.675] },
+    right: { artist: "Albrecht Dürer", work: "Erasmus of Rotterdam", box: [0.202, -0.075, 0.823, 0.6] },
   },
   "plate-you-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.171, 0.085, 0.73, 0.635] },
-    right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [0.179, 0.115, 0.621, 0.565] },
+    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.14, -0.199, 1.608, 1.246] },
+    right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [-0.026, -0.037, 0.688, 0.689] },
   },
   "plate-desk-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0.338, 0, 0.732, 0.45] },
@@ -159,4 +160,82 @@ test("the credit chip names both works where the right edge is a second work", (
   assert.deepEqual([narrow.narrow === "none", narrow.wide], [false, "none"]);
   const app = read("src/components/board/app.tsx");
   assert.match(app, /<p className="pc-credit pc-wide">Plates: \{wideCaption\}<\/p>/);
+});
+
+/**
+ * QA 5707271934 S4: where the faces are. Each wide plate's key heads, in canvas pixels of the 2400x1350
+ * file, and the narrowest 16:9 screen at which each must sit whole in a margin: clear of the real text
+ * column (width taken from the sheets: `min(60rem,100%)` at the root font size the clamp in styles.css
+ * gives), below the sticky header, inside the screen, and clear of the panel's fade into the dark middle.
+ * The plate is drawn `center 35%/cover`, also read from the sheets. Boxes were measured on the files.
+ */
+const HEADER_PX = 115; // the sticky header's height, measured in the real app at 1600-2560
+const HEADS: Record<string, { who: string; box: [number, number, number, number]; from: number }[]> = {
+  "plate-messages-A-2400.webp": [{ who: "Erasmus", box: [2020, 210, 2150, 570], from: 1600 }],
+  "plate-you-A-2400.webp": [
+    { who: "the boy at thirteen", box: [20, 260, 330, 580], from: 1600 },
+    { who: "Dürer at twenty-eight", box: [2020, 400, 2320, 880], from: 1600 },
+  ],
+  "plate-groups-A-2400.webp": [
+    { who: "the man in the black cap (left)", box: [170, 340, 260, 490], from: 1600 },
+    { who: "the man in the black cap (right)", box: [2030, 500, 2140, 620], from: 1600 },
+  ],
+  "plate-desk-A-2400.webp": [
+    { who: "the woman in the turban", box: [130, 400, 230, 560], from: 1600 },
+    { who: "the mother", box: [2050, 330, 2240, 520], from: 1600 },
+  ],
+  "plate-week-A-2400.webp": [{ who: "Jacob", box: [400, 420, 520, 520], from: 1920 }],
+};
+
+const rootPx = (vw: number) => {
+  const css = read("src/styles.css");
+  const m = css.match(/font-size:\s*clamp\((\d+)px,\s*([\d.]+)rem\s*\+\s*([\d.]+)vw,\s*(\d+)px\)/);
+  assert.ok(m, "root font-size clamp not found in styles.css");
+  const [lo, rem, vwk, hi] = m.slice(1).map(Number);
+  return Math.min(hi, Math.max(lo, rem * 16 + (vwk * vw) / 100));
+};
+const column = (vw: number) => {
+  const m = sheets.match(/@media \(min-width:(\d+)px\)\{\[data-entered\] \.shell-body>main\{width:min\(([\d.]+)rem,100%\)/);
+  assert.ok(m, "the column width rule is not in the sheets");
+  return vw >= Number(m[1]) ? Math.min(Number(m[2]) * rootPx(vw), vw) : vw;
+};
+
+test("the plate is drawn center 35% / cover, which the face boxes assume", () => {
+  assert.match(sheets, /\[data-entered\]>\.plate-ground\{background:var\(--pc-plate\) center 35%\/cover no-repeat/);
+  assert.equal(column(1600), 1080, "the real column is 60rem at 18px");
+});
+
+for (const [vw, vh] of [[1600, 900], [1700, 956], [1920, 1080], [2560, 1440]] as const) {
+  test(`at ${vw}x${vh} every listed head sits whole in a margin, below the header, off the column and the fade`, () => {
+    const s = Math.max(vw / 2400, vh / 1350);
+    const ox = (vw - 2400 * s) * 0.5;
+    const oy = (vh - 1350 * s) * 0.35;
+    const toX = (px: number) => (px - ox) / s; // screen x to canvas x
+    const col = column(vw);
+    const leftEnd = toX((vw - col) / 2);
+    const rightStart = toX((vw + col) / 2);
+    const top = (HEADER_PX - oy) / s;
+    const bottom = (vh - oy) / s;
+    for (const [file, heads] of Object.entries(HEADS)) {
+      for (const { who, box, from } of heads) {
+        if (vw < from) continue;
+        const [x0, y0, x1, y1] = box;
+        const left = x1 <= 960;
+        const where = `${file} ${who} [${box}] at ${vw}x${vh}`;
+        if (left) {
+          assert.ok(x0 >= toX(0) && x1 <= leftEnd, `${where}: not whole in the left margin (canvas ${Math.round(toX(0))}-${Math.round(leftEnd)})`);
+          assert.ok(x1 <= 640, `${where}: runs into the fade at 640`);
+        } else {
+          assert.ok(x0 >= 1440, `${where}: in the dark middle`);
+          assert.ok(x0 >= rightStart && x1 <= toX(vw), `${where}: not whole in the right margin (canvas ${Math.round(rightStart)}-${Math.round(toX(vw))})`);
+          assert.ok(x0 >= 1760, `${where}: runs into the fade at 1760`);
+        }
+        assert.ok(y0 >= top && y1 <= bottom, `${where}: under the header or off the screen (canvas ${Math.round(top)}-${Math.round(bottom)})`);
+      }
+    }
+  });
+}
+
+test("every wide plate's heads are on the manifest's two-sided list", () => {
+  for (const f of Object.keys(HEADS)) assert.ok(PLATES[f], f);
 });
