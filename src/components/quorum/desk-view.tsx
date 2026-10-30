@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Check,
@@ -18,6 +18,7 @@ import {
   useCopy,
   useNow,
 } from "@/components/quorum/bits";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import {
   callScript,
@@ -69,6 +70,8 @@ export function DeskView() {
   const [allyName, setAllyName] = useState("");
   const [allyCount, setAllyCount] = useState("25");
   const [allyChannel, setAllyChannel] = useState("Signal");
+  const allyChannelHintId = useId();
+  const refuseId = useId();
 
   const entries = useMemo(
     () => (campaign ? logs.filter((entry) => entry.campaignId === campaign.id) : []),
@@ -292,10 +295,14 @@ export function DeskView() {
                 />
               </label>
             </div>
+            <label htmlFor={refuseId} className="text-sm text-muted">
+              What you will not trade
+            </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
+                id={refuseId}
                 className={fieldClass}
-                placeholder="A carve-out you will not trade"
+                aria-describedby={`${refuseId}-hint`}
                 value={refuseDraft}
                 onChange={(event) => setRefuseDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -309,6 +316,9 @@ export function DeskView() {
                 Add refusal
               </button>
             </div>
+            <p id={`${refuseId}-hint`} className="text-xs text-muted">
+              {FIELD_HINT.refusal}
+            </p>
             {campaign.refuses.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {campaign.refuses.map((item) => (
@@ -493,7 +503,7 @@ export function DeskView() {
             ))
           )}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid items-start gap-3 sm:grid-cols-3">
           <input
             className={fieldClass}
             placeholder="Group name"
@@ -507,12 +517,19 @@ export function DeskView() {
             value={allyCount}
             onChange={(event) => setAllyCount(event.target.value)}
           />
-          <input
-            className={fieldClass}
-            placeholder="Signal, WhatsApp, text"
-            value={allyChannel}
-            onChange={(event) => setAllyChannel(event.target.value)}
-          />
+          <div className="flex flex-col gap-2">
+            <input
+              className={fieldClass}
+              aria-label="How you reach them"
+              placeholder="How you reach them"
+              aria-describedby={allyChannelHintId}
+              value={allyChannel}
+              onChange={(event) => setAllyChannel(event.target.value)}
+            />
+            <p id={allyChannelHintId} className="text-xs text-muted">
+              {FIELD_HINT.allyChannel}
+            </p>
+          </div>
         </div>
         <button
           type="button"
