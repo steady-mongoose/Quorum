@@ -324,3 +324,21 @@ test("QA #130: at 320 the edge tabs keep their whole focus ring", () => {
   const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
   assert.ok(fluid.includes(".tabbar button:focus-visible{outline-offset:-3px}"));
 });
+
+test("at 640px and up the engravings sit in a strip beside the words, not under them", () => {
+  const strip =
+    '@media (min-width:640px){\n  .door-week,.door-rooms{padding-inline-end:calc(clamp(6.5rem,24%,10rem) + 1.5rem)}\n  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:clamp(6.5rem,24%,10rem);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}\n}';
+  const at = door.indexOf(strip);
+  assert.ok(at >= 0, "strip block");
+  // It follows the 640px art block, so its inset and mask win over the full-card ones.
+  assert.ok(at > door.indexOf("mask-image:linear-gradient(90deg,transparent 18%,#000 62%)"));
+  // Text padding reserves the strip's width plus a gutter, so no text runs over the art.
+  const pad = strip.match(/padding-inline-end:calc\((clamp\([^)]*\)) \+ 1\.5rem\)/);
+  const width = strip.match(/width:(clamp\([^)]*\))/);
+  assert.ok(pad && width && pad[1] === width[1], "padding reserves the strip width");
+  // Nothing later re-widens the art or puts its mask back under the text.
+  const after = door.slice(at + strip.length);
+  assert.doesNotMatch(after, /\.door-(week|rooms)::after\{[^}]*(inset:0[;}]|mask-image)/);
+  // Phones keep no ghosted art.
+  assert.doesNotMatch(door, /@media \(max-width:6[34]\dpx\)\{[^@]*\.door-(week|rooms)::after\{[^}]*content/);
+});
