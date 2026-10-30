@@ -68,6 +68,22 @@ function failure(json: unknown, fallback: string): BoardFailure {
   };
 }
 
+/** The connection hint Home saves add when nothing came back from the api. */
+export const CONNECTION_HINT = "Check your connection and try again.";
+
+/**
+ * Home saves: a reply with no JSON (a proxy 502, an HTML error page) or a dropped fetch means
+ * the api never answered, so it gets the connection hint (QA #132 S4).
+ */
+function homeFailure(json: unknown, fallback: string): BoardFailure {
+  // A dropped fetch or a non-JSON 5xx arrives softened to { error: "api-unavailable" } (api-base.ts).
+  const code = json && typeof json === "object" ? (json as { error?: unknown }).error : undefined;
+  if (!json || typeof json !== "object" || code === "api-unavailable") {
+    return { ok: false, error: `${fallback} ${CONNECTION_HINT}` };
+  }
+  return failure(json, fallback);
+}
+
 async function send(
   path: string,
   body?: unknown,
@@ -604,7 +620,7 @@ export const apiBoardClient: BoardClient = {
   },
   async savePlace(input) {
     const response = await send("/api/place", input);
-    if (!response.ok) return failure(response.json, "That place was not saved.");
+    if (!response.ok) return homeFailure(response.json, "Your place was not saved.");
     return { ok: true };
   },
   async joinRoom(roomId) {
@@ -614,17 +630,17 @@ export const apiBoardClient: BoardClient = {
   },
   async leaveRoom(roomId) {
     const response = await send(`/api/rooms/${encodeURIComponent(roomId)}/leave`, {});
-    if (!response.ok) return failure(response.json, "That room was not left.");
+    if (!response.ok) return homeFailure(response.json, "That room was not left.");
     return { ok: true };
   },
   async requestRoom(input) {
     const response = await send("/api/room-requests", input);
-    if (!response.ok) return failure(response.json, "That request was not saved.");
+    if (!response.ok) return homeFailure(response.json, "Your request was not sent.");
     return { ok: true };
   },
   async decideRoom(id, input) {
     const response = await send(`/api/room-requests/${encodeURIComponent(id)}/decide`, input);
-    if (!response.ok) return failure(response.json, "That decision was not saved.");
+    if (!response.ok) return homeFailure(response.json, "That decision was not saved.");
     return { ok: true };
   },
   async correctZip(input) {
