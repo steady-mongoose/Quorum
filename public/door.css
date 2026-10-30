@@ -220,9 +220,13 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 }
 /* Card under 23.5em (text column would drop under about 18-20em beside the strip): no strip. */
 @container (max-width:23.49em){.door-week::after,.door-rooms::after{display:none}}
-/* Rows stack, term over definition, unless the card has 34em (definitions keep about 18em beside their terms). */
-@container (max-width:33.99em){.door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}}
-@media (min-width:1024px){.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-rooms .door-term{border-bottom:0;padding-bottom:0}}
+/* Rows stack, term over definition, unless the card itself has 34em; the card decides, not the viewport. */
+.door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}
+.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}
+@container (min-width:34em){
+  .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}
+  .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}
+}
 @media (min-width:1024px){
   .door-week::after,.door-rooms::after{background-size:auto 120%}
   .door-week::after{opacity:.4}

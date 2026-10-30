@@ -337,25 +337,18 @@ test("at 640px and up the engravings sit in a strip beside the words, sized by t
   const off = door.indexOf("@container (max-width:23.49em){.door-week::after,.door-rooms::after{display:none}}");
   assert.ok(off > at, "no strip on narrow cards");
   // Rows stack on both cards unless the card has 34em.
-  assert.ok(
-    door.indexOf(
-      "@container (max-width:33.99em){.door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}}",
-    ) > at,
-    "stacked rows",
+  const rows = door.indexOf(
+    ".door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}\n.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}\n@container (min-width:34em){\n  .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}\n  .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}\n}",
   );
+  assert.ok(rows > at, "the card's width is the only switch for two-column rows");
+  assert.doesNotMatch(doorTsx, /<dl className="[^"]*sm:grid-cols/, "no viewport switch for the rows");
+  assert.doesNotMatch(door, /@media \(min-width:1024px\)\{\.door-rooms dl/);
+  // The children keep the strip's reserve: nothing later re-pads them, and none escapes the flow.
+  assert.doesNotMatch(door.slice(off), /\.door-(week|rooms)\s*(>|\s)\s*[^{]*\{[^}]*padding(-inline-end|-right)?:/, "nothing later re-pads a plate child");
+  assert.doesNotMatch(doorTsx, /door-(week|rooms)[^>]*>\s*<[^>]*className="[^"]*\b(contents|absolute)\b/);
   // Container queries use ems, never px, so text size moves the breakpoints.
   for (const q of door.matchAll(/@container \(([^)]*)\)/g)) assert.match(q[1], /^(min|max)-width:[\d.]+em$/);
   // Nothing later re-widens the art or puts a mask back under the words.
   assert.doesNotMatch(door.slice(off), /\.door-(week|rooms)::after\{[^}]*(inset:0[;}]|mask-image)/);
   assert.doesNotMatch(door, /@media \(max-width:6[34]\dpx\)\{[^@]*\.door-(week|rooms)::after\{[^}]*content/);
-});
-
-test("at 1024px and up the rooms card stacks term over description so the words get the column", () => {
-  const rule =
-    "@media (min-width:1024px){.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-rooms .door-term{border-bottom:0;padding-bottom:0}}";
-  const at = door.indexOf(rule);
-  assert.ok(at >= 0, "rooms stack rule");
-  assert.ok(at > door.indexOf(".door-week,.door-rooms{padding-inline-end:"), "after the strip block");
-  assert.match(doorTsx, /<dl className="[^"]*"/);
-  assert.match(doorTsx, /<dt className="door-term">/);
 });
