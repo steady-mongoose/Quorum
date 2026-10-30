@@ -173,6 +173,8 @@ function RingMembers({ roomId }: { roomId: string }) {
         }
         // Not someone who can ring (a plain 200 with canRing false, or a 4xx
         // on the first load): no picker, and nothing to say.
+        // A plain "can't ring" now (host rights gone, say) also ends any earlier evidence.
+        if (status === 200 && row?.canRing === false) canRing.current = false;
         if (status === 200 || (status >= 400 && status < 500 && !retried.current)) {
           setFailed(false);
           setLoadLine("");
@@ -237,7 +239,10 @@ function RingMembers({ roomId }: { roomId: string }) {
     const rung = calling.current;
     if (!rung || !peerIds.includes(rung.id)) return;
     calling.current = null;
-    setStatus((line) => (line.startsWith(`Calling ${rung.name}.`) ? "" : line));
+    // Say so: focus may still be on Call, whose name changes without being read out.
+    setStatus((line) =>
+      line.startsWith(`Calling ${rung.name}.`) ? `${rung.name} joined the call.` : line,
+    );
     setChoice((id) => (id === rung.id ? "" : id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peerKey]);
@@ -337,7 +342,7 @@ function RingMembers({ roomId }: { roomId: string }) {
         </select>
         <button
           type="button"
-          className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-50")}
+          className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
           // aria-disabled, not disabled: a natively disabled button drops focus to the page.
           aria-disabled={!chosen || busy || undefined}
           onClick={() => {

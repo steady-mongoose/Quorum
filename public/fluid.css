@@ -55,6 +55,12 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   padding-bottom:var(--space-4);
 }
 .shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px))}
+/* From 768px the card sits 1.5rem up (md:bottom-6), which --call-card-h does not count. min(var,...) is 0 with no
+   card, so nothing changes then. */
+@media (min-width:768px){
+  html{scroll-padding-bottom:calc(var(--call-card-h,0px) + min(var(--call-card-h,0px),2rem))}
+  .shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px) + min(var(--call-card-h,0px),1.5rem))}
+}
 .outer-art,.side-art{display:none}
 @media (min-width:1600px){
   .outer-art{

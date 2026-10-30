@@ -174,6 +174,19 @@ test("desktop reserves a showing call card too, and the phone rules come after a
   assert.ok(fluid.search(desktopMain) < phoneMain, "the phone main padding comes later");
 });
 
+test("from 768px a showing card's 1.5rem lift is reserved too, and nothing changes with no card (Design L1 on #128)", () => {
+  const block = fluid.match(/@media \(min-width:768px\)\{\n([^@]*?)\n\}/)?.[1] ?? "";
+  assert.match(block, /html\{scroll-padding-bottom:calc\(var\(--call-card-h,0px\) \+ min\(var\(--call-card-h,0px\),2rem\)\)\}/);
+  assert.match(
+    block,
+    /\.shell-body > main\{padding-bottom:calc\(var\(--space-4\) \+ var\(--call-card-h,0px\) \+ min\(var\(--call-card-h,0px\),1\.5rem\)\)\}/,
+  );
+  // Every extra term is the card's height or capped by it, so with no card (0px) both add nothing.
+  const mins = block.match(/min\(/g)?.length ?? 0;
+  assert.equal(mins, 2);
+  assert.equal(block.match(/min\(var\(--call-card-h,0px\),[\d.]+rem\)/g)?.length, mins);
+});
+
 test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {
   assert.match(fluid, /@media \(min-width:768px\)\{:root\{--mast-h:84px\}\}/);
   assert.doesNotMatch(fluid, /--mast-h:97px/);
