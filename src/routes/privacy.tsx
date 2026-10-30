@@ -11,7 +11,7 @@ export const Route = createFileRoute("/privacy")({
 /** Privacy, with no sign-in. The notice is not written yet. */
 function PrivacyPage() {
   return (
-    <PublicDocument>
+    <PublicDocument art="jerome">
       <LegalNotice title="Privacy" />
     </PublicDocument>
   );

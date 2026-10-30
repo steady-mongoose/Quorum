@@ -37,7 +37,6 @@ function pageHtml(css: string): string {
       <main>
         <div class="with-side">
           <div>
-            <img class="hero-band category-engraving" alt="" />
             <section class="plate plate--hero" id="intro">
               <h1>Churches</h1>
               <p id="intro-copy">Parish and congregation rooms.</p>

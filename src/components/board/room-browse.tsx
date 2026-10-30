@@ -8,7 +8,6 @@ import {
   UNCATEGORIZED_SLUG,
   audienceLabel,
   browseCategories,
-  categoryEngraving,
   categoryListed,
   groupBrowseRooms,
   categoryNames,
@@ -142,11 +141,10 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
   );
 }
 
+/** No band: the Rooms plate behind the page already carries it (Design audit, 7a169a5). */
 function CategoryMast({ category }: { category: RoomCategory }) {
-  const art = categoryEngraving(category.slug);
   return (
     <div>
-      <img className="hero-band category-engraving" src={art.src} alt={art.credit} />
       <section className="plate plate--hero pc-head flex flex-col gap-2">
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{category.name}</h1>
         <p className="max-w-prose text-sm text-muted">{category.description}</p>

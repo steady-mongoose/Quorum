@@ -1,6 +1,7 @@
 import type { Section } from "./model.ts";
 
-/** Sections that carry a plate. Martin is only the door. Every signed-in section has one. */
+/** Sections that carry a plate. Martin is the door, and the public About and 404 pages that share its plate.
+ *  Every signed-in section has one. */
 export type ArtSection = Section | "landing" | "signin";
 
 export function artSection(input: {
