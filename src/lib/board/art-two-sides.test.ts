@@ -197,10 +197,11 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
 
 const rootPx = (vw: number) => {
   const css = read("src/styles.css");
-  const m = css.match(/font-size:\s*clamp\((\d+)px,\s*([\d.]+)rem\s*\+\s*([\d.]+)vw,\s*(\d+)px\)/);
+  // In rem, so it follows the browser default; these boxes assume the 16px default.
+  const m = css.match(/font-size:\s*clamp\(([\d.]+)rem,\s*([\d.]+)rem\s*\+\s*([\d.]+)vw,\s*([\d.]+)rem\)/);
   assert.ok(m, "root font-size clamp not found in styles.css");
   const [lo, rem, vwk, hi] = m.slice(1).map(Number);
-  return Math.min(hi, Math.max(lo, rem * 16 + (vwk * vw) / 100));
+  return Math.min(hi * 16, Math.max(lo * 16, rem * 16 + (vwk * vw) / 100));
 };
 const column = (vw: number) => {
   const m = sheets.match(/@media \(min-width:(\d+)px\)\{\[data-entered\] \.shell-body>main\{width:min\(([\d.]+)rem,100%\)/);

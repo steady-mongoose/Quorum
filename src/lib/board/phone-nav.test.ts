@@ -131,7 +131,7 @@ test("tab slots and More rows stay at or above the 44px floor", () => {
   assert.match(fluid, /flex:1/);
   assert.match(fluid, /min-height:max\(44px,56px\)/);
   assert.match(fluid, /min-width:44px/);
-  assert.match(fluid, /font-size:12px/);
+  assert.match(fluid, /font-size:min\(\.75rem,15px\)/);
   assert.match(fluid, /font-weight:500/);
   assert.match(fluid, /width:24px;height:24px/);
   assert.match(fluid, /border-top:2px solid var\(--gold\)/);
@@ -203,7 +203,7 @@ test("the phone bar and the sheet use the agreed names and the 44px floor", () =
   assert.equal(app.includes("lg:whitespace-nowrap"), false);
   const css = source("../../../public/fluid.css");
   assert.match(css, /\.mast\{[^}]*padding-block:0\.75rem/);
-  assert.match(css, /@media \(max-width:1279px\)\{[^}]*\.mast\[data-entered="true"\] \.mast-tagline\{display:none\}/);
+  assert.match(css, /@media \(max-width:79.99em\)\{[^}]*\.mast\[data-entered="true"\] \.mast-tagline\{display:none\}/);
   assert.match(css, /--flag-h:clamp\(36px,4\.5vw,56px\)/);
   assert.match(css, /\.mast-flag\{[^}]*height:var\(--flag-h\)/);
   assert.match(emblem, /src="\/flags\/appeal-to-heaven-gold\.svg"/);

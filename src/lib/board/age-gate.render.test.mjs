@@ -667,7 +667,7 @@ test(".check-gilt is pinned: gilt box, fill, invalid border, team ring, and the 
 
 test("the phone tab bar height is defined for things that must clear it", () => {
   const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
-  const phone = css.indexOf("@media (max-width:767px){\n  /* The tab bar");
+  const phone = css.indexOf("@media (max-width:47.99em){\n  /* The tab bar");
   assert.ok(phone > -1);
   assert.match(css.slice(phone, phone + 200), /:root\{--tabbar-h:57px\}/);
 });

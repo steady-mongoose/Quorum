@@ -88,7 +88,7 @@ test("EB Garamond is a Latin WOFF2 pair of about 100 KB, and only the roman is p
   assert.match(root, /EBGaramond-latin\.woff2/);
   assert.equal(root.includes("EBGaramond-italic-latin.woff2"), false);
   const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  assert.match(styles, /font-size:\s*clamp\(16px,\s*0\.95rem \+ 0\.25vw,\s*18px\)/);
+  assert.match(styles, /font-size:\s*clamp\(1rem,\s*0\.95rem \+ 0\.25vw,\s*1\.125rem\)/);
 });
 
 test("reduced data and the first paint skip the art URL", () => {
@@ -200,4 +200,41 @@ test("the public pages' band labels still name the plate", () => {
   assert.equal(heroLabel("landing"), null);
   assert.match(css, /hero-band/);
   assert.match(css, /margin-art/);
+});
+
+test("the root size follows the reader's default, and the door still fits a phone at large defaults", () => {
+  const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles, /html\s*\{[^}]*font-size:[^;]*\dpx/);
+  const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8");
+  assert.match(door, /\n\.door-columns>\*\{min-width:0\}\n/);
+  assert.match(door, /\n\.door-room\{max-width:100%;white-space:normal;overflow-wrap:break-word;hyphens:auto\}\n@media \(max-width:30em\)\{\.door-room\{letter-spacing:\.03em;padding-inline:\.5em\}\}\n/);
+});
+
+test("no font size is fixed in px, so text follows the reader's default", () => {
+  // Allowed px: a ceiling inside min()/clamp() next to a rem value (the tab labels stop at 15px).
+  const allow = [/font-size:min\(\.75rem,15px\)/];
+  const bad: string[] = [];
+  const walk = (dir: string, ok: (f: string) => boolean) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p, ok);
+      else if (ok(p) && !/\.test\./.test(p)) {
+        const text = readFileSync(p, "utf8");
+        for (const m of text.matchAll(/text-\[\d+(\.\d+)?px\]|font-size:\s*[^;}"]*\d+(\.\d+)?px[^;}"]*|font:\s*\d+(\.\d+)?px/g)) {
+          if (!allow.some((a) => a.test(m[0]))) bad.push(`${p}: ${m[0]}`);
+        }
+      }
+    }
+  };
+  const src = new URL("../../", import.meta.url).pathname;
+  walk(join(src, "components"), (f) => /\.tsx?$/.test(f));
+  walk(join(src, "lib"), (f) => /\.tsx?$/.test(f));
+  walk(join(src, "routes"), (f) => /\.tsx?$/.test(f));
+  const pub = new URL("../../../public", import.meta.url).pathname;
+  for (const name of readdirSync(pub).filter((n) => n.endsWith(".css"))) {
+    for (const m of readFileSync(join(pub, name), "utf8").matchAll(/font-size:\s*[^;}"]*\d+(\.\d+)?px[^;}"]*|font:\s*\d+(\.\d+)?px/g)) {
+      if (!allow.some((a) => a.test(m[0]))) bad.push(`public/${name}: ${m[0]}`);
+    }
+  }
+  assert.deepEqual(bad, []);
 });

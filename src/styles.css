@@ -58,8 +58,9 @@
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Body text: 16px on a phone, 18px on a wide desktop. */
-    font-size: clamp(16px, 0.95rem + 0.25vw, 18px);
+    /* Body text: the reader's own default size on a phone (16px unless they changed it), up to 1.125x that on
+       a wide desktop. In rem so a larger browser default text size is respected. */
+    font-size: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
   }
 
   body {
