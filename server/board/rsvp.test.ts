@@ -423,25 +423,40 @@ test("who sees what, by role: admin, owner, host, steward, member, signed out", 
       assert.deepEqual(rows, ["G:Maria:true:false", "M:Dale:true:false", "M:Tom:true:false"]);
     }
 
-    // Steward of the room (Sam, shop): who is going, in every shop gathering,
-    // but never who came.
+    // Steward of the room (Sam, shop): who is going and who came, in every
+    // shop gathering (Josh, 9:24 PM ET), read only.
     {
       const { body, rows } = await seen(t, t.sam);
       assert.equal(body.admin, false);
       assert.deepEqual(body.stewardRooms, ["shop"]);
-      assert.deepEqual(rows, ["G:Maria:true:false", "G:Tom:true:false", "M:Dale:true:false", "M:Tom:true:false"]);
+      assert.deepEqual(rows, everyone);
       const one = (await (await call(t.handler, t.sam, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
         people?: { name: string; attended: boolean }[];
       };
       assert.deepEqual(one.people?.map((p) => [p.name, p.attended]), [
         ["Maria", false],
-        ["Tom", false],
+        ["Tom", true],
       ]);
-      // A steward does not mark who came.
+      // A steward reads who came but does not mark it: not for others, not for themselves.
       const mark = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/attendance`, {
         userIds: [t.maria.id],
       });
       assert.equal(mark.status, 403);
+      const close = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+        userIds: [],
+        close: true,
+      });
+      assert.equal(close.status, 403);
+      const self = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+      assert.equal(self.status, 403);
+      // Nothing changed: Maria is still not marked.
+      const after = (await (await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
+        people?: { name: string; attended: boolean }[];
+      };
+      assert.deepEqual(after.people?.map((p) => [p.name, p.attended]), [
+        ["Maria", false],
+        ["Tom", true],
+      ]);
     }
 
     // Steward of another room (Cara, county): nothing about shop gatherings.
@@ -463,6 +478,9 @@ test("who sees what, by role: admin, owner, host, steward, member, signed out", 
       assert.equal(/count|total|score|like/i.test(text), false);
       const one = await (await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
       assert.deepEqual(one, { mine: { going: true, attended: true } });
+      // Not who came either: Maria's row (going, not came) and every other row stay out.
+      const other = await (await call(t.handler, t.tom, "GET", `/api/gatherings/${MARIAS}/rsvps`)).json();
+      assert.deepEqual(other, { mine: { going: true, attended: false } });
     }
 
     // Signed out.

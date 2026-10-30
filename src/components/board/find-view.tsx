@@ -34,6 +34,7 @@ import {
   type RoomId,
   forViewer,
   seesGoing,
+  seesCame,
   takesRoll,
 } from "@/lib/board/model";
 import { rollCallFor, rollKey, toggleRoll } from "@/lib/board/rsvp-api";
@@ -401,7 +402,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             title={went ? "happened" : "missed"}
           />
         ))}
-        {takesRoll(card) ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
+        {seesCame(card) ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
         {seesGoing(card) && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 

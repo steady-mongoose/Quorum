@@ -666,13 +666,21 @@ export const useBoard = create<BoardState>()(
       /**
        * Only the server's rsvp-not-ready (0049 not applied yet) keeps a change
        * on this device. Anything else, a dropped connection included, is a
-       * failure: the screen does not change and the member is told.
+       * failure: the screen does not change and the member is told. The RSVP
+       * button passes banner: false, because its own line says it (one message,
+       * not two); "I went" and the close have no line, so they use the banner.
        */
-      const savedOrLocal = (result: { ok: true } | RsvpFail, message: string) => {
+      const savedOrLocal = (
+        result: { ok: true } | RsvpFail,
+        message: string,
+        options: { banner?: boolean } = {},
+      ) => {
         if (result.ok || result.code === RSVP_NOT_READY) return true;
-        set({ boardError: message });
+        if (options.banner !== false) set({ boardError: message });
         return false;
       };
+      /** One "I went" save per card at a time. */
+      const visitInFlight = new Set<string>();
       let posting = false;
 
       const applySnapshot = (board: BoardSnapshot) => {
@@ -1326,6 +1334,7 @@ export const useBoard = create<BoardState>()(
             rsvpPending: [...get().rsvpPending.filter((item) => item !== id), id],
             rsvpFailed: get().rsvpFailed.filter((item) => item !== id),
           });
+          const failed = () => set({ rsvpFailed: [...get().rsvpFailed.filter((item) => item !== id), id] });
           void (async () => {
             try {
               const loaded = await (await getBoardClient()).load({ room: card.room });
@@ -1338,6 +1347,9 @@ export const useBoard = create<BoardState>()(
                     roomHoldBack: { section: get().section, room: get().room },
                     boardError: "",
                   });
+                } else {
+                  // The board did not load: nothing was sent, and the line says so.
+                  failed();
                 }
                 return;
               }
@@ -1345,11 +1357,13 @@ export const useBoard = create<BoardState>()(
                 put(going);
                 return;
               }
-              if (savedOrLocal(await saveMyRsvp(card.id, { going }), RSVP_NOT_SAVED)) {
+              if (savedOrLocal(await saveMyRsvp(card.id, { going }), RSVP_NOT_SAVED, { banner: false })) {
                 put(going);
               } else {
-                set({ rsvpFailed: [...get().rsvpFailed.filter((item) => item !== id), id] });
+                failed();
               }
+            } catch {
+              failed();
             } finally {
               rsvpInFlight.delete(id);
               set({ rsvpPending: get().rsvpPending.filter((item) => item !== id) });
@@ -1360,14 +1374,30 @@ export const useBoard = create<BoardState>()(
           const card = get().cards.find((item) => item.id === id);
           // Only the host or an admin marks who came (Josh, Oct 29).
           if (!card || !marksCame(card)) return;
-          patchCard(id, (item) => ({
-            ...item,
-            unverified: false,
-            wentBy: addName(item.wentBy, me()),
-          }));
-          if (get().remote && isGatheringId(id)) {
-            void saveMyRsvp(id, { attended: true }).then((saved) => savedOrLocal(saved, RSVP_NOT_SAVED));
+          const mark = () =>
+            patchCard(id, (item) => ({
+              ...item,
+              unverified: false,
+              wentBy: addName(item.wentBy, me()),
+            }));
+          if (!get().remote || !isGatheringId(id)) {
+            mark();
+            return;
           }
+          // Save first. The card changes only when the server has it, or when
+          // 0049 is not applied yet (kept on this device). Any other failure
+          // leaves the card as it was and says so.
+          if (visitInFlight.has(id)) return;
+          visitInFlight.add(id);
+          void (async () => {
+            try {
+              if (savedOrLocal(await saveMyRsvp(id, { attended: true }), RSVP_NOT_SAVED)) mark();
+            } catch {
+              set({ boardError: RSVP_NOT_SAVED });
+            } finally {
+              visitInFlight.delete(id);
+            }
+          })();
         },
         removeCard: async (id) => {
           const cards = get().cards;

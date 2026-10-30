@@ -85,7 +85,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .btn-rsvp[data-tapped] + .rsvp-mark .rule{transition:transform 360ms var(--ease-press)}
 .btn-rsvp[data-tapped] + .rsvp-mark .laurel{transition:opacity 360ms 120ms ease-out}
 @media (prefers-reduced-motion: reduce){.rsvp-mark .rule,.rsvp-mark .laurel{transition:none!important}}
-.btn-rsvp[aria-disabled="true"]{opacity:.5;cursor:wait}
+.btn-rsvp[aria-disabled="true"]{opacity:.75;cursor:wait}
 .btn-rsvp.btn-primary + .rsvp-mark .rule{transform:scaleX(1)}.btn-rsvp.btn-primary + .rsvp-mark .laurel{opacity:1}
 .quote-hold{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 @keyframes ink-settle{from{opacity:0}to{opacity:1}} .post-new{animation:ink-settle var(--dur-ink) ease-out both}

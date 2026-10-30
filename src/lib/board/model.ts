@@ -1255,7 +1255,8 @@ export type RsvpViewer = {
  * Josh, Oct 29, 9:04 PM ET (replaces #91's admin-only rule):
  *   - an admin (the owner is an admin) sees everything;
  *   - a card's host sees who is going and who came, on their own cards;
- *   - a steward sees who is going on cards in the rooms they steward;
+ *   - a steward sees who is going and who came on cards in the rooms they
+ *     steward (9:24 PM ET), but does not mark who came;
  *   - anyone else sees only their own "You're going".
  * The server already filters the same way in SQL (server/board/rsvp.ts).
  */
@@ -1273,7 +1274,7 @@ export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
   const seeing = rsvpSight(card, viewer);
   const own = (names: string[] | undefined) => (names ?? []).filter((name) => name === viewer.name);
   if (seeing === "all" || seeing === "host") return { ...card, seeing };
-  if (seeing === "steward") return { ...card, seeing, wentBy: own(card.wentBy) };
+  if (seeing === "steward") return { ...card, seeing };
   const mine: MeetingCard = { ...card, going: own(card.going), wentBy: own(card.wentBy) };
   delete mine.seeing;
   return mine;
@@ -1284,7 +1285,12 @@ export function seesGoing(card: MeetingCard): boolean {
   return card.seeing === "all" || card.seeing === "host" || card.seeing === "steward";
 }
 
-/** May this viewer see who came, and mark who came? Only the host or an admin. */
+/** May this viewer read who came? The host, an admin, or a steward of the room. */
+export function seesCame(card: MeetingCard): boolean {
+  return seesGoing(card);
+}
+
+/** May this viewer mark who came? Only the host or an admin. */
 export function takesRoll(card: MeetingCard): boolean {
   return card.seeing === "all" || card.seeing === "host";
 }

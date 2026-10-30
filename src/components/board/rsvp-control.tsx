@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Laurel } from "@/components/board/laurel";
 import { btn } from "@/components/quorum/bits";
 import { gatheringShare } from "@/lib/board/gathering";
 import { cn } from "@/lib/cn";
 import { roomById, type MeetingCard } from "@/lib/board/model";
+import { RSVP_NOT_SAVED } from "@/lib/board/rsvp-api";
 import { useBoard } from "@/lib/board/store";
 
 /**
@@ -15,6 +16,9 @@ import { useBoard } from "@/lib/board/store";
  * save leaves the button as it was and says so underneath. The share control
  * stays off until the organizer turns sharing on for this gathering.
  */
+/** The laurel's draw (360ms, plus 120ms delay on the leaves) with room to spare. */
+const RSVP_DRAW_MS = 700;
+
 export function RsvpControl({
   card,
   going,
@@ -27,6 +31,14 @@ export function RsvpControl({
   const pending = useBoard((state) => state.rsvpPending.includes(card.id));
   const failed = useBoard((state) => state.rsvpFailed.includes(card.id));
   const [tapped, setTapped] = useState(false);
+  // The laurel draws in once per tap. When the save is back and the draw has
+  // had time to finish, drop data-tapped so a later change from the server
+  // shows the mark as it is, without animating.
+  useEffect(() => {
+    if (!tapped || pending) return;
+    const timer = setTimeout(() => setTapped(false), RSVP_DRAW_MS);
+    return () => clearTimeout(timer);
+  }, [tapped, pending]);
   return (
     <div className="mt-3 flex flex-col items-start gap-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -56,7 +68,7 @@ export function RsvpControl({
         </div>
       </div>
       <p className={cn("text-sm text-danger", !(failed && !pending) && "sr-only")} role="status">
-        {failed && !pending ? "Not saved. Try again." : ""}
+        {failed && !pending ? RSVP_NOT_SAVED : ""}
       </p>
       {going && card.sharePublic ? <ShareGathering card={card} /> : null}
     </div>

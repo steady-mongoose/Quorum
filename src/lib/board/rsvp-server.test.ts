@@ -1,7 +1,7 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { forViewer, newCard, seesGoing, takesRoll, type MeetingCard } from "./model.ts";
+import { forViewer, newCard, seesCame, seesGoing, takesRoll, type MeetingCard } from "./model.ts";
 import { SEED_CARDS } from "./seed-cards.ts";
 import { ROOMS } from "./model.ts";
 import {
@@ -195,23 +195,25 @@ test("a signed-in RSVP is saved on the server first; only rsvp-not-ready stays o
     assert.equal(useBoard.getState().boardError, "");
 
     // A dropped connection (softenFetch makes it a 503 api-unavailable) is a
-    // failure: the button does not change and the member is told.
+    // failure: the button does not change and the line under it says so. The
+    // page banner stays empty, so the failure is announced once, not twice.
     mode = "throw";
     useBoard.getState().rsvp(G1);
     await settle();
     assert.deepEqual(sent.at(-1), { going: true });
     assert.deepEqual(useBoard.getState().cards[0]?.going, []);
-    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+    assert.equal(useBoard.getState().boardError, "");
     assert.deepEqual(useBoard.getState().rsvpFailed, [G1]);
     assert.deepEqual(useBoard.getState().rsvpPending, []);
 
     // Any other refusal: the same.
-    useBoard.setState({ boardError: "" });
+    useBoard.setState({ rsvpFailed: [] });
     mode = "forbidden";
     useBoard.getState().rsvp(G1);
     await settle();
     assert.deepEqual(useBoard.getState().cards[0]?.going, []);
-    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+    assert.equal(useBoard.getState().boardError, "");
+    assert.deepEqual(useBoard.getState().rsvpFailed, [G1]);
 
     // The next good tap clears the "Not saved" line.
     mode = "ok";
@@ -261,7 +263,7 @@ test("two quick taps send one request, and the screen ends matching the server",
   }
 });
 
-test("a host sees their own gathering's going and came; a steward sees going in their rooms only", () => {
+test("a host sees their own gathering's going and came; a steward reads going and came in their rooms only", () => {
   const G3 = "8d3b4c5e-6f70-4c8d-8e9f-1a2b3c4d5e6f";
   const rows = [
     { gatheringId: G1, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: true },
@@ -281,11 +283,13 @@ test("a host sees their own gathering's going and came; a steward sees going in 
   assert.deepEqual(hosted[2]?.going, []);
   assert.deepEqual(Object.keys(rollCallPeople(host, "Me")), [G1]);
 
-  // Steward of shop: going on G1 and G2, never who came; nothing in county.
+  // Steward of shop: going and who came on G1 and G2 (Josh, 9:24 PM ET);
+  // nothing in county; no roll call, because a steward does not mark.
   const steward: RsvpList = { viewer: "u-me", admin: false, hosts: [], stewardRooms: ["shop"], rsvps: rows };
   const stewarded = applyServerRsvps(cards, steward, { me: "Me", gatheringIds: ids });
   assert.deepEqual(stewarded[0]?.going, ["Tom"]);
-  assert.deepEqual(stewarded[0]?.wentBy, []);
+  assert.deepEqual(stewarded[0]?.wentBy.sort(), ["Ann", "Tom"]);
+  assert.deepEqual(stewarded[2]?.wentBy, []);
   assert.deepEqual(stewarded[1]?.going, ["Tom"]);
   assert.deepEqual(stewarded[2]?.going, []);
   assert.deepEqual(rollCallPeople(steward, "Me"), {});
@@ -296,31 +300,33 @@ test("forViewer: admin, host, steward and member each see what Josh allowed", ()
   const admin = forViewer(full, { admin: true, name: "Me" });
   assert.equal(admin.seeing, "all");
   assert.deepEqual(admin.going, ["Ann", "Me", "Tom"]);
-  assert.ok(seesGoing(admin) && takesRoll(admin));
+  assert.ok(seesGoing(admin) && seesCame(admin) && takesRoll(admin));
 
   const host = forViewer(full, { admin: false, name: "Dale" });
   assert.equal(host.seeing, "host");
   assert.deepEqual(host.wentBy, ["Tom", "Me"]);
-  assert.ok(seesGoing(host) && takesRoll(host));
+  assert.ok(seesGoing(host) && seesCame(host) && takesRoll(host));
   // Host by server id, too.
   assert.equal(forViewer(full, { admin: false, name: "Me", hosts: [G1] }).seeing, "host");
 
   const steward = forViewer(full, { admin: false, name: "Me", stewardRooms: ["shop"] });
   assert.equal(steward.seeing, "steward");
   assert.deepEqual(steward.going, ["Ann", "Me", "Tom"]);
-  assert.deepEqual(steward.wentBy, ["Me"]);
-  assert.ok(seesGoing(steward));
+  // Reads who came (Josh, 9:24 PM ET); does not mark it.
+  assert.deepEqual(steward.wentBy, ["Tom", "Me"]);
+  assert.ok(seesGoing(steward) && seesCame(steward));
   assert.equal(takesRoll(steward), false);
 
   const otherRoom = forViewer(full, { admin: false, name: "Me", stewardRooms: ["county"] });
   assert.equal(otherRoom.seeing, undefined);
   assert.deepEqual(otherRoom.going, ["Me"]);
+  assert.deepEqual(otherRoom.wentBy, ["Me"]);
 
   const member = forViewer({ ...full, seeing: "all" }, { admin: false, name: "Me" });
   assert.equal(member.seeing, undefined);
   assert.deepEqual(member.going, ["Me"]);
   assert.deepEqual(member.wentBy, ["Me"]);
-  assert.equal(seesGoing(member) || takesRoll(member), false);
+  assert.equal(seesGoing(member) || seesCame(member) || takesRoll(member), false);
 });
 
 test("the roll call sends member ids, so two people with one name are not mixed up", () => {
@@ -405,6 +411,106 @@ test("a member cannot mark 'I've been'; the host can", async () => {
     await settle();
     assert.deepEqual(useBoard.getState().cards[0]?.wentBy, ["Dale"]);
     assert.deepEqual(sent, [`/api/gatherings/${G1}/rsvp {"attended":true}`]);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("a board that does not load, or throws, before an RSVP shows the line and sends nothing", async () => {
+  const sent: unknown[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    sent.push(String(input), init?.body);
+    return new Response(JSON.stringify({ mine: {} }), { status: 200 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const client = (load: () => Promise<unknown>) =>
+    new Proxy({} as BoardClient, {
+      get: (_t, key) => (key === "then" ? undefined : key === "load" ? load : async () => ({ ok: true })),
+    });
+  try {
+    setBoardClient(client(async () => ({ ok: false, error: "The board did not load.", code: "api-unavailable" })));
+    useBoard.setState({ remote: true, me: "Me", boardError: "", rsvpFailed: [], rsvpPending: [], cards: [card(G1)] });
+    useBoard.getState().rsvp(G1);
+    await settle();
+    assert.deepEqual(sent, []);
+    assert.deepEqual(useBoard.getState().cards[0]?.going, []);
+    assert.deepEqual(useBoard.getState().rsvpFailed, [G1]);
+    assert.deepEqual(useBoard.getState().rsvpPending, []);
+
+    setBoardClient(client(async () => {
+      throw new TypeError("Failed to fetch");
+    }));
+    useBoard.setState({ rsvpFailed: [] });
+    useBoard.getState().rsvp(G1);
+    await settle();
+    assert.deepEqual(sent, []);
+    assert.deepEqual(useBoard.getState().cards[0]?.going, []);
+    assert.deepEqual(useBoard.getState().rsvpFailed, [G1]);
+    assert.deepEqual(useBoard.getState().rsvpPending, []);
+    assert.equal(useBoard.getState().boardError, "");
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("\"I went\" is saved first: the card changes only on success or rsvp-not-ready", async () => {
+  const sent: unknown[] = [];
+  let mode: "ok" | "not-ready" | "throw" | "forbidden" = "throw";
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G1}/rsvp`) {
+      sent.push(JSON.parse(String(init?.body)));
+      if (mode === "throw") throw new TypeError("Failed to fetch");
+      if (mode === "not-ready") return new Response(JSON.stringify({ error: "rsvp-not-ready" }), { status: 503 });
+      if (mode === "forbidden") return new Response(JSON.stringify({ error: "Not found." }), { status: 404 });
+      return new Response(JSON.stringify({ mine: { going: false, attended: true } }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  // The host of the card: the only kind of non-admin who marks who came.
+  const hosted = () => card(G1, { host: "Me", unverified: true });
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, admin: false, me: "Me", boardError: "", rsvpHosts: [], cards: [hosted()] });
+
+    // fetch throws: nothing changes, and the banner says so.
+    useBoard.getState().visited(G1);
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, [], "not marked before the server answers");
+    await settle();
+    assert.deepEqual(sent, [{ attended: true }]);
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
+    assert.equal(useBoard.getState().cards[0]?.unverified, true);
+    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+
+    // Any other refusal: the same.
+    useBoard.setState({ boardError: "" });
+    mode = "forbidden";
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
+    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+
+    // Before 0049: kept on this device, no error.
+    useBoard.setState({ boardError: "", cards: [hosted()] });
+    mode = "not-ready";
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, ["Me"]);
+    assert.equal(useBoard.getState().cards[0]?.unverified, false);
+    assert.equal(useBoard.getState().boardError, "");
+
+    // Saved on the server: marked.
+    useBoard.setState({ boardError: "", cards: [hosted()] });
+    mode = "ok";
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, ["Me"]);
+    assert.equal(useBoard.getState().boardError, "");
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);

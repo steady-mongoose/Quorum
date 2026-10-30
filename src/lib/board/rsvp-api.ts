@@ -168,8 +168,9 @@ export function rowSight(list: RsvpList, row: ServerRsvp): { see: boolean; came:
   if (list.admin || row.userId === list.viewer || list.hosts.includes(row.gatheringId)) {
     return { see: true, came: true };
   }
-  if (row.going && row.roomId !== "" && list.stewardRooms.includes(row.roomId)) {
-    return { see: true, came: false };
+  // A steward reads going and came in their rooms (Josh, 9:24 PM); marking stays with the host and admins.
+  if (row.roomId !== "" && list.stewardRooms.includes(row.roomId)) {
+    return { see: true, came: true };
   }
   return { see: false, came: false };
 }

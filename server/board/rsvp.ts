@@ -7,11 +7,12 @@ import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 /**
  * RSVPs and attendance, stored on the server (migration 0049).
  *
- * Josh's rule (Oct 29, 9:04 PM ET, replacing #91's admin-only rule):
+ * Josh's rule (Oct 29, 9:04 PM ET, replacing #91's admin-only rule; stewards
+ * read who came from 9:24 PM ET):
  *   - An admin (the owner is an admin) sees everyone who is going and who came.
  *   - A gathering's host sees who is going to, and who came to, that gathering.
- *   - A steward sees who is going to gatherings in the rooms they steward.
- *     Not who came: that stays with the host and admins.
+ *   - A steward sees who is going to, and who came to, gatherings in the
+ *     rooms they steward. Read only: a steward does not mark who came.
  *   - Anyone else sees only their own "You're going". Never a name, never a number.
  *   - Only the host or an admin marks who came. A member cannot mark themselves.
  * The same rule runs in SQL here and in forViewer (src/lib/board/model.ts).
@@ -118,9 +119,8 @@ export type RsvpReader = { userId: string; admin: boolean; stewardRooms: readonl
  *   - an admin gets every row;
  *   - my own row, always;
  *   - the host of a gathering gets every row for it, going and came;
- *   - a steward of the gathering's room gets the rows that say "going", and
- *     `attended` is reported false on them (who came is the host's and the
- *     admins' to see).
+ *   - a steward of the gathering's room gets every row for it, going and
+ *     came, to read (marking who came stays with the host and admins).
  */
 export async function readRsvps(
   db: Db,
@@ -129,8 +129,7 @@ export async function readRsvps(
   if (input.gatheringIds.length === 0) return [];
   const rows = await db.query<DbRow>(
     `select r.gathering_id, g.room_id, r.user_id, u.name, r.going,
-            case when $2::boolean or r.user_id = $3 or g.host_user_id = $3
-                 then r.attended else false end as attended
+            r.attended
      from gathering_rsvp r
      join "user" u on u.id = r.user_id
      join public_gathering g on g.id = r.gathering_id
@@ -139,7 +138,7 @@ export async function readRsvps(
          $2::boolean
          or r.user_id = $3
          or g.host_user_id = $3
-         or (r.going and g.room_id <> '' and g.room_id = any ($4::text[]))
+         or (g.room_id <> '' and g.room_id = any ($4::text[]))
        )
      order by r.gathering_id, u.name, r.user_id`,
     [input.gatheringIds, input.admin, input.userId, [...input.stewardRooms]],
