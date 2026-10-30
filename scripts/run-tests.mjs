@@ -161,6 +161,7 @@ const appTests = [
   "server/board/reports.test.ts",
   "src/lib/board/report-control.render.test.mjs",
   "src/lib/board/moderation-queue.render.test.mjs",
+  "src/lib/board/this-week-boxes.render.test.mjs",
   "server/board/categories.test.ts",
   "server/board/categories.postgres.test.ts",
   "server/board/rooms-admin.test.ts",

@@ -74,7 +74,8 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /<AppealMark \/>/);
   assert.match(app, /className="mast-name">\{APP_NAME\}/);
   assert.match(app, /"mast-tagline"/);
-  assert.match(app, /max-xl:hidden xl:whitespace-nowrap/);
+  // Signed in, the tagline was cut off beside the nav (Josh, Oct 29), so it shows only signed out.
+  assert.match(app, /\{entered \? null : <p className="mast-tagline">\{TAGLINE\}<\/p>\}/);
   assert.match(app, /\{TAGLINE\}/);
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);

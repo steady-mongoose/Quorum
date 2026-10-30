@@ -34,12 +34,13 @@ test("claim copy names the code, the email, and the member steps", () => {
   assert.match(queue, /Code to look for:/);
   assert.match(queue, /Email given:/);
   assert.match(queue, /Open their site/);
-  assert.match(queue, /Step 1 of 2: which listing\?/);
+  assert.match(queue, /Step 1 of 2: Find your listing/);
   assert.match(queue, /Step 2 of 2: add this code to your website/);
   assert.match(queue, /\n\s+Copy\n/);
-  assert.match(queue, /Hosting a church or group that's already listed\?/);
+  assert.match(queue, /Run a church or group that's already listed here\?/);
   assert.match(queue, /role="alert"/);
-  assert.match(queue, /className="plate flex flex-col gap-4"/);
+  assert.match(queue, /className="card pc-card flex flex-col gap-4 p-4 sm:p-5"/);
+  assert.equal(queue.includes('className="plate '), false);
   assert.equal(queue.includes("plate-flat"), false);
   assert.equal(source("../../../public/fluid.css").includes(".plate .plate"), false);
   assert.equal(source("../../../public/fluid.css").includes("plate-flat"), false);

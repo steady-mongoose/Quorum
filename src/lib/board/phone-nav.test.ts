@@ -198,7 +198,8 @@ test("the phone bar and the sheet use the agreed names and the 44px floor", () =
   const markAt = app.indexOf("<AppealMark />");
   const nameAt = app.indexOf("{APP_NAME}");
   assert.ok(markAt > -1 && nameAt > markAt);
-  assert.match(app, /max-xl:hidden xl:whitespace-nowrap/);
+  // Signed in, the tagline was cut off beside the nav, so it shows only signed out.
+  assert.match(app, /\{entered \? null : <p className="mast-tagline">\{TAGLINE\}<\/p>\}/);
   assert.equal(app.includes("lg:whitespace-nowrap"), false);
   const css = source("../../../public/fluid.css");
   assert.match(css, /\.mast\{[^}]*padding-block:0\.75rem/);

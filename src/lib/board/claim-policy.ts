@@ -34,9 +34,24 @@ export const CLAIM_ALLOWED_METHODS: readonly ClaimMethod[] = [
 ];
 
 export const CLAIM_METHOD_LABEL: Record<ClaimMethod, string> = {
-  site_code: "Add a short code to your organization's website (fastest)",
-  domain_email: "Use an email at your organization's address (like pastor@yourchurch.org)",
-  steward_review: "Ask a steward to vouch for you (slower)",
+  site_code: "Add a code to your website",
+  domain_email: "Get a code by email",
+  steward_review: "Ask for a review by hand",
+};
+
+/**
+ * One line under each option: what the member does and what happens after.
+ * site_code: the server fetches the page when a steward asks it to check.
+ * domain_email: the address must be on the listing's website domain, not a shared mail host.
+ * steward_review: with no code, only an admin can approve, so it is the slowest.
+ */
+export const CLAIM_METHOD_HINT: Record<ClaimMethod, string> = {
+  site_code:
+    "We give you a short code to put on your homepage or About page. A steward then checks your site for it. Usually the fastest.",
+  domain_email:
+    "We email a code to an address on your organization's own website domain. Free mail services like Gmail don't count. You type the code here.",
+  steward_review:
+    "No code. An admin looks into your request by hand and decides. This takes the longest.",
 };
 
 export const CLAIM_PENDING_MS = 14 * 24 * 60 * 60 * 1000;

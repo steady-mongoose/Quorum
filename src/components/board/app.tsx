@@ -303,9 +303,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
             <AppealMark />
             <div className="mast-titles">
               <p className="mast-name">{APP_NAME}</p>
-              <p className={cn("mast-tagline", entered && "max-xl:hidden xl:whitespace-nowrap")}>
-                {TAGLINE}
-              </p>
+              {/* Signed in, the nav fills the bar and the one-line tagline was cut off, so it shows only at the door. */}
+              {entered ? null : <p className="mast-tagline">{TAGLINE}</p>}
             </div>
           </div>
           <div className="mast-actions">

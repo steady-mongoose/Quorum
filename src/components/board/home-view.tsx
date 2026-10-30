@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ClaimsPanel } from "@/components/board/claims-queue";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
+import { cn } from "@/lib/cn";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
 import { RoomAudienceMark } from "@/components/board/audience";
@@ -23,38 +24,86 @@ export function HomePanel() {
   const [stateCode, setStateCode] = useState("");
   const [placeError, setPlaceError] = useState("");
   const [requestError, setRequestError] = useState("");
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestSent, setRequestSent] = useState("");
+  const kindRef = useRef<HTMLSelectElement>(null);
+  const sentRef = useRef<HTMLParagraphElement>(null);
+  const focusKind = useRef(false);
 
   useEffect(() => {
     setZip(home?.zip ?? "");
     setCongregationId(home?.congregationId ?? "");
   }, [home?.zip, home?.congregationId]);
 
+  // Opening "Request a new place" moves focus to its first field (Kind), from the button or from the claim picker.
+  useEffect(() => {
+    if (requestOpen && focusKind.current) {
+      focusKind.current = false;
+      kindRef.current?.focus();
+    }
+  }, [requestOpen]);
+
+  useEffect(() => {
+    if (requestSent) sentRef.current?.focus();
+  }, [requestSent]);
+
   if (!home) return null;
 
+  const openRequest = () => {
+    setRequestSent("");
+    if (requestOpen) {
+      kindRef.current?.focus();
+      return;
+    }
+    focusKind.current = true;
+    setRequestOpen(true);
+  };
+
+  // The ZIP note's way out is a real button that opens Request a new place on Kind (QA #123 S4).
   const zipNote =
-    home.zip && !home.townId
-      ? "No town for that ZIP"
-      : home.townName
-        ? `Town: ${home.townName}`
-        : "";
+    home.zip && !home.townId ? (
+      <>
+        There is no town room for ZIP {home.zip} yet.{" "}
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center text-fg underline underline-offset-4"
+          aria-expanded={requestOpen}
+          aria-controls="request-place-form"
+          onClick={() => {
+            setKind("town");
+            openRequest();
+          }}
+        >
+          Ask for one with Request a new place
+        </button>
+      </>
+    ) : home.townName ? (
+      `Your town room: ${home.townName}`
+    ) : (
+      ""
+    );
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="card pc-card flex flex-col gap-2 p-4 sm:p-5">
-        <Kicker>Home</Kicker>
-        <h2 className="font-display text-3xl text-fg">Nearest first</h2>
-        <p className="max-w-prose text-sm text-muted">
-          Rooms you have joined, then your ZIP town, then your congregation, then farther out. A
-          council approval is a label above those rooms. Nothing here is ranked.
-        </p>
-      </div>
-
-      {home.sections.map((section) => (
-        <HomeSectionBlock key={section.tier} section={section} onOpen={setRoom} />
-      ))}
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="home-h">
+        <div className="flex flex-col gap-2">
+          <h2 id="home-h" className="font-display text-3xl text-fg">
+            Your rooms, nearest first
+          </h2>
+          <p className="max-w-prose text-sm text-muted">
+            Rooms you have joined, then your town, then your congregation, then the wider area. The
+            order comes from where you are, not from activity or popularity. A post the council
+            approved shows above them with a label.
+          </p>
+        </div>
+        {home.sections.map((section) => (
+          <HomeSectionBlock key={section.tier} section={section} onOpen={setRoom} />
+        ))}
+      </section>
 
       <form
-        className="grid gap-3 rounded-lg border border-line bg-surface p-4 sm:grid-cols-2"
+        className="card pc-card grid gap-4 p-4 sm:p-5 sm:grid-cols-2"
+        aria-labelledby="place-h"
         onSubmit={(event) => {
           event.preventDefault();
           setPlaceError("");
@@ -63,22 +112,37 @@ export function HomePanel() {
           });
         }}
       >
-        <h3 className="text-lg text-fg sm:col-span-2">Your place</h3>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          ZIP
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <h3 id="place-h" className="font-display text-2xl text-fg">
+            Your place
+          </h3>
+          <p className="max-w-prose text-sm text-muted">
+            Your ZIP sets your town room. Your congregation sets your church's room.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="place-zip" className="text-sm text-muted">
+            ZIP
+          </label>
           <input
+            id="place-zip"
             className={fieldClass}
             inputMode="numeric"
+            autoComplete="postal-code"
+            aria-describedby="place-zip-note"
             value={zip}
             onChange={(event) => setZip(event.target.value)}
           />
-        </label>
-        <p className="text-[0.8125rem] text-muted sm:col-span-2" aria-live="polite">
-          {zipNote}
-        </p>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Congregation
+          <p id="place-zip-note" className="text-sm text-muted" aria-live="polite">
+            {zipNote}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="place-congregation" className="text-sm text-muted">
+            Congregation
+          </label>
           <select
+            id="place-congregation"
             className={fieldClass}
             value={congregationId}
             onChange={(event) => setCongregationId(event.target.value)}
@@ -90,8 +154,11 @@ export function HomePanel() {
               </option>
             ))}
           </select>
-        </label>
-        <button type="submit" className={btnSignal}>
+        </div>
+        <button
+          type="submit"
+          className={cn(btnSignal, "w-full justify-self-start sm:col-span-2 sm:w-auto")}
+        >
           Save place
         </button>
         {placeError ? (
@@ -101,15 +168,38 @@ export function HomePanel() {
         ) : null}
       </form>
 
-      <details className="rounded-lg border border-line bg-surface p-4">
-        <summary className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg">
-          Request a town
-        </summary>
+      <div className="flex flex-col">
+        <button
+          type="button"
+          className={cn(btnGhost, "w-fit")}
+          aria-expanded={requestOpen}
+          aria-controls="request-place-form"
+          onClick={() => {
+            if (requestOpen) {
+              setRequestOpen(false);
+              return;
+            }
+            openRequest();
+          }}
+        >
+          Request a new place
+        </button>
+        <div role="status">
+          {requestSent ? (
+            <p ref={sentRef} tabIndex={-1} className="mt-2 text-sm text-fg">
+              {requestSent}
+            </p>
+          ) : null}
+        </div>
         <form
-          className="mt-3 grid gap-3 sm:grid-cols-2"
+          id="request-place-form"
+          hidden={!requestOpen}
+          aria-label="Request a new place"
+          className="card pc-card mt-3 grid gap-3 p-4 sm:p-5 sm:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault();
             setRequestError("");
+            setRequestSent("");
             void requestRoom({ kind, name, state: stateCode }).then((result) => {
               if (!result.ok) {
                 setRequestError(result.error ?? "That was not saved.");
@@ -117,16 +207,18 @@ export function HomePanel() {
               }
               setName("");
               setStateCode("");
+              setRequestSent("Request sent. An admin will look at it.");
             });
           }}
         >
           <p className="max-w-prose text-sm text-muted sm:col-span-2">
-            A town, a congregation, or a wider area. An admin approves it. The request stays on the
-            record.
+            Ask for a room for a town, a congregation, or a wider area. An admin approves it. The
+            request stays on the record.
           </p>
           <label className="flex flex-col gap-2 text-sm text-muted">
             Kind
             <select
+              ref={kindRef}
               className={fieldClass}
               value={kind}
               onChange={(event) => setKind(event.target.value as typeof kind)}
@@ -152,7 +244,10 @@ export function HomePanel() {
               onChange={(event) => setStateCode(event.target.value)}
             />
           </label>
-          <button type="submit" className={btnSignal}>
+          <button
+            type="submit"
+            className={cn(btnSignal, "w-full justify-self-start sm:col-span-2 sm:w-auto")}
+          >
             Request room
           </button>
           {requestError ? (
@@ -161,9 +256,9 @@ export function HomePanel() {
             </p>
           ) : null}
         </form>
-      </details>
+      </div>
 
-      <ClaimsPanel />
+      <ClaimsPanel onNotListed={openRequest} />
 
       {home.requests.length > 0 ? (
         <details className="rounded-lg border border-line bg-surface p-4" open>
@@ -189,35 +284,35 @@ function HomeSectionBlock({
   onOpen: (roomId: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="pc-h">
-        {section.label}
-      </h3>
-      {section.tier === "council"
-        ? section.posts.map((post) => (
-            <article key={post.id} className="rounded-lg border border-line bg-surface p-4">
-              <div className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
-                <span className="rounded-sm border border-signal px-2 py-1 text-signal">
-                  {post.label}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex min-h-[44px] items-center text-signal underline"
-                  onClick={() => onOpen(post.room)}
-                >
-                  {post.roomName}
-                </button>
-              </div>
-              <p className="mt-2 text-base text-fg">{post.claim}</p>
-              <p className="mt-1 text-sm text-muted">{post.reason}</p>
-              <ul className="mt-2 list-disc pl-5 text-sm text-muted">
-                {post.checklist.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </article>
-          ))
-        : section.rooms.map((room) => (
+    <div className="flex flex-col gap-1 border-t border-line pt-3">
+      <h3 className="pc-h">{section.label}</h3>
+      {section.tier === "council" ? (
+        section.posts.map((post) => (
+          <article key={post.id} className="flex flex-col gap-1 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
+              <span className="rounded-sm border border-signal px-2 py-1 text-signal">
+                {post.label}
+              </span>
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center text-signal underline"
+                onClick={() => onOpen(post.room)}
+              >
+                {post.roomName}
+              </button>
+            </div>
+            <p className="text-base text-fg">{post.claim}</p>
+            <p className="text-sm text-muted">{post.reason}</p>
+            <ul className="list-disc pl-5 text-sm text-muted">
+              {post.checklist.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </article>
+        ))
+      ) : (
+        <ul className="flex flex-col">
+          {section.rooms.map((room) => (
             <RoomJoinRow
               key={room.id}
               roomId={room.id}
@@ -227,10 +322,13 @@ function HomeSectionBlock({
               onOpen={onOpen}
             />
           ))}
+        </ul>
+      )}
     </div>
   );
 }
 
+/** A room is a row with an underlined name that opens the room, not a bordered box that reads as a field. */
 function RoomJoinRow({
   roomId,
   name,
@@ -248,14 +346,17 @@ function RoomJoinRow({
   const [error, setError] = useState("");
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+    <li className="room-row flex flex-col gap-1">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
-          className="inline-flex min-h-[44px] items-center text-left text-base text-fg"
+          className="inline-flex min-h-[44px] items-center gap-2 text-left text-base text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
           onClick={() => onOpen(roomId)}
         >
           {name} <RoomAudienceMark audience={audience} />
+          <span aria-hidden="true" className="text-muted">
+            →
+          </span>
         </button>
         {joined ? (
           <button
@@ -278,7 +379,7 @@ function RoomJoinRow({
           {error}
         </p>
       ) : null}
-    </div>
+    </li>
   );
 }
 
@@ -336,10 +437,18 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={`${btnSignal} min-h-[44px]`} onClick={() => decide("approved")}>
+            <button
+              type="button"
+              className={`${btnSignal} min-h-[44px]`}
+              onClick={() => decide("approved")}
+            >
               Approve
             </button>
-            <button type="button" className={`${btnGhost} min-h-[44px]`} onClick={() => decide("refused")}>
+            <button
+              type="button"
+              className={`${btnGhost} min-h-[44px]`}
+              onClick={() => decide("refused")}
+            >
               Refuse
             </button>
           </div>

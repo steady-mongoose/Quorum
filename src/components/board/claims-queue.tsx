@@ -1,14 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
-import { btnGhost, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
+import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { apiFetch } from "@/lib/api-base";
 import { cn } from "@/lib/cn";
 import {
   CLAIM_ALLOWED_METHODS,
+  CLAIM_METHOD_HINT,
   CLAIM_METHOD_LABEL,
   type ClaimMethod,
 } from "@/lib/board/claim-policy";
 import { useBoard } from "@/lib/board/store";
+import { userFacingError } from "@/lib/board/errors";
+
+/** A request that never reached the server (softenFetch's 503 "api-unavailable", or no JSON body). */
+export const CLAIM_NOT_SENT = "Your request did not send. Try again in a moment.";
+
+/** Plain words for a failed claim request: never a bare code like "api-unavailable". */
+export function claimError(json: { error?: string } | null, fallback: string): string {
+  if (!json || json.error === "api-unavailable") return CLAIM_NOT_SENT;
+  return userFacingError(json.error ?? "", fallback);
+}
 
 type ClaimRow = {
   id: string;
@@ -69,7 +80,10 @@ async function readQueue(): Promise<{ ok: true; queue: Queue } | { ok: false; er
   const response = await apiFetch("/api/claims", { credentials: "include" });
   const json = (await response.json().catch(() => null)) as (Queue & { error?: string }) | null;
   if (!response.ok || !json || !Array.isArray(json.claims)) {
-    return { ok: false, error: json?.error || "The claims queue is not available yet." };
+    return {
+      ok: false,
+      error: userFacingError(json?.error ?? "", "The claims queue is not available yet."),
+    };
   }
   return {
     ok: true,
@@ -88,13 +102,15 @@ async function readQueue(): Promise<{ ok: true; queue: Queue } | { ok: false; er
  * Claims in the order they were opened. Listings in the order they were
  * seeded. Nothing here is ranked.
  */
-export function ClaimsPanel() {
+export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) {
   const steward = useBoard((state) => state.steward);
   const admin = useBoard((state) => state.admin);
   const stewardRooms = useBoard((state) => state.stewardRooms);
   const [queue, setQueue] = useState<Queue | null>(null);
   const [error, setError] = useState("");
   const [errorWhere, setErrorWhere] = useState<"queue" | "form" | "">("");
+  // A queue that fails to load is a quiet status, not an alert: nobody submitted anything (Design #123 Low 4).
+  const [loadError, setLoadError] = useState("");
   const [roomId, setRoomId] = useState("");
   const [filter, setFilter] = useState("");
   const [method, setMethod] = useState<string>(CLAIM_ALLOWED_METHODS[0] ?? "site_code");
@@ -104,21 +120,25 @@ export function ClaimsPanel() {
   const [issued, setIssued] = useState("");
   const [pending, setPending] = useState<ClaimRow | null>(null);
   const [pendingKind, setPendingKind] = useState<"approve" | "reject">("reject");
+  // One claim POST at a time: a double click or Enter plus a click sends once (QA #123).
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const errorRef = useRef<HTMLParagraphElement>(null);
-  const listingRef = useRef<HTMLSelectElement>(null);
+  const listingRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const emptyRef = useRef<HTMLParagraphElement>(null);
   const queueHead = useRef<HTMLHeadingElement>(null);
   const headings = useRef(new Map<string, HTMLHeadingElement>());
   const focusAfter = useRef<string | null>(null);
+  const proofId = useId();
 
   async function reload() {
     const loaded = await readQueue();
     if (!loaded.ok) {
-      setError(loaded.error);
-      setErrorWhere("form");
+      setLoadError(loaded.error);
       return;
     }
+    setLoadError("");
     setError("");
     setErrorWhere("");
     setQueue(loaded.queue);
@@ -144,10 +164,7 @@ export function ClaimsPanel() {
   const chosen = methods.includes(method as ClaimMethod) ? method : methods[0];
   const canDecide = steward || admin;
   const choices = (queue?.listings ?? []).filter((row) => row.status === "unclaimed");
-  const needle = filter.trim().toLowerCase();
-  const shown = needle
-    ? choices.filter((row) => `${row.name} ${row.town}`.toLowerCase().includes(needle))
-    : choices;
+  const picked = choices.find((row) => row.id === roomId) ?? null;
 
   function canReview(row: ClaimRow): boolean {
     return !row.mine && (admin || stewardRooms.includes(row.roomId));
@@ -170,7 +187,7 @@ export function ClaimsPanel() {
     });
     const json = (await response.json().catch(() => null)) as { error?: string } | null;
     if (!response.ok) {
-      showError("queue", json?.error || "That claim was not decided.");
+      showError("queue", claimError(json, "That claim was not decided."));
       return;
     }
     const rest = (queue?.claims ?? []).map((item) => item.id).filter((id) => id !== row.id);
@@ -194,17 +211,17 @@ export function ClaimsPanel() {
   return (
     <div className="flex flex-col gap-6">
       {canDecide ? (
-        <section className="plate flex flex-col gap-4" aria-labelledby="queue-h">
-          <div className="flex flex-col gap-2">
-            <Kicker>Claims</Kicker>
+        <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="queue-h">
+          <div className="flex flex-col gap-1">
             <h3
               id="queue-h"
               ref={queueHead}
               tabIndex={-1}
-              className="illum font-display text-3xl text-fg"
+              className="font-display text-2xl text-fg"
             >
               Claims to review
             </h3>
+            <p className="text-sm text-muted">Only stewards and admins see this part.</p>
           </div>
           {errorWhere === "queue" ? alert : null}
           {notice ? (
@@ -298,7 +315,7 @@ export function ClaimsPanel() {
                             error?: string;
                           } | null;
                           if (!response.ok) {
-                            showError("queue", json?.error || "That page was not checked.");
+                            showError("queue", claimError(json, "That page was not checked."));
                             return;
                           }
                           setError("");
@@ -375,16 +392,23 @@ export function ClaimsPanel() {
         </section>
       ) : null}
 
-      <section className="plate flex flex-col gap-4">
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="claim-h">
         <div className="flex flex-col gap-2">
-          <Kicker>Claim</Kicker>
-          <h3 className="illum font-display text-3xl text-fg">Step 1 of 2: which listing?</h3>
+          <h3 id="claim-h" className="font-display text-2xl text-fg">
+            Claim your church or group
+          </h3>
           <p className="max-w-prose text-sm text-muted">
-            Hosting a church or group that's already listed? Show us it's yours, and a steward will
-            hand it over. Listings stay private until then.
+            Run a church or group that's already listed here? Claim it to become its host and run
+            its room. You show it's yours in one of the ways below, then a steward checks and hands
+            it to you. Until then, only stewards can see the listing.
           </p>
         </div>
         {errorWhere === "form" ? alert : null}
+        {loadError ? (
+          <p role="status" className="text-sm text-muted">
+            {loadError}
+          </p>
+        ) : null}
         {notice && !canDecide ? (
           <p role="status" aria-live="polite" className="text-sm text-fg">
             {notice}
@@ -414,10 +438,13 @@ export function ClaimsPanel() {
           className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
+            if (sendingRef.current) return;
             setNotice("");
             if (!roomId) {
+              // aria-disabled, not disabled: the button stays in the tab order and says why.
+              setErrorWhere("form");
+              setError("Find and choose your listing first.");
               listingRef.current?.focus();
-              showError("form", "Choose a listing.");
               return;
             }
             if (chosen === "domain_email" && !email.trim()) {
@@ -425,76 +452,98 @@ export function ClaimsPanel() {
               showError("form", "Enter an email address.");
               return;
             }
+            sendingRef.current = true;
+            setSending(true);
             void apiFetch("/api/claims", {
               method: "POST",
               credentials: "include",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ roomId, method: chosen, email }),
-            }).then(async (response) => {
-              const json = (await response.json().catch(() => null)) as {
-                error?: string;
-                claim?: { token?: string };
-              } | null;
-              if (!response.ok) {
-                showError("form", json?.error || "That claim was not opened.");
-                return;
-              }
-              setError("");
-              setRoomId("");
-              if (json?.claim?.token) {
-                setIssued(json.claim.token);
-                setNotice("The code is ready to copy.");
-              } else {
-                setIssued("");
-                setNotice("The claim is open.");
-              }
-              await reload();
-            });
+            })
+              .then(async (response) => {
+                const json = (await response.json().catch(() => null)) as {
+                  error?: string;
+                  claim?: { token?: string };
+                } | null;
+                if (!response.ok) {
+                  showError("form", claimError(json, "That claim was not opened."));
+                  return;
+                }
+                setError("");
+                setRoomId("");
+                setFilter("");
+                if (json?.claim?.token) {
+                  setIssued(json.claim.token);
+                  setNotice("The code is ready to copy.");
+                } else {
+                  setIssued("");
+                  setNotice("The claim is open.");
+                }
+                await reload();
+              })
+              .catch(() => showError("form", CLAIM_NOT_SENT))
+              .finally(() => {
+                sendingRef.current = false;
+                setSending(false);
+              });
           }}
         >
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Search by name or town
-            <input
-              className={fieldClass}
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Listing
-            <select
-              ref={listingRef}
-              required
-              className={fieldClass}
-              value={roomId}
-              onChange={(event) => setRoomId(event.target.value)}
-            >
-              <option value="">Choose a listing</option>
-              {shown.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.town ? `${row.name}, ${row.town}` : row.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <h4 className="text-base font-semibold text-fg">Step 1 of 2: Find your listing</h4>
+          <ListingPicker
+            inputRef={listingRef}
+            choices={choices}
+            picked={picked}
+            query={filter}
+            onQuery={setFilter}
+            onPick={(id) => {
+              setRoomId(id);
+              if (errorWhere === "form") {
+                setError("");
+                setErrorWhere("");
+              }
+            }}
+            onNotListed={onNotListed}
+          />
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm text-muted">How you show it is yours</legend>
+            <legend className="mb-2 text-base font-semibold text-fg">
+              How you'll show it's yours
+            </legend>
             {methods.map((item) => (
-              <label key={item} className="flex min-h-11 items-center gap-2 text-sm text-fg">
+              <label
+                key={item}
+                className={cn(
+                  "proof-option flex min-h-[44px] cursor-pointer items-start gap-3 rounded-md border p-3",
+                  "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-fg",
+                  chosen === item ? "border-fg bg-raised" : "border-line",
+                )}
+              >
+                {/* The radio's name is the short title; the hint is its description, not part of its name. */}
                 <input
                   type="radio"
                   name="claim-method"
+                  value={item}
+                  aria-labelledby={`${proofId}-${item}-title`}
+                  aria-describedby={`${proofId}-${item}-hint`}
+                  className="mt-0.5 size-5 shrink-0 rounded-full accent-[var(--color-fg)] focus-visible:outline-none"
                   checked={chosen === item}
                   onChange={() => setMethod(item)}
                 />
-                {CLAIM_METHOD_LABEL[item]}
+                <span className="flex flex-col gap-1">
+                  <span id={`${proofId}-${item}-title`} className="text-base text-fg">
+                    {CLAIM_METHOD_LABEL[item]}
+                  </span>
+                  <span id={`${proofId}-${item}-hint`} className="text-sm text-muted">
+                    {CLAIM_METHOD_HINT[item]}
+                  </span>
+                </span>
               </label>
             ))}
           </fieldset>
           {chosen === "domain_email" ? (
             <label className="flex flex-col gap-2 text-sm text-muted">
-              Email on that domain
+              Your email at the organization's website domain
               <input
+                autoComplete="email"
                 ref={emailRef}
                 required
                 className={fieldClass}
@@ -504,9 +553,30 @@ export function ClaimsPanel() {
               />
             </label>
           ) : null}
-          <button type="submit" className={cn(btnSignal, "w-full justify-self-start sm:w-auto")}>
-            Request the claim
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="submit"
+              aria-disabled={!roomId || sending || undefined}
+              aria-busy={sending || undefined}
+              aria-describedby={roomId ? undefined : "claim-submit-hint"}
+              className={cn(
+                btnSignal,
+                "w-full justify-self-start aria-disabled:not-aria-busy:opacity-50 aria-busy:opacity-75 sm:w-auto sm:self-start",
+              )}
+            >
+              {sending ? "Sending…" : "Request the claim"}
+            </button>
+            {/* A focused button's new name is not always spoken, so the same words go to a polite status
+                that is mounted from the start, for members and stewards alike (Design #123 Low 1). */}
+            <span role="status" aria-live="polite" className="sr-only">
+              {sending ? "Sending your request…" : ""}
+            </span>
+            {roomId ? null : (
+              <p id="claim-submit-hint" className="text-sm text-muted">
+                Find and choose your listing first.
+              </p>
+            )}
+          </div>
         </form>
         {queue?.claims.some((row) => row.mine && row.method === "domain_email" && !row.verified) ? (
           <form
@@ -526,7 +596,7 @@ export function ClaimsPanel() {
               }).then(async (response) => {
                 const json = (await response.json().catch(() => null)) as { error?: string } | null;
                 if (!response.ok) {
-                  showError("form", json?.error || "That code was not accepted.");
+                  showError("form", claimError(json, "That code was not accepted."));
                   return;
                 }
                 setError("");
@@ -552,6 +622,214 @@ export function ClaimsPanel() {
           </form>
         ) : null}
       </section>
+    </div>
+  );
+}
+
+/** How many matches the list shows at once. The rest wait for a narrower search. */
+export const PICKER_LIMIT = 8;
+
+/** Matches in the order the server sent them. Nothing is ranked. */
+export function matchListings(rows: ListingRow[], query: string): ListingRow[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  return rows.filter((row) =>
+    `${row.name} ${row.town} ${row.county}`.toLowerCase().includes(needle),
+  );
+}
+
+/** "1 listing matches." or "N listings match." for the picker's polite hint. */
+export function matchCount(count: number): string {
+  return count === 1 ? "1 listing matches." : `${count} listings match.`;
+}
+
+function listingLine(row: ListingRow): string {
+  return [row.town, row.county].filter(Boolean).join(", ");
+}
+
+/**
+ * One search field. Matches show in a listbox as you type (the ARIA combobox
+ * pattern). Picking one shows it with a Change button.
+ */
+export function ListingPicker({
+  choices,
+  picked,
+  query,
+  onQuery,
+  onPick,
+  onNotListed,
+  inputRef,
+}: {
+  choices: ListingRow[];
+  picked: ListingRow | null;
+  query: string;
+  onQuery: (value: string) => void;
+  onPick: (id: string) => void;
+  onNotListed?: () => void;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+}) {
+  const base = useId();
+  const listId = `${base}-list`;
+  const inputId = `${base}-input`;
+  const hintId = `${base}-hint`;
+  const [active, setActive] = useState(-1);
+  const [open, setOpen] = useState(false);
+  const changeRef = useRef<HTMLButtonElement>(null);
+  const focusInput = useRef(false);
+  const matches = matchListings(choices, query);
+  const shown = matches.slice(0, PICKER_LIMIT);
+  const typed = query.trim().length > 0;
+  const expanded = open && typed && shown.length > 0;
+
+  // The first match is highlighted as soon as there is one, so Enter picks what is shown and announced.
+  useEffect(() => {
+    setActive(shown.length > 0 ? 0 : -1);
+  }, [query, shown.length]);
+
+  // Keyed on the id, not the object: a queue reload rebuilds the listing objects, and that must not move focus.
+  const pickedId = picked?.id ?? "";
+  useEffect(() => {
+    if (pickedId) changeRef.current?.focus();
+    else if (focusInput.current) {
+      focusInput.current = false;
+      inputRef?.current?.focus();
+    }
+  }, [pickedId, inputRef]);
+
+  if (picked) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-muted">Your listing</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-raised px-3 py-2">
+          <p className="flex flex-col">
+            <span className="text-base text-fg">{picked.name}</span>
+            {listingLine(picked) ? (
+              <span className="text-sm text-muted">{listingLine(picked)}</span>
+            ) : null}
+          </p>
+          <button
+            ref={changeRef}
+            type="button"
+            className="inline-flex min-h-[44px] items-center px-1 text-sm text-fg underline underline-offset-4"
+            aria-label={`Change listing, now ${picked.name}`}
+            onClick={() => {
+              focusInput.current = true;
+              setOpen(true);
+              onPick("");
+            }}
+          >
+            Change
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const pick = (row: ListingRow) => {
+    setOpen(false);
+    onPick(row.id);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor={inputId} className="text-sm text-muted">
+        Search for your church or group by name or town
+      </label>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="search"
+          role="combobox"
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          aria-describedby={hintId}
+          aria-activedescendant={expanded && active >= 0 ? `${listId}-${active}` : undefined}
+          className={fieldClass}
+          value={query}
+          onChange={(event) => {
+            onQuery(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          // Tab away or click outside closes the list (options keep focus here with onMouseDown preventDefault).
+          onBlur={() => setOpen(false)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && shown.length > 0) {
+              event.preventDefault();
+              setOpen(true);
+              setActive((index) => (index + 1) % shown.length);
+            } else if (event.key === "ArrowUp" && shown.length > 0) {
+              event.preventDefault();
+              setActive((index) => (index <= 0 ? shown.length - 1 : index - 1));
+            } else if (event.key === "Enter" && expanded) {
+              event.preventDefault();
+              const row = active >= 0 ? shown[active] : undefined;
+              if (row) pick(row);
+            } else if (event.key === "Escape") {
+              // APG combobox: Escape closes an open list; on a closed list it clears the field.
+              if (expanded) setOpen(false);
+              else if (query) {
+                event.preventDefault();
+                onQuery("");
+              }
+            }
+          }}
+        />
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Matching listings"
+          hidden={!expanded}
+          className="mt-1 flex flex-col overflow-hidden rounded-md border border-line-strong bg-raised"
+        >
+          {shown.map((row, index) => (
+            <li
+              key={row.id}
+              id={`${listId}-${index}`}
+              role="option"
+              aria-selected={index === active}
+              className={cn(
+                "flex min-h-[44px] cursor-pointer flex-col justify-center px-3 py-2",
+                index === active ? "bg-surface outline outline-2 -outline-offset-2 outline-fg" : "",
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => pick(row)}
+            >
+              <span className="text-base text-fg">{row.name}</span>
+              {listingLine(row) ? (
+                <span className="text-sm text-muted">{listingLine(row)}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div id={hintId} aria-live="polite" className="text-sm text-muted">
+        {!typed ? (
+          <p>Start typing, then choose your listing from the list.</p>
+        ) : matches.length === 0 ? (
+          <p>
+            No listing matches "{query.trim()}". Not listed?{" "}
+            {onNotListed ? (
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center text-fg underline underline-offset-4"
+                onClick={onNotListed}
+              >
+                Ask for it with Request a new place
+              </button>
+            ) : (
+              "Ask a steward to add it."
+            )}
+          </p>
+        ) : matches.length > shown.length ? (
+          <p>More listings match. Keep typing to narrow it down.</p>
+        ) : (
+          <p>{matchCount(matches.length)} Use the up and down arrows to choose.</p>
+        )}
+      </div>
     </div>
   );
 }
