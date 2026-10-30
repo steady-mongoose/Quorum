@@ -41,7 +41,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   [data-section="landing"] .scrim{background:linear-gradient(180deg,transparent 30vh,var(--bg) 62vh)}
 }
 /* Hero bands (This week, Rooms, Messages) */
-.hero-band{position:relative;height:var(--band-h);background:var(--band) var(--band-pos,center 45%)/cover no-repeat;border-bottom:1px solid var(--gold)}
+.hero-band{position:relative;height:var(--band-h);background:var(--band) center 45%/cover no-repeat;border-bottom:1px solid var(--gold)}
 .hero-band::after{content:"";position:absolute;inset:auto 0 0;height:40%;background:linear-gradient(180deg,transparent,var(--bg))}
 [data-section="week"]  .hero-band{--band:var(--art-week-band)}
 [data-section="rooms"] .hero-band{--band:var(--art-rooms-band);--band-h:clamp(150px,18vw,240px)}

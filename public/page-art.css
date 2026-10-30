@@ -32,12 +32,11 @@
 /* Hero bands, the Rooms height */
 [data-section="find"] .hero-band,[data-section="groups"] .hero-band,[data-section="profile"] .hero-band,
 [data-section="about"] .hero-band,[data-section="civic"] .hero-band{--band-h:clamp(150px,18vw,240px)}
-[data-section="find"] .hero-band{--band:var(--art-find-band);--band-pos:center 25%}
-[data-section="groups"] .hero-band{--band:var(--art-groups-band);--band-pos:center top}
-[data-section="profile"] .hero-band{--band:var(--art-profile-band);--band-pos:center 38%}
+[data-section="find"] .hero-band{--band:var(--art-find-band)}
+[data-section="groups"] .hero-band{--band:var(--art-groups-band)}
+[data-section="profile"] .hero-band{--band:var(--art-profile-band);background-position:center 38%}
 [data-section="about"] .hero-band{--band:var(--art-about-band)}
-/* The Desk band: the standing delegates' heads sit in the top tenth of the Trumbull plate. */
-[data-section="civic"] .hero-band{--band:var(--art-civic-band);--band-pos:center 8%}
+[data-section="civic"] .hero-band{--band:var(--art-civic-band)}
 
 /* Side column, 1100 to 1599 */
 @media (min-width:1100px) and (max-width:1599px){
@@ -59,33 +58,8 @@
   [data-section="civic"] .outer-art{background-image:var(--art-civic-side);--focal:50% 40%}
 }
 
-/* Outer plates, right margin, 1600 and wider. Never the left plate again: a crop of the same work showing the
-   part the left margin leaves out (the left plate shifts to the work's left edge), or, for the single-subject You and
-   Messages plates, the right-hand crop of a sibling work. Side B is only the palette tint of side A, so it cannot
-   serve as the second picture. Files: public/art/*-side-R-A.webp and *-side-R-B.webp. */
-:root{
-  --art-week-side-r:url("/art/dore-side-R-A.webp");--art-rooms-side-r:url("/art/durer-jerome-side-R-A.webp");
-  --art-find-side-r:url("/art/rembrandt-preaching-side-R-A.webp");--art-groups-side-r:url("/art/millet-diggers-side-R-A.webp");
-  --art-about-side-r:url("/art/rembrandt-trees-side-R-A.webp");--art-civic-side-r:url("/art/durand-declaration-side-R-A.webp");
-}
-[data-palette="parchment"]{
-  --art-week-side-r:url("/art/dore-side-R-B.webp");--art-rooms-side-r:url("/art/durer-jerome-side-R-B.webp");
-  --art-find-side-r:url("/art/rembrandt-preaching-side-R-B.webp");--art-groups-side-r:url("/art/millet-diggers-side-R-B.webp");
-  --art-about-side-r:url("/art/rembrandt-trees-side-R-B.webp");--art-civic-side-r:url("/art/durand-declaration-side-R-B.webp");
-}
-@media (min-width:1600px){
-  [data-section="week"] .outer-art.l{--focal:0% 40%}
-  [data-section="rooms"] .outer-art.l{--focal:0% 30%}
-  [data-section="find"] .outer-art.l{--focal:0% 30%}
-  [data-section="groups"] .outer-art.l{--focal:0% 40%}
-  [data-section="about"] .outer-art.l{--focal:0% 55%}
-  [data-section="civic"] .outer-art.l{--focal:0% 40%}
-  [data-section="week"] .outer-art.r{background-image:var(--art-week-side-r);--focal:50% 40%}
-  [data-section="rooms"] .outer-art.r{background-image:var(--art-rooms-side-r);--focal:60% 30%}
-  [data-section="messages"] .outer-art.r{background-image:var(--art-rooms-side-r);--focal:60% 30%}
-  [data-section="find"] .outer-art.r{background-image:var(--art-find-side-r);--focal:30% 30%}
-  [data-section="groups"] .outer-art.r{background-image:var(--art-groups-side-r);--focal:40% 40%}
-  [data-section="profile"] .outer-art.r{background-image:var(--art-about-side-r);--focal:40% 55%}
-  [data-section="about"] .outer-art.r{background-image:var(--art-about-side-r);--focal:40% 55%}
-  [data-section="civic"] .outer-art.r{background-image:var(--art-civic-side-r);--focal:60% 40%}
-}
+/* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
+   navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because the per-section
+   band and margin rules above (0,2,0 and up) outrank the plain reduced-data rule in fluid.css. */
+[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art{background-image:none!important}
+@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art{background-image:none!important}}

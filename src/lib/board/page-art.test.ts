@@ -35,7 +35,7 @@ test("the new pages have a band, a phone band, and a margin plate in both palett
     assert.ok(pageArt.includes(`[data-section="${page}"] .outer-art{background-image:var(--art-${page}-side)`), `${page} outer plates`);
   }
   const urls = [...pageArt.matchAll(/url\("(\/art\/[^"]+\.webp)"\)/g)].map((m) => m[1]);
-  assert.equal(urls.length, 42, "five works, band, phone band, and margin, in A and B, plus six right-margin crops in A and B");
+  assert.equal(urls.length, 30, "five works, band, phone band, and margin, in A and B");
   for (const url of urls) {
     const file = new URL(`../../../public${url}`, import.meta.url);
     const size = statSync(file).size;

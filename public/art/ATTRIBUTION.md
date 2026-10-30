@@ -37,21 +37,6 @@ ground. Bands are 1600×677 and 900×380, margins 1100 wide. The Declaration mar
 wide, its scan's own width, so it is not upscaled. Their CSS lives in `public/page-art.css`, so
 `backgrounds.css` stays under its 3 KB budget.
 
-Right outer margin plates (1600px and wider). The left and right margins never show the same picture,
-and side B is only the parchment tint of side A, so each work gets a right-hand crop of its own margin plate:
-the part of the scene the left margin, now aimed at the work's left edge, leaves out. They are straight crops of
-the side files above (full height, no flip, no upscaling, no new tone mapping), re-encoded as WebP at about the
-same bytes per pixel. Same works, same licences.
-
-| Work | Crop of the side plate | Files (palette A, palette B) | Used on |
-|---|---|---|---|
-| Durand after Trumbull, *The Declaration of Independence* | right 55%: the seated Hancock and the delegates beside him | `durand-declaration-side-R-A.webp`, `durand-declaration-side-R-B.webp` | The desk |
-| Rembrandt, *Christ Preaching (La Petite Tombe)* | right 60%: Christ and the listeners at right | `rembrandt-preaching-side-R-A.webp`, `rembrandt-preaching-side-R-B.webp` | Find |
-| Millet, *The Diggers* | right 58%: the standing digger | `millet-diggers-side-R-A.webp`, `millet-diggers-side-R-B.webp` | Groups |
-| Rembrandt, *The Three Trees* | right 55%: the trees | `rembrandt-trees-side-R-A.webp`, `rembrandt-trees-side-R-B.webp` | About, Privacy, Terms; You (beside the self-portrait, which is one face and cannot be split) |
-| Doré, *Jacob's Dream* | right 55%: the ladder of angels | `dore-side-R-A.webp`, `dore-side-R-B.webp` | This week |
-| Dürer, *Saint Jerome in His Study* | right 55%: Jerome at his desk | `durer-jerome-side-R-A.webp`, `durer-jerome-side-R-B.webp` | Rooms; Messages (beside the Praying Hands, under the Jerome band) |
-
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.
 
