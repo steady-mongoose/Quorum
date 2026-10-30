@@ -570,7 +570,7 @@ test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a s
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://x");
     if (url.pathname === "/api/rsvps" && (init?.method ?? "GET") === "GET") reads.push(url.pathname);
-    if (url.pathname === `/api/gatherings/${G1}/attendance`) {
+    if (url.pathname === `/api/gatherings/${G1}/attendance` || url.pathname === `/api/gatherings/${G2}/attendance`) {
       return attendance === "ok"
         ? new Response(JSON.stringify({ ok: true }), { status: 200 })
         : new Response(JSON.stringify({ error: ROLL_CALL_STALE, api: "rsvp" }), { status: 409 });
@@ -605,11 +605,18 @@ test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a s
     assert.deepEqual(failed.ok ? [] : failed.stops, ["Not saved."]);
     assert.equal(reads.length, 1, "RSVPs read again after the failed write-up");
 
-    // A stale handle: the host sees the plain line, and the list is read again.
+    // A stale handle on another gathering (G1's close already saved, so its
+    // retry does not close again): the host sees the plain line, and the list
+    // is read again.
     reads.length = 0;
     attendance = "stale";
     setBoardClient(base);
-    const stale = await useBoard.getState().closeCard(G1, true, "", "Good.", ["Tom"], "", ["h_tom"]);
+    useBoard.setState({
+      rsvpHosts: [G1, G2],
+      rollCall: { [G2]: [{ userId: "h_tom", name: "Tom" }] },
+      cards: [card(G2, { host: "Dale", next: "2026-10-31", going: ["Tom"] })],
+    });
+    const stale = await useBoard.getState().closeCard(G2, true, "", "Good.", ["Tom"], "", ["h_tom"]);
     await settle();
     assert.equal(stale.ok, false);
     assert.deepEqual(stale.ok ? [] : stale.stops, [ROLL_CALL_STALE]);
@@ -638,4 +645,52 @@ test("Design #126 M1: after a stale roll call, kept picks stay and dropped ones 
   // Unpicked people who left are not named.
   assert.deepEqual(resetRollPicks(before, fresh, ["h_tom"]).dropped, []);
   assert.equal(ROLL_CALL_STALE, "That list is out of date.");
+});
+
+const G3 = "8d3b4c5e-6f7a-4c8d-8e9f-1a2b3c4d5e6f";
+
+test("QA S3 #2: the close saves but the write-up fails; the retry reuses the close's roll call and closes once", async () => {
+  const sent: { path: string; body: unknown }[] = [];
+  const drafts: { cameIds?: string[]; came: string[] }[] = [];
+  let postFails = true;
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (init?.method === "POST") sent.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+    if (url.pathname === `/api/gatherings/${G3}/attendance`) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  try {
+    const base = stubClient();
+    const createPost: BoardClient["createPost"] = async (draft) => {
+      drafts.push({ came: draft.came, ...(draft.cameIds ? { cameIds: draft.cameIds } : {}) });
+      if (postFails) return { ok: false, error: "Not allowed." };
+      return base.createPost(draft);
+    };
+    setBoardClient(new Proxy(base, { get: (t, key) => (key === "createPost" ? createPost : Reflect.get(t, key)) }));
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G3],
+      rollCall: { [G3]: [{ userId: "h_tom", name: "Tom" }] },
+      cards: [card(G3, { host: "Dale", next: "2026-10-31", going: ["Tom"] })],
+    });
+    const first = await useBoard.getState().closeCard(G3, true, "", "Good morning.", ["Tom"], "", ["h_tom"]);
+    assert.equal(first.ok, false);
+    // The close saved, so Tom left the list: the form now has no picks to send.
+    useBoard.setState({ rollCall: { [G3]: [] } });
+    postFails = false;
+    const retry = await useBoard.getState().closeCard(G3, true, "", "Good morning.", ["Tom"], "", []);
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(sent.filter((s) => s.path.endsWith("/attendance")).length, 1, "the date is closed once");
+    assert.deepEqual(drafts.map((d) => d.cameIds), [["h_tom"], ["h_tom"]]);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
 });

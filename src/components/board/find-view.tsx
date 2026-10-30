@@ -391,7 +391,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
     setCameKeys(next.keys);
     setCame(next.came);
     setCameIds(next.cameIds);
-    setDropped(droppedLine(next.dropped));
+    // Only add names: Reload runs this again and drops nobody, and the line
+    // stays until the next submit (QA S4 #3).
+    if (next.dropped.length > 0) setDropped(droppedLine(next.dropped));
   };
   // Reload takes its own button away: focus the first chip, or Save (Design #126 M2).
   const firstChip = useRef<HTMLInputElement>(null);
@@ -618,7 +620,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </div>
               ) : null}
-              <p role="status" className={cn("text-sm text-muted", !dropped && "sr-only")}>
+              <p role="status" className={cn("text-sm text-fg", !dropped && "sr-only")}>
                 {dropped}
               </p>
               <div className="flex flex-wrap items-end gap-2">

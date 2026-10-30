@@ -1182,3 +1182,69 @@ test("QA S4 3: a write-up filed long after the close still links the roll call",
     await t.close();
   }
 });
+
+test("QA S2 #1: a host who RSVP'd to their own gathering can mark themself and close it", async () => {
+  const t = await setup();
+  try {
+    await inShop(t, [t.dale.id, t.tom.id]);
+    await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    // The host's own row keeps the raw id; everyone else's is a handle.
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    const closed = await att(t, { userIds: [t.dale.id, tomH], close: true, seen: [t.dale.id, tomH] });
+    assert.equal(closed.status, 200, await closed.clone().text());
+    const rows = await t.db.query<{ user_id: string; attended: boolean }>(
+      `select user_id, attended from gathering_rsvp where gathering_id = $1 order by user_id`,
+      [GATHERING],
+    );
+    assert.deepEqual(
+      rows.map((row) => [row.user_id, row.attended]).sort(),
+      [[t.dale.id, true], [t.tom.id, true]].sort(),
+    );
+    // Another member's raw id is still refused from a host who is not an admin.
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${OTHER}/rsvp`, { going: true });
+    const raw = await call(t.handler, t.dale, "POST", `/api/gatherings/${OTHER}/attendance`, { userIds: [t.tom.id] });
+    assert.equal(raw.status, 409);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA S4 #5: an RSVP that lands after the list was read but before the close is not deleted", async () => {
+  const t = await setup();
+  try {
+    const ann = await user(t.db, "Ann");
+    await grant(t.db, ann, "Ann");
+    await inShop(t, [t.dale.id, t.tom.id, ann]);
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    let armed = true;
+    // Ann RSVPs as the close starts, after the route has read the list.
+    const racing: Db = {
+      query: (...args: Parameters<Db["query"]>) => t.db.query(...args),
+      transaction: async (fn) => {
+        // Only the close's own transaction (other reads, such as the session,
+        // may open one first).
+        if (armed && String(fn).includes("delete from gathering_rsvp")) {
+          armed = false;
+          const going = await call(t.handler, { id: ann }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+          assert.equal(going.status, 200);
+        }
+        return t.db.transaction(fn);
+      },
+    } as Db;
+    const closed = await call(app(racing), t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [tomH],
+      close: true,
+      seen: [tomH],
+    });
+    assert.equal(closed.status, 409);
+    const annRow = await t.db.query<{ going: boolean }>(
+      `select going from gathering_rsvp where gathering_id = $1 and user_id = $2`,
+      [GATHERING, ann],
+    );
+    assert.equal(annRow[0]?.going, true, "Ann's going row survives the close");
+  } finally {
+    await t.close();
+  }
+});

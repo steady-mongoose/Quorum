@@ -205,8 +205,9 @@ test("the roll call option copy (Design #126)", async () => {
 
 test("Design #126 M1: dropped picks are named in a status line, cleared on the next submit", () => {
   const src = read("find-view.tsx");
-  assert.match(src, /setDropped\(droppedLine\(next\.dropped\)\)/);
-  assert.match(src, /<p role="status" className=\{cn\("text-sm text-muted", !dropped && "sr-only"\)\}>\s*\{dropped\}/);
+  // Reload runs the reset again and drops nobody: the line stays until submit (QA S4 #3).
+  assert.match(src, /if \(next\.dropped\.length > 0\) setDropped\(droppedLine\(next\.dropped\)\)/);
+  assert.match(src, /<p role="status" className=\{cn\("text-sm text-fg", !dropped && "sr-only"\)\}>\s*\{dropped\}/);
   assert.match(src, /setRefused\(\[\]\);\s*setDropped\(""\);\s*const happened/);
 });
 

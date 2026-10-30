@@ -180,7 +180,7 @@ export async function idsFromHandles(
   const ids = new Set(rows.map((row) => row.userId));
   const out: string[] = [];
   for (const sent of input.sent) {
-    const id = byHandle.get(sent) ?? (input.admin && ids.has(sent) ? sent : undefined);
+    const id = byHandle.get(sent) ?? ((input.admin || sent === input.userId) && ids.has(sent) ? sent : undefined);
     // A stale or unknown entry fails the whole call: marking the rest would
     // silently drop someone the host picked (QA S4).
     if (!id) return null;
@@ -324,10 +324,17 @@ export async function setMyRsvp(
  */
 export async function markAttendance(
   db: Db,
-  input: { gatheringId: string; userIds: string[]; close: boolean },
-): Promise<void> {
+  input: { gatheringId: string; userIds: string[]; close: boolean; check?: (tx: Db) => Promise<boolean> },
+): Promise<boolean> {
   const ids = [...new Set(input.userIds)].slice(0, RSVP_BATCH_MAX);
-  const run = async (tx: Db) => {
+  const run = async (tx: Db): Promise<boolean> => {
+    if (input.check) {
+      // Lock this gathering's rows, then check the host's list inside the same
+      // transaction, so an RSVP that lands between the check and the close
+      // cannot be deleted by it (QA S4 #5).
+      await tx.query(`select 1 from gathering_rsvp where gathering_id = $1 for update`, [input.gatheringId]);
+      if (!(await input.check(tx))) return false;
+    }
     if (ids.length > 0) {
       await tx.query(
         `update gathering_rsvp set attended = true, updated_at = now()
@@ -347,8 +354,9 @@ export async function markAttendance(
         [input.gatheringId],
       );
     }
+    return true;
   };
-  await db.transaction(run);
+  return db.transaction(run);
 }
 
 /** RSVP and attendance rows are kept this many months (Josh, Oct 29, 9:29 PM ET). */
@@ -622,6 +630,7 @@ export async function handleRsvp(
       now,
     });
     if (!userIds) return json(409, { error: ROLL_CALL_STALE });
+    let check: ((tx: Db) => Promise<boolean>) | undefined;
     if (body.close === true) {
       // A close clears every "going". Refuse one from a list that never showed
       // someone who is going now (a retry after a stale roll call, another
@@ -631,20 +640,23 @@ export async function handleRsvp(
         return json(400, { error: `Send up to ${RSVP_BATCH_MAX} member ids.` });
       }
       const seen = new Set([...(seenRaw as string[]), ...(raw as string[])]);
-      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId], now });
-      const unseen = rows.some(
-        (row) =>
-          row.going &&
-          !seen.has(rsvpHandle(gatheringId, row.userId)) &&
-          !((reader.admin || row.userId === reader.userId) && seen.has(row.userId)),
-      );
-      if (unseen) return json(409, { error: ROLL_CALL_STALE });
+      check = async (tx) => {
+        const rows = await readRsvps(tx, { ...reader, gatheringIds: [gatheringId], now });
+        return !rows.some(
+          (row) =>
+            row.going &&
+            !seen.has(rsvpHandle(gatheringId, row.userId)) &&
+            !((reader.admin || row.userId === reader.userId) && seen.has(row.userId)),
+        );
+      };
     }
-    await markAttendance(deps.db, {
+    const done = await markAttendance(deps.db, {
       gatheringId,
       userIds,
       close: body.close === true,
+      ...(check ? { check } : {}),
     });
+    if (!done) return json(409, { error: ROLL_CALL_STALE });
     return json(200, { ok: true });
   } catch (error) {
     if (error instanceof BadBody) return json(error.status, { error: error.message });

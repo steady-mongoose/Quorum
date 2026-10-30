@@ -16,6 +16,25 @@ import type { HomePayload } from "./home.ts";
 import type { RoomOption } from "./room-options.ts";
 import { removalFailedCopy } from "./errors.ts";
 
+/**
+ * A close that saved on the server while its write-up did not, by card id:
+ * the roll call it sent. The going rows are gone after that close, so the
+ * refreshed list is empty; a retry reuses these instead of closing again
+ * with no picks (QA S3 #2).
+ */
+const closedUnfiled = new Map<string, string[]>();
+/** Close once; a retry after a failed write-up reuses the first close's roll call. */
+async function closeOnce(
+  close: () => Promise<{ stop: string | null; sent: string[] }>,
+  cardId: string,
+): Promise<{ stop: string | null; sent: string[] }> {
+  const kept = closedUnfiled.get(cardId);
+  if (kept) return { stop: null, sent: kept };
+  const closed = await close();
+  if (!closed.stop) closedUnfiled.set(cardId, closed.sent);
+  return closed;
+}
+
 /** How long Find offers Undo before the DELETE is sent. */
 export const REMOVAL_UNDO_MS = 5000;
 import {
@@ -955,7 +974,7 @@ export const useBoard = create<BoardState>()(
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
                 if (closing) {
-                  const closed = await closeOnServer(closing, draft.came, options?.cameIds);
+                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id);
                   if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
                   if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
                 }
@@ -968,6 +987,7 @@ export const useBoard = create<BoardState>()(
                 return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
               }
               if (draft.type === "hosted") {
+                if (draft.cardId) closedUnfiled.delete(draft.cardId);
                 const card = cards.find((item) => item.id === draft.cardId);
                 if (card) {
                   hosted(card, {
@@ -1362,7 +1382,7 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closed = await closeOnServer(card, came, cameIds);
+            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id);
             if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
             const saved = await (await getBoardClient()).createPost(
               closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,
@@ -1372,6 +1392,7 @@ export const useBoard = create<BoardState>()(
               void refreshRsvps();
               return { ok: false, stops: saved.stops ?? [saved.error], notes: [] };
             }
+            closedUnfiled.delete(card.id);
             hosted(card, {
               happened,
               next,
