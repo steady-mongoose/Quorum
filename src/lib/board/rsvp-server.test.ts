@@ -1,9 +1,19 @@
 import "./test-storage.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { forViewer, newCard, type MeetingCard } from "./model.ts";
+import { forViewer, newCard, seesGoing, takesRoll, type MeetingCard } from "./model.ts";
 import { SEED_CARDS } from "./seed-cards.ts";
-import { applyServerRsvps, deviceRsvpMoves, rsvpIdsByName, type RsvpList } from "./rsvp-api.ts";
+import { ROOMS } from "./model.ts";
+import {
+  applyServerRsvps,
+  CAME_NOT_SAVED,
+  cameIdsFor,
+  deviceRsvpMoves,
+  rollCallPeople,
+  RSVP_NOT_SAVED,
+  toggleRoll,
+  type RsvpList,
+} from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
 import { useBoard } from "./store.ts";
 
@@ -34,9 +44,11 @@ test("a member's board gets only their own name from the server, even if a row s
   const list: RsvpList = {
     viewer: "u-me",
     admin: false,
+    hosts: [],
+    stewardRooms: [],
     rsvps: [
-      { gatheringId: G1, userId: "u-me", name: "Server Name", going: true, attended: false },
-      { gatheringId: G1, userId: "u-tom", name: "Tom", going: true, attended: true },
+      { gatheringId: G1, roomId: "shop", userId: "u-me", name: "Server Name", going: true, attended: false },
+      { gatheringId: G1, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: true },
     ],
   };
   const cards = [card(G1, { going: ["Ann"], wentBy: ["Ann"] }), card("brief", { going: ["Ann"] })];
@@ -46,22 +58,27 @@ test("a member's board gets only their own name from the server, even if a row s
   // A card the server does not list keeps the device's data, and forViewer still trims it.
   assert.deepEqual(out[1]?.going, ["Ann"]);
   assert.deepEqual(forViewer(out[1]!, { admin: false, name: "Me" }).going, []);
-  assert.equal(rsvpIdsByName(list, "Me").size, 0);
+  assert.deepEqual(rollCallPeople(list, "Me"), {});
 });
 
-test("an admin's board gets everyone, and roll call maps names to ids", () => {
+test("an admin's board gets everyone, and the roll call carries member ids", () => {
   const list: RsvpList = {
     viewer: "u-me",
     admin: true,
+    hosts: [],
+    stewardRooms: [],
     rsvps: [
-      { gatheringId: G1, userId: "u-me", name: "Josh", going: true, attended: false },
-      { gatheringId: G1, userId: "u-tom", name: "Tom", going: true, attended: true },
+      { gatheringId: G1, roomId: "shop", userId: "u-me", name: "Josh", going: true, attended: false },
+      { gatheringId: G1, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: true },
     ],
   };
   const out = applyServerRsvps([card(G1)], list, { me: "Me", gatheringIds: new Set([G1]) });
   assert.deepEqual(out[0]?.going, ["Me", "Tom"]);
   assert.deepEqual(out[0]?.wentBy, ["Tom"]);
-  assert.equal(rsvpIdsByName(list, "Me").get(G1)?.get("Tom"), "u-tom");
+  assert.deepEqual(rollCallPeople(list, "Me")[G1], [
+    { userId: "u-me", name: "Me" },
+    { userId: "u-tom", name: "Tom" },
+  ]);
 });
 
 function stubClient(): BoardClient {
@@ -145,39 +162,249 @@ test("sign-in moves this browser's RSVPs once, then reads the server's", async (
   }
 });
 
-test("a signed-in RSVP is saved on the server first; before 0049 it stays on the device", async () => {
+test("a signed-in RSVP is saved on the server first; only rsvp-not-ready stays on the device", async () => {
   const sent: unknown[] = [];
-  let status = 200;
+  let mode: "ok" | "not-ready" | "throw" | "forbidden" = "ok";
   const priorFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://x");
     if (url.pathname === `/api/gatherings/${G1}/rsvp`) {
       sent.push(JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify(status === 200 ? { mine: {} } : { error: "RSVPs are not on the server yet." }), { status });
+      if (mode === "throw") throw new TypeError("Failed to fetch");
+      if (mode === "not-ready") return new Response(JSON.stringify({ error: "rsvp-not-ready" }), { status: 503 });
+      if (mode === "forbidden") return new Response(JSON.stringify({ error: "Not found." }), { status: 404 });
+      return new Response(JSON.stringify({ mine: {} }), { status: 200 });
     }
     return new Response(null, { status: 404 });
   }) as typeof fetch;
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   try {
     setBoardClient(stubClient());
-    useBoard.setState({ remote: true, me: "Me", boardError: "", cards: [card(G1)] });
+    useBoard.setState({ remote: true, me: "Me", boardError: "", rsvpFailed: [], rsvpPending: [], cards: [card(G1)] });
     useBoard.getState().rsvp(G1);
     await settle();
     assert.deepEqual(sent, [{ going: true }]);
     assert.deepEqual(useBoard.getState().cards[0]?.going, ["Me"]);
 
-    status = 503;
+    // Before 0049 (the server's one code): kept on this device, no error.
+    mode = "not-ready";
     useBoard.getState().rsvp(G1);
     await settle();
     assert.deepEqual(sent.at(-1), { going: false });
     assert.deepEqual(useBoard.getState().cards[0]?.going, []);
     assert.equal(useBoard.getState().boardError, "");
 
-    status = 403;
+    // A dropped connection (softenFetch makes it a 503 api-unavailable) is a
+    // failure: the button does not change and the member is told.
+    mode = "throw";
+    useBoard.getState().rsvp(G1);
+    await settle();
+    assert.deepEqual(sent.at(-1), { going: true });
+    assert.deepEqual(useBoard.getState().cards[0]?.going, []);
+    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+    assert.deepEqual(useBoard.getState().rsvpFailed, [G1]);
+    assert.deepEqual(useBoard.getState().rsvpPending, []);
+
+    // Any other refusal: the same.
+    useBoard.setState({ boardError: "" });
+    mode = "forbidden";
     useBoard.getState().rsvp(G1);
     await settle();
     assert.deepEqual(useBoard.getState().cards[0]?.going, []);
-    assert.notEqual(useBoard.getState().boardError, "");
+    assert.equal(useBoard.getState().boardError, RSVP_NOT_SAVED);
+
+    // The next good tap clears the "Not saved" line.
+    mode = "ok";
+    useBoard.getState().rsvp(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.going, ["Me"]);
+    assert.deepEqual(useBoard.getState().rsvpFailed, []);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("two quick taps send one request, and the screen ends matching the server", async () => {
+  const sent: unknown[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G1}/rsvp`) {
+      sent.push(JSON.parse(String(init?.body)));
+      await gate;
+      return new Response(JSON.stringify({ mine: { going: true, attended: false } }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Me", boardError: "", rsvpPending: [], rsvpFailed: [], cards: [card(G1)] });
+    useBoard.getState().rsvp(G1);
+    useBoard.getState().rsvp(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().rsvpPending, [G1]);
+    useBoard.getState().rsvp(G1);
+    release();
+    await settle();
+    assert.deepEqual(sent, [{ going: true }]);
+    assert.deepEqual(useBoard.getState().cards[0]?.going, ["Me"]);
+    assert.deepEqual(useBoard.getState().rsvpPending, []);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("a host sees their own gathering's going and came; a steward sees going in their rooms only", () => {
+  const G3 = "8d3b4c5e-6f70-4c8d-8e9f-1a2b3c4d5e6f";
+  const rows = [
+    { gatheringId: G1, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: true },
+    { gatheringId: G1, roomId: "shop", userId: "u-ann", name: "Ann", going: false, attended: true },
+    { gatheringId: G2, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: false },
+    { gatheringId: G3, roomId: "county", userId: "u-ann", name: "Ann", going: true, attended: false },
+  ];
+  const cards = [card(G1), card(G2), card(G3, { room: "county" })];
+  const ids = new Set([G1, G2, G3]);
+
+  // Host of G1 only: all of G1, nothing of G2 or G3 (even if the server slipped).
+  const host: RsvpList = { viewer: "u-me", admin: false, hosts: [G1], stewardRooms: [], rsvps: rows };
+  const hosted = applyServerRsvps(cards, host, { me: "Me", gatheringIds: ids });
+  assert.deepEqual(hosted[0]?.going, ["Tom"]);
+  assert.deepEqual(hosted[0]?.wentBy.sort(), ["Ann", "Tom"]);
+  assert.deepEqual(hosted[1]?.going, []);
+  assert.deepEqual(hosted[2]?.going, []);
+  assert.deepEqual(Object.keys(rollCallPeople(host, "Me")), [G1]);
+
+  // Steward of shop: going on G1 and G2, never who came; nothing in county.
+  const steward: RsvpList = { viewer: "u-me", admin: false, hosts: [], stewardRooms: ["shop"], rsvps: rows };
+  const stewarded = applyServerRsvps(cards, steward, { me: "Me", gatheringIds: ids });
+  assert.deepEqual(stewarded[0]?.going, ["Tom"]);
+  assert.deepEqual(stewarded[0]?.wentBy, []);
+  assert.deepEqual(stewarded[1]?.going, ["Tom"]);
+  assert.deepEqual(stewarded[2]?.going, []);
+  assert.deepEqual(rollCallPeople(steward, "Me"), {});
+});
+
+test("forViewer: admin, host, steward and member each see what Josh allowed", () => {
+  const full = card(G1, { host: "Dale", room: "shop", going: ["Ann", "Me", "Tom"], wentBy: ["Tom", "Me"] });
+  const admin = forViewer(full, { admin: true, name: "Me" });
+  assert.equal(admin.seeing, "all");
+  assert.deepEqual(admin.going, ["Ann", "Me", "Tom"]);
+  assert.ok(seesGoing(admin) && takesRoll(admin));
+
+  const host = forViewer(full, { admin: false, name: "Dale" });
+  assert.equal(host.seeing, "host");
+  assert.deepEqual(host.wentBy, ["Tom", "Me"]);
+  assert.ok(seesGoing(host) && takesRoll(host));
+  // Host by server id, too.
+  assert.equal(forViewer(full, { admin: false, name: "Me", hosts: [G1] }).seeing, "host");
+
+  const steward = forViewer(full, { admin: false, name: "Me", stewardRooms: ["shop"] });
+  assert.equal(steward.seeing, "steward");
+  assert.deepEqual(steward.going, ["Ann", "Me", "Tom"]);
+  assert.deepEqual(steward.wentBy, ["Me"]);
+  assert.ok(seesGoing(steward));
+  assert.equal(takesRoll(steward), false);
+
+  const otherRoom = forViewer(full, { admin: false, name: "Me", stewardRooms: ["county"] });
+  assert.equal(otherRoom.seeing, undefined);
+  assert.deepEqual(otherRoom.going, ["Me"]);
+
+  const member = forViewer({ ...full, seeing: "all" }, { admin: false, name: "Me" });
+  assert.equal(member.seeing, undefined);
+  assert.deepEqual(member.going, ["Me"]);
+  assert.deepEqual(member.wentBy, ["Me"]);
+  assert.equal(seesGoing(member) || takesRoll(member), false);
+});
+
+test("the roll call sends member ids, so two people with one name are not mixed up", () => {
+  const people = [
+    { userId: "u-john-1", name: "John" },
+    { userId: "u-john-2", name: "John" },
+    { userId: "u-ann", name: "Ann" },
+  ];
+  const picked = toggleRoll(people, [], people[1]!);
+  assert.deepEqual(picked, { keys: ["u-john-2"], came: ["John"], cameIds: ["u-john-2"] });
+  assert.deepEqual(cameIdsFor(people, { picked: picked.cameIds, names: picked.came }), ["u-john-2"]);
+  // Without picks, an ambiguous name is never guessed.
+  assert.deepEqual(cameIdsFor(people, { names: ["John", "Ann"] }), ["u-ann"]);
+  // An id not on the roll call is dropped.
+  assert.deepEqual(cameIdsFor(people, { picked: ["u-stranger"], names: [] }), []);
+});
+
+test("a host who is not an admin closes a date and the server gets who came, by id", async () => {
+  const sent: { path: string; body: unknown }[] = [];
+  let fail = false;
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (init?.method === "POST") sent.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+    if (url.pathname === `/api/gatherings/${G1}/attendance`) {
+      if (fail) throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G1],
+      rollCall: { [G1]: [{ userId: "u-tom", name: "Tom" }, { userId: "u-ann", name: "Ann" }] },
+      cards: [card(G1, { host: "Dale", next: "2026-10-31", going: ["Tom", "Ann"] })],
+    });
+    const check = await useBoard.getState().closeCard(G1, true, "", "Good morning.", ["Tom"], "", ["u-tom"]);
+    assert.equal(check.ok, true, JSON.stringify(check));
+    await settle();
+    const attendance = sent.filter((s) => s.path.endsWith("/attendance"));
+    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["u-tom"], close: true } }]);
+    assert.equal(useBoard.getState().boardError, "");
+
+    // A failed roll call says so.
+    fail = true;
+    useBoard.setState({ cards: [card(G1, { host: "Dale", next: "2026-11-07", going: ["Tom"] })] });
+    await useBoard.getState().closeCard(G1, true, "", "Again.", ["Tom"], "", ["u-tom"]);
+    await settle();
+    assert.equal(useBoard.getState().boardError, CAME_NOT_SAVED);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("a member cannot mark 'I've been'; the host can", async () => {
+  const sent: string[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (init?.method === "POST") sent.push(`${url.pathname} ${String(init.body)}`);
+    return new Response(JSON.stringify({ mine: {} }), { status: 200 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, admin: false, me: "Maria", rsvpHosts: [], cards: [card(G1, { host: "Dale" })] });
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
+    assert.deepEqual(sent, []);
+
+    useBoard.setState({ me: "Dale" });
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, ["Dale"]);
+    assert.deepEqual(sent, [`/api/gatherings/${G1}/rsvp {"attended":true}`]);
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);

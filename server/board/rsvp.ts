@@ -7,15 +7,18 @@ import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 /**
  * RSVPs and attendance, stored on the server (migration 0049).
  *
- * Josh's rule (#91, then Oct 29): a member sees only their own "You're
- * going" or "You've been", never anyone else's and never a number. An admin
- * sees the full list. The host is not an admin for this: a host can close a
- * date and mark who came from those who said they would, but reading the
- * list is admin only, the same as forViewer in src/lib/board/model.ts.
+ * Josh's rule (Oct 29, 9:04 PM ET, replacing #91's admin-only rule):
+ *   - An admin (the owner is an admin) sees everyone who is going and who came.
+ *   - A gathering's host sees who is going to, and who came to, that gathering.
+ *   - A steward sees who is going to gatherings in the rooms they steward.
+ *     Not who came: that stays with the host and admins.
+ *   - Anyone else sees only their own "You're going". Never a name, never a number.
+ *   - Only the host or an admin marks who came. A member cannot mark themselves.
+ * The same rule runs in SQL here and in forViewer (src/lib/board/model.ts).
  *
- *   GET  /api/rsvps                      my rows; an admin gets every row
- *   GET  /api/gatherings/:id/rsvps       mine; an admin also gets `people`
- *   POST /api/gatherings/:id/rsvp        { going?: boolean, attended?: true }
+ *   GET  /api/rsvps                      the rows this viewer may see
+ *   GET  /api/gatherings/:id/rsvps       mine; host, steward, admin also get `people`
+ *   POST /api/gatherings/:id/rsvp        { going?: boolean, attended?: true (host or admin) }
  *   POST /api/gatherings/:id/attendance  host or admin: { userIds, close? }
  *   POST /api/rsvps/move                 the one-time move from this browser
  */
@@ -30,11 +33,18 @@ export type RsvpDeps = {
 
 export type RsvpRow = {
   gatheringId: string;
+  roomId: string;
   userId: string;
   name: string;
   going: boolean;
   attended: boolean;
 };
+
+/** The one refusal for anyone who is not the host or an admin. */
+export const MARK_REFUSED = "Only the host or an admin marks who came.";
+
+/** Before 0049 is applied. The client keeps the RSVP on the device for this code only. */
+export const RSVP_NOT_READY = "rsvp-not-ready";
 
 /** The most rows one move or one roll call may carry. */
 export const RSVP_BATCH_MAX = 200;
@@ -79,11 +89,19 @@ function missingTable(error: unknown): boolean {
   return code === "42P01" || /gathering_rsvp" does not exist/.test(message);
 }
 
-type DbRow = { gathering_id: string; user_id: string; name: string; going: boolean; attended: boolean };
+type DbRow = {
+  gathering_id: string;
+  room_id: string;
+  user_id: string;
+  name: string;
+  going: boolean;
+  attended: boolean;
+};
 
 function toRow(row: DbRow): RsvpRow {
   return {
     gatheringId: row.gathering_id,
+    roomId: row.room_id,
     userId: row.user_id,
     name: row.name,
     going: row.going === true,
@@ -91,24 +109,54 @@ function toRow(row: DbRow): RsvpRow {
   };
 }
 
+/** Who is reading. `stewardRooms` is from actorRole; admins are not listed there. */
+export type RsvpReader = { userId: string; admin: boolean; stewardRooms: readonly string[] };
+
 /**
- * The only read. A non-admin's query is filtered to their own user id in
- * SQL, so another member's row never leaves the database for them.
+ * The only read, filtered in SQL so a row this viewer may not see never
+ * leaves the database:
+ *   - an admin gets every row;
+ *   - my own row, always;
+ *   - the host of a gathering gets every row for it, going and came;
+ *   - a steward of the gathering's room gets the rows that say "going", and
+ *     `attended` is reported false on them (who came is the host's and the
+ *     admins' to see).
  */
 export async function readRsvps(
   db: Db,
-  input: { userId: string; gatheringIds: string[]; admin: boolean },
+  input: RsvpReader & { gatheringIds: string[] },
 ): Promise<RsvpRow[]> {
   if (input.gatheringIds.length === 0) return [];
   const rows = await db.query<DbRow>(
-    `select r.gathering_id, r.user_id, u.name, r.going, r.attended
-     from gathering_rsvp r join "user" u on u.id = r.user_id
+    `select r.gathering_id, g.room_id, r.user_id, u.name, r.going,
+            case when $2::boolean or r.user_id = $3 or g.host_user_id = $3
+                 then r.attended else false end as attended
+     from gathering_rsvp r
+     join "user" u on u.id = r.user_id
+     join public_gathering g on g.id = r.gathering_id
      where r.gathering_id = any ($1::text[])
-       and ($2::boolean or r.user_id = $3)
+       and (
+         $2::boolean
+         or r.user_id = $3
+         or g.host_user_id = $3
+         or (r.going and g.room_id <> '' and g.room_id = any ($4::text[]))
+       )
      order by r.gathering_id, u.name, r.user_id`,
-    [input.gatheringIds, input.admin, input.userId],
+    [input.gatheringIds, input.admin, input.userId, [...input.stewardRooms]],
   );
   return rows.map(toRow);
+}
+
+/** Whether this viewer may read anyone else's row for one gathering. */
+export function seesPeople(
+  reader: RsvpReader,
+  gathering: { hostUserId: string; roomId: string },
+): boolean {
+  return (
+    reader.admin ||
+    gathering.hostUserId === reader.userId ||
+    (gathering.roomId !== "" && reader.stewardRooms.includes(gathering.roomId))
+  );
 }
 
 /** Set or clear my own RSVP. `attended` only ever turns on, as "I went" does on the device. */
@@ -156,8 +204,9 @@ export async function setMyRsvp(
 /**
  * Roll call. Only people who said they would come can be marked as having
  * come. `close` ends the date: every "going" resets, as the device does.
- * The answer carries nothing about anyone, so a host who is not an admin
- * learns no names from it.
+ * The host sends the member ids from their own roll call (the host can read
+ * who is going to their gathering), so attendance is recorded on the server
+ * for a host who is not an admin too. The answer names nobody.
  */
 export async function markAttendance(
   db: Db,
@@ -213,15 +262,21 @@ export function moveEntries(value: unknown): MoveEntry[] | null {
 /**
  * The one-time move. It only ever turns my own flags on, so running it twice
  * changes nothing. A gathering this member cannot see is skipped quietly.
+ * A self-marked "I've been" from the device is kept only when I am that
+ * gathering's host or an admin; anyone else's is dropped, because only the
+ * host or an admin marks who came. An entry left with nothing is skipped.
  */
 export async function moveMyRsvps(
   db: Db,
   input: { userId: string; entries: MoveEntry[]; now: Date },
 ): Promise<string[]> {
   const saved: string[] = [];
-  for (const entry of input.entries) {
-    const gate = await rsvpGatheringFor(db, { userId: input.userId, id: entry.gatheringId, now: input.now });
+  for (const raw of input.entries) {
+    const gate = await rsvpGatheringFor(db, { userId: input.userId, id: raw.gatheringId, now: input.now });
     if (!gate.ok) continue;
+    const marks = gate.actor.admin || gate.gathering.hostUserId === input.userId;
+    const entry = { ...raw, attended: raw.attended && marks };
+    if (!entry.going && !entry.attended) continue;
     await db.query(
       `insert into gathering_rsvp as r (gathering_id, user_id, going, attended)
        values ($1, $2, $3, $4)
@@ -268,8 +323,17 @@ export async function handleRsvp(
         userId: session.id,
         gatheringIds: gatherings.map((row) => row.id),
         admin: actor.admin,
+        stewardRooms: actor.stewardRooms,
       });
-      return json(200, { viewer: session.id, admin: actor.admin, rsvps });
+      return json(200, {
+        viewer: session.id,
+        admin: actor.admin,
+        // Which gatherings I host, and which rooms I steward: the client
+        // applies the same rule again (forViewer) with these.
+        hosts: gatherings.filter((row) => row.mine).map((row) => row.id),
+        stewardRooms: actor.stewardRooms,
+        rsvps,
+      });
     }
 
     if (move) {
@@ -284,16 +348,19 @@ export async function handleRsvp(
     if (!gate.ok) return json(gate.status, { error: gate.error });
     const gatheringId = gate.gathering.id;
 
+    const reader: RsvpReader = {
+      userId: session.id,
+      admin: gate.actor.admin,
+      stewardRooms: gate.actor.stewardRooms,
+    };
+    const host = gate.gathering.hostUserId === session.id;
+
     if (action === "rsvps") {
-      const rows = await readRsvps(deps.db, {
-        userId: session.id,
-        gatheringIds: [gatheringId],
-        admin: gate.actor.admin,
-      });
+      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId] });
       const mine = rows.find((row) => row.userId === session.id);
       return json(200, {
         mine: { going: mine?.going === true, attended: mine?.attended === true },
-        ...(gate.actor.admin ? { people: rows } : {}),
+        ...(seesPeople(reader, gate.gathering) ? { people: rows } : {}),
       });
     }
 
@@ -303,7 +370,12 @@ export async function handleRsvp(
       const going = body.going === true ? true : body.going === false ? false : undefined;
       if ("going" in body && going === undefined) return json(400, { error: "Say whether you are going." });
       if ("attended" in body && body.attended !== true) {
-        return json(400, { error: "Only an admin or the host changes who came." });
+        return json(400, { error: "Say that you came, or leave it out." });
+      }
+      // A member cannot mark themselves as having come. The host (the lister)
+      // and admins can.
+      if (body.attended === true && !host && !gate.actor.admin) {
+        return json(403, { error: MARK_REFUSED });
       }
       const mine = await setMyRsvp(deps.db, {
         userId: session.id,
@@ -315,9 +387,8 @@ export async function handleRsvp(
     }
 
     // attendance
-    const host = gate.gathering.hostUserId === session.id;
     if (!host && !gate.actor.admin) {
-      return json(403, { error: "Only the host or an admin marks who came." });
+      return json(403, { error: MARK_REFUSED });
     }
     const raw = body.userIds ?? [];
     if (!Array.isArray(raw) || raw.length > RSVP_BATCH_MAX || raw.some((id) => typeof id !== "string")) {
@@ -331,7 +402,7 @@ export async function handleRsvp(
     return json(200, { ok: true });
   } catch (error) {
     if (error instanceof BadBody) return json(error.status, { error: error.message });
-    if (missingTable(error)) return json(503, { error: "RSVPs are not on the server yet." });
+    if (missingTable(error)) return json(503, { error: RSVP_NOT_READY });
     throw error;
   }
 }

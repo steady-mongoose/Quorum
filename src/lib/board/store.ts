@@ -28,12 +28,18 @@ import {
 import { isGatheringId } from "./public-gathering.ts";
 import {
   applyServerRsvps,
+  CAME_NOT_SAVED,
+  cameIdsFor,
   deviceRsvpMoves,
   loadRsvps,
   moveRsvps,
-  rsvpIdsByName,
+  rollCallPeople,
+  RSVP_NOT_READY,
+  RSVP_NOT_SAVED,
   saveAttendance,
   saveMyRsvp,
+  type RollPerson,
+  type RsvpFail,
 } from "./rsvp-api.ts";
 import {
   APP_NAME,
@@ -151,6 +157,14 @@ type BoardState = {
    * (migration 0049). The move runs once per member per browser.
    */
   rsvpMovedFor: string[];
+  /** Gathering ids this member hosts, from /api/rsvps. forViewer reads it. */
+  rsvpHosts: string[];
+  /** Roll call by member id, for gatherings this member hosts (or every one, for an admin). */
+  rollCall: Record<string, RollPerson[]>;
+  /** Cards whose RSVP is being saved. The button is aria-busy until it lands. */
+  rsvpPending: string[];
+  /** Cards whose last RSVP save failed. A "Not saved" line shows under the button. */
+  rsvpFailed: string[];
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
@@ -158,7 +172,8 @@ type BoardState = {
   setDeskOn: (on: boolean) => void;
   view: (name: string) => void;
   dismissLine: () => void;
-  file: (draft: Draft) => Promise<Check>;
+  /** `cameIds`: the roll call's member ids, when the server gave one. */
+  file: (draft: Draft, options?: { cameIds?: string[] }) => Promise<Check>;
   fileDeskContact: (input: DeskContact) => Promise<void>;
   reply: (parentId: string, text: string) => Promise<void>;
   revise: (id: string, patch: Pick<Post, "claim" | "reason">) => Promise<void>;
@@ -225,9 +240,11 @@ type BoardState = {
     line: string,
     came: string[],
     pages?: string,
+    cameIds?: string[],
   ) => Promise<Check>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
+  /** "I've been": only the card's host or an admin. Anyone else's tap does nothing. */
   visited: (id: string) => void;
   removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Cancel a removal that has not been sent yet and put the card back. */
@@ -507,6 +524,8 @@ export const useBoard = create<BoardState>()(
           line: string;
           on: string;
           came: string[];
+          /** Member ids from the roll call pills, when the server gave a roll call. */
+          cameIds?: string[];
           named: string;
           pages?: string;
           postId?: string;
@@ -543,14 +562,16 @@ export const useBoard = create<BoardState>()(
           posts: [post, ...get().posts.filter((item) => item.id !== post.id)],
           cards: get().cards.map((item) => (item.id === card.id ? closed : item)),
         });
-        if (get().remote && isGatheringId(card.id)) {
-          // The server ends the date too. Only an admin's roll call carries ids;
-          // a host who is not an admin never sees the list, so sends none.
-          const ids = rsvpIds.get(card.id.toLowerCase());
-          const userIds = input.came
-            .map((name) => ids?.get(name))
-            .filter((id): id is string => Boolean(id));
-          void saveAttendance(card.id, { userIds, close: true }).then(savedOrLocal);
+        if (get().remote && isGatheringId(card.id) && marksCame(card)) {
+          // The server ends the date too, and records who came by member id.
+          // The host (admin or not) reads their own roll call, so has the ids.
+          const userIds = cameIdsFor(get().rollCall[card.id.toLowerCase()], {
+            ...(input.cameIds ? { picked: input.cameIds } : {}),
+            names: input.came,
+          });
+          void saveAttendance(card.id, { userIds, close: true }).then((result) =>
+            savedOrLocal(result, CAME_NOT_SAVED),
+          );
         }
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
@@ -568,9 +589,11 @@ export const useBoard = create<BoardState>()(
             set({ boardError: result.error });
             return;
           }
-          // The lister has been, as on the device. Only my own name is sent.
-          if (card.wentBy.includes(me())) {
-            void saveMyRsvp(card.id, { attended: true }).then(savedOrLocal);
+          // The lister (the host) has been, as on the device. Only my own name is sent.
+          if (card.wentBy.includes(me()) && marksCame(card)) {
+            void saveMyRsvp(card.id, { attended: true }).then((saved) =>
+              savedOrLocal(saved, RSVP_NOT_SAVED),
+            );
           }
         });
       };
@@ -610,8 +633,13 @@ export const useBoard = create<BoardState>()(
         }
         set({ cards });
       };
-      /** Admin roll call only: card id, then a name, to the member's server id. */
-      let rsvpIds = new Map<string, Map<string, string>>();
+      /** The host of this card, or an admin: the only people who mark who came. */
+      const marksCame = (card: MeetingCard) =>
+        get().admin ||
+        card.host === me() ||
+        get().rsvpHosts.includes(card.id.toLowerCase());
+      /** One RSVP save per card at a time. A second tap while one is out does nothing. */
+      const rsvpInFlight = new Set<string>();
       /**
        * After sign-in: move this browser's own RSVPs to the server once, then
        * read the server's. A member gets back only their own rows; an admin
@@ -630,13 +658,20 @@ export const useBoard = create<BoardState>()(
             if (!list.ok) return;
           }
         }
-        rsvpIds = rsvpIdsByName(list, me());
-        set({ cards: applyServerRsvps(get().cards, list, { me: me(), gatheringIds }) });
+        set({
+          rsvpHosts: list.hosts,
+          rollCall: rollCallPeople(list, me()),
+          cards: applyServerRsvps(get().cards, list, { me: me(), gatheringIds }),
+        });
       };
-      /** A 503 means 0049 is not applied yet: keep the change on this device. */
-      const savedOrLocal = (result: { ok: true } | { ok: false; status: number; error: string }) => {
-        if (result.ok || result.status === 503) return true;
-        set({ boardError: result.error });
+      /**
+       * Only the server's rsvp-not-ready (0049 not applied yet) keeps a change
+       * on this device. Anything else, a dropped connection included, is a
+       * failure: the screen does not change and the member is told.
+       */
+      const savedOrLocal = (result: { ok: true } | RsvpFail, message: string) => {
+        if (result.ok || result.code === RSVP_NOT_READY) return true;
+        set({ boardError: message });
         return false;
       };
       let posting = false;
@@ -795,6 +830,10 @@ export const useBoard = create<BoardState>()(
         openThread: null,
         lineDismissedAt: 0,
         rsvpMovedFor: [],
+        rsvpHosts: [],
+        rollCall: {},
+        rsvpPending: [],
+        rsvpFailed: [],
         undoClear: null,
         localEntry: false,
         setSection: (section) => {
@@ -844,7 +883,7 @@ export const useBoard = create<BoardState>()(
           }),
         view: (viewing) => set({ viewing, section: "profile" }),
         dismissLine: () => set({ lineDismissedAt: Date.now() }),
-        file: async (draft) => {
+        file: async (draft, options) => {
           if (posting) return { ok: false, stops: [], notes: [] };
           const { posts, cards } = get();
           const check = checkNow(draft);
@@ -864,6 +903,7 @@ export const useBoard = create<BoardState>()(
                     line: draft.claim.trim(),
                     on: draft.on,
                     came: draft.came,
+                    ...(options?.cameIds ? { cameIds: options.cameIds } : {}),
                     named: draft.named,
                     pages: draft.pages,
                     post: saved.post,
@@ -1231,7 +1271,7 @@ export const useBoard = create<BoardState>()(
           const card = get().cards.find((item) => item.id === id);
           if (card) rememberGathering(card);
         },
-        closeCard: async (id, happened, next, line, came, pages = "") => {
+        closeCard: async (id, happened, next, line, came, pages = "", cameIds) => {
           const { cards } = get();
           const card = cards.find((item) => item.id === id);
           if (!card) return { ok: false, stops: ["That card is gone."], notes: [] };
@@ -1257,6 +1297,7 @@ export const useBoard = create<BoardState>()(
               line: claim,
               on: draft.on,
               came,
+              ...(cameIds ? { cameIds } : {}),
               named: "",
               pages,
               post: saved.post,
@@ -1269,47 +1310,64 @@ export const useBoard = create<BoardState>()(
         rsvp: (id) => {
           const card = get().cards.find((item) => item.id === id);
           if (!card) return;
-          const toggle = () =>
+          /** Set the value that was sent, never a blind toggle. */
+          const put = (going: boolean) =>
             patchCard(id, (item) => ({
               ...item,
-              going: item.going.includes(me())
-                ? item.going.filter((name) => name !== me())
-                : [...item.going, me()],
+              going: going ? addName(item.going, me()) : item.going.filter((name) => name !== me()),
             }));
+          const going = !card.going.includes(me());
           if (!get().remote) {
-            toggle();
+            put(going);
             return;
           }
+          if (rsvpInFlight.has(id)) return;
+          rsvpInFlight.add(id);
+          set({
+            rsvpPending: [...get().rsvpPending.filter((item) => item !== id), id],
+            rsvpFailed: get().rsvpFailed.filter((item) => item !== id),
+          });
           void (async () => {
-            const loaded = await (await getBoardClient()).load({ room: card.room });
-            if (!loaded.ok) {
-              if (loaded.code === "gender-unstated" || loaded.code === "gender-unconfirmed") {
-                set({
-                  room: card.room,
-                  section: "rooms",
-                  roomHold: { roomId: card.room, code: loaded.code, audience: loaded.audience },
-                  roomHoldBack: { section: get().section, room: get().room },
-                  boardError: "",
-                });
+            try {
+              const loaded = await (await getBoardClient()).load({ room: card.room });
+              if (!loaded.ok) {
+                if (loaded.code === "gender-unstated" || loaded.code === "gender-unconfirmed") {
+                  set({
+                    room: card.room,
+                    section: "rooms",
+                    roomHold: { roomId: card.room, code: loaded.code, audience: loaded.audience },
+                    roomHoldBack: { section: get().section, room: get().room },
+                    boardError: "",
+                  });
+                }
+                return;
               }
-              return;
+              if (!isGatheringId(card.id)) {
+                put(going);
+                return;
+              }
+              if (savedOrLocal(await saveMyRsvp(card.id, { going }), RSVP_NOT_SAVED)) {
+                put(going);
+              } else {
+                set({ rsvpFailed: [...get().rsvpFailed.filter((item) => item !== id), id] });
+              }
+            } finally {
+              rsvpInFlight.delete(id);
+              set({ rsvpPending: get().rsvpPending.filter((item) => item !== id) });
             }
-            if (!isGatheringId(card.id)) {
-              toggle();
-              return;
-            }
-            const going = !card.going.includes(me());
-            if (savedOrLocal(await saveMyRsvp(card.id, { going }))) toggle();
           })();
         },
         visited: (id) => {
-          patchCard(id, (card) => ({
-            ...card,
+          const card = get().cards.find((item) => item.id === id);
+          // Only the host or an admin marks who came (Josh, Oct 29).
+          if (!card || !marksCame(card)) return;
+          patchCard(id, (item) => ({
+            ...item,
             unverified: false,
-            wentBy: addName(card.wentBy, me()),
+            wentBy: addName(item.wentBy, me()),
           }));
           if (get().remote && isGatheringId(id)) {
-            void saveMyRsvp(id, { attended: true }).then(savedOrLocal);
+            void saveMyRsvp(id, { attended: true }).then((saved) => savedOrLocal(saved, RSVP_NOT_SAVED));
           }
         },
         removeCard: async (id) => {
@@ -1696,6 +1754,10 @@ export const useBoard = create<BoardState>()(
             appeals: [],
             csamReports: [],
             roomPages: [],
+            rsvpHosts: [],
+            rollCall: {},
+            rsvpPending: [],
+            rsvpFailed: [],
             undoClear: null,
             localEntry: false,
           });

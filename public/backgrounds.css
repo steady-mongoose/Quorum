@@ -79,8 +79,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
 .illum::first-letter{color:var(--accent);font-size:1.35em;font-weight:600;margin-right:-.06em}
 .rsvp-mark{display:flex;flex-direction:column;align-items:center;gap:6px;width:7.5rem}
-.rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0);transition:transform 360ms var(--ease-press)}
-.rsvp-mark .laurel{width:46px;height:auto;opacity:0;transition:opacity 360ms 120ms ease-out}
+.rsvp-mark .rule{width:100%;height:1px;background:var(--gold);transform-origin:left;transform:scaleX(0)}
+.rsvp-mark .laurel{width:46px;height:auto;opacity:0}
+/* Draw in only after the member taps. A state from the server shows drawn. */
+.btn-rsvp[data-tapped] + .rsvp-mark .rule{transition:transform 360ms var(--ease-press)}
+.btn-rsvp[data-tapped] + .rsvp-mark .laurel{transition:opacity 360ms 120ms ease-out}
+@media (prefers-reduced-motion: reduce){.rsvp-mark .rule,.rsvp-mark .laurel{transition:none!important}}
+.btn-rsvp[aria-disabled="true"]{opacity:.5;cursor:wait}
 .btn-rsvp.btn-primary + .rsvp-mark .rule{transform:scaleX(1)}.btn-rsvp.btn-primary + .rsvp-mark .laurel{opacity:1}
 .quote-hold{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 @keyframes ink-settle{from{opacity:0}to{opacity:1}} .post-new{animation:ink-settle var(--dur-ink) ease-out both}

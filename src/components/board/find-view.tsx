@@ -32,7 +32,10 @@ import {
   type MeetingCard,
   type RoomId,
   forViewer,
+  seesGoing,
+  takesRoll,
 } from "@/lib/board/model";
+import { rollCallFor, rollKey, toggleRoll } from "@/lib/board/rsvp-api";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
@@ -43,9 +46,16 @@ export function FindView() {
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () => boardCards.map((card) => forViewer(card, {
+          admin: viewerAdmin,
+          name: viewerName,
+          hosts: viewerHosts,
+          stewardRooms: viewerRooms,
+        })),
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
   );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);
@@ -94,11 +104,9 @@ export function FindView() {
           </h1>
           <p className="max-w-prose text-base text-muted">
             Every meeting, church service, vouched-for business, and family that needs meals. Press{" "}
-            <strong className="font-semibold text-fg">I'll be there</strong> for next time, or{" "}
-            <strong className="font-semibold text-fg">I went</strong> after you have been. A meeting
-            shows in the main list once two people have been to it, and drops off after it is missed
-            twice. If you host something, this is where you write it up afterwards. Invite codes are
-            made under More, on About.
+            <strong className="font-semibold text-fg">I'll be there</strong> for next time. The host
+            records who came. A meeting drops off after it is missed twice. If you host something,
+            this is where you write it up afterwards. Invite codes are made under More, on About.
           </p>
         </section>
 
@@ -339,11 +347,14 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
-  const admin = useBoard((state) => state.admin);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
   const [came, setCame] = useState<string[]>([]);
+  const [cameKeys, setCameKeys] = useState<string[]>([]);
+  const [cameIds, setCameIds] = useState<string[]>([]);
+  const rollCall = useBoard((state) => state.rollCall);
+  const roll = rollCallFor(card, rollCall);
   const [pages, setPages] = useState("");
   const [refused, setRefused] = useState<string[]>([]);
   const room = roomById(card.room);
@@ -385,17 +396,19 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             title={went ? "happened" : "missed"}
           />
         ))}
-        {admin ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
-        {admin && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
+        {takesRoll(card) ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
+        {seesGoing(card) && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
-        <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
-          {went ? "You've been" : "I went"}
-        </button>
+        {takesRoll(card) ? (
+          <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
+            {went ? "You've been" : "I went"}
+          </button>
+        ) : null}
         <MessageHost card={card} {...rest} />
         {isHost ? <InviteNote /> : null}
         {(isHost || rest.steward) && shown ? (
@@ -428,7 +441,15 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 event.preventDefault();
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
-                void closeCard(card.id, happened, nextDate, line, happened ? came : [], pages).then(
+                void closeCard(
+                  card.id,
+                  happened,
+                  nextDate,
+                  line,
+                  happened ? came : [],
+                  pages,
+                  happened ? cameIds : [],
+                ).then(
                   (check) => {
                     if (!check.ok) {
                       setRefused(check.stops);
@@ -437,6 +458,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     setClosing(false);
                     setLine("");
                     setCame([]);
+                    setCameKeys([]);
+                    setCameIds([]);
                     setPages("");
                     setRefused([]);
                   },
@@ -470,28 +493,29 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {admin && card.going.length > 0 ? (
+              {takesRoll(card) && roll.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
-                  {card.going.map((name) => (
+                  {roll.map((person) => (
                     <label
-                      key={name}
+                      key={rollKey(person)}
                       className={cn(
                         "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3",
-                        came.includes(name) && "bg-signal text-signal-ink",
+                        cameKeys.includes(rollKey(person)) && "bg-signal text-signal-ink",
                       )}
                     >
                       <input
                         type="checkbox"
                         className="sr-only"
-                        checked={came.includes(name)}
-                        onChange={() =>
-                          setCame(
-                            came.includes(name) ? came.filter((n) => n !== name) : [...came, name],
-                          )
-                        }
+                        checked={cameKeys.includes(rollKey(person))}
+                        onChange={() => {
+                          const next = toggleRoll(roll, cameKeys, person);
+                          setCameKeys(next.keys);
+                          setCame(next.came);
+                          setCameIds(next.cameIds);
+                        }}
                       />
-                      {name}
+                      {person.name}
                     </label>
                   ))}
                 </div>

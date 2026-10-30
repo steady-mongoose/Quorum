@@ -6,10 +6,12 @@ import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
-import { moveEntries, RSVP_BATCH_MAX } from "./rsvp.ts";
+import { MARK_REFUSED, moveEntries, RSVP_BATCH_MAX, RSVP_NOT_READY } from "./rsvp.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
+/** Hosted by Maria, in the same room as Dale's. */
+const MARIAS = "9e4c5d6f-7a81-4d9e-9fa0-2b3c4d5e6f70";
 const BASE = "http://127.0.0.1:8787";
 
 async function user(db: Db, name: string): Promise<string> {
@@ -28,6 +30,15 @@ async function grant(db: Db, userId: string, name: string) {
      (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
      values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
     [randomUUID(), userId, name],
+  );
+}
+
+async function stewardOf(db: Db, userId: string, name: string, roomId: string) {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note)
+     values ($1, $2, $3, 'steward', $4, 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
+    [randomUUID(), userId, name, roomId],
   );
 }
 
@@ -82,19 +93,35 @@ async function setup() {
   const maria = await user(db, "Maria");
   const tom = await user(db, "Tom");
   const josh = await user(db, "Josh");
+  const owner = await user(db, "Olive");
+  const sam = await user(db, "Sam");
+  const cara = await user(db, "Cara");
   for (const [id, name] of [
     [dale, "Dale"],
     [maria, "Maria"],
     [tom, "Tom"],
     [josh, "Josh"],
+    [owner, "Olive"],
+    [sam, "Sam"],
+    [cara, "Cara"],
   ] as const) {
     await grant(db, id, name);
   }
   await makeAdmin(db, josh);
+  await db.query(`insert into bootstrap_seat (id, user_id) values ('founding', $1) on conflict (id) do update set user_id = $1`, [owner]);
+  await stewardOf(db, sam, "Sam", "shop");
+  await stewardOf(db, cara, "Cara", "county");
   const joshSession = await trustAuthenticator(db, josh);
+  const ownerSession = await trustAuthenticator(db, owner);
+  const samSession = await trustAuthenticator(db, sam);
+  const caraSession = await trustAuthenticator(db, cara);
   const handler = app(db);
-  for (const id of [GATHERING, OTHER]) {
-    const saved = await call(handler, { id: dale }, "POST", "/api/gatherings", {
+  for (const [id, host] of [
+    [GATHERING, dale],
+    [OTHER, dale],
+    [MARIAS, maria],
+  ] as const) {
+    const saved = await call(handler, { id: host }, "POST", "/api/gatherings", {
       id,
       roomId: "shop",
       title: "Saturday lifts",
@@ -111,7 +138,47 @@ async function setup() {
     maria: { id: maria },
     tom: { id: tom },
     josh: { id: josh, session: joshSession },
+    owner: { id: owner, session: ownerSession },
+    sam: { id: sam, session: samSession },
+    cara: { id: cara, session: caraSession },
   };
+}
+
+type ListBody = {
+  viewer: string;
+  admin: boolean;
+  hosts: string[];
+  stewardRooms: string[];
+  rsvps: { gatheringId: string; roomId: string; userId: string; name: string; going: boolean; attended: boolean }[];
+};
+
+/** What one viewer can read, as [gathering, name, going, attended], sorted. */
+async function seen(t: Awaited<ReturnType<typeof setup>>, who: As) {
+  const res = await call(t.handler, who, "GET", "/api/rsvps");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as ListBody;
+  return {
+    body,
+    rows: body.rsvps
+      .map((row) => [row.gatheringId === GATHERING ? "G" : row.gatheringId === MARIAS ? "M" : "O", row.name, row.going, row.attended] as const)
+      .map((row) => row.join(":"))
+      .sort(),
+  };
+}
+
+/**
+ * Dale hosts G. Maria hosts M. Tom and Maria are going to G; Tom came to G
+ * once already (marked by Dale). Tom and Dale are going to M.
+ */
+async function scene(t: Awaited<ReturnType<typeof setup>>) {
+  await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+  const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+    userIds: [t.tom.id],
+  });
+  assert.equal(marked.status, 200);
+  await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+  await call(t.handler, t.tom, "POST", `/api/gatherings/${MARIAS}/rsvp`, { going: true });
+  await call(t.handler, t.dale, "POST", `/api/gatherings/${MARIAS}/rsvp`, { going: true });
 }
 
 test("a member sees only their own RSVP: no other names, no counts", async () => {
@@ -139,11 +206,6 @@ test("a member sees only their own RSVP: no other names, no counts", async () =>
     assert.equal(text.includes(t.tom.id), false);
     assert.equal(/count|total|score|like/i.test(text), false);
 
-    // The host is not an admin: the host also sees only their own.
-    const host = await call(t.handler, t.dale, "GET", `/api/gatherings/${GATHERING}/rsvps`);
-    assert.deepEqual(await host.json(), { mine: { going: false, attended: false } });
-    const hostAll = (await (await call(t.handler, t.dale, "GET", "/api/rsvps")).json()) as { rsvps: unknown[] };
-    assert.deepEqual(hostAll.rsvps, []);
 
     // Clearing my RSVP removes it.
     const cleared = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false });
@@ -157,7 +219,12 @@ test("an admin sees everyone who is going and who has been", async () => {
   const t = await setup();
   try {
     await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
-    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [t.tom.id],
+      close: false,
+    });
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false });
     const one = await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`);
     assert.equal(one.status, 200);
     const body = (await one.json()) as { people: { name: string; going: boolean; attended: boolean }[] };
@@ -205,6 +272,11 @@ test("the routes check who is asking", async () => {
     assert.equal(sneak.status, 403);
     const fake = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: false });
     assert.equal(fake.status, 400);
+    // A member cannot mark themselves as having come, either.
+    const self = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+    assert.equal(self.status, 403);
+    assert.deepEqual(await self.json(), { error: MARK_REFUSED });
+    assert.deepEqual(await sneak.json(), { error: MARK_REFUSED });
 
     // The host marks who came, but the answer names nobody.
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
@@ -249,15 +321,17 @@ test("the one-time move only adds my own rows, and a second run changes nothing"
     ];
     const first = await call(t.handler, t.maria, "POST", "/api/rsvps/move", { entries });
     assert.equal(first.status, 200);
-    assert.deepEqual(((await first.json()) as { saved: string[] }).saved.sort(), [GATHERING, OTHER].sort());
+    // OTHER only said "I've been", and Maria is not its host or an admin, so
+    // that self-marked flag is dropped and nothing is saved for it.
+    assert.deepEqual(((await first.json()) as { saved: string[] }).saved.sort(), [GATHERING]);
 
     const rows = () =>
       t.db.query<{ gathering_id: string; user_id: string; going: boolean; attended: boolean }>(
         `select gathering_id, user_id, going, attended from gathering_rsvp order by gathering_id, user_id`,
       );
     const before = await rows();
-    assert.equal(before.length, 2);
-    assert.ok(before.every((row) => row.user_id === t.maria.id));
+    assert.equal(before.length, 1);
+    assert.ok(before.every((row) => row.user_id === t.maria.id && !row.attended));
 
     const second = await call(t.handler, t.maria, "POST", "/api/rsvps/move", { entries });
     assert.equal(second.status, 200);
@@ -271,6 +345,203 @@ test("the one-time move only adds my own rows, and a second run changes nothing"
 
     const tooMany = Array.from({ length: RSVP_BATCH_MAX + 1 }, () => ({ gatheringId: GATHERING, going: true }));
     assert.equal((await call(t.handler, t.maria, "POST", "/api/rsvps/move", { entries: tooMany })).status, 400);
+  } finally {
+    await t.close();
+  }
+});
+
+test("the move keeps a self-marked 'I've been' only for the host or an admin", async () => {
+  const t = await setup();
+  try {
+    const entries = [
+      { gatheringId: GATHERING, going: false, attended: true },
+      { gatheringId: MARIAS, going: true, attended: true },
+    ];
+    const rows = (userId: string) =>
+      t.db.query<{ gathering_id: string; going: boolean; attended: boolean }>(
+        `select gathering_id, going, attended from gathering_rsvp where user_id = $1 order by gathering_id`,
+        [userId],
+      );
+    // Dale hosts G (kept) but not M (dropped, going kept).
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/rsvps/move", { entries })).status, 200);
+    assert.deepEqual(
+      (await rows(t.dale.id)).map((r) => [r.gathering_id, r.going, r.attended]),
+      [
+        [GATHERING, false, true],
+        [MARIAS, true, false],
+      ],
+    );
+    // An admin keeps both.
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/rsvps/move", { entries })).status, 200);
+    assert.deepEqual(
+      (await rows(t.josh.id)).map((r) => [r.gathering_id, r.going, r.attended]),
+      [
+        [GATHERING, false, true],
+        [MARIAS, true, true],
+      ],
+    );
+  } finally {
+    await t.close();
+  }
+});
+
+test("who sees what, by role: admin, owner, host, steward, member, signed out", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    const everyone = ["G:Maria:true:false", "G:Tom:true:true", "M:Dale:true:false", "M:Tom:true:false"];
+
+    // Admin and owner: everything.
+    for (const who of [t.josh, t.owner]) {
+      const { body, rows } = await seen(t, who);
+      assert.equal(body.admin, true);
+      assert.deepEqual(rows, everyone);
+      const one = (await (await call(t.handler, who, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
+        people?: unknown[];
+      };
+      assert.equal(one.people?.length, 2);
+    }
+
+    // Host of G (Dale): G's going and came, plus only his own row on Maria's M.
+    {
+      const { body, rows } = await seen(t, t.dale);
+      assert.equal(body.admin, false);
+      assert.deepEqual(body.hosts.sort(), [GATHERING, OTHER].sort());
+      assert.deepEqual(rows, ["G:Maria:true:false", "G:Tom:true:true", "M:Dale:true:false"]);
+      const own = (await (await call(t.handler, t.dale, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
+        people?: { name: string }[];
+      };
+      assert.deepEqual(own.people?.map((p) => p.name), ["Maria", "Tom"]);
+      // Another host's gathering: no list, only his own status.
+      const other = await (await call(t.handler, t.dale, "GET", `/api/gatherings/${MARIAS}/rsvps`)).json();
+      assert.deepEqual(other, { mine: { going: true, attended: false } });
+    }
+
+    // Host of M (Maria): M's list, and on Dale's G only her own row.
+    {
+      const { rows } = await seen(t, t.maria);
+      assert.deepEqual(rows, ["G:Maria:true:false", "M:Dale:true:false", "M:Tom:true:false"]);
+    }
+
+    // Steward of the room (Sam, shop): who is going, in every shop gathering,
+    // but never who came.
+    {
+      const { body, rows } = await seen(t, t.sam);
+      assert.equal(body.admin, false);
+      assert.deepEqual(body.stewardRooms, ["shop"]);
+      assert.deepEqual(rows, ["G:Maria:true:false", "G:Tom:true:false", "M:Dale:true:false", "M:Tom:true:false"]);
+      const one = (await (await call(t.handler, t.sam, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
+        people?: { name: string; attended: boolean }[];
+      };
+      assert.deepEqual(one.people?.map((p) => [p.name, p.attended]), [
+        ["Maria", false],
+        ["Tom", false],
+      ]);
+      // A steward does not mark who came.
+      const mark = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+        userIds: [t.maria.id],
+      });
+      assert.equal(mark.status, 403);
+    }
+
+    // Steward of another room (Cara, county): nothing about shop gatherings.
+    {
+      const { rows } = await seen(t, t.cara);
+      assert.deepEqual(rows, []);
+      const one = await (await call(t.handler, t.cara, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
+      assert.deepEqual(one, { mine: { going: false, attended: false } });
+    }
+
+    // A plain member (Tom): only his own rows. No names, no counts.
+    {
+      const { body, rows } = await seen(t, t.tom);
+      assert.deepEqual(rows, ["G:Tom:true:true", "M:Tom:true:false"]);
+      assert.deepEqual(body.hosts, []);
+      assert.deepEqual(body.stewardRooms, []);
+      const text = JSON.stringify(body);
+      for (const name of ["Maria", "Dale", t.maria.id, t.dale.id]) assert.equal(text.includes(name), false, name);
+      assert.equal(/count|total|score|like/i.test(text), false);
+      const one = await (await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
+      assert.deepEqual(one, { mine: { going: true, attended: true } });
+    }
+
+    // Signed out.
+    assert.equal((await call(t.handler, null, "GET", "/api/rsvps")).status, 401);
+    assert.equal((await call(t.handler, null, "GET", `/api/gatherings/${GATHERING}/rsvps`)).status, 401);
+    assert.equal(
+      (await call(t.handler, null, "POST", `/api/gatherings/${GATHERING}/attendance`, { userIds: [] })).status,
+      401,
+    );
+  } finally {
+    await t.close();
+  }
+});
+
+test("only the host or an admin marks who came; a member and another host get 403", async () => {
+  const t = await setup();
+  try {
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    for (const who of [t.tom, t.maria, t.sam, t.cara]) {
+      const res = await call(t.handler, who, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+        userIds: [t.tom.id],
+      });
+      assert.equal(res.status, 403);
+      assert.deepEqual(await res.json(), { error: MARK_REFUSED });
+      const self = await call(t.handler, who, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+      assert.equal(self.status, 403);
+    }
+    const tom = await (await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
+    assert.deepEqual(tom, { mine: { going: true, attended: false } });
+    // The host (the lister) may say they came, as on the device. So may the owner.
+    assert.equal(
+      (await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true })).status,
+      200,
+    );
+    assert.equal(
+      (await call(t.handler, t.owner, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true })).status,
+      200,
+    );
+  } finally {
+    await t.close();
+  }
+});
+
+test("a host who is not an admin closes a date and attendance is recorded on the server", async () => {
+  const t = await setup();
+  try {
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${MARIAS}/rsvp`, { going: true });
+    await call(t.handler, t.dale, "POST", `/api/gatherings/${MARIAS}/rsvp`, { going: true });
+    // Maria (not an admin) reads her roll call with ids, then closes with Tom.
+    const roll = (await (await call(t.handler, t.maria, "GET", `/api/gatherings/${MARIAS}/rsvps`)).json()) as {
+      people: { userId: string; name: string; going: boolean }[];
+    };
+    const tomId = roll.people.find((p) => p.name === "Tom")?.userId;
+    assert.equal(tomId, t.tom.id);
+    const closed = await call(t.handler, t.maria, "POST", `/api/gatherings/${MARIAS}/attendance`, {
+      userIds: [tomId],
+      close: true,
+    });
+    assert.equal(closed.status, 200);
+    const rows = await t.db.query<{ user_id: string; going: boolean; attended: boolean }>(
+      `select user_id, going, attended from gathering_rsvp where gathering_id = $1`,
+      [MARIAS],
+    );
+    assert.deepEqual(
+      rows.map((r) => [r.user_id, r.going, r.attended]),
+      [[t.tom.id, false, true]],
+    );
+  } finally {
+    await t.close();
+  }
+});
+
+test("a missing table answers 503 rsvp-not-ready, the one code the client keeps on the device", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`drop table gathering_rsvp`);
+    const res = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: RSVP_NOT_READY });
   } finally {
     await t.close();
   }

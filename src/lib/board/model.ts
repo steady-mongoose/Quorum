@@ -176,6 +176,12 @@ export type MeetingCard = {
   wentBy: string[];
   /** Names who said they would come next time. Never shown as a count. */
   going: string[];
+  /**
+   * Set only by forViewer: whose names this viewer may see on this card.
+   * "all" an admin, "host" this card's host, "steward" a steward of its room
+   * (going only). Left out, the viewer sees only their own.
+   */
+  seeing?: RsvpSight;
   pinned: boolean;
   unverified: boolean;
   firstTimer: boolean;
@@ -1233,20 +1239,52 @@ export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
 }
 
+export type RsvpSight = "all" | "host" | "steward";
+
+/** Who is looking at the board, for forViewer. */
+export type RsvpViewer = {
+  admin: boolean;
+  name: string;
+  /** Gathering ids this viewer hosts, from the server. */
+  hosts?: readonly string[];
+  /** Rooms this viewer stewards. */
+  stewardRooms?: readonly string[];
+};
+
 /**
- * What one viewer may see of a card's RSVPs and attendance (Josh, 9:35):
- * admins see everything; anyone else sees only their own name. The lists live
- * on this device today (the server never sends them), so this runs where the
- * views assemble their board data.
+ * Josh, Oct 29, 9:04 PM ET (replaces #91's admin-only rule):
+ *   - an admin (the owner is an admin) sees everything;
+ *   - a card's host sees who is going and who came, on their own cards;
+ *   - a steward sees who is going on cards in the rooms they steward;
+ *   - anyone else sees only their own "You're going".
+ * The server already filters the same way in SQL (server/board/rsvp.ts).
  */
-export function forViewer(
-  card: MeetingCard,
-  viewer: { admin: boolean; name: string },
-): MeetingCard {
-  if (viewer.admin) return card;
-  return {
-    ...card,
-    going: (card.going ?? []).filter((name) => name === viewer.name),
-    wentBy: (card.wentBy ?? []).filter((name) => name === viewer.name),
-  };
+export function rsvpSight(card: MeetingCard, viewer: RsvpViewer): RsvpSight | undefined {
+  if (viewer.admin) return "all";
+  const host =
+    (viewer.name !== "" && card.host === viewer.name) ||
+    Boolean(viewer.hosts?.includes(card.id.toLowerCase()));
+  if (host) return "host";
+  if (viewer.stewardRooms?.includes(card.room)) return "steward";
+  return undefined;
+}
+
+export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
+  const seeing = rsvpSight(card, viewer);
+  const own = (names: string[] | undefined) => (names ?? []).filter((name) => name === viewer.name);
+  if (seeing === "all" || seeing === "host") return { ...card, seeing };
+  if (seeing === "steward") return { ...card, seeing, wentBy: own(card.wentBy) };
+  const mine: MeetingCard = { ...card, going: own(card.going), wentBy: own(card.wentBy) };
+  delete mine.seeing;
+  return mine;
+}
+
+/** May this viewer see who is going? (After forViewer.) */
+export function seesGoing(card: MeetingCard): boolean {
+  return card.seeing === "all" || card.seeing === "host" || card.seeing === "steward";
+}
+
+/** May this viewer see who came, and mark who came? Only the host or an admin. */
+export function takesRoll(card: MeetingCard): boolean {
+  return card.seeing === "all" || card.seeing === "host";
 }

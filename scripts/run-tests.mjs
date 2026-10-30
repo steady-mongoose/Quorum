@@ -10,7 +10,7 @@ const appTests = [
   "src/lib/board/find-invite.test.ts",
   "server/board/removal-mine.test.ts",
   "server/board/group-invites.test.ts",
-  "src/lib/board/rsvp-admin-only.test.ts",
+  "src/lib/board/rsvp-who-sees.test.ts",
   "src/lib/board/rsvp-server.test.ts",
   "server/board/rsvp.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",

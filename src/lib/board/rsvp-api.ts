@@ -4,31 +4,58 @@ import { isGatheringId } from "./public-gathering.ts";
 import type { MeetingCard } from "./model.ts";
 
 /**
- * RSVPs on the server (migration 0049). The server already filters what a
- * member may read: a member gets only their own rows, an admin gets all.
- * forViewer (model.ts) still runs in the views as a second layer.
+ * RSVPs on the server (migration 0049). The server filters what each viewer
+ * may read (Josh, Oct 29, 9:04 PM ET): an admin gets every row; a host gets
+ * every row for their own gatherings; a steward gets who is going in the
+ * rooms they steward; anyone else gets only their own rows. applyServerRsvps
+ * repeats that rule, and forViewer (model.ts) runs in the views as a third
+ * layer.
  */
+
+/** The server's one code for "0049 is not applied yet". Only this keeps a change on the device. */
+export const RSVP_NOT_READY = "rsvp-not-ready";
+export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
+export const CAME_NOT_SAVED = "Who came was not saved. Try again in a moment.";
 
 export type ServerRsvp = {
   gatheringId: string;
+  roomId: string;
   userId: string;
   name: string;
   going: boolean;
   attended: boolean;
 };
 
-export type RsvpList = { viewer: string; admin: boolean; rsvps: ServerRsvp[] };
+export type RsvpList = {
+  viewer: string;
+  admin: boolean;
+  /** Gathering ids this viewer hosts. */
+  hosts: string[];
+  /** Rooms this viewer stewards (admins are not listed). */
+  stewardRooms: string[];
+  rsvps: ServerRsvp[];
+};
+
+/** One person on a roll call, by server id. Two members may share a name. */
+export type RollPerson = { userId: string; name: string };
 
 export type RsvpMove = { gatheringId: string; going: boolean; attended: boolean };
 
-type Fail = { ok: false; error: string; status: number };
+/** `code` is the server's raw error, so a caller can tell rsvp-not-ready from a dropped connection. */
+export type RsvpFail = { ok: false; error: string; status: number; code: string };
+type Fail = RsvpFail;
 
 const LOAD_MS = 8000;
 
 async function failure(response: Response, fallback: string): Promise<Fail> {
   const json = (await response.json().catch(() => null)) as { error?: unknown } | null;
-  const error = typeof json?.error === "string" ? json.error : fallback;
-  return { ok: false, status: response.status, error: userFacingError(error, fallback) };
+  const error = typeof json?.error === "string" ? json.error : "";
+  return {
+    ok: false,
+    status: response.status,
+    code: error,
+    error: userFacingError(error || fallback, fallback),
+  };
 }
 
 function rowFrom(value: unknown): ServerRsvp | null {
@@ -38,6 +65,7 @@ function rowFrom(value: unknown): ServerRsvp | null {
   if (typeof row.userId !== "string" || typeof row.name !== "string") return null;
   return {
     gatheringId: row.gatheringId.toLowerCase(),
+    roomId: typeof row.roomId === "string" ? row.roomId : "",
     userId: row.userId,
     name: row.name,
     going: row.going === true,
@@ -53,12 +81,21 @@ export async function loadRsvps(): Promise<({ ok: true } & RsvpList) | Fail> {
   if (!response.ok) return failure(response, "RSVPs did not load.");
   const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!json || typeof json.viewer !== "string") {
-    return { ok: false, status: 502, error: "RSVPs did not load." };
+    return { ok: false, status: 502, code: "", error: "RSVPs did not load." };
   }
   const rsvps = Array.isArray(json.rsvps)
     ? json.rsvps.map(rowFrom).filter((row): row is ServerRsvp => row !== null)
     : [];
-  return { ok: true, viewer: json.viewer, admin: json.admin === true, rsvps };
+  const strings = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return {
+    ok: true,
+    viewer: json.viewer,
+    admin: json.admin === true,
+    hosts: strings(json.hosts).map((id) => id.toLowerCase()),
+    stewardRooms: strings(json.stewardRooms),
+    rsvps,
+  };
 }
 
 async function post(path: string, body: unknown, fallback: string) {
@@ -72,7 +109,7 @@ async function post(path: string, body: unknown, fallback: string) {
   return { ok: true as const, json: (await response.json().catch(() => null)) as unknown };
 }
 
-/** Set or clear my own "going", or say I have been. Nobody else's. */
+/** Set or clear my own "going". `attended` is for the host (the lister) or an admin; anyone else gets 403. */
 export async function saveMyRsvp(
   gatheringId: string,
   input: { going?: boolean; attended?: true },
@@ -124,10 +161,23 @@ export function deviceRsvpMoves(cards: readonly MeetingCard[], me: string): Rsvp
 }
 
 /**
+ * The same rule as the server's SQL, for one row: may this viewer see it,
+ * and may they see its "came" flag?
+ */
+export function rowSight(list: RsvpList, row: ServerRsvp): { see: boolean; came: boolean } {
+  if (list.admin || row.userId === list.viewer || list.hosts.includes(row.gatheringId)) {
+    return { see: true, came: true };
+  }
+  if (row.going && row.roomId !== "" && list.stewardRooms.includes(row.roomId)) {
+    return { see: true, came: false };
+  }
+  return { see: false, came: false };
+}
+
+/**
  * Put the server's RSVPs on the cards it knows about. Cards the server does
- * not list keep what this browser has. A member's rows are matched by user
- * id and shown under their own name; any row about someone else is dropped
- * unless the server said this viewer is an admin.
+ * not list keep what this browser has. My own rows show under my own name.
+ * A row this viewer should not see is dropped even if the server sent it.
  */
 export function applyServerRsvps(
   cards: readonly MeetingCard[],
@@ -135,8 +185,10 @@ export function applyServerRsvps(
   input: { me: string; gatheringIds: ReadonlySet<string> },
 ): MeetingCard[] {
   const byCard = new Map<string, ServerRsvp[]>();
-  for (const row of list.rsvps) {
-    if (!list.admin && row.userId !== list.viewer) continue;
+  for (const raw of list.rsvps) {
+    const sight = rowSight(list, raw);
+    if (!sight.see) continue;
+    const row = sight.came ? raw : { ...raw, attended: false };
     const rows = byCard.get(row.gatheringId) ?? [];
     rows.push(row);
     byCard.set(row.gatheringId, rows);
@@ -154,14 +206,72 @@ export function applyServerRsvps(
   });
 }
 
-/** Admin roll call: a name on a card back to the member's id. */
-export function rsvpIdsByName(list: RsvpList, me: string): Map<string, Map<string, string>> {
-  const out = new Map<string, Map<string, string>>();
-  if (!list.admin) return out;
+/**
+ * Roll call, by member id: who is going, for each gathering this viewer may
+ * mark (they host it, or they are an admin). Stewards and members get none.
+ */
+export function rollCallPeople(list: RsvpList, me: string): Record<string, RollPerson[]> {
+  const out: Record<string, RollPerson[]> = {};
   for (const row of list.rsvps) {
-    const names = out.get(row.gatheringId) ?? new Map<string, string>();
-    names.set(row.userId === list.viewer ? me : row.name, row.userId);
-    out.set(row.gatheringId, names);
+    if (!row.going) continue;
+    if (!list.admin && !list.hosts.includes(row.gatheringId)) continue;
+    const people = out[row.gatheringId] ?? [];
+    people.push({ userId: row.userId, name: row.userId === list.viewer ? me : row.name });
+    out[row.gatheringId] = people;
   }
   return out;
+}
+
+/**
+ * The ids to send for a roll call. `picked` holds member ids from the pills
+ * when the server gave a roll call. Without one (an older device list), a
+ * name maps to an id only when exactly one going member has that name.
+ */
+export function cameIdsFor(
+  people: readonly RollPerson[] | undefined,
+  input: { picked?: readonly string[]; names: readonly string[] },
+): string[] {
+  if (!people) return [];
+  const known = new Set(people.map((person) => person.userId));
+  if (input.picked) return [...new Set(input.picked.filter((id) => known.has(id)))];
+  const ids: string[] = [];
+  for (const name of new Set(input.names)) {
+    const matches = people.filter((person) => person.name === name);
+    if (matches.length === 1) ids.push(matches[0]!.userId);
+  }
+  return ids;
+}
+
+/**
+ * The roll call pills for one card: the server's people (by id) when it gave
+ * a roll call, otherwise this device's going names (an offline board).
+ */
+export function rollCallFor(
+  card: MeetingCard,
+  rollCall: Readonly<Record<string, RollPerson[]>>,
+): RollPerson[] {
+  const people = rollCall[card.id.toLowerCase()];
+  if (people) return people;
+  return [...new Set(card.going)].map((name) => ({ userId: "", name }));
+}
+
+/** A pill's key: the member id, or the name on an offline board. */
+export function rollKey(person: RollPerson): string {
+  return person.userId || `name:${person.name}`;
+}
+
+/** Toggle one pill. Returns the new keys, the names for the write-up, and the ids for the server. */
+export function toggleRoll(
+  people: readonly RollPerson[],
+  keys: readonly string[],
+  person: RollPerson,
+): { keys: string[]; came: string[]; cameIds: string[] } {
+  const key = rollKey(person);
+  const next = keys.includes(key) ? keys.filter((item) => item !== key) : [...keys, key];
+  const picked = people.filter((item) => next.includes(rollKey(item)));
+  return {
+    keys: next,
+    came: [...new Set(picked.map((item) => item.name))],
+    cameIds: picked.map((item) => item.userId).filter(Boolean),
+  };
 }

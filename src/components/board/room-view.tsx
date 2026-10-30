@@ -67,6 +67,8 @@ import {
   type MeetingCard,
   type Post,
   forViewer,
+  seesGoing,
+  takesRoll,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
 import { sendReport } from "@/lib/board/report-api";
@@ -80,6 +82,7 @@ import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink
 import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
+import { rollCallFor, rollKey, toggleRoll, type RollPerson } from "@/lib/board/rsvp-api";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -107,9 +110,16 @@ export function RoomView() {
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () => boardCards.map((card) => forViewer(card, {
+          admin: viewerAdmin,
+          name: viewerName,
+          hosts: viewerHosts,
+          stewardRooms: viewerRooms,
+        })),
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
@@ -187,7 +197,7 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {admin && card.going.length > 0 ? (
+          {seesGoing(card) && card.going.length > 0 ? (
             <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
           ) : null}
         </article>
@@ -448,15 +458,21 @@ function CardSelect({
 }
 
 function Composer({ me, steward }: { me: string; steward: boolean }) {
-  const admin = useBoard((state) => state.admin);
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () => boardCards.map((card) => forViewer(card, {
+          admin: viewerAdmin,
+          name: viewerName,
+          hosts: viewerHosts,
+          stewardRooms: viewerRooms,
+        })),
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
@@ -489,6 +505,18 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   );
   const closing =
     current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
+  const rollCallById = useBoard((state) => state.rollCall);
+  const roll = closing ? rollCallFor(closing, rollCallById) : [];
+  // Roll call picks by member id. They belong to one card and only while
+  // that card's write-up still lists them.
+  const [rollPicks, setRollPicks] = useState<{ cardId: string; keys: string[] }>({ cardId: "", keys: [] });
+  const cameKeys =
+    rollPicks.cardId === current.cardId
+      ? rollPicks.keys.filter((key) => {
+          const person = roll.find((item) => rollKey(item) === key);
+          return Boolean(person && current.came.includes(person.name));
+        })
+      : [];
   const check = useMemo(
     () =>
       composerCheck(current, {
@@ -536,7 +564,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setPending(true);
     const before = new Set(useBoard.getState().posts.map((post) => post.id));
     expectFreshPost();
-    void file(current)
+    void file(current, { cameIds: roll.filter((p) => cameKeys.includes(rollKey(p))).map((p) => p.userId).filter(Boolean) })
       .then((outcome) => {
         if (outcome.ok) {
           const fresh = useBoard.getState().posts.find((post) => !before.has(post.id));
@@ -574,11 +602,10 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
       send();
     }
   };
-  const toggleCame = (name: string) => {
-    const came = current.came.includes(name)
-      ? current.came.filter((n) => n !== name)
-      : [...current.came, name];
-    patch({ came, named: came.includes(current.named) ? current.named : "" });
+  const toggleCame = (person: RollPerson) => {
+    const next = toggleRoll(roll, cameKeys, person);
+    setRollPicks({ cardId: current.cardId, keys: next.keys });
+    patch({ came: next.came, named: next.came.includes(current.named) ? current.named : "" });
   };
 
   const latestError = visible?.stops.at(-1);
@@ -745,26 +772,26 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                 {rollCall ? (
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
-                  {admin && closing && closing.going.length > 0 ? (
+                  {closing && takesRoll(closing) && roll.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
-                      {closing.going.map((name) => (
+                      {roll.map((person) => (
                         <label
-                          key={name}
-                          className={pill(current.came.includes(name), "cursor-pointer")}
+                          key={rollKey(person)}
+                          className={pill(cameKeys.includes(rollKey(person)), "cursor-pointer")}
                         >
                           <input
                             type="checkbox"
                             className="sr-only"
-                            checked={current.came.includes(name)}
-                            onChange={() => toggleCame(name)}
+                            checked={cameKeys.includes(rollKey(person))}
+                            onChange={() => toggleCame(person)}
                           />
-                          {name}
+                          {person.name}
                         </label>
                       ))}
                     </div>
                   ) : (
                     <span>
-                      {admin
+                      {closing && takesRoll(closing)
                         ? "Nobody said they would come. Say how it went and set the next date."
                         : "Say how it went, and set the next date."}
                     </span>
