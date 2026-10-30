@@ -6,7 +6,6 @@ import {
   DM_KEYS_MISSING,
   DM_PASSPHRASE_WARNING,
   DM_SAFETY_HINT,
-  MESSAGE_RULE,
 } from "@/lib/e2ee/copy";
 import {
   browserTransport,
@@ -39,7 +38,9 @@ import {
   type ThreadSummary,
   type VaultState,
 } from "@/lib/e2ee/mailbox";
-import { DM_RETENTION_DAYS, formatWhen, messageableNames, otherIn } from "@/lib/board/model";
+import { DM_RETENTION_DAYS, formatWhen, otherIn } from "@/lib/board/model";
+import { refusalText } from "@/lib/board/message-reach";
+import { forgetMessageReach, useMessageReach } from "@/components/board/use-message-reach";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
@@ -56,8 +57,6 @@ export function EncryptedMailbox() {
   const me = session.user;
   const boardName = useBoard((state) => state.me.trim());
   const cards = useBoard((state) => state.cards);
-  const posts = useBoard((state) => state.posts);
-  const rooms = useBoard((state) => state.rooms);
   const openThread = useBoard((state) => state.openThread);
   const setOpenThread = useBoard((state) => state.setOpenThread);
   const dmFrom = useBoard((state) => state.dmFrom);
@@ -82,10 +81,8 @@ export function EncryptedMailbox() {
   const [busy, setBusy] = useState(false);
 
   const gateName = boardName || me?.name || "";
-  const peers = useMemo(
-    () => messageableNames(gateName, cards, posts, rooms),
-    [gateName, cards, posts, rooms],
-  );
+  // Only for wording a refusal: the server decides who you may message.
+  const reach = useMessageReach(dmFrom ? [dmFrom.room] : []);
   const [blocked, setBlocked] = useState<{ id: string; name: string }[]>([]);
   const [confirmBlock, setConfirmBlock] = useState(false);
 
@@ -199,13 +196,10 @@ export function EncryptedMailbox() {
     // From a room's member list: the server listed this account. It checks again on open.
     const listed = dmFrom && dmFrom.name === other ? dmFrom.userId : null;
     if (listed) {
-      void openPeer(listed);
+      void openPeer(listed, other, true);
       return;
     }
-    if (!peers.has(other)) {
-      setNotice(MESSAGE_RULE);
-      return;
-    }
+    // No rule is checked here. The server answers when the conversation opens.
     let cancelled = false;
     void (async () => {
       const cardIds = cards
@@ -243,7 +237,7 @@ export function EncryptedMailbox() {
       }
       const match = matches[0];
       if (!match) return;
-      await openPeer(match.id);
+      await openPeer(match.id, other);
     })();
     return () => {
       cancelled = true;
@@ -258,6 +252,7 @@ export function EncryptedMailbox() {
 
   async function block(thread: ThreadSummary) {
     const done = await blockMember(transport, thread.otherUserId);
+    forgetMessageReach();
     if (!done.ok) {
       setNotice(done.message);
       return;
@@ -270,6 +265,7 @@ export function EncryptedMailbox() {
 
   async function unblock(userId: string) {
     const done = await unblockMember(transport, userId);
+    forgetMessageReach();
     if (!done.ok) {
       setNotice(done.message);
       return;
@@ -277,11 +273,13 @@ export function EncryptedMailbox() {
     await refreshBlocked();
   }
 
-  async function openPeer(userId: string) {
+  async function openPeer(userId: string, name?: string, fromRoomList = false) {
     setChoices([]);
     const opened = await openEncryptedThread(transport, userId);
     if (!opened.ok) {
-      setNotice(opened.message);
+      // One refusal for every gate. Say it plainly when you share a room.
+      const sharesRoom = fromRoomList || (name ? reach.sharesRoom(name) : false);
+      setNotice(refusalText(opened.message, sharesRoom));
       return;
     }
     setNotice("");
@@ -710,7 +708,7 @@ export function EncryptedMailbox() {
                 type="button"
                 aria-label={`Conversation with ${peer.name}`}
                 className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
-                onClick={() => void openPeer(peer.id)}
+                onClick={() => void openPeer(peer.id, peer.name)}
               >
                 <span className="text-base font-semibold text-fg">{peer.name}</span>
                 <span className="text-sm text-muted">Account {peer.id.slice(0, 8)}</span>

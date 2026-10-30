@@ -4,8 +4,9 @@ import { AccountRemoval } from "@/components/board/account-removal";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
-import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
+import { authorName, cardSummary, formatDate, metAt, namedLines } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { useMessageReach } from "@/components/board/use-message-reach";
 import { MfaSettings } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 
@@ -62,9 +63,14 @@ export function ProfileView() {
   const name = viewing?.trim() || me;
   const mine = name === me;
 
-  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  // The profile gate is a meeting together, as the page says. Replies do not count.
+  const peers = useMemo(() => metAt(me, cards), [me, cards]);
   const allowed = mine || peers.has(name);
-  const theirs = useMemo(() => stoodWith(name, cards, posts), [name, cards, posts]);
+  const theirs = useMemo(() => metAt(name, cards), [name, cards]);
+  const joinedRooms = useBoard((state) => state.rooms);
+  const reach = useMessageReach(
+    joinedRooms.filter((room) => room.joined).map((room) => room.id),
+  );
   const hosts = cards.filter((card) => card.host === name && card.kind !== "trade" && card.kind !== "need");
   const named = useMemo(() => namedLines(name, posts), [name, posts]);
 
@@ -161,7 +167,7 @@ export function ProfileView() {
             </label>
           </section>
         ) : null}
-        {!mine ? (
+        {!mine && reach.canMessage(name) ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>
             <MessageSquare className="size-4" aria-hidden="true" />
             Message {name}

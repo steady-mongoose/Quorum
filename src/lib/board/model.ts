@@ -1181,16 +1181,15 @@ export function readingLine(card: MeetingCard): string {
 
 // --- People -------------------------------------------------------------------
 
-/** Everyone `me` has been to a meeting with, or who replied to me. The gate for messages and profiles. */
-export function stoodWith(me: string, cards: MeetingCard[], posts: Post[]): Set<string> {
+/**
+ * Everyone `me` has been to a meeting with, by the cards' went lists. This is
+ * the profile gate. Replies do not count: the server has no reply rule.
+ */
+export function metAt(me: string, cards: MeetingCard[]): Set<string> {
   const names = new Set<string>();
   for (const card of cards) {
     if (card.wentBy.includes(me)) for (const name of card.wentBy) names.add(name);
   }
-  const mine = new Set(
-    posts.filter((post) => post.author === me && !post.parentId).map((post) => post.id),
-  );
-  for (const post of posts) if (post.parentId && mine.has(post.parentId)) names.add(post.author);
   names.delete(me);
   return names;
 }
@@ -1207,14 +1206,18 @@ export function roomMatesOf(me: string, rooms: readonly Room[], posts: Post[]): 
   return names;
 }
 
-/** Everyone you can open a message to: people from your meetings and from your rooms. */
-export function messageableNames(
+/**
+ * The demo board's message rule, for a board that is not signed in: people from
+ * your meetings and people from your rooms, as the server's rule reads. When
+ * signed in, the server decides (see message-reach.ts); the app does not.
+ */
+export function localReach(
   me: string,
   cards: MeetingCard[],
   posts: Post[],
   rooms: readonly Room[],
 ): Set<string> {
-  return new Set([...stoodWith(me, cards, posts), ...roomMatesOf(me, rooms, posts)]);
+  return new Set([...metAt(me, cards), ...roomMatesOf(me, rooms, posts)]);
 }
 
 /** The last few times a host named this person, newest first. */

@@ -26,7 +26,6 @@ import {
   hostsClear,
   readingLine,
   roomById,
-  stoodWith,
   todayIso,
   witnessesByTrade,
   type CardKind,
@@ -36,6 +35,7 @@ import {
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
+import { useMessageReach } from "@/components/board/use-message-reach";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -54,7 +54,14 @@ export function FindView() {
   const steward = useBoard((state) => state.steward);
 
   const witnesses = useMemo(() => witnessesByTrade(posts, cards), [posts, cards]);
-  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  const joined = useBoard((state) => state.rooms);
+  // Hosts' rooms you are in: their member lists carry the server's answer.
+  const hostRooms = useMemo(() => {
+    const mine = new Set(joined.filter((room) => room.joined).map((room) => room.id));
+    return [...new Set(cards.map((card) => card.room))].filter((id) => mine.has(id));
+  }, [joined, cards]);
+  const reach = useMessageReach(hostRooms);
+  const peers = useMemo(() => ({ has: reach.canMessage }), [reach]);
   const clear = useMemo(() => hostsClear(posts), [posts]);
   const groups = useMemo(() => {
     const out = {
@@ -163,7 +170,8 @@ type RowProps = {
   card: MeetingCard;
   me: string;
   steward: boolean;
-  peers: Set<string>;
+  /** Whether the server (or, on the demo board, the demo rule) lets you message them. */
+  peers: { has: (name: string) => boolean };
   clear: Map<string, boolean>;
   onRemove: (card: MeetingCard) => void;
 };

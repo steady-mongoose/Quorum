@@ -21,6 +21,7 @@ const appTests = [
   "src/lib/board/design-review.test.ts",
   "src/lib/board/landing-header.test.ts",
   "src/lib/board/room-messages.test.ts",
+  "src/lib/board/message-reach.test.ts",
   "src/lib/board/share-post.test.ts",
   "src/lib/board/room-options.test.ts",
   "src/lib/board/about-copy.test.ts",

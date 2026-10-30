@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
-import { authorName, formatDate, messageableNames, type Room } from "@/lib/board/model";
+import { authorName, formatDate, localReach, type Room } from "@/lib/board/model";
 import {
   loadRoomMembers,
   localRoomMembers,
@@ -59,7 +59,7 @@ export function RoomMembers({ room }: { room: Room }) {
     () =>
       remote
         ? null
-        : localRoomMembers(room, posts, me, messageableNames(me, cards, posts, rooms)),
+        : localRoomMembers(room, posts, me, localReach(me, cards, posts, rooms)),
     [remote, room, posts, me, cards, rooms],
   );
   const list = remote ? live : local;

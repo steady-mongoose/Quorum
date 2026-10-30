@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { ROOMS, messageableNames, roomMatesOf, type Post, type Room } from "./model.ts";
+import { ROOMS, localReach, roomMatesOf, type Post, type Room } from "./model.ts";
 
 function post(room: string, author: string, extra: Partial<Post> = {}): Post {
   return { id: `${room}-${author}`, room, author, at: 1, type: "shared", claim: "Hello.", ...extra } as Post;
 }
 
-test("people posting in a room you joined can be messaged; other rooms and removed posts do not count", () => {
+test("people posting in a room you joined can be messaged on the demo board; other rooms and removed posts do not count", () => {
   const rooms: Room[] = ROOMS.map((room) => ({ ...room, joined: room.id === "baptist" }));
   const posts = [
     post("baptist", "Ruth"),
@@ -16,10 +16,10 @@ test("people posting in a room you joined can be messaged; other rooms and remov
     post("shop", "Tom"),
   ];
   assert.deepEqual([...roomMatesOf("Josh", rooms, posts)], ["Ruth"]);
-  assert.deepEqual([...messageableNames("Josh", [], posts, rooms)], ["Ruth"]);
+  assert.deepEqual([...localReach("Josh", [], posts, rooms)], ["Ruth"]);
 });
 
-test("the room page and the mailbox use the wider rule; the profile page keeps the meeting rule", () => {
+test("the room page and the mailbox take the server's answer; the profile page keeps the meeting rule", () => {
   const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
   const mailbox = readFileSync(
     new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
@@ -29,9 +29,11 @@ test("the room page and the mailbox use the wider rule; the profile page keeps t
     new URL("../../components/board/profile-view.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(room, /messageableNames\(me, cards, posts, rooms\)/);
-  assert.match(mailbox, /messageableNames\(gateName, cards, posts, rooms\)/);
+  assert.match(room, /useMessageReach\(\[room\]\)/);
+  assert.match(room, /canMessage=\{reach\.canMessage\(post\.author\)\}/);
+  assert.doesNotMatch(mailbox, /setNotice\(MESSAGE_RULE\)/);
+  assert.match(mailbox, /refusalText\(opened\.message, sharesRoom\)/);
   assert.match(mailbox, /Block \{active\.otherName\}/);
   assert.match(mailbox, /They are not told\./);
-  assert.match(profile, /stoodWith\(me, cards, posts\)/);
+  assert.match(profile, /metAt\(me, cards\)/);
 });
