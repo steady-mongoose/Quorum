@@ -80,7 +80,7 @@ globalThis.fetch = /** @type {any} */ (
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { ClaimsPanel } = await import("../../components/board/claims-queue.tsx");
+const { ClaimsPanel, ListingPicker, CLAIM_NOT_SENT } = await import("../../components/board/claims-queue.tsx");
 const { HomePanel } = await import("../../components/board/home-view.tsx");
 const { useBoard } = await import("./store.ts");
 const { readFileSync } = await import("node:fs");
@@ -278,7 +278,7 @@ test("home: Save place is a normal-size button on its own row, and the ZIP note 
   assert.match(save.className, /sm:col-span-2/);
   assert.match(
     host.querySelector("#place-zip-note")?.textContent ?? "",
-    /There is no town room for ZIP 33598 yet\. You can ask for one with Request a new place\./,
+    /There is no town room for ZIP 33598 yet\. Ask for one with Request a new place/,
   );
   const request = /** @type {HTMLButtonElement} */ (
     [...host.querySelectorAll("button")].find((b) => b.textContent === "Request a new place")
@@ -467,5 +467,262 @@ test("request (6): Not listed in the claim picker opens Request a new place on i
   const form = /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form"));
   assert.equal(form.hidden, false);
   assert.equal(document.activeElement, form.querySelector("select"));
+  done();
+});
+
+// QA #123 (reviews 5706899294 and 5706946168 on 885183b): S3 and S4 items.
+
+/** Picks the first listing matching `query` and returns the submit button. @param {Element} host @param {string} query */
+async function pickListing(host, query) {
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  await type(input, query);
+  act(() => /** @type {HTMLElement} */ (host.querySelector('[role="option"]')).click());
+  await flush();
+  return /** @type {HTMLButtonElement} */ (host.querySelector('button[type="submit"]'));
+}
+
+/** Swaps fetch so claim POSTs go through `onPost`; reads still get the queue. @param {(init: RequestInit) => Promise<Response>} onPost */
+function withPost(onPost) {
+  const real = globalThis.fetch;
+  globalThis.fetch = /** @type {any} */ (
+    async (/** @type {string} */ url, /** @type {RequestInit | undefined} */ init) =>
+      init?.method === "POST" ? onPost(init) : real(url, init)
+  );
+  return () => {
+    globalThis.fetch = real;
+  };
+}
+
+test("qa S3: the polite hint is one live region from the start, so 1-8 match counts are announced", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  const region = document.getElementById(input.getAttribute("aria-describedby") ?? "");
+  assert.equal(region?.getAttribute("aria-live"), "polite");
+  assert.equal(region?.textContent, "Start typing, then choose your listing from the list.");
+  for (const [query, said] of [
+    ["grace", "1 listing matches. Use the up and down arrows to choose."],
+    ["hillsborough", "2 listings match. Use the up and down arrows to choose."],
+  ]) {
+    await type(input, query);
+    // Same node, new text: a screen reader announces a change inside an existing live region,
+    // not a region that is mounted with its text already in it.
+    assert.equal(document.getElementById(input.getAttribute("aria-describedby") ?? ""), region);
+    assert.equal(region?.textContent, said);
+  }
+  done();
+});
+
+test("qa S3: Tab away or a click outside closes the list and sets aria-expanded false", async () => {
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  act(() => input.focus());
+  await type(input, "hillsborough");
+  assert.equal(input.getAttribute("aria-expanded"), "true");
+  act(() => outside.focus());
+  await flush();
+  assert.equal(input.getAttribute("aria-expanded"), "false");
+  assert.equal(/** @type {HTMLElement} */ (host.querySelector('[role="listbox"]')).hidden, true);
+  assert.equal(input.hasAttribute("aria-activedescendant"), false);
+  // Coming back opens it again, and an option still picks (its mousedown keeps focus in the field).
+  act(() => input.focus());
+  await flush();
+  assert.equal(input.getAttribute("aria-expanded"), "true");
+  const option = /** @type {HTMLElement} */ (host.querySelector('[role="option"]'));
+  const down = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  act(() => {
+    option.dispatchEvent(down);
+  });
+  assert.equal(down.defaultPrevented, true);
+  act(() => option.click());
+  await flush();
+  assert.match(host.textContent ?? "", /Your listingGrace Bible Church of Brandon/);
+  outside.remove();
+  done();
+});
+
+test("qa S3: a double submit sends one POST, with a Sending… state, and no 'already open' after success", async () => {
+  /** @type {(value: Response) => void} */
+  let release = () => {};
+  let posts = 0;
+  const restore = withPost(() => {
+    posts += 1;
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  });
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const button = await pickListing(host, "grace");
+  act(() => button.click());
+  await flush();
+  assert.equal(button.textContent, "Sending…");
+  assert.equal(button.getAttribute("aria-busy"), "true");
+  assert.equal(button.getAttribute("aria-disabled"), "true");
+  assert.equal(button.disabled, false, "aria-disabled, so it keeps focus");
+  act(() => button.click());
+  act(() => /** @type {HTMLFormElement} */ (button.form).requestSubmit());
+  await flush();
+  assert.equal(posts, 1, "the second click and Enter send nothing");
+  await act(async () => {
+    release(
+      new Response(JSON.stringify({ claim: {} }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+  await flush();
+  assert.equal(posts, 1);
+  assert.equal(button.textContent, "Request the claim");
+  assert.equal(button.hasAttribute("aria-busy"), false);
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.match(host.textContent ?? "", /The claim is open\./);
+  assert.doesNotMatch(host.textContent ?? "", /already open/);
+  restore();
+  done();
+});
+
+test("qa S3: a network failure says the request did not send, never 'api-unavailable'", async () => {
+  const restore = withPost(async () => {
+    throw new TypeError("Failed to fetch");
+  });
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const button = await pickListing(host, "grace");
+  act(() => button.click());
+  await flush();
+  const alert = host.querySelector('[role="alert"]');
+  assert.equal(alert?.textContent, "Your request did not send. Try again in a moment.");
+  assert.equal(CLAIM_NOT_SENT, alert?.textContent);
+  assert.doesNotMatch(host.textContent ?? "", /api-unavailable/);
+  assert.equal(button.textContent, "Request the claim", "the button is usable again");
+  assert.equal(button.hasAttribute("aria-busy"), false);
+  restore();
+  done();
+});
+
+test("qa S3: a server error with words still shows those words", async () => {
+  const restore = withPost(
+    async () =>
+      new Response(JSON.stringify({ error: "A claim for that listing is already open." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const button = await pickListing(host, "grace");
+  act(() => button.click());
+  await flush();
+  assert.equal(host.querySelector('[role="alert"]')?.textContent, "A claim for that listing is already open.");
+  restore();
+  done();
+});
+
+test("qa S3: an empty week with no side column renders no empty grid under the phone card", () => {
+  const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
+  // The grid (and its gap-8 row) exists only when it has something to show.
+  assert.match(week, /\{week\.length > 0 \|\| hasSide \? \(\s*<div\s+className=\{cn\(\s*"week-columns grid gap-8"/);
+  // The phone card itself is unchanged.
+  assert.match(
+    week,
+    /<section className="plate plate--hero flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>/,
+  );
+});
+
+/** WCAG relative luminance contrast. @param {string} a @param {string} b */
+function contrast(a, b) {
+  const lum = (/** @type {string} */ hex) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test("qa S3: the Home tier labels (pc-h, which replaced .list-label) are at least 4.5:1 in both palettes", () => {
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  const art = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /list-label/);
+  const ink = /:root \{\s*--pc-gilt: (#[0-9a-f]{6});/.exec(css)?.[1];
+  const parchment = /\[data-palette="parchment"\] \[data-section\] \{\s*--pc-gilt: (#[0-9a-f]{6});/.exec(css)?.[1];
+  assert.ok(ink && parchment);
+  /** @param {string} block */
+  const grounds = (block) =>
+    ["--bg", "--surface", "--card", "--card-raised"].map((name) => {
+      const hit = new RegExp(`${name}:(#[0-9a-f]{6})`).exec(block)?.[1];
+      assert.ok(hit, name);
+      return /** @type {string} */ (hit);
+    });
+  const inkBlock = art.slice(0, art.indexOf('[data-palette="parchment"]{'));
+  const parchBlock = art.slice(art.indexOf('[data-palette="parchment"]{'));
+  for (const ground of grounds(inkBlock)) assert.ok(contrast(ink, ground) >= 4.5, `Ink & Bone ${ground}`);
+  for (const ground of grounds(parchBlock)) assert.ok(contrast(parchment, ground) >= 4.5, `Parchment ${ground}`);
+});
+
+test("qa S4: the gold rule and labels follow the palette (--pc-gilt), not the fixed --color-gilt", () => {
+  for (const file of ["week-view.tsx", "home-view.tsx", "claims-queue.tsx"]) {
+    const src = readFileSync(new URL(`../../components/board/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(src, /gilt|#c9a45c/i, file);
+  }
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  for (const rule of [".pc-rule {", ".pc-rule::before {", ".pc-h {"]) {
+    const block = css.slice(css.indexOf(rule), css.indexOf("}", css.indexOf(rule)));
+    assert.match(block, /var\(--pc-gilt\)/, rule);
+    assert.doesNotMatch(block, /--color-gilt/, rule);
+  }
+});
+
+test("qa S4: a queue reload that rebuilds the picked listing does not move focus to Change", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const elsewhere = document.createElement("button");
+  document.body.append(elsewhere);
+  const root = createRoot(host);
+  const props = (/** @type {any} */ picked) => ({
+    choices: listings,
+    picked,
+    query: "",
+    onQuery: () => {},
+    onPick: () => {},
+  });
+  act(() => root.render(createElement(ListingPicker, props({ ...listings[0] }))));
+  await flush();
+  const change = [...host.querySelectorAll("button")].find((b) => b.textContent === "Change");
+  assert.equal(document.activeElement, change, "a fresh pick focuses Change");
+  act(() => elsewhere.focus());
+  // reload(): same id, new object.
+  act(() => root.render(createElement(ListingPicker, props({ ...listings[0] }))));
+  await flush();
+  assert.equal(document.activeElement, elsewhere);
+  // A different listing is a real change and does move focus.
+  act(() => root.render(createElement(ListingPicker, props({ ...listings[1] }))));
+  await flush();
+  assert.equal(document.activeElement?.textContent, "Change");
+  act(() => root.unmount());
+  host.remove();
+  elsewhere.remove();
+});
+
+test("qa S4: the ZIP note's Request a new place is a button that opens the form on Kind", async () => {
+  act(() => useBoard.setState(/** @type {any} */ ({ home })));
+  const { host, done } = await mount(createElement(HomePanel));
+  const note = /** @type {HTMLElement} */ (host.querySelector("#place-zip-note"));
+  const ask = /** @type {HTMLButtonElement} */ (note.querySelector("button"));
+  assert.ok(ask, "the note holds a button");
+  assert.equal(ask.type, "button");
+  assert.equal(ask.textContent, "Ask for one with Request a new place");
+  assert.equal(ask.getAttribute("aria-controls"), "request-place-form");
+  assert.match(ask.className, /min-h-\[44px\]/);
+  const form = /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form"));
+  assert.equal(form.hidden, true);
+  act(() => ask.click());
+  await flush();
+  assert.equal(form.hidden, false);
+  const kind = /** @type {HTMLSelectElement} */ (form.querySelector("select"));
+  assert.equal(document.activeElement, kind);
+  assert.equal(kind.value, "town");
   done();
 });

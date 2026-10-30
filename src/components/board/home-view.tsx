@@ -49,13 +49,6 @@ export function HomePanel() {
 
   if (!home) return null;
 
-  const zipNote =
-    home.zip && !home.townId
-      ? `There is no town room for ZIP ${home.zip} yet. You can ask for one with Request a new place.`
-      : home.townName
-        ? `Your town room: ${home.townName}`
-        : "";
-
   const openRequest = () => {
     setRequestSent("");
     if (requestOpen) {
@@ -65,6 +58,29 @@ export function HomePanel() {
     focusKind.current = true;
     setRequestOpen(true);
   };
+
+  // The ZIP note's way out is a real button that opens Request a new place on Kind (QA #123 S4).
+  const zipNote =
+    home.zip && !home.townId ? (
+      <>
+        There is no town room for ZIP {home.zip} yet.{" "}
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center text-fg underline underline-offset-4"
+          aria-controls="request-place-form"
+          onClick={() => {
+            setKind("town");
+            openRequest();
+          }}
+        >
+          Ask for one with Request a new place
+        </button>
+      </>
+    ) : home.townName ? (
+      `Your town room: ${home.townName}`
+    ) : (
+      ""
+    );
 
   return (
     <section className="flex flex-col gap-6">

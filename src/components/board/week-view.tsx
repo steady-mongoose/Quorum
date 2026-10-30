@@ -92,49 +92,55 @@ export function WeekView() {
             </p>
           ) : null}
         </section>
-        <div
-          className={cn(
-            "week-columns grid gap-8",
-            hasSide && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12",
-          )}
-        >
-          {/* An empty week leaves this column empty. On a phone it is dropped so no extra gap opens. */}
-          <div className={cn("flex min-w-0 flex-col gap-8", week.length === 0 && "max-lg:hidden")}>
-            {week.map((day) => (
-              <section key={day.iso} className="day flex flex-col gap-3">
-                <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
-                  <span className="font-display text-2xl text-fg">
-                    {dayHeading(day.iso, today)}
-                  </span>
-                  <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">
-                    {formatDate(day.iso)}
-                  </span>
-                </h2>
-                <div className="cards">
-                  {day.cards.map((card) => (
-                    <DayCard key={card.id} card={card} me={me} />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-
-          {hasSide ? (
-            <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
-              {deskOn ? <TheCall /> : null}
-              {needs.length > 0 ? (
-                <section className="flex flex-col gap-3">
-                  <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
-                    A parish needs
+        {/* An empty week with no side column renders no grid at all, so the plate's gap-8 opens no empty
+            row under it on a phone (QA #123: 72.8px vs 40.4px on the-board). */}
+        {week.length > 0 || hasSide ? (
+          <div
+            className={cn(
+              "week-columns grid gap-8",
+              hasSide && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-12",
+            )}
+          >
+            {/* An empty week leaves this column empty. On a phone it is dropped so no extra gap opens. */}
+            <div
+              className={cn("flex min-w-0 flex-col gap-8", week.length === 0 && "max-lg:hidden")}
+            >
+              {week.map((day) => (
+                <section key={day.iso} className="day flex flex-col gap-3">
+                  <h2 className="flex items-baseline justify-between gap-4 border-b border-line bg-bg px-4 py-2">
+                    <span className="font-display text-2xl text-fg">
+                      {dayHeading(day.iso, today)}
+                    </span>
+                    <span className="text-xs font-semibold tracking-widest text-muted uppercase tabular-nums">
+                      {formatDate(day.iso)}
+                    </span>
                   </h2>
-                  {needs.map((card) => (
-                    <NeedCard key={card.id} card={card} />
-                  ))}
+                  <div className="cards">
+                    {day.cards.map((card) => (
+                      <DayCard key={card.id} card={card} me={me} />
+                    ))}
+                  </div>
                 </section>
-              ) : null}
-            </aside>
-          ) : null}
-        </div>
+              ))}
+            </div>
+
+            {hasSide ? (
+              <aside className="flex flex-col gap-8 lg:sticky lg:top-28 lg:self-start">
+                {deskOn ? <TheCall /> : null}
+                {needs.length > 0 ? (
+                  <section className="flex flex-col gap-3">
+                    <h2 className="text-xs font-semibold tracking-widest text-muted uppercase">
+                      A parish needs
+                    </h2>
+                    {needs.map((card) => (
+                      <NeedCard key={card.id} card={card} />
+                    ))}
+                  </section>
+                ) : null}
+              </aside>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <HomePanel />
     </div>

@@ -10,6 +10,16 @@ import {
   type ClaimMethod,
 } from "@/lib/board/claim-policy";
 import { useBoard } from "@/lib/board/store";
+import { userFacingError } from "@/lib/board/errors";
+
+/** A request that never reached the server (softenFetch's 503 "api-unavailable", or no JSON body). */
+export const CLAIM_NOT_SENT = "Your request did not send. Try again in a moment.";
+
+/** Plain words for a failed claim request: never a bare code like "api-unavailable". */
+export function claimError(json: { error?: string } | null, fallback: string): string {
+  if (!json || json.error === "api-unavailable") return CLAIM_NOT_SENT;
+  return userFacingError(json.error ?? "", fallback);
+}
 
 type ClaimRow = {
   id: string;
@@ -70,7 +80,10 @@ async function readQueue(): Promise<{ ok: true; queue: Queue } | { ok: false; er
   const response = await apiFetch("/api/claims", { credentials: "include" });
   const json = (await response.json().catch(() => null)) as (Queue & { error?: string }) | null;
   if (!response.ok || !json || !Array.isArray(json.claims)) {
-    return { ok: false, error: json?.error || "The claims queue is not available yet." };
+    return {
+      ok: false,
+      error: userFacingError(json?.error ?? "", "The claims queue is not available yet."),
+    };
   }
   return {
     ok: true,
@@ -105,6 +118,9 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
   const [issued, setIssued] = useState("");
   const [pending, setPending] = useState<ClaimRow | null>(null);
   const [pendingKind, setPendingKind] = useState<"approve" | "reject">("reject");
+  // One claim POST at a time: a double click or Enter plus a click sends once (QA #123).
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const listingRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -169,7 +185,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
     });
     const json = (await response.json().catch(() => null)) as { error?: string } | null;
     if (!response.ok) {
-      showError("queue", json?.error || "That claim was not decided.");
+      showError("queue", claimError(json, "That claim was not decided."));
       return;
     }
     const rest = (queue?.claims ?? []).map((item) => item.id).filter((id) => id !== row.id);
@@ -297,7 +313,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
                             error?: string;
                           } | null;
                           if (!response.ok) {
-                            showError("queue", json?.error || "That page was not checked.");
+                            showError("queue", claimError(json, "That page was not checked."));
                             return;
                           }
                           setError("");
@@ -415,6 +431,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
           className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
+            if (sendingRef.current) return;
             setNotice("");
             if (!roomId) {
               // aria-disabled, not disabled: the button stays in the tab order and says why.
@@ -428,32 +445,40 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
               showError("form", "Enter an email address.");
               return;
             }
+            sendingRef.current = true;
+            setSending(true);
             void apiFetch("/api/claims", {
               method: "POST",
               credentials: "include",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ roomId, method: chosen, email }),
-            }).then(async (response) => {
-              const json = (await response.json().catch(() => null)) as {
-                error?: string;
-                claim?: { token?: string };
-              } | null;
-              if (!response.ok) {
-                showError("form", json?.error || "That claim was not opened.");
-                return;
-              }
-              setError("");
-              setRoomId("");
-              setFilter("");
-              if (json?.claim?.token) {
-                setIssued(json.claim.token);
-                setNotice("The code is ready to copy.");
-              } else {
-                setIssued("");
-                setNotice("The claim is open.");
-              }
-              await reload();
-            });
+            })
+              .then(async (response) => {
+                const json = (await response.json().catch(() => null)) as {
+                  error?: string;
+                  claim?: { token?: string };
+                } | null;
+                if (!response.ok) {
+                  showError("form", claimError(json, "That claim was not opened."));
+                  return;
+                }
+                setError("");
+                setRoomId("");
+                setFilter("");
+                if (json?.claim?.token) {
+                  setIssued(json.claim.token);
+                  setNotice("The code is ready to copy.");
+                } else {
+                  setIssued("");
+                  setNotice("The claim is open.");
+                }
+                await reload();
+              })
+              .catch(() => showError("form", CLAIM_NOT_SENT))
+              .finally(() => {
+                sendingRef.current = false;
+                setSending(false);
+              });
           }}
         >
           <h4 className="text-base font-semibold text-fg">Step 1 of 2: Find your listing</h4>
@@ -524,14 +549,15 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
           <div className="flex flex-col gap-2">
             <button
               type="submit"
-              aria-disabled={!roomId || undefined}
+              aria-disabled={!roomId || sending || undefined}
+              aria-busy={sending || undefined}
               aria-describedby={roomId ? undefined : "claim-submit-hint"}
               className={cn(
                 btnSignal,
                 "w-full justify-self-start aria-disabled:opacity-50 sm:w-auto sm:self-start",
               )}
             >
-              Request the claim
+              {sending ? "Sending…" : "Request the claim"}
             </button>
             {roomId ? null : (
               <p id="claim-submit-hint" className="text-sm text-muted">
@@ -558,7 +584,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
               }).then(async (response) => {
                 const json = (await response.json().catch(() => null)) as { error?: string } | null;
                 if (!response.ok) {
-                  showError("form", json?.error || "That code was not accepted.");
+                  showError("form", claimError(json, "That code was not accepted."));
                   return;
                 }
                 setError("");
@@ -648,13 +674,15 @@ export function ListingPicker({
     setActive(shown.length > 0 ? 0 : -1);
   }, [query, shown.length]);
 
+  // Keyed on the id, not the object: a queue reload rebuilds the listing objects, and that must not move focus.
+  const pickedId = picked?.id ?? "";
   useEffect(() => {
-    if (picked) changeRef.current?.focus();
+    if (pickedId) changeRef.current?.focus();
     else if (focusInput.current) {
       focusInput.current = false;
       inputRef?.current?.focus();
     }
-  }, [picked, inputRef]);
+  }, [pickedId, inputRef]);
 
   if (picked) {
     return (
@@ -714,6 +742,8 @@ export function ListingPicker({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          // Tab away or click outside closes the list (options keep focus here with onMouseDown preventDefault).
+          onBlur={() => setOpen(false)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" && shown.length > 0) {
               event.preventDefault();
