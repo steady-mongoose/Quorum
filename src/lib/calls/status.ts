@@ -105,10 +105,13 @@ export function parseCallJoin(body: unknown): {
   iceServers: CallIceServer[];
   cursor: number;
   ringing: boolean;
+  /** Set when the call opened but the other person was not rung (ring cap). */
+  ringError?: string;
 } | null {
   if (refusesRecording(body) || !body || typeof body !== "object") return null;
   const record = body as {
     ringing?: unknown;
+    ringError?: unknown;
     selfId?: unknown;
     peers?: unknown;
     iceServers?: unknown;
@@ -127,6 +130,11 @@ export function parseCallJoin(body: unknown): {
     iceServers: servers,
     cursor: record.cursor,
     ringing: record.ringing === true,
+    ...(typeof record.ringError === "string" &&
+    record.ringError.length > 0 &&
+    record.ringError.length <= 200
+      ? { ringError: record.ringError }
+      : {}),
   };
 }
 
@@ -147,6 +155,8 @@ export function parseCallPoll(body: unknown): {
   cursor: number;
   iceServers?: CallIceServer[];
   outcomes: RingOutcome[];
+  /** True while a ring this person sent into the call is still unanswered. */
+  ringsOut: boolean;
 } | null {
   if (refusesRecording(body) || !body || typeof body !== "object") return null;
   const record = body as {
@@ -155,6 +165,7 @@ export function parseCallPoll(body: unknown): {
     cursor?: unknown;
     iceServers?: unknown;
     rings?: unknown;
+    ringsOut?: unknown;
   };
   if (typeof record.cursor !== "number" || !Number.isInteger(record.cursor) || record.cursor < 0) {
     return null;
@@ -176,8 +187,11 @@ export function parseCallPoll(body: unknown): {
     });
   }
   const outcomes = parseRingOutcomes(record.rings);
-  if (record.iceServers === undefined) return { peers, signals, cursor: record.cursor, outcomes };
+  const ringsOut = record.ringsOut === true;
+  if (record.iceServers === undefined) {
+    return { peers, signals, cursor: record.cursor, outcomes, ringsOut };
+  }
   const servers = iceServers(record.iceServers);
   if (!servers) return null;
-  return { peers, signals, cursor: record.cursor, iceServers: servers, outcomes };
+  return { peers, signals, cursor: record.cursor, iceServers: servers, outcomes, ringsOut };
 }

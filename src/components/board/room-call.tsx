@@ -1,15 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import {
-  CAMERA_DENIED,
-  MIC_DENIED,
-  liveLine,
-  openMedia,
-} from "@/lib/calls/media";
+import { CAMERA_DENIED, MIC_DENIED, liveLine, openMedia } from "@/lib/calls/media";
 import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { userFacingError } from "@/lib/user-facing-error";
 import { callsAreAvailable, parseCallJoin } from "@/lib/calls/status";
 import { RoomCallSession, type RemotePeer } from "@/lib/calls/session";
+import { emitRingOutcome, onRingOutcome } from "@/lib/calls/rings";
 import { useServerSession } from "@/lib/server-session-state";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -107,6 +103,15 @@ function RingMembers({ roomId }: { roomId: string }) {
     };
   }, [roomId]);
 
+  useEffect(
+    () =>
+      // The call's own line now says "Ann declined the call." or "Ann didn't answer."
+      onRingOutcome((outcome) =>
+        setStatus((line) => (line.startsWith(`Calling ${outcome.name}.`) ? "" : line)),
+      ),
+    [],
+  );
+
   if (!members || members.length === 0) return null;
   const chosen = members.find((m) => m.id === choice);
 
@@ -125,7 +130,7 @@ function RingMembers({ roomId }: { roomId: string }) {
       const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
       setStatus(
         response.ok
-          ? `Calling ${chosen.name}. They'll see it for one minute.`
+          ? `Calling ${chosen.name}. It rings for up to a minute.`
           : userFacingError(
               typeof body?.error === "string" ? body.error : "",
               "The call didn't go through.",
@@ -199,6 +204,9 @@ export type CallPanelProps = {
   onLeave?: () => void;
 };
 
+/** Long names wrap instead of pushing the card wider than a 390px screen. */
+export const WRAP = "min-w-0 [overflow-wrap:anywhere]";
+
 export const YOU_LEFT = "You left the call.";
 
 export function CallPanel({
@@ -227,6 +235,7 @@ export function CallPanel({
   /** "Calling Ann." or "Ben left the call." while the call goes on. */
   const [callNote, setCallNote] = useState("");
   const autoJoined = useRef(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const soundOnlyId = useId();
   const muteRef = useRef<HTMLButtonElement | null>(null);
   const joinRef = useRef<HTMLButtonElement | null>(null);
@@ -336,6 +345,7 @@ export function CallPanel({
         if (peers.length > 0) setCallNote((line) => (line.startsWith("Calling ") ? "" : line));
       },
       onNote: (message) => setCallNote(message),
+      onOutcome: (outcome) => emitRingOutcome(outcome),
       onEnded: (message) => {
         focusJoin.current = true;
         stream.getTracks().forEach((track) => track.stop());
@@ -371,7 +381,10 @@ export function CallPanel({
       session.start();
       setPhase("live");
       if (calleeName && joined.ringing && joined.peers.length === 0) {
-        setCallNote(`Calling ${calleeName}. They'll see it for one minute.`);
+        setCallNote(`Calling ${calleeName}. It rings for up to a minute.`);
+      } else if (calleeName && joined.ringError) {
+        // The call is open, but the ring was not sent. Say so plainly.
+        setCallNote(`${calleeName} wasn't rung. ${joined.ringError}`);
       }
     } catch {
       session.close();
@@ -386,6 +399,9 @@ export function CallPanel({
   useEffect(() => {
     if (!autoJoin || autoJoined.current) return;
     autoJoined.current = true;
+    // The alert that opened this panel is gone; hold focus here (not <body>)
+    // until Mute takes it once the call is live.
+    panelRef.current?.focus();
     void join();
     // Once, when the panel opens from an incoming-call alert.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -402,11 +418,13 @@ export function CallPanel({
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+      ref={panelRef}
+      tabIndex={autoJoin ? -1 : undefined}
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 focus:outline-2 focus:outline-offset-2 focus:outline-[var(--color-fg)]"
       aria-label={label}
     >
-      <p className="text-sm text-muted">{note}</p>
-      <p className="text-sm text-muted" role="status" aria-live="polite">
+      <p className={cn("text-sm text-muted", WRAP)}>{note}</p>
+      <p className={cn("text-sm text-muted", WRAP)} role="status" aria-live="polite">
         {phase === "live"
           ? liveLine(micOn, cameraOn)
           : phase === "joining"
@@ -414,12 +432,15 @@ export function CallPanel({
             : ended}
       </p>
       {phase === "live" && callNote ? (
-        <p className="text-sm text-fg" role="status">
+        <p className={cn("text-sm text-fg", WRAP)} role="status">
           {callNote}
         </p>
       ) : null}
       {notice ? (
-        <p id={notice === CAMERA_DENIED ? soundOnlyId : undefined} className="text-sm text-fg">
+        <p
+          id={notice === CAMERA_DENIED ? soundOnlyId : undefined}
+          className={cn("text-sm text-fg", WRAP)}
+        >
           {notice}
         </p>
       ) : null}

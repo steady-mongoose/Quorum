@@ -63,7 +63,7 @@ const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
 };
 
-test("incoming call prompt: live status, Join and Decline, no autofocus, Escape declines", async () => {
+test("incoming call prompt: live line, Join and Decline, Join takes focus, Escape declines", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -87,16 +87,28 @@ test("incoming call prompt: live status, Join and Decline, no autofocus, Escape 
   await flush();
   const banner = host.querySelector("section");
   assert.ok(banner, "banner renders");
-  assert.equal(banner.getAttribute("role"), "status");
-  assert.equal(banner.getAttribute("aria-live"), "assertive");
-  assert.equal(banner.querySelector("p").textContent, "Josh is calling you to a room call.");
-  assert.equal(banner.getAttribute("aria-label"), "Incoming call");
+  assert.equal(banner.getAttribute("role"), "region", "a labelled region, not a live region");
+  assert.equal(banner.getAttribute("aria-live"), null);
+  const line = banner.querySelector("p");
+  assert.equal(line.textContent, "Josh is calling you into a room call.");
+  assert.equal(banner.getAttribute("aria-labelledby"), line.id, "named by its line");
+  const spoken = host.querySelector('p[role="status"]');
+  assert.equal(spoken.getAttribute("aria-live"), "assertive");
+  assert.equal(spoken.getAttribute("aria-atomic"), "true");
+  assert.equal(spoken.className, "sr-only");
+  assert.equal(spoken.textContent, "Josh is calling you into a room call.");
+  assert.equal(banner.contains(spoken), false, "the live line sits outside the card");
+  assert.match(banner.textContent, /Press Escape to decline\./);
   assert.match(
     banner.className,
     /bottom-\[calc\(var\(--tabbar-h,64px\)\+env\(safe-area-inset-bottom\)\+0\.75rem\)\]/,
   );
   assert.match(banner.className, /md:bottom-6/);
-  assert.ok(!banner.contains(document.activeElement), "no autofocus");
+  assert.equal(
+    document.activeElement?.textContent,
+    "Join",
+    "nothing else had focus, so Join takes it",
+  );
   const buttons = [...banner.querySelectorAll("button")];
   assert.deepEqual(
     buttons.map((b) => b.textContent),
@@ -110,6 +122,7 @@ test("incoming call prompt: live status, Join and Decline, no autofocus, Escape 
   });
   await flush();
   assert.equal(host.querySelector("section"), null);
+  assert.ok(host.querySelector('p[role="status"]'), "the live line stays mounted");
   assert.ok(posts.some((url) => url.endsWith("/api/calls/rings/r1/decline")));
   assert.deepEqual(gone, []);
   await act(async () => root.unmount());

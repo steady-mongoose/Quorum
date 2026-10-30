@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -53,6 +54,8 @@ const thread = "11111111-2222-3333-4444-555555555555";
 
 /** Each test sets these. */
 let ringsReply = [];
+/** What became of rings that went away (the server's `settled`). */
+let settledReply = [];
 let joinReply = null;
 let pollReplies = [];
 const posts = [];
@@ -61,7 +64,8 @@ globalThis.fetch = async (input, init) => {
   if (init?.method === "POST") posts.push({ url, body: init.body });
   let body;
   if (url.endsWith("/api/calls/status")) body = { enabled: true, record: false };
-  else if (url.endsWith("/api/calls/rings")) body = { record: false, rings: ringsReply };
+  else if (url.endsWith("/api/calls/rings"))
+    body = { record: false, rings: ringsReply, settled: settledReply };
   else if (url.endsWith("/join")) body = joinReply;
   else if (url.includes("?since="))
     body = pollReplies.length > 1 ? pollReplies.shift() : (pollReplies[0] ?? null);
@@ -177,9 +181,10 @@ test("a DM call rings: caller's name, Join and Decline, and the ringtone runs un
   ringsReply = [{ id: "r7", kind: "dm", threadId: thread, fromName: "Ann" }];
   const spy = ringtoneSpy();
   const { host, root, button } = await mountRings(spy.fn);
-  const prompt = host.querySelector('section[aria-label="Incoming call"]');
+  const prompt = host.querySelector('section[role="region"]');
   assert.ok(prompt, "the incoming-call prompt shows");
   assert.equal(prompt.querySelector("p").textContent, "Ann is calling you.");
+  assert.equal(host.querySelector('p[role="status"]').textContent, "Ann is calling you.");
   assert.ok(button("Join") && button("Decline"));
   assert.equal(spy.started, 1, "sound and buzz start with the ring");
   assert.equal(spy.stopped, 0);
@@ -187,7 +192,7 @@ test("a DM call rings: caller's name, Join and Decline, and the ringtone runs un
   ringsReply = [];
   await act(async () => button("Decline").click());
   await flush();
-  assert.equal(host.querySelector('section[aria-label="Incoming call"]'), null);
+  assert.equal(host.querySelector('section[role="region"]'), null);
   assert.ok(posts.some((p) => p.url.endsWith("/api/calls/rings/r7/decline")));
   assert.equal(spy.stopped, 1, "the ringtone stops on Decline");
   assert.doesNotMatch(host.textContent, /Missed call/, "a decline is not a missed call");
@@ -198,14 +203,14 @@ test("a ring that goes away unanswered shows as a missed call, and Close clears 
   ringsReply = [{ id: "r8", kind: "dm", threadId: thread, fromName: "Ann" }];
   const spy = ringtoneSpy();
   const { host, root, button } = await mountRings(spy.fn);
-  assert.ok(host.querySelector('section[aria-label="Incoming call"]'));
+  assert.ok(host.querySelector('section[role="region"]'));
   ringsReply = [];
+  settledReply = [{ id: "r8", how: "missed" }];
   // The next poll (5 s) finds the ring gone: the caller hung up or it ran out.
   await waitFor(() => /Missed call from Ann\./.test(host.textContent), 7000);
   assert.match(host.textContent, /Missed call from Ann\./);
   assert.equal(spy.stopped, 1);
-  const note = host.querySelector('section[aria-label="Call"]');
-  assert.equal(note.getAttribute("role"), "status");
+  assert.equal(host.querySelector('p[role="status"]').textContent, "Missed call from Ann.");
   await act(async () => button("Close").click());
   assert.equal(host.querySelector("section"), null);
   await act(async () => root.unmount());
@@ -235,6 +240,8 @@ test("Join on a DM ring opens the call over the page; the caller hanging up ends
   );
   assert.ok(host.querySelector('section[aria-label="Call with Ann"]'), "the call opens");
   assert.ok(button("Leave call"));
+  assert.notEqual(document.activeElement, document.body, "focus stays in the call");
+  assert.equal(document.activeElement, button("Mute"), "Mute has focus once live");
   // Ann hangs up: the next poll has nobody else in the call.
   await waitFor(() => /Ann left\. The call ended\./.test(host.textContent));
   assert.match(host.textContent, /Ann left\. The call ended\./);
@@ -261,7 +268,7 @@ test("Join on a room ring goes to the room and presses its Join button", async (
     }, 20);
     requestAnimationFrame(() => focusRoomCall(1000, Date.now(), document.activeElement, true));
   });
-  assert.equal(host.querySelector("p").textContent, "Josh is calling you to a room call.");
+  assert.equal(host.querySelector("p").textContent, "Josh is calling you into a room call.");
   await act(async () => button("Join").click());
   await waitFor(() => pressed > 0);
   assert.equal(pressed, 1);
@@ -320,13 +327,13 @@ test("the caller sees Calling…, then a Decline ends the call with plain words"
   await flush();
   const join = posts.find((p) => p.url.endsWith("/join"));
   assert.equal(join?.body, JSON.stringify({ ring: true }), "starting the call rings Ben");
-  assert.match(host.textContent, /Calling Ben\. They'll see it for one minute\./);
+  assert.match(host.textContent, /Calling Ben\. It rings for up to a minute\./);
   await waitFor(() => ended.length > 0);
-  assert.deepEqual(ended, ["Ben isn't available right now."]);
+  assert.deepEqual(ended, ["Ben declined the call."]);
   assert.ok(button("Join the call"), "back to Join; the live call is closed");
   assert.equal(button("Leave call"), undefined);
   const status = host.querySelector('[aria-live="polite"]');
-  assert.equal(status.textContent, "Ben isn't available right now.");
+  assert.equal(status.textContent, "Ben declined the call.");
   assert.equal(host.querySelector('[role="alert"]'), null, "not shown as an error");
   assert.ok(
     posts.some((p) => p.url.endsWith("/leave")),
@@ -346,4 +353,183 @@ test("choosing Leave call says so and tells the parent", async () => {
   assert.equal(left, 1);
   assert.equal(host.querySelector('[aria-live="polite"]').textContent, "You left the call.");
   await act(async () => root.unmount());
+});
+
+test("Escape anywhere declines a ring, but not while typing or in an open dialog", async () => {
+  posts.length = 0;
+  ringsReply = [{ id: "r20", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const { host, root } = await mountRings(ringtoneSpy().fn);
+  const input = document.createElement("input");
+  document.body.append(input);
+  input.focus();
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  assert.ok(host.querySelector('section[role="region"]'), "typing keeps the ring");
+  const dialog = document.createElement("div");
+  dialog.setAttribute("aria-modal", "true");
+  document.body.append(dialog);
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  assert.ok(host.querySelector('section[role="region"]'), "an open dialog keeps Escape");
+  dialog.remove();
+  assert.equal(posts.length, 0);
+  ringsReply = [];
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await flush();
+  assert.equal(host.querySelector('section[role="region"]'), null);
+  assert.ok(posts.some((p) => p.url.endsWith("/api/calls/rings/r20/decline")));
+  assert.equal(document.activeElement, input, "focus stays where you were");
+  input.remove();
+  await act(async () => root.unmount());
+});
+
+test("a long name is cut on screen, kept in full for screen readers, and wraps at 390", async () => {
+  const name = "Alexandria Montgomery-Featherstonehaugh the Third of Avouch";
+  ringsReply = [{ id: "r21", kind: "dm", threadId: thread, fromName: name }];
+  const { host, root } = await mountRings(ringtoneSpy().fn);
+  const line = host.querySelector('section[role="region"] p');
+  assert.ok(line.textContent.endsWith("… is calling you."), line.textContent);
+  assert.ok([...line.textContent.split(" is calling")[0]].length <= 40, "name clamped to 40");
+  assert.equal(line.getAttribute("aria-label"), `${name} is calling you.`);
+  assert.equal(host.querySelector('p[role="status"]').textContent, `${name} is calling you.`);
+  assert.match(line.className, /min-w-0/);
+  assert.match(line.className, /\[overflow-wrap:anywhere\]/);
+  ringsReply = [];
+  await act(async () => root.unmount());
+});
+
+test("two missed calls read as one line with both names, and no count", async () => {
+  ringsReply = [
+    { id: "r22", kind: "dm", threadId: thread, fromName: "Ann" },
+    { id: "r23", kind: "room", roomId: "shop", fromName: "Ben" },
+  ];
+  const { host, root } = await mountRings(ringtoneSpy().fn);
+  ringsReply = [];
+  settledReply = [
+    { id: "r22", how: "missed" },
+    { id: "r23", how: "missed" },
+  ];
+  await waitFor(() => /Missed calls/.test(host.textContent), 7000);
+  const line = host.querySelector('section[role="region"] p');
+  assert.equal(line.textContent, "Missed calls from Ann and Ben.");
+  assert.doesNotMatch(host.textContent, /\d/, "no numbers");
+  await act(async () => root.unmount());
+});
+
+test("the board toast moves up while a call card shows", async () => {
+  ringsReply = [{ id: "r24", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const { button, root } = await mountRings(ringtoneSpy().fn);
+  assert.match(document.documentElement.style.getPropertyValue("--call-card-h"), /^\d+px$/);
+  ringsReply = [];
+  await act(async () => button("Decline").click());
+  await flush();
+  assert.equal(document.documentElement.style.getPropertyValue("--call-card-h"), "");
+  await act(async () => root.unmount());
+  const find = readFileSync(
+    new URL("../../components/board/find-view.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(find, /bottom-\[calc\([^\]]*\+var\(--call-card-h,0px\)\)\][^"]*z-40/);
+  assert.match(find, /md:bottom-\[calc\(1\.5rem\+var\(--call-card-h,0px\)\)\]/);
+});
+
+test("the call alert comes first in the Tab order, and the DM note names Avouch Social", () => {
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const shell = app.indexOf('<div className="shell ');
+  assert.ok(shell > -1);
+  assert.ok(app.indexOf("<CallRings", shell) < app.indexOf("Skip to content", shell));
+  const dm = readFileSync(new URL("../../components/board/dm-call.tsx", import.meta.url), "utf8");
+  assert.match(dm, /if they have Avouch Social open\./);
+});
+
+test("answering in one tab stops the ring in the other right away, with no missed call", async () => {
+  posts.length = 0;
+  settledReply = [];
+  ringsReply = [{ id: "r30", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const a = ringtoneSpy();
+  const b = ringtoneSpy();
+  const tabA = await mountRings(a.fn);
+  const tabB = await mountRings(b.fn);
+  assert.equal(b.started, 1);
+  await act(async () => tabA.button("Decline").click());
+  await waitFor(() => !tabB.host.querySelector('section[role="region"]'), 1000);
+  assert.equal(tabB.host.querySelector('section[role="region"]'), null, "before the next poll");
+  assert.equal(b.stopped, 1, "tab B stops ringing");
+  // Tab B's next poll: the ring is gone, settled as declined. Not a missed call.
+  ringsReply = [];
+  settledReply = [{ id: "r30", how: "declined" }];
+  await act(async () => new Promise((r) => setTimeout(r, 5300)));
+  assert.doesNotMatch(tabB.host.textContent, /Missed call/);
+  await act(async () => tabA.root.unmount());
+  await act(async () => tabB.root.unmount());
+});
+
+test("a ring answered on another device, or dropped after removal, shows no missed call", async () => {
+  settledReply = [];
+  ringsReply = [
+    { id: "r31", kind: "dm", threadId: thread, fromName: "Ann" },
+    { id: "r32", kind: "room", roomId: "shop", fromName: "Josh" },
+  ];
+  const spy = ringtoneSpy();
+  const { host, root } = await mountRings(spy.fn);
+  ringsReply = [];
+  settledReply = [
+    { id: "r31", how: "answered" },
+    { id: "r32", how: "gone" },
+  ];
+  await act(async () => new Promise((r) => setTimeout(r, 5300)));
+  assert.equal(host.querySelector('section[role="region"]'), null, "the prompt is dismissed");
+  assert.doesNotMatch(host.textContent, /Missed call/);
+  assert.equal(spy.stopped, spy.started, "ringing stopped");
+  await act(async () => root.unmount());
+});
+
+test("S2: the prompt stays position: fixed under the shell's position: relative rule", async () => {
+  ringsReply = [{ id: "r33", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const shell = document.createElement("div");
+  shell.className = "shell";
+  document.body.append(shell);
+  const root = createRoot(shell);
+  await act(async () => {
+    root.render(
+      createElement(
+        SessionContext.Provider,
+        { value: live },
+        createElement(CallRings, { onGo: () => {}, ringtone: ringtoneSpy().fn }),
+      ),
+    );
+  });
+  await flush();
+  const card = shell.querySelector('section[role="region"]');
+  assert.ok(card);
+  const wrapper = shell.firstElementChild;
+  assert.equal(shell.children.length, 1, "one wrapper is the shell's only child from here");
+  assert.match(wrapper.className, /\bcontents\b/, "the wrapper has no box of its own");
+  assert.notEqual(card.parentElement, shell, "the card is not a direct child of .shell");
+  assert.match(card.className, /(^|\s)fixed(\s|$)/);
+  // Every `.shell` position rule in the shipped CSS must only reach direct children.
+  const { readdirSync } = await import("node:fs");
+  const dir = new URL("../../../public/", import.meta.url);
+  for (const name of readdirSync(dir).filter((f) => f.endsWith(".css"))) {
+    const css = readFileSync(new URL(name, dir), "utf8");
+    for (const m of css.matchAll(
+      /([^{}]*\.shell[^{}]*)\{([^}]*position\s*:\s*(?:relative|static)[^}]*)\}/g,
+    )) {
+      for (const sel of m[1].split(",")) {
+        if (!/\.shell\b/.test(sel)) continue;
+        assert.doesNotMatch(
+          sel.trim(),
+          /\.shell\s+(?!>)|\.shell\s*>\s*\*\s+|\.call-rings/,
+          `${name}: "${sel.trim()}" would reach the call card`,
+        );
+      }
+    }
+  }
+  ringsReply = [];
+  await act(async () => root.unmount());
+  shell.remove();
 });

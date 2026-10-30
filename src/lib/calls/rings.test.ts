@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { missedLine, parseRings, ringLine } from "./rings.ts";
+import { addMissed, clampName, missedLine, parseRings, ringLine } from "./rings.ts";
 import { parseRingOutcomes } from "./status.ts";
 import { RING_EVERY_MS, RING_FOR_MS, VIBRATE_PATTERN, startRinging } from "./ringtone.ts";
 
@@ -36,7 +36,7 @@ test("the prompt and missed-call lines are plain words with the caller's name", 
   );
   assert.equal(
     ringLine({ id: "r1", kind: "room", roomId: "shop", fromName: "Josh" }),
-    "Josh is calling you to a room call.",
+    "Josh is calling you into a room call.",
   );
   assert.equal(missedLine("Ann"), "Missed call from Ann.");
 });
@@ -93,4 +93,48 @@ test("the ringtone works with no sound or buzz at all", () => {
     clearTimeout: () => undefined,
   });
   stop();
+});
+
+test("long names are cut at 40 characters with an ellipsis; Infinity keeps them whole", () => {
+  const long = "A".repeat(60);
+  assert.equal([...clampName(long)].length, 40);
+  assert.ok(clampName(long).endsWith("…"));
+  assert.equal(clampName("Ann"), "Ann");
+  assert.equal(
+    ringLine({ id: "r1", kind: "dm", threadId: thread, fromName: long }, Infinity),
+    `${long} is calling you.`,
+  );
+  assert.equal(missedLine(long), `Missed call from ${clampName(long)}.`);
+});
+
+test("missed calls merge by name, newest last, with no counts", () => {
+  let names: string[] = [];
+  names = addMissed(names, "Ann");
+  names = addMissed(names, "Ben");
+  names = addMissed(names, "Ann");
+  assert.deepEqual(names, ["Ben", "Ann"]);
+  assert.equal(missedLine(names), "Missed calls from Ben and Ann.");
+  names = addMissed(addMissed(names, "Cy"), "Di");
+  assert.deepEqual(names, ["Ann", "Cy", "Di"]);
+  assert.equal(missedLine(names), "Missed calls from Ann, Cy and Di.");
+});
+
+test("parseSettled keeps known outcomes for well-formed ring ids", async () => {
+  const { parseSettled } = await import("./rings.ts");
+  const map = parseSettled({
+    settled: [
+      { id: "r1", how: "answered" },
+      { id: "r2", how: "missed" },
+      { id: "bad", how: "missed" },
+      { id: "r3", how: "other" },
+    ],
+  });
+  assert.deepEqual(
+    [...map],
+    [
+      ["r1", "answered"],
+      ["r2", "missed"],
+    ],
+  );
+  assert.equal(parseSettled(null).size, 0);
 });

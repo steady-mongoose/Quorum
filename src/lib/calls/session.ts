@@ -16,7 +16,7 @@ import {
 export const CALL_LINES = {
   ended: (name: string) => `${name} left. The call ended.`,
   peerLeft: (name: string) => `${name} left the call.`,
-  declined: (name: string) => `${name} isn't available right now.`,
+  declined: (name: string) => `${name} declined the call.`,
   missed: (name: string) => `${name} didn't answer.`,
 };
 
@@ -149,6 +149,8 @@ type RoomCallOptions = {
   onEnded?: (message: string) => void;
   /** Something to say while the call goes on, e.g. "Ann left the call." */
   onNote?: (message: string) => void;
+  /** A ring this person sent was declined or ran out. */
+  onOutcome?: (outcome: RingOutcome) => void;
 };
 
 export class RoomCallSession {
@@ -161,6 +163,10 @@ export class RoomCallSession {
   private stopped = false;
   /** True once anyone else has been in the call with this person. */
   private hadPeers = false;
+  /** From the last poll: a ring this person sent into the call is still out. */
+  private ringsOut = false;
+  /** DM calls end on a decline or no answer; room calls wait for every ring. */
+  private readonly isDm: boolean;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly base: string;
@@ -170,6 +176,15 @@ export class RoomCallSession {
     this.base = opts.basePath ?? `/api/calls/rooms/${opts.roomId}`;
     this.cursor = opts.cursor;
     this.iceServers = opts.iceServers;
+    this.isDm = opts.roomId.startsWith("dm:") || this.base.startsWith("/api/calls/dm/");
+  }
+
+  /**
+   * Alone in the call: a DM call is over. A room call stays open while any
+   * ring is still out, so nobody still being rung sees "Missed call".
+   */
+  private shouldEndAlone(): boolean {
+    return this.isDm || !this.ringsOut;
   }
 
   async syncPeers(peers: CallPeerRow[]): Promise<void> {
@@ -199,8 +214,11 @@ export class RoomCallSession {
       this.hadPeers = true;
       for (const name of gone) this.opts.onNote?.(CALL_LINES.peerLeft(name));
     } else if (this.hadPeers && gone.length > 0) {
-      this.end(CALL_LINES.ended(gone[gone.length - 1] ?? "Everyone"));
-      return;
+      if (this.shouldEndAlone()) {
+        this.end(CALL_LINES.ended(gone[gone.length - 1] ?? "Everyone"));
+        return;
+      }
+      for (const name of gone) this.opts.onNote?.(CALL_LINES.peerLeft(name));
     }
     this.emit();
   }
@@ -243,14 +261,16 @@ export class RoomCallSession {
         return;
       }
       if (parsed.iceServers) this.applyIce(parsed.iceServers);
+      this.ringsOut = parsed.ringsOut;
       await this.syncPeers(parsed.peers);
       if (this.closed) return;
       for (const signal of parsed.signals) await this.acceptSignal(signal);
       this.cursor = parsed.cursor;
       for (const outcome of parsed.outcomes) {
         if (this.closed) return;
-        // Alone in the call: the person rung said no or didn't pick up, so it ends.
-        if (this.slots.size === 0) {
+        this.opts.onOutcome?.(outcome);
+        // Alone, with nobody else still being rung: the call ends.
+        if (this.slots.size === 0 && this.shouldEndAlone()) {
           this.end(outcomeLine(outcome));
           return;
         }

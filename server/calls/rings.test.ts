@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRingStore, MAX_RINGS_PER_RINGER, RING_TTL_MS, RINGER_WINDOW_MS } from "./rings.ts";
-import { handleCalls, type CallsRuntime } from "./routes.ts";
+import { DM_CALL_REFUSED, handleCalls, RING_CAP_ERROR, type CallsRuntime } from "./routes.ts";
 import { readCallsConfig } from "./config.ts";
 import { createCallStore } from "./store.ts";
 import type { Db } from "../db.ts";
@@ -73,11 +73,10 @@ test("only a host or steward can ring, and only a room member", async () => {
     (await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "host" })).status,
     400,
   );
-  assert.equal(
-    (await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" })).status,
-    200,
-  );
-  // Nobody in the call yet: the ring has nothing to join, so it isn't shown.
+  // Not in the call: there is nothing to ring them into, so it is refused.
+  const early = await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  assert.equal(early.status, 409);
+  assert.equal(early.body.error, "Join the call first, then call members.");
   assert.equal(((await send(r, "ada", "/api/calls/rings")).body.rings as unknown[]).length, 0);
   await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
   assert.equal(
@@ -122,6 +121,7 @@ test("per-ringer cap, then it resets after the window", () => {
 test("the ring route answers 429 past the per-ringer cap", async () => {
   const members = ["host", ...Array.from({ length: 12 }, (_, i) => `m${i}`)];
   const r = rt(["host"], members);
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
   for (let i = 0; i < MAX_RINGS_PER_RINGER; i++) {
     assert.equal(
       (await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: `m${i}` })).status,
@@ -130,6 +130,7 @@ test("the ring route answers 429 past the per-ringer cap", async () => {
   }
   const over = await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "m11" });
   assert.equal(over.status, 429);
+  assert.equal(over.body.error, RING_CAP_ERROR, "the caller is told the ring wasn't sent");
 });
 
 test("mint only after the membership check; a ban or leave releases TURN", async () => {
@@ -281,4 +282,137 @@ test("a room ring that is declined names the member for the ringer", async () =>
   await send(r, "ada", `/api/calls/rings/${rings[0]?.id}/decline`, "POST", {});
   const poll = await send(r, "host", "/api/calls/rooms/shop?since=0");
   assert.deepEqual(poll.body.rings, [{ kind: "declined", to: "ada", name: "Ada Lovelace" }]);
+});
+
+test("a non-participant's ring is an error, not a silent ok", async () => {
+  const r = rt(["host", "cal"], ["host", "cal", "ada"]);
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  const res = await send(r, "cal", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  assert.equal(res.status, 409, "the call is on, but Cal is not in it");
+  assert.equal(((await send(r, "ada", "/api/calls/rings")).body.rings as unknown[]).length, 0);
+});
+
+test("S2: a member who blocked the caller is not listed and is not rung (either way)", async () => {
+  for (const [id, name] of [
+    ["hana", "TEST Hana"],
+    ["dee", "TEST Dee"],
+    ["ben", "TEST Ben"],
+    ["eve", "TEST Eve"],
+  ]) {
+    await db.query(
+      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ($1, $2, $1 || '@example.test', true, now(), now()) on conflict do nothing`,
+      [id, name],
+    );
+  }
+  const room = (await db.query<{ id: string }>(`select id from room order by id limit 1`))[0]?.id;
+  assert.ok(room, "a seeded room");
+  for (const id of ["hana", "dee", "ben", "eve"]) {
+    await db.query(
+      `insert into room_member (room_id, user_id) values ($1, $2) on conflict do nothing`,
+      [room, id],
+    );
+  }
+  await db.query(`insert into dm_block (blocker_user_id, blocked_user_id) values ('dee', 'hana')`);
+  await db.query(`insert into dm_block (blocker_user_id, blocked_user_id) values ('hana', 'eve')`);
+  const r = rt(["hana"], ["hana", "dee", "ben", "eve"]);
+  await send(r, "hana", `/api/calls/rooms/${room}/join`, "POST", {});
+  const picker = await send(r, "hana", `/api/calls/rooms/${room}/ring`);
+  const ids = (picker.body.members as { id: string }[]).map((m) => m.id);
+  assert.deepEqual(ids, ["ben"], "Dee blocked Hana; Hana blocked Eve");
+  for (const to of ["dee", "eve"]) {
+    const res = await send(r, "hana", `/api/calls/rooms/${room}/ring`, "POST", { to });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error, "That member can't join this room's call.", "same as any refusal");
+    assert.equal(((await send(r, to, "/api/calls/rings")).body.rings as unknown[]).length, 0);
+  }
+  assert.equal(
+    (await send(r, "hana", `/api/calls/rooms/${room}/ring`, "POST", { to: "ben" })).status,
+    200,
+  );
+});
+
+test("S2: a room call stays open through a decline while other rings are out", async () => {
+  const r = rt(["host"], ["host", "ben", "eve"]);
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ben" });
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "eve" });
+  const benRing = ((await send(r, "ben", "/api/calls/rings")).body.rings as { id: string }[])[0];
+  await send(r, "ben", `/api/calls/rings/${benRing?.id}/decline`, "POST", {});
+  const poll = await send(r, "host", "/api/calls/rooms/shop?since=0");
+  assert.equal((poll.body.rings as unknown[]).length, 1, "the host hears Ben declined");
+  assert.equal(poll.body.ringsOut, true, "Eve is still being rung");
+  const eve = await send(r, "eve", "/api/calls/rings");
+  assert.equal((eve.body.rings as unknown[]).length, 1, "Eve's ring is untouched");
+  assert.equal(
+    (eve.body.settled as { how: string }[]).some((o) => o.how === "missed"),
+    false,
+    "Eve sees no missed call",
+  );
+  const eveRing = (eve.body.rings as { id: string }[])[0];
+  await send(r, "eve", `/api/calls/rings/${eveRing?.id}/decline`, "POST", {});
+  const last = await send(r, "host", "/api/calls/rooms/shop?since=0");
+  assert.equal(last.body.ringsOut, false, "every ring is resolved");
+});
+
+test("the person rung sees what became of each ring, in every tab", async () => {
+  const r = rt(["host"], ["host", "ada"]);
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const id = ((await send(r, "ada", "/api/calls/rings")).body.rings as { id: string }[])[0]?.id;
+  // Tab A chooses Join (dismiss, then join); tab B polls next.
+  await send(r, "ada", `/api/calls/rings/${id}/dismiss`, "POST", {});
+  const tabB = await send(r, "ada", "/api/calls/rings");
+  assert.deepEqual(tabB.body.rings, []);
+  assert.deepEqual(tabB.body.settled, [{ id, how: "answered" }], "not a missed call");
+  // The caller hangs up on a second ring: that one is a real miss.
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const id2 = ((await send(r, "ada", "/api/calls/rings")).body.rings as { id: string }[])[0]?.id;
+  await send(r, "host", "/api/calls/rooms/shop/leave", "POST", {});
+  const after = await send(r, "ada", "/api/calls/rings");
+  assert.ok(
+    (after.body.settled as { id: string; how: string }[]).some(
+      (o) => o.id === id2 && o.how === "missed",
+    ),
+  );
+});
+
+test("a ring for a room the person was removed from goes away, with no missed call", async () => {
+  const members = new Set(["host", "ada"]);
+  const r: CallsRuntime = {
+    ...rt(["host"], []),
+    roomMember: (async (_db: Db, id: string) =>
+      members.has(id) ? { kind: "member" } : { kind: "outsider" }) as never,
+  };
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const first = await send(r, "ada", "/api/calls/rings");
+  const id = (first.body.rings as { id: string }[])[0]?.id;
+  assert.ok(id);
+  members.delete("ada");
+  const after = await send(r, "ada", "/api/calls/rings");
+  assert.deepEqual(after.body.rings, []);
+  assert.deepEqual(after.body.settled, [{ id, how: "gone" }]);
+});
+
+test("DM call: refusal wording, and the ring cap says the ring wasn't sent", async () => {
+  const refused: CallsRuntime = { ...dmRt(), dmMember: async () => ({ kind: "outsider" }) };
+  const no = await send(refused, "ada", `/api/calls/dm/${thread}/join`, "POST", { ring: true });
+  assert.equal(no.status, 403);
+  assert.equal(no.body.error, DM_CALL_REFUSED);
+  assert.equal(DM_CALL_REFUSED, "This member isn't taking messages right now.");
+
+  const r = dmRt();
+  const store = r.rings!;
+  for (let i = 0; i < MAX_RINGS_PER_RINGER; i++) {
+    store.ring(
+      { roomId: "shop", from: "ada", fromName: "Ada", to: `m${i}` },
+      Date.parse("2026-10-27T12:00:00Z"),
+    );
+  }
+  const joined = await send(r, "ada", `/api/calls/dm/${thread}/join`, "POST", { ring: true });
+  assert.equal(joined.status, 200, "the call still opens");
+  assert.equal(joined.body.ringing, false);
+  assert.equal(joined.body.ringError, RING_CAP_ERROR);
+  assert.equal(((await send(r, "ben", "/api/calls/rings")).body.rings as unknown[]).length, 0);
 });

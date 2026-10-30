@@ -273,13 +273,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
 
   return (
     <div className="shell min-h-dvh overflow-x-clip text-fg" style={themeVars(theme)}>
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
-      >
-        Skip to content
-      </a>
-      <PrimaryHaptic />
+      {/* First in the Tab order, so an incoming call is one Tab away. */}
       {entered ? (
         <CallRings
           onGo={(roomId) => {
@@ -293,6 +287,13 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           }}
         />
       ) : null}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
+      >
+        Skip to content
+      </a>
+      <PrimaryHaptic />
       {art === "landing" || art === "signin" ? (
         <div className="plate-ground" aria-hidden="true" />
       ) : null}

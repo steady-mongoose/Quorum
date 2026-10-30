@@ -74,3 +74,16 @@ test("a poll that claims recording is not applied", () => {
     null,
   );
 });
+
+test("a join can carry a plain ring error and a poll says whether rings are still out", () => {
+  const base = { selfId: "ada", peers: [], iceServers: [], cursor: 0, record: false };
+  assert.equal(
+    parseCallJoin({ ...base, ringError: "Try again in a few minutes." })?.ringError,
+    "Try again in a few minutes.",
+  );
+  assert.equal(parseCallJoin({ ...base, ringError: 5 })?.ringError, undefined);
+  assert.equal(parseCallJoin({ ...base, ringError: "x".repeat(201) })?.ringError, undefined);
+  const poll = { peers: [], signals: [], cursor: 0, record: false };
+  assert.equal(parseCallPoll({ ...poll, ringsOut: true })?.ringsOut, true);
+  assert.equal(parseCallPoll(poll)?.ringsOut, false);
+});
