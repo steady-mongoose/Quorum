@@ -38,24 +38,32 @@ test("deleting an inviter keeps the invite log and the indexes exist", async () 
     assert.equal(seated.ok, true);
     if (!seated.ok) return;
     const now = new Date("2026-10-19T12:00:00Z");
-    const mariaCode = await mintInvite(db, { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 }, now);
+    const mariaCode = await mintInvite(
+      db,
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7, attestAdult: true },
+      now,
+    );
     assert.equal(mariaCode.ok, true);
     if (!mariaCode.ok) return;
     const maria = await redeemInvite(
       db,
-      { name: "Maria", email: "maria@example.com", password: "correct-horse", code: mariaCode.value.code, headers },
+      { name: "Maria", email: "maria@example.com", password: "correct-horse", code: mariaCode.value.code, adult: true, headers },
       createAccount,
       signIn,
       now,
     );
     assert.equal(maria.ok, true);
     if (!maria.ok) return;
-    const luisCode = await mintInvite(db, { userId: maria.value.user.id, maxUses: 1, expiresInDays: 7 }, now);
+    const luisCode = await mintInvite(
+      db,
+      { userId: maria.value.user.id, maxUses: 1, expiresInDays: 7, attestAdult: true },
+      now,
+    );
     assert.equal(luisCode.ok, true);
     if (!luisCode.ok) return;
     const luis = await redeemInvite(
       db,
-      { name: "Luis", email: "luis@example.com", password: "correct-horse", code: luisCode.value.code, headers },
+      { name: "Luis", email: "luis@example.com", password: "correct-horse", code: luisCode.value.code, adult: true, headers },
       createAccount,
       signIn,
       now,

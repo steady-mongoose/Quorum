@@ -8,6 +8,12 @@ export type AccountResult =
   | { ok: true; user: AccountUser | null; mfa?: MfaPhase; mfaEnrolled?: boolean }
   | { ok: false; message: string; code?: string };
 
+/** A session body says ageConfirmed: false when the member still owes the 18+ step. Anything else is confirmed. */
+export function parseAgeConfirmed(body: unknown): boolean {
+  if (!body || typeof body !== "object") return true;
+  return (body as { ageConfirmed?: unknown }).ageConfirmed !== false;
+}
+
 export function parseMfaPhase(body: unknown): { mfa: MfaPhase; mfaEnrolled: boolean } {
   if (!body || typeof body !== "object") return { mfa: "ok", mfaEnrolled: false };
   const record = body as { mfa?: unknown; mfaEnrolled?: unknown };

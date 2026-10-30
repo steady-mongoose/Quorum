@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { AccountRemoval } from "@/components/board/account-removal";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -37,6 +38,7 @@ export function ProfileView() {
   const [parish, setParish] = useState(profile.parish);
   const [parishPlace, setParishPlace] = useState(profile.parishPlace ?? null);
   const [trade, setTrade] = useState(profile.trade);
+  const fieldsId = useId();
   const [saved, setSaved] = useState(false);
   const skipSave = useRef(true);
 
@@ -173,24 +175,28 @@ export function ProfileView() {
               Name, as people know you
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Josh"
                 autoComplete="name"
                 value={knownAs}
                 onChange={(event) => setKnownAs(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Household
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${fieldsId}-household`}>Household</label>
               <input
+                id={`${fieldsId}-household`}
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="the McMullins"
+                aria-describedby={`${fieldsId}-household-hint`}
                 value={household}
                 onChange={(event) => setHousehold(event.target.value)}
               />
-            </label>
+              <p id={`${fieldsId}-household-hint`} className="text-xs text-muted">
+                {FIELD_HINT.household}
+              </p>
+            </div>
             <PlaceSearch
               label="Church"
               kind="church"
+              hint={FIELD_HINT.church}
               value={{
                 name: parish,
                 ref: parishPlace?.ref ?? null,
@@ -202,15 +208,19 @@ export function ProfileView() {
               }}
               pickedNote={CHURCH_ADDRESS_NOTE}
             />
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Trade
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${fieldsId}-trade`}>Trade</label>
               <input
+                id={`${fieldsId}-trade`}
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Electrician"
+                aria-describedby={`${fieldsId}-trade-hint`}
                 value={trade}
                 onChange={(event) => setTrade(event.target.value)}
               />
-            </label>
+              <p id={`${fieldsId}-trade-hint`} className="text-xs text-muted">
+                {FIELD_HINT.trade}
+              </p>
+            </div>
             {saved ? (
               <p role="status" className="text-sm text-muted sm:col-span-3">
                 Saved
@@ -282,7 +292,7 @@ export function ProfileView() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
-        <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
+        <p className="text-sm text-muted">{theirs.size === 0 ? "No one yet. People you meet at a gathering will appear here." : [...theirs].join(", ")}</p>
       </section>
 
       {mine && server.mode === "live" ? <MfaSettings /> : null}

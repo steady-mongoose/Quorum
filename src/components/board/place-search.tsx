@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { btnQuiet, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import {
   isOnMap,
   OSM_ATTRIBUTION,
@@ -70,7 +71,7 @@ export function PlaceSearch({
   search = searchPlaces,
   geolocation,
   className,
-  hint = "Start typing the name, then choose your church from the list. If it is not there, choose Not listed.",
+  hint = FIELD_HINT.church,
   pickedNote,
 }: {
   label: string;

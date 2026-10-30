@@ -195,8 +195,9 @@ async function user(input: {
   const id = randomUUID();
   const sessionId = randomUUID();
   await db.query(
-    `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
-     values ($1, $2, $3, true, now(), now())`,
+    // These accounts have already confirmed 18+, so the age step does not hold them.
+    `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt", age_confirmed_at)
+     values ($1, $2, $3, true, now(), now(), now())`,
     [id, input.name, input.email],
   );
   await db.query(

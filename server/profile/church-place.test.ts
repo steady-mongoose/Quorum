@@ -25,6 +25,11 @@ async function freshPg(skip: string[] = []): Promise<PGlite> {
     if (isSkipEmbedded(sql)) continue;
     await pg.exec(sql);
   }
+  // As in openTestDb (#119): these members count as 18+ confirmed, so the age
+  // gate does not answer 403 age_required. Production has no such default.
+  if (!skip.includes("0047_age_attestation.sql")) {
+    await pg.exec(`alter table "user" alter column age_confirmed_at set default now()`);
+  }
   return pg;
 }
 

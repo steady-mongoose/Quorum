@@ -129,6 +129,7 @@ test("signup requires an invite, then a member can read who invited whom", async
           email: "maria@example.com",
           password: "correct-horse",
           inviteCode: "NOT-A-CODE",
+          adult: true,
         }),
       }),
     );
@@ -154,7 +155,7 @@ test("signup requires an invite, then a member can read who invited whom", async
 
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: undefined, expiresInDays: undefined },
+      { userId: seated.value.userId, maxUses: undefined, expiresInDays: undefined, attestAdult: true },
       new Date("2026-10-19T12:00:00Z"),
     );
     assert.equal(minted.ok, true);
@@ -168,6 +169,7 @@ test("signup requires an invite, then a member can read who invited whom", async
           email: "maria@example.com",
           password: "correct-horse",
           inviteCode: minted.value.code,
+          adult: true,
         }),
       }),
     );
@@ -403,7 +405,7 @@ test("signup errors do not say whether the email is registered", async () => {
     if (!seated.ok) return;
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7, attestAdult: true },
       new Date("2026-10-19T12:00:00Z"),
     );
     assert.equal(minted.ok, true);
@@ -422,6 +424,7 @@ test("signup errors do not say whether the email is registered", async () => {
           email: "maria@example.com",
           password: "correct-horse",
           inviteCode: minted.value.code,
+          adult: true,
         }),
       }),
     );
