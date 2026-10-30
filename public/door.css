@@ -216,14 +216,14 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 .door-week,.door-rooms{container-type:inline-size}
 @media (min-width:640px){
   .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:clamp(6.5rem,calc(24cqi + .72rem),10rem);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}
-  @container (min-width:23.5em){.door-week>*,.door-rooms>*{padding-inline-end:clamp(6.5rem,calc(24cqi + .72rem),10rem)}}
+  @container (width >= 23.5em){.door-week>*,.door-rooms>*{padding-inline-end:clamp(6.5rem,calc(24cqi + .72rem),10rem)}}
 }
 /* Card under 23.5em (text column would drop under about 18-20em beside the strip): no strip. */
-@container (max-width:23.49em){.door-week::after,.door-rooms::after{display:none}}
+@container (width < 23.5em){.door-week::after,.door-rooms::after{display:none}}
 /* Rows stack, term over definition, unless the card itself has 34em; the card decides, not the viewport. */
 .door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}
 .door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}
-@container (min-width:34em){
+@container (width >= 34em){
   .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}
   .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}
 }

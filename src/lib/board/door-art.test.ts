@@ -329,16 +329,16 @@ test("at 640px and up the engravings sit in a strip beside the words, sized by t
   const strip = "clamp(6.5rem,calc(24cqi + .72rem),10rem)";
   assert.match(door, /\n\.door-week,\.door-rooms\{container-type:inline-size\}\n/);
   const at = door.indexOf(
-    `@media (min-width:640px){\n  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:${strip};-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}\n  @container (min-width:23.5em){.door-week>*,.door-rooms>*{padding-inline-end:${strip}}}\n}`,
+    `@media (min-width:640px){\n  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:${strip};-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}\n  @container (width >= 23.5em){.door-week>*,.door-rooms>*{padding-inline-end:${strip}}}\n}`,
   );
   assert.ok(at >= 0, "strip block: the words reserve exactly the strip's width");
   assert.ok(at > door.indexOf("mask-image:linear-gradient(90deg,transparent 18%,#000 62%)"), "after the old 640px block");
   // Narrow cards (or large text, from either the browser default or a root font-size) drop the strip.
-  const off = door.indexOf("@container (max-width:23.49em){.door-week::after,.door-rooms::after{display:none}}");
+  const off = door.indexOf("@container (width < 23.5em){.door-week::after,.door-rooms::after{display:none}}");
   assert.ok(off > at, "no strip on narrow cards");
   // Rows stack on both cards unless the card has 34em.
   const rows = door.indexOf(
-    ".door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}\n.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}\n@container (min-width:34em){\n  .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}\n  .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}\n}",
+    ".door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}\n.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}\n@container (width >= 34em){\n  .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}\n  .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}\n}",
   );
   assert.ok(rows > at, "the card's width is the only switch for two-column rows");
   assert.doesNotMatch(doorTsx, /<dl className="[^"]*sm:grid-cols/, "no viewport switch for the rows");
@@ -347,8 +347,28 @@ test("at 640px and up the engravings sit in a strip beside the words, sized by t
   assert.doesNotMatch(door.slice(off), /\.door-(week|rooms)\s*(>|\s)\s*[^{]*\{[^}]*padding(-inline-end|-right)?:/, "nothing later re-pads a plate child");
   assert.doesNotMatch(doorTsx, /door-(week|rooms)[^>]*>\s*<[^>]*className="[^"]*\b(contents|absolute)\b/);
   // Container queries use ems, never px, so text size moves the breakpoints.
-  for (const q of door.matchAll(/@container \(([^)]*)\)/g)) assert.match(q[1], /^(min|max)-width:[\d.]+em$/);
+  for (const q of door.matchAll(/@container \(([^)]*)\)/g)) assert.match(q[1], /^width (<|>=) [\d.]+em$/);
   // Nothing later re-widens the art or puts a mask back under the words.
   assert.doesNotMatch(door.slice(off), /\.door-(week|rooms)::after\{[^}]*(inset:0[;}]|mask-image)/);
   assert.doesNotMatch(door, /@media \(max-width:6[34]\dpx\)\{[^@]*\.door-(week|rooms)::after\{[^}]*content/);
+});
+
+test("term borders and padding reset at each threshold: stacked rows have none, side-by-side rows have the divider", () => {
+  const queries = [...door.matchAll(/@container \(width (<|>=) ([\d.]+)em\)/g)].map((m) => `${m[1]}${m[2]}`);
+  // Each threshold is split with < and >=, so no width falls between the two sides.
+  assert.ok(queries.includes("<23.5") && queries.includes(">=23.5"), "strip threshold has no gap");
+  assert.ok(!queries.some((q) => /^(<|>=)(23\.49|33\.99)$/.test(q)), "no 0.01em gaps");
+  // Below 34em (the default): one column, and the term has no divider or padding of its own.
+  const base = door.indexOf(".door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}\n.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}");
+  assert.ok(base >= 0, "stacked by default");
+  // From 34em: two columns, and the term carries the same divider and padding as its definition.
+  const wide = door.indexOf("@container (width >= 34em){", base);
+  assert.ok(wide > base, "side by side only from 34em, after the stacked default");
+  const block = door.slice(wide, door.indexOf("\n}", wide));
+  assert.match(block, /\.door-week dl,\.door-rooms dl\{grid-template-columns:max-content minmax\(0,1fr\)\}/);
+  assert.match(block, /\.door-week \.door-term,\.door-rooms \.door-term\{border-bottom:1px solid color-mix\(in srgb,var\(--door-gilt\) 14%,transparent\);padding-bottom:\.55rem\}/);
+  const what = door.match(/\.door-term,\.door-what\{padding-bottom:([^;]+);border-bottom:([^}]+)\}/);
+  assert.ok(what && block.includes(`border-bottom:${what[2]}`) && block.includes(`padding-bottom:${what[1]}`), "same divider as the definition");
+  // Nothing outside the card's own width (no viewport query) changes the rows or the term divider.
+  assert.doesNotMatch(door, /@media[^{]*\{[^@]*\.door-(week|rooms) (dl|\.door-term)\{/);
 });
