@@ -233,7 +233,7 @@ test("members see each other in name order; attendance only in a room that takes
   }
 });
 
-test("who came is private: host, the room's stewards and admins see it; a member sees only their own", async () => {
+test("who came is private: host and the room's stewards see it; an admin as an admin and a member see only their own", async () => {
   const { db, close } = await openTestDb();
   try {
     const admin = await person(db, "Ada", [["admin", ""]]);
@@ -268,13 +268,17 @@ test("who came is private: host, the room's stewards and admins see it; a member
       return Object.fromEntries(list.value.members.map((row) => [row.name, row.attended.length]));
     };
 
-    // The host, the room's steward and an admin read the whole roll call.
-    for (const viewer of [hal, sue, admin]) {
+    // The host and the room's steward read the whole roll call (Oct 30).
+    for (const viewer of [hal, sue]) {
       assert.deepEqual(await cameOnBoard(viewer), ["Ann", "Ben"]);
       const seen = await attendedOf(viewer);
       assert.equal(seen.Ann, 1);
       assert.equal(seen.Ben, 1);
     }
+    // An admin, as an admin, gets no names (counts are in the admin summary).
+    assert.deepEqual(await cameOnBoard(admin), []);
+    const adminSees = await attendedOf(admin);
+    for (const name of ["Ann", "Ben", "Hal"]) assert.equal(adminSees[name], 0, name);
     // A member who came gets no names, only youCame, matched on account id.
     assert.deepEqual(await cameOnBoard(ann), []);
     assert.equal((await hostedFor(ann))?.youCame, true);

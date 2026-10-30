@@ -78,9 +78,12 @@ test("a write-up shows a plain member only their own attendance, matched by the 
   assert.equal(cameText([], false, true), "");
 });
 
-test("who came on a write-up follows admin or steward of the room, not steward tools", () => {
+test("who came on a write-up follows the room's stewards (not admin, not steward tools)", () => {
   const room = read("room-view.tsx");
-  assert.match(room, /seesWhoCame=\{viewerAdmin \|\| viewerRooms\.includes\(room\)\}/);
+  assert.match(room, /seesWhoCame=\{roleCounts\(viewerAdmin\) && viewerRooms\.includes\(room\)\}/);
+  const sight = readFileSync(new URL("../../../server/board/came-sight.ts", import.meta.url), "utf8");
+  assert.match(sight, /viewer\.actor\.stewardRooms\.includes\(roomId\)/);
+  assert.doesNotMatch(sight, /import[^;]*stewardsRoom|stewardsRoom\(viewer/);
   assert.match(room, /cameText\(post\.came, post\.youCame === true, mine \|\| seesWhoCame\)/);
   assert.doesNotMatch(room, /cameText\([^)]*steward\)/);
   // Tools still gate only the moderation buttons.
@@ -127,8 +130,9 @@ test("a plain member's board data carries no other names", () => {
   const mine = forViewer(cards.at(-1)!, { admin: false, name: "Me" });
   assert.deepEqual(mine.going, ["Me"]);
   assert.deepEqual(mine.wentBy, ["Me"]);
+  // An admin as an admin gets no other names either (Oct 30).
   const admin = forViewer(cards.at(-1)!, { admin: true, name: "Me" });
-  assert.deepEqual(admin.going, ["Ann", "Me", "Tom"]);
+  assert.deepEqual(admin.going, ["Me"]);
 });
 
 test("the views read cards through forViewer with the host and steward scope", () => {
@@ -146,13 +150,14 @@ test("the views read cards through forViewer with the host and steward scope", (
 
 test("RSVPs are filtered on the server in SQL by role, and forViewer stays as a second layer", () => {
   const server = readFileSync(new URL("../../../server/board/rsvp.ts", import.meta.url), "utf8");
-  assert.match(server, /or g\.host_user_id = \$3/);
-  // A steward reads every row (going and came) in the rooms they steward.
-  assert.match(server, /or \(g\.room_id <> '' and g\.room_id = any \(\$4::text\[\]\)\)/);
-  // Only these four may read anyone else's row: admin, own, host, steward.
-  assert.match(server, /\$2::boolean\s+or r\.user_id = \$3\s+or g\.host_user_id = \$3\s+or \(g\.room_id/);
+  // Only own, host and steward may read anyone else's row (Oct 30): no admin
+  // bypass; $2 is the role flag (ADMIN_ROLE_SEES_NAMES for an admin).
+  assert.match(server, /r\.user_id = \$3\s+or \(\$2::boolean and g\.host_user_id = \$3\)\s+or \(\$2::boolean and g\.room_id <> '' and g\.room_id = any \(\$4::text\[\]\)\)/);
+  assert.match(server, /\[input\.gatheringIds, roleCounts\(input\.admin\), input\.userId/);
+  assert.doesNotMatch(server, /if \(reader\.admin\) return rows;/);
   assert.match(server, /seesPeople\(reader, gate\.gathering\) \? \{ people: withHandles\(rows, reader\) \} : \{\}/);
-  assert.match(server, /if \(!host && !gate\.actor\.admin\) \{\s*return json\(403, \{ error: MARK_REFUSED \}\);/);
+  assert.match(server, /if \(!marksCame\(reader, gate\.gathering\)\) \{\s*return json\(403, \{ error: MARK_REFUSED \}\);/);
+  assert.doesNotMatch(server, /gate\.actor\.admin\) \{\s*return json\(403/);
   const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(store, /await syncRsvps\(/);
   assert.doesNotMatch(store, /TODO\(rsvp-server\)/);

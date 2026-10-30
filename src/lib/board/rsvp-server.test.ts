@@ -21,6 +21,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
+import { ADMIN_ROLE_SEES_NAMES } from "./rsvp-rules.ts";
 import { closeSavedFor, forgetSavedClose, savedClose, savedCloseNames, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
@@ -67,7 +68,7 @@ test("a member's board gets only their own name from the server, even if a row s
   assert.deepEqual(rollCallPeople(list, "Me"), {});
 });
 
-test("an admin's board gets everyone, and the roll call carries member ids", () => {
+test("an admin's board, as an admin, keeps only their own row and gets no roll call (Oct 30)", () => {
   const list: RsvpList = {
     viewer: "u-me",
     admin: true,
@@ -78,13 +79,35 @@ test("an admin's board gets everyone, and the roll call carries member ids", () 
       { gatheringId: G1, roomId: "shop", userId: "u-tom", name: "Tom", going: true, attended: true },
     ],
   };
+  // Even if a row slipped through, the client drops it.
   const out = applyServerRsvps([card(G1)], list, { me: "Me", gatheringIds: new Set([G1]) });
-  assert.deepEqual(out[0]?.going, ["Me", "Tom"]);
-  assert.deepEqual(out[0]?.wentBy, ["Tom"]);
-  assert.deepEqual(rollCallPeople(list, "Me")[G1], [
-    { userId: "u-me", name: "Me" },
-    { userId: "u-tom", name: "Tom" },
-  ]);
+  assert.deepEqual(out[0]?.going, ["Me"]);
+  assert.deepEqual(out[0]?.wentBy, []);
+  assert.deepEqual(rollCallPeople(list, "Me"), {});
+});
+
+test("an admin who hosts, or stewards the room, follows ADMIN_ROLE_SEES_NAMES", () => {
+  const rows = [
+    { gatheringId: G1, roomId: "shop", userId: "u-me", name: "Josh", going: true, attended: false },
+    { gatheringId: G1, roomId: "shop", userId: "h_tom", name: "Tom", going: true, attended: true },
+  ];
+  const asHost: RsvpList = { viewer: "u-me", admin: true, hosts: [G1], stewardRooms: [], rsvps: rows };
+  const asSteward: RsvpList = { viewer: "u-me", admin: true, hosts: [], stewardRooms: ["shop"], rsvps: rows };
+  const full = card(G1, { host: "Dale", room: "shop", going: ["Me", "Tom"], wentBy: ["Tom"] });
+  for (const list of [asHost, asSteward]) {
+    const out = applyServerRsvps([card(G1)], list, { me: "Me", gatheringIds: new Set([G1]) });
+    const roll = rollCallPeople(list, "Me")[G1];
+    const seen = forViewer(full, { admin: true, name: "Me", hosts: list.hosts, stewardRooms: list.stewardRooms, byId: true });
+    if (ADMIN_ROLE_SEES_NAMES) {
+      assert.deepEqual(out[0]?.going, ["Me", "Tom"]);
+      assert.equal(roll?.length, 2);
+      assert.ok(takesRoll(seen) && seesCame(seen));
+    } else {
+      assert.deepEqual(out[0]?.going, ["Me"]);
+      assert.equal(roll, undefined);
+      assert.equal(takesRoll(seen) || seesCame(seen), false);
+    }
+  }
 });
 
 function stubClient(): BoardClient {
@@ -300,8 +323,8 @@ test("a host sees their own gathering's going and came; a steward reads going an
   assert.deepEqual(hosted[2]?.going, []);
   assert.deepEqual(Object.keys(rollCallPeople(host, "Me")), [G1]);
 
-  // Steward of shop: going and who came on G1 and G2 (Josh, 9:24 PM ET);
-  // nothing in county; no roll call, because a steward does not mark.
+  // Steward of shop: going and who came on G1 and G2; nothing in county; a
+  // roll call for shop's gatherings, because a steward marks (Oct 30).
   const steward: RsvpList = { viewer: "u-me", admin: false, hosts: [], stewardRooms: ["shop"], rsvps: rows };
   const stewarded = applyServerRsvps(cards, steward, { me: "Me", gatheringIds: ids });
   assert.deepEqual(stewarded[0]?.going, ["Tom"]);
@@ -309,15 +332,17 @@ test("a host sees their own gathering's going and came; a steward reads going an
   assert.deepEqual(stewarded[2]?.wentBy, []);
   assert.deepEqual(stewarded[1]?.going, ["Tom"]);
   assert.deepEqual(stewarded[2]?.going, []);
-  assert.deepEqual(rollCallPeople(steward, "Me"), {});
+  assert.deepEqual(Object.keys(rollCallPeople(steward, "Me")).sort(), [G1, G2].sort());
 });
 
-test("forViewer: admin, host, steward and member each see what Josh allowed", () => {
+test("forViewer: admin, host, steward and member each see what Josh allowed (Oct 30)", () => {
   const full = card(G1, { host: "Dale", room: "shop", going: ["Ann", "Me", "Tom"], wentBy: ["Tom", "Me"] });
+  // An admin as an admin: only their own, no roll call (counts are in the summary).
   const admin = forViewer(full, { admin: true, name: "Me" });
-  assert.equal(admin.seeing, "all");
-  assert.deepEqual(admin.going, ["Ann", "Me", "Tom"]);
-  assert.ok(seesGoing(admin) && seesCame(admin) && takesRoll(admin));
+  assert.equal(admin.seeing, undefined);
+  assert.deepEqual(admin.going, ["Me"]);
+  assert.deepEqual(admin.wentBy, ["Me"]);
+  assert.equal(seesGoing(admin) || seesCame(admin) || takesRoll(admin), false);
 
   const host = forViewer(full, { admin: false, name: "Dale" });
   assert.equal(host.seeing, "host");
@@ -329,17 +354,16 @@ test("forViewer: admin, host, steward and member each see what Josh allowed", ()
   const steward = forViewer(full, { admin: false, name: "Me", stewardRooms: ["shop"] });
   assert.equal(steward.seeing, "steward");
   assert.deepEqual(steward.going, ["Ann", "Me", "Tom"]);
-  // Reads who came (Josh, 9:24 PM ET); does not mark it.
+  // Reads who came, and marks it (Oct 30).
   assert.deepEqual(steward.wentBy, ["Tom", "Me"]);
-  assert.ok(seesGoing(steward) && seesCame(steward));
-  assert.equal(takesRoll(steward), false);
+  assert.ok(seesGoing(steward) && seesCame(steward) && takesRoll(steward));
 
   const otherRoom = forViewer(full, { admin: false, name: "Me", stewardRooms: ["county"] });
   assert.equal(otherRoom.seeing, undefined);
   assert.deepEqual(otherRoom.going, ["Me"]);
   assert.deepEqual(otherRoom.wentBy, ["Me"]);
 
-  const member = forViewer({ ...full, seeing: "all" }, { admin: false, name: "Me" });
+  const member = forViewer({ ...full, seeing: "host" }, { admin: false, name: "Me" });
   assert.equal(member.seeing, undefined);
   assert.deepEqual(member.going, ["Me"]);
   assert.deepEqual(member.wentBy, ["Me"]);

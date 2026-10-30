@@ -1,4 +1,6 @@
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
+import { roleCounts } from "../../src/lib/board/rsvp-rules.ts";
+import { rsvpSummary } from "./rsvp-summary.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
 import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
@@ -12,20 +14,25 @@ import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 /**
  * RSVPs and attendance, stored on the server (migration 0049).
  *
- * Josh's rule (Oct 29, 9:04 PM ET, replacing #91's admin-only rule; stewards
- * read who came from 9:24 PM ET):
- *   - An admin (the owner is an admin) sees everyone who is going and who came.
- *   - A gathering's host sees who is going to, and who came to, that gathering.
- *   - A steward sees who is going to, and who came to, gatherings in the
- *     rooms they steward. Read only: a steward does not mark who came.
+ * The rule (Josh via CoS, Oct 30, 7:01–7:04 AM ET; replaces Oct 29's
+ * "admins see all"; see src/lib/board/rsvp-rules.ts):
+ *   - An admin, as an admin, gets counts only: GET /api/rsvps/summary.
+ *     Never a respondent's name, email, id or handle, and no marking.
+ *     Barred members are counted there, with no identity.
+ *   - A gathering's host, and the stewards of its room, see who is going to,
+ *     and who came to, that gathering, and mark who came. Barred members are
+ *     hidden from them; other members' ids go out as handles.
+ *   - An admin who also hosts or stewards gets that role's view while
+ *     ADMIN_ROLE_SEES_NAMES is true (TODO for Josh in rsvp-rules.ts).
  *   - Anyone else sees only their own "You're going". Never a name, never a number.
- *   - Only the host or an admin marks who came. A member cannot mark themselves.
+ *   - A member cannot mark themselves.
  * The same rule runs in SQL here and in forViewer (src/lib/board/model.ts).
  *
  *   GET  /api/rsvps                      the rows this viewer may see
- *   GET  /api/gatherings/:id/rsvps       mine; host, steward, admin also get `people`
- *   POST /api/gatherings/:id/rsvp        { going?: boolean, attended?: true (host or admin) }
- *   POST /api/gatherings/:id/attendance  host or admin: { userIds (handles from the list), close? }
+ *   GET  /api/rsvps/summary              admin only: counts, no identities
+ *   GET  /api/gatherings/:id/rsvps       mine; host and stewards also get `people`
+ *   POST /api/gatherings/:id/rsvp        { going?: boolean, attended?: true (host or steward) }
+ *   POST /api/gatherings/:id/attendance  host or steward: { userIds (handles from the list), close?, happened? }
  *   POST /api/rsvps/move                 the one-time move from this browser
  */
 
@@ -46,8 +53,8 @@ export type RsvpRow = {
   attended: boolean;
 };
 
-/** The one refusal for anyone who is not the host or an admin. */
-export const MARK_REFUSED = "Only the host or an admin marks who came.";
+/** The one refusal for anyone who is not the host or a steward of the room. */
+export const MARK_REFUSED = "Only the host or a steward of this room marks who came.";
 
 /** Before 0049 is applied. The client keeps the RSVP on the device for this code only. */
 export const RSVP_NOT_READY = "rsvp-not-ready";
@@ -60,7 +67,7 @@ export const RSVP_BATCH_MAX = 200;
 /** Exact match only: lowercase ids (as stored) and lowercase actions. */
 const ONE = /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(rsvps|rsvp|attendance)$/;
 
-const LOOSE = /^\/api\/(rsvps(\/move)?\/?|gatherings\/[^/]+\/(rsvps|rsvp|attendance)\/?)$/i;
+const LOOSE = /^\/api\/(rsvps(\/move|\/summary)?\/?|gatherings\/[^/]+\/(rsvps|rsvp|attendance)\/?)$/i;
 
 /**
  * Every refusal from these routes says `api: "rsvp"`, so the client can tell
@@ -161,14 +168,14 @@ function toRow(row: DbRow): RsvpRow {
  */
 export { rsvpHandle } from "./rsvp-handle.ts";
 
-export function withHandles(rows: RsvpRow[], reader: { userId: string; admin: boolean }): RsvpRow[] {
-  if (reader.admin) return rows;
+export function withHandles(rows: RsvpRow[], reader: { userId: string }): RsvpRow[] {
+  // Everyone, admins too, gets handles for other members: only my own row keeps my id.
   return rows.map((row) =>
     row.userId === reader.userId ? row : { ...row, userId: rsvpHandle(row.gatheringId, row.userId) },
   );
 }
 
-/** Handles (or, for an admin, ids) from a roll call, as account ids for this gathering. */
+/** Handles from a roll call (or my own id), as account ids for this gathering. */
 export async function idsFromHandles(
   db: Db,
   input: RsvpReader & { gatheringId: string; sent: string[]; now: Date },
@@ -180,7 +187,7 @@ export async function idsFromHandles(
   const ids = new Set(rows.map((row) => row.userId));
   const out: string[] = [];
   for (const sent of input.sent) {
-    const id = byHandle.get(sent) ?? ((input.admin || sent === input.userId) && ids.has(sent) ? sent : undefined);
+    const id = byHandle.get(sent) ?? (sent === input.userId && ids.has(sent) ? sent : undefined);
     // A stale or unknown entry fails the whole call: marking the rest would
     // silently drop someone the host picked (QA S4).
     if (!id) return null;
@@ -189,17 +196,17 @@ export async function idsFromHandles(
   return out;
 }
 
-/** Who is reading. `stewardRooms` is from actorRole; admins are not listed there. */
+/** Who is reading. `stewardRooms` is from actorRole: rooms this person actually stewards. */
 export type RsvpReader = { userId: string; admin: boolean; stewardRooms: readonly string[] };
 
 /**
  * The only read, filtered in SQL so a row this viewer may not see never
  * leaves the database:
- *   - an admin gets every row;
  *   - my own row, always;
  *   - the host of a gathering gets every row for it, going and came;
- *   - a steward of the gathering's room gets every row for it, going and
- *     came, to read (marking who came stays with the host and admins).
+ *   - a steward of the gathering's room gets every row for it, going and came;
+ *   - an admin gets nothing more as an admin (counts are in rsvpSummary);
+ *     as a host or steward, only while ADMIN_ROLE_SEES_NAMES.
  */
 export async function readRsvps(
   db: Db,
@@ -214,13 +221,12 @@ export async function readRsvps(
      join public_gathering g on g.id = r.gathering_id
      where r.gathering_id = any ($1::text[])
        and (
-         $2::boolean
-         or r.user_id = $3
-         or g.host_user_id = $3
-         or (g.room_id <> '' and g.room_id = any ($4::text[]))
+         r.user_id = $3
+         or ($2::boolean and g.host_user_id = $3)
+         or ($2::boolean and g.room_id <> '' and g.room_id = any ($4::text[]))
        )
      order by r.gathering_id, u.name, r.user_id`,
-    [input.gatheringIds, input.admin, input.userId, [...input.stewardRooms]],
+    [input.gatheringIds, roleCounts(input.admin), input.userId, [...input.stewardRooms]],
   );
   return hideBanned(db, rows.map(toRow), { viewer: input.userId, now: input.now ?? new Date() });
 }
@@ -257,17 +263,22 @@ async function hideBanned(db: Db, rows: RsvpRow[], input: { viewer: string; now:
   return rows.filter((row) => row.userId === input.viewer || !barred(row));
 }
 
-/** Whether this viewer may read anyone else's row for one gathering. */
+/**
+ * Whether this viewer may read anyone else's row for one gathering, and mark
+ * who came: its host or a steward of its room. Being an admin adds nothing.
+ */
 export function seesPeople(
   reader: RsvpReader,
   gathering: { hostUserId: string; roomId: string },
 ): boolean {
+  if (!roleCounts(reader.admin)) return false;
   return (
-    reader.admin ||
     gathering.hostUserId === reader.userId ||
     (gathering.roomId !== "" && reader.stewardRooms.includes(gathering.roomId))
   );
 }
+/** Marking who came: the same people who read the list (host and stewards). */
+export const marksCame = seesPeople;
 
 /** Set or clear my own RSVP. `attended` only ever turns on, as "I went" does on the device. */
 export async function setMyRsvp(
@@ -471,8 +482,8 @@ export function moveEntries(value: unknown): MoveEntry[] | null {
  * The one-time move. It only ever turns my own flags on, so running it twice
  * changes nothing. A gathering this member cannot see is skipped quietly.
  * A self-marked "I've been" from the device is kept only when I am that
- * gathering's host or an admin; anyone else's is dropped, because only the
- * host or an admin marks who came. An entry left with nothing is skipped.
+ * gathering's host or a steward of its room; anyone else's is dropped,
+ * because only they mark who came. An entry left with nothing is skipped.
  */
 export async function moveMyRsvps(
   db: Db,
@@ -482,7 +493,10 @@ export async function moveMyRsvps(
   for (const raw of input.entries) {
     const gate = await rsvpGatheringFor(db, { userId: input.userId, id: raw.gatheringId, now: input.now });
     if (!gate.ok) continue;
-    const marks = gate.actor.admin || gate.gathering.hostUserId === input.userId;
+    const marks = marksCame(
+      { userId: input.userId, admin: gate.actor.admin, stewardRooms: gate.actor.stewardRooms },
+      gate.gathering,
+    );
     const entry = { ...raw, attended: raw.attended && marks };
     if (!entry.going && !entry.attended) continue;
     await db.query(
@@ -507,7 +521,8 @@ export async function handleRsvp(
   const one = ONE.exec(url.pathname);
   const list = url.pathname === "/api/rsvps";
   const move = url.pathname === "/api/rsvps/move";
-  if (!one && !list && !move) {
+  const summary = url.pathname === "/api/rsvps/summary";
+  if (!one && !list && !move && !summary) {
     // Oddly cased or trailing-slash forms of these routes: 404 with the marker (QA S4).
     if (LOOSE.test(url.pathname)) return json(404, { error: "Not found." });
     return null;
@@ -516,11 +531,12 @@ export async function handleRsvp(
   const method = request.method;
   const matched =
     (list && method === "GET") ||
+    (summary && method === "GET") ||
     (move && method === "POST") ||
     (action === "rsvps" && method === "GET") ||
     ((action === "rsvp" || action === "attendance") && method === "POST");
   if (!matched) {
-    const allow = list || action === "rsvps" ? "GET" : "POST";
+    const allow = list || summary || action === "rsvps" ? "GET" : "POST";
     return json(405, { error: "Method not allowed." }, { allow });
   }
 
@@ -531,6 +547,12 @@ export async function handleRsvp(
   const now = deps.now();
 
   try {
+    if (summary) {
+      // Admin-only counts: no names, emails, ids or handles (rsvp-summary.ts).
+      const actor = await actorRole(deps.db, session.id);
+      if (!actor.admin) return json(403, { error: "These counts are for an admin." });
+      return json(200, await rsvpSummary(deps.db, now));
+    }
     if (list) {
       const actor = await actorRole(deps.db, session.id);
       const gatherings = await listGatheringsFor(deps.db, { userId: session.id, now });
@@ -543,12 +565,14 @@ export async function handleRsvp(
       });
       return json(200, {
         viewer: session.id,
+        // Says only whether the summary link shows; the rows below are this
+        // viewer's own, or a host's or steward's, never an admin's extra.
         admin: actor.admin,
         // Which gatherings I host, and which rooms I steward: the client
         // applies the same rule again (forViewer) with these.
         hosts: gatherings.filter((row) => row.mine).map((row) => row.id),
         stewardRooms: actor.stewardRooms,
-        rsvps: withHandles(rsvps, { userId: session.id, admin: actor.admin }),
+        rsvps: withHandles(rsvps, { userId: session.id }),
       });
     }
 
@@ -595,9 +619,9 @@ export async function handleRsvp(
       if ("attended" in body && body.attended !== true) {
         return json(400, { error: "Say that you came, or leave it out." });
       }
-      // A member cannot mark themselves as having come. The host (the lister)
-      // and admins can.
-      if (body.attended === true && !host && !gate.actor.admin) {
+      // A member cannot mark themselves as having come. The host and the
+      // room's stewards can; an admin as an admin cannot.
+      if (body.attended === true && !marksCame(reader, gate.gathering)) {
         return json(403, { error: MARK_REFUSED });
       }
       if (body.attended === true && (await rollOff())) {
@@ -613,7 +637,7 @@ export async function handleRsvp(
     }
 
     // attendance
-    if (!host && !gate.actor.admin) {
+    if (!marksCame(reader, gate.gathering)) {
       return json(403, { error: MARK_REFUSED });
     }
     if ("close" in body && typeof body.close !== "boolean") {
@@ -659,7 +683,7 @@ export async function handleRsvp(
           (row) =>
             row.going &&
             !seen.has(rsvpHandle(gatheringId, row.userId)) &&
-            !((reader.admin || row.userId === reader.userId) && seen.has(row.userId)),
+            !(row.userId === reader.userId && seen.has(row.userId)),
         );
       };
     }

@@ -18,6 +18,7 @@ import {
   type MarkValue,
 } from "./text.ts";
 import { meetingDates, shiftLocalDate } from "./week-days.ts";
+import { roleCounts } from "./rsvp-rules.ts";
 
 export const APP_NAME = "Avouch Social";
 export const TAGLINE = "Your church, your shop, your county. Show up.";
@@ -1256,7 +1257,7 @@ export function otherIn(thread: DmThread, me: string): string {
   return thread.between.find((name) => name !== me) ?? "";
 }
 
-export type RsvpSight = "all" | "host" | "steward";
+export type RsvpSight = "host" | "steward";
 
 /** Who is looking at the board, for forViewer. */
 export type RsvpViewer = {
@@ -1277,16 +1278,19 @@ export type RsvpViewer = {
 const SERVER_CARD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Josh, Oct 29, 9:04 PM ET (replaces #91's admin-only rule):
- *   - an admin (the owner is an admin) sees everything;
- *   - a card's host sees who is going and who came, on their own cards;
- *   - a steward sees who is going and who came on cards in the rooms they
- *     steward (9:24 PM ET), but does not mark who came;
+ * Josh via CoS, Oct 30, 7:01–7:04 AM ET (replaces Oct 29's "admins see all";
+ * the rule is in rsvp-rules.ts):
+ *   - an admin, as an admin, sees no names here: counts are on the admin
+ *     stats page (GET /api/rsvps/summary);
+ *   - a card's host sees who is going and who came, and marks who came;
+ *   - a steward does the same on cards in the rooms they steward;
+ *   - an admin who hosts or stewards gets that role's view while
+ *     ADMIN_ROLE_SEES_NAMES is true;
  *   - anyone else sees only their own "You're going".
  * The server already filters the same way in SQL (server/board/rsvp.ts).
  */
 export function rsvpSight(card: MeetingCard, viewer: RsvpViewer): RsvpSight | undefined {
-  if (viewer.admin) return "all";
+  if (!roleCounts(viewer.admin)) return undefined;
   const byId = Boolean(viewer.byId) && SERVER_CARD_ID.test(card.id);
   const host =
     (!byId && viewer.name !== "" && card.host === viewer.name) ||
@@ -1299,8 +1303,7 @@ export function rsvpSight(card: MeetingCard, viewer: RsvpViewer): RsvpSight | un
 export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
   const seeing = rsvpSight(card, viewer);
   const own = (names: string[] | undefined) => (names ?? []).filter((name) => name === viewer.name);
-  if (seeing === "all" || seeing === "host") return { ...card, seeing };
-  if (seeing === "steward") return { ...card, seeing };
+  if (seeing === "host" || seeing === "steward") return { ...card, seeing };
   const mine: MeetingCard = { ...card, going: own(card.going), wentBy: own(card.wentBy) };
   delete mine.seeing;
   return mine;
@@ -1308,15 +1311,15 @@ export function forViewer(card: MeetingCard, viewer: RsvpViewer): MeetingCard {
 
 /** May this viewer see who is going? (After forViewer.) */
 export function seesGoing(card: MeetingCard): boolean {
-  return card.seeing === "all" || card.seeing === "host" || card.seeing === "steward";
+  return card.seeing === "host" || card.seeing === "steward";
 }
 
-/** May this viewer read who came? The host, an admin, or a steward of the room. */
+/** May this viewer read who came? The host or a steward of the room. */
 export function seesCame(card: MeetingCard): boolean {
   return seesGoing(card);
 }
 
-/** May this viewer mark who came? Only the host or an admin. */
+/** May this viewer mark who came? The host or a steward of the room (Oct 30). */
 export function takesRoll(card: MeetingCard): boolean {
-  return card.seeing === "all" || card.seeing === "host";
+  return card.seeing === "host" || card.seeing === "steward";
 }

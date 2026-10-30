@@ -1,10 +1,12 @@
 import type { Db } from "../db.ts";
-import { stewardsRoom, type BoardActor } from "./access.ts";
+import type { BoardActor } from "./access.ts";
+import { roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 
 /**
- * Who came is private (Josh, Oct 29, 10:06 PM ET): "Make who came private: only
- * the host, the room's stewards and admins see it, and each member sees their own."
+ * Who came is private (Josh, Oct 29, 10:06 PM ET; admins dropped Oct 30,
+ * 7:01 AM ET): only the host and the room's stewards see it, and each member
+ * sees their own. An admin as an admin gets counts only (rsvp-summary.ts).
  * The server strips everyone else's attendance before a payload leaves it.
  */
 export type CameViewer = {
@@ -33,7 +35,10 @@ export function seesWhoCame(
   roomId: string,
   hostId: string | null | undefined,
 ): boolean {
-  return stewardsRoom(viewer.actor, roomId) || (Boolean(hostId) && hostId === viewer.userId);
+  // Not stewardsRoom(): that counts every admin as a steward, which is right
+  // for moderation, not for who came.
+  if (!roleCounts(viewer.actor.admin)) return false;
+  return viewer.actor.stewardRooms.includes(roomId) || (Boolean(hostId) && hostId === viewer.userId);
 }
 
 /**

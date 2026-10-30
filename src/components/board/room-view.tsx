@@ -85,6 +85,7 @@ import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/component
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
 import { rollCallFor, rollKey, toggleRoll, whoCameSavedLine, type RollPerson } from "@/lib/board/rsvp-api";
+import { roleCounts } from "@/lib/board/rsvp-rules";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -367,7 +368,7 @@ export function RoomView() {
                 mine={post.author === me}
                 canMessage={peers.has(post.author)}
                 steward={steward && tools}
-                seesWhoCame={viewerAdmin || viewerRooms.includes(room)}
+                seesWhoCame={roleCounts(viewerAdmin) && viewerRooms.includes(room)}
                 canPost={canPost}
               />
             ))}

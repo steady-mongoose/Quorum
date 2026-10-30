@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { readDemoFlag } from "../api-mode.ts";
+import { roleCounts } from "./rsvp-rules.ts";
 import {
   getBoardClient,
   type AccessInput,
@@ -730,14 +731,18 @@ export const useBoard = create<BoardState>()(
         }
         set({ cards });
       };
-      /** The host of this card, or an admin: the only people who mark who came. */
+      /**
+       * The host of this card, or a steward of its room: the only people who
+       * mark who came (Oct 30). An admin as an admin does not.
+       */
       const marksCame = (card: MeetingCard) =>
-        get().admin ||
+        roleCounts(get().admin) &&
+        (get().stewardRooms.includes(card.room) ||
         // Signed in: the host is known by id, from the server (a member who
         // shares the host's name is not the host). On this device only, by name.
         (get().remote && isGatheringId(card.id)
           ? get().rsvpHosts.includes(card.id.toLowerCase())
-          : card.host === me());
+          : card.host === me()));
       /** One RSVP save per card at a time. A second tap while one is out does nothing. */
       const rsvpInFlight = new Set<string>();
       /**
