@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { actorRole, stewardsRoom } from "../board/access.ts";
+import { actorRoles, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
-import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
+import { roomStandings, standingKey } from "../chat/store.ts";
+import { canReadRoom, listingColumnsReady } from "../board/room-visibility.ts";
 import { banOpen } from "../board/ban.ts";
 import { openBan } from "../board/store.ts";
 import { queryBanTable } from "../board/ban-check.ts";
@@ -565,10 +566,15 @@ export async function recordAttendance(
 
 /**
  * Which of these people may message through a meeting held in that room right
- * now: no open bar on the board or in that room, and the room's audience lets
- * them in. These are the bar and audience gates the shared-room route applies
+ * now: a live board membership (actorRoles(...).member, the shared-room route's
+ * test), the room still named and readable to them (canReadRoom, so a room
+ * moved to draft or unclaimed counts only for a steward or an admin, as on the
+ * shared-room route), no open bar on the board or in that room, and the room's
+ * audience lets them in. These are the gates the shared-room route applies
  * through roomStandings, without its "has joined the room" step, because
  * someone the host named need not have joined. Keys are standingKey(user, room).
+ * The queries are the same whoever fails, so the answer's timing does not say
+ * which gate it was.
  */
 async function meetingStandings(
   db: Db,
@@ -580,6 +586,18 @@ async function meetingStandings(
   const rooms = [...new Set(roomIds.filter(Boolean))];
   const standing = new Set<string>();
   if (ids.length === 0 || rooms.length === 0) return standing;
+
+  const actors = await actorRoles(db, ids);
+  const ready = await listingColumnsReady(db);
+  const listings = await db.query<{ id: string; name: string; status?: string }>(
+    ready
+      ? `select id, name, status from room where id = any ($1::text[])`
+      : `select id, name from room where id = any ($1::text[])`,
+    [rooms],
+  );
+  const listed = new Map(
+    listings.map((row) => [row.id, { name: row.name, status: row.status ?? "active" }]),
+  );
 
   const bans = await queryBanTable<{
     user_id: string;
@@ -630,8 +648,12 @@ async function meetingStandings(
   }
 
   for (const userId of ids) {
+    const actor = actors.get(userId);
+    if (!actor?.member) continue;
     if (barred.has(standingKey(userId, ""))) continue;
     for (const roomId of rooms) {
+      const room = listed.get(roomId);
+      if (!room || !room.name || !canReadRoom(room.status, actor)) continue;
       if (barred.has(standingKey(userId, roomId))) continue;
       const audience = audienceOf.get(roomId) ?? "all";
       if (audience !== "all") {
@@ -747,9 +769,11 @@ export async function blockedBetween(db: Db, a: string, b: string): Promise<bool
 }
 
 /**
- * Rooms both people stand in right now: each has joined, neither is barred, and
- * the room's audience lets both in. Settled means the caller may start a
- * conversation through that room: a steward of it, or three days since joining.
+ * Rooms both people stand in right now: each has a live board membership, has
+ * joined, can read the room, is not barred, and the room's audience lets both
+ * in (roomStandings, which matches requireRoomMember). Settled means the caller
+ * may start a conversation through that room: a steward of it, or three days
+ * since joining. A fixed number of queries, whoever fails.
  */
 async function roomsInCommon(
   db: Db,
@@ -775,16 +799,23 @@ async function roomsInCommon(
      order by m.room_id`,
     [callerId, otherUserId],
   );
-  if (rows.length === 0) return [];
-  const actor = await actorRole(db, callerId);
+  // Read standings even with no room in common, so this costs the same either way.
+  const { standing, actors } = await roomStandings(
+    db,
+    [callerId, otherUserId],
+    rows.map((row) => row.room_id),
+    now,
+  );
+  const actor = actors.get(callerId);
   const wait = ROOM_MESSAGE_WAIT_DAYS * DAY_MS;
   const shared: { roomId: string; settled: boolean }[] = [];
   for (const row of rows) {
-    if (!(await requireRoomMember(db, callerId, row.room_id, now)).ok) continue;
-    if (!(await requireRoomMember(db, otherUserId, row.room_id, now)).ok) continue;
+    if (!standing.has(standingKey(callerId, row.room_id))) continue;
+    if (!standing.has(standingKey(otherUserId, row.room_id))) continue;
     const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
     const settled =
-      stewardsRoom(actor, row.room_id) || (joined !== null && now.getTime() - joined >= wait);
+      (actor ? stewardsRoom(actor, row.room_id) : false) ||
+      (joined !== null && now.getTime() - joined >= wait);
     shared.push({ roomId: row.room_id, settled });
   }
   return shared;
@@ -796,10 +827,15 @@ export type MessageGate =
 
 /**
  * Whether the caller may message the other member. A block either way stops it,
- * as does a board-wide ban on either of them. A verified meeting together allows
- * it while neither is barred from the meeting's room and its audience lets both
- * in. Otherwise a room both stand in allows it; starting a new conversation that way also needs three days in the room
- * and stays under five starts a day.
+ * as does a board-wide ban on either of them or either one's board membership
+ * having lapsed or been revoked. A verified meeting together allows it while
+ * both are live members, neither is barred from the meeting's room, that room
+ * is still readable to both, and its audience lets both in. Otherwise a room
+ * both stand in allows it; starting a new conversation that way also needs
+ * three days in the room and stays under five starts a day.
+ *
+ * Every lookup runs before anything is decided, so a refusal for a ban takes
+ * the same path as a refusal for a stranger and its timing says nothing.
  */
 export async function mayMessage(
   db: Db,
@@ -811,15 +847,20 @@ export async function mayMessage(
   if (!callerId || !otherUserId) return { ok: false, status: 403, error: NOT_REACHABLE };
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
-  if (await blockedBetween(db, callerId, otherUserId))
-    return { ok: false, status: 403, error: BLOCKED };
+  // Run every lookup first. Nothing below returns until all of them are in.
+  const blocked = await blockedBetween(db, callerId, otherUserId);
+  const callerBan = await openBan(db, callerId, now);
+  const otherBan = await openBan(db, otherUserId, now);
+  const met = await sharesMeeting(db, callerId, otherUserId, now);
+  const rooms = await roomsInCommon(db, callerId, otherUserId, now);
+
+  if (blocked) return { ok: false, status: 403, error: BLOCKED };
   // A board-wide ban on either person stops every route, sending and receiving.
   // The words are the ones for someone you cannot reach, so nobody learns of
   // another member's ban. (The DM routes answer the sender's own ban first.)
-  if ((await openBan(db, callerId, now)) || (await openBan(db, otherUserId, now)))
-    return { ok: false, status: 403, error: NOT_REACHABLE };
-  if (await sharesMeeting(db, callerId, otherUserId, now)) return { ok: true, via: "meeting" };
-  const rooms = await roomsInCommon(db, callerId, otherUserId, now);
+  // A revoked or lapsed membership fails inside sharesMeeting and roomsInCommon.
+  if (callerBan || otherBan) return { ok: false, status: 403, error: NOT_REACHABLE };
+  if (met) return { ok: true, via: "meeting" };
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
   if (!options.starting) return { ok: true, via: "room" };
   if (!rooms.some((room) => room.settled)) return { ok: false, status: 403, error: ROOM_WAIT };

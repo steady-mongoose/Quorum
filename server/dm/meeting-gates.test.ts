@@ -20,6 +20,7 @@ import {
 } from "./store.ts";
 
 import type { MessageWire } from "../../src/lib/e2ee/protocol.ts";
+import { dmCallMember } from "../calls/dm-membership.ts";
 
 // The "met at a meeting" route must apply the same bar, ban, audience and block
 // gates as the shared-room route, for the sender and for the recipient, and
@@ -90,6 +91,29 @@ async function ban(db: Db, userId: string, roomId: string, until = now.getTime()
   );
 }
 
+/** A later revoke of the member grant. Not a ban: the account is simply no longer a member. */
+async function revoke(db: Db, userId: string): Promise<void> {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, 'x', 'member', '', 'revoke', 'test', 'test', 'test', 'Revoked for the test.', $3)`,
+    [randomUUID(), userId, daysAgo(1)],
+  );
+}
+
+async function grantAdmin(db: Db, userId: string): Promise<void> {
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, 'x', 'admin', '', 'grant', 'test', 'test', 'test', 'Admin for the test.', $3)`,
+    [randomUUID(), userId, daysAgo(2)],
+  );
+}
+
+async function draft(db: Db, roomId: string): Promise<void> {
+  await db.query(`update room set status = 'draft' where id = $1`, [roomId]);
+}
+
 type Gate = {
   name: string;
   /** Set up after the meeting, against `who`. */
@@ -107,6 +131,9 @@ const GATES: Gate[] = [
       await db.query(`update members set gender = 'woman' where user_id = $1`, [who]);
     },
   },
+  { name: "a revoked board membership", apply: (db, who) => revoke(db, who) },
+  // Room-wide, so the side only says whose turn it is to send.
+  { name: "the meeting's room moved to draft", apply: (db) => draft(db, ROOM) },
 ];
 
 async function setup(db: Db) {
@@ -288,3 +315,167 @@ for (const via of ["meeting", "room"] as const) {
     }
   });
 }
+
+const result = (r: { ok: boolean; status?: number; error?: string }) =>
+  r.ok ? null : [r.status, r.error];
+
+type ThreadGate = {
+  name: string;
+  apply: (db: Db, anna: string, ben: string, room: string) => Promise<void>;
+};
+
+const THREAD_GATES: ThreadGate[] = [
+  { name: "the recipient's membership revoked", apply: (db, _anna, ben) => revoke(db, ben) },
+  { name: "the sender's membership revoked", apply: (db, anna) => revoke(db, anna) },
+  { name: "the route's room moved to draft", apply: (db, _a, _b, room) => draft(db, room) },
+];
+
+for (const via of ["meeting", "room"] as const) {
+  for (const gate of THREAD_GATES) {
+    test(`${gate.name} stops every DM route on an open conversation (${via})`, async () => {
+      const { db, close } = await openTestDb();
+      try {
+        const anna = await person(db, "Anna");
+        const ben = await person(db, "Ben");
+        const stranger = await person(db, "Stranger");
+        const room = via === "meeting" ? ROOM : "baptist";
+        if (via === "meeting") await meet(db, anna, ben);
+        else {
+          await joined(db, anna, room, daysAgo(10));
+          await joined(db, ben, room, daysAgo(10));
+        }
+        const opened = await openThread(db, anna, ben, now);
+        assert.equal(opened.ok, true);
+        if (!opened.ok) return;
+        const threadId = opened.value.id;
+        assert.equal((await dmCallMember(db, anna, threadId, now)).kind, "member");
+
+        await gate.apply(db, anna, ben, room);
+        const never = [403, NOT_REACHABLE];
+        assert.deepEqual(result(await mayMessage(db, anna, stranger, now)), never);
+        for (const [from, to] of [
+          [anna, ben],
+          [ben, anna],
+        ] as const) {
+          assert.deepEqual(result(await mayMessage(db, from, to, now)), never);
+          assert.deepEqual(result(await mayMessage(db, from, to, now, { starting: true })), never);
+          assert.deepEqual(result(await openThread(db, from, to, now)), never);
+          assert.deepEqual(result(await claimBundle(db, from, to, now)), never);
+          assert.deepEqual(result(await previewBundle(db, from, to, now)), never);
+          assert.deepEqual(
+            result(await postMessage(db, from, threadId, wire(threadId), now)),
+            never,
+          );
+          assert.equal(await sharesMeeting(db, from, to, now), false);
+          assert.equal((await memberMessageStates(db, from, [to], now)).get(to), "none");
+          assert.equal(
+            (await listPeers(db, from, now)).some((peer) => peer.id === to),
+            false,
+          );
+          assert.notEqual((await dmCallMember(db, from, threadId, now)).kind, "member");
+        }
+      } finally {
+        await close();
+      }
+    });
+  }
+}
+
+test("a meeting in a draft room stays open only when both may read it, as on the room route", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const { anna, ben } = await setup(db);
+    await joined(db, anna, "baptist", daysAgo(10));
+    await joined(db, ben, "baptist", daysAgo(10));
+    await draft(db, ROOM);
+    await draft(db, "baptist");
+    // An admin can read a draft room; a plain member cannot. One of each: refused.
+    await grantAdmin(db, ben);
+    const never = { ok: false, status: 403, error: NOT_REACHABLE };
+    assert.deepEqual(await mayMessage(db, anna, ben, now), never);
+    assert.deepEqual(await mayMessage(db, ben, anna, now), never);
+    // Both can read it: the same staff exemption canReadRoom gives the room route.
+    await grantAdmin(db, anna);
+    assert.deepEqual(await mayMessage(db, anna, ben, now), { ok: true, via: "meeting" });
+    assert.deepEqual(await mayMessage(db, ben, anna, now), { ok: true, via: "meeting" });
+  } finally {
+    await close();
+  }
+});
+
+/** Every query text the db is asked to run, in order. */
+function counting(db: Db): { db: Db; seen: string[] } {
+  const seen: string[] = [];
+  const wrap = (inner: Db): Db => ({
+    async query<T>(text: string, params: unknown[] = []) {
+      seen.push(text.replace(/\s+/g, " ").trim());
+      return inner.query<T>(text, params);
+    },
+    transaction: (fn) => inner.transaction((tx) => fn(wrap(tx))),
+    ...(inner.session
+      ? { session: <T>(fn: (db: Db) => Promise<T>) => inner.session!((s) => fn(wrap(s))) }
+      : {}),
+  });
+  return { db: wrap(db), seen };
+}
+
+test("every refusal runs the same lookups, so a ban is not given away by timing", async () => {
+  const runs = new Map<string, string[]>();
+  const cases: [string, (db: Db, anna: string, ben: string) => Promise<void>][] = [
+    ["clean", async () => {}],
+    ["recipient banned", (db, _anna, ben) => ban(db, ben, "")],
+    ["sender banned", (db, anna) => ban(db, anna, "")],
+    [
+      "recipient barred in the rooms",
+      async (db, _anna, ben) => {
+        await ban(db, ben, ROOM);
+        await ban(db, ben, "baptist");
+      },
+    ],
+    ["recipient revoked", (db, _anna, ben) => revoke(db, ben)],
+    [
+      "rooms in draft",
+      async (db) => {
+        await draft(db, ROOM);
+        await draft(db, "baptist");
+      },
+    ],
+    [
+      "recipient outside the audience",
+      async (db, _anna, ben) => {
+        await db.query(`update members set gender = 'woman' where user_id = $1`, [ben]);
+      },
+    ],
+  ];
+  for (const [name, apply] of cases) {
+    const { db, close } = await openTestDb();
+    try {
+      const { anna, ben } = await setup(db);
+      await joined(db, anna, "baptist", daysAgo(10));
+      await joined(db, ben, "baptist", daysAgo(10));
+      // Both rooms are men-only throughout, so the audience lookup runs in every case.
+      await db.query(`update room set audience = 'men' where id = any ($1::text[])`, [
+        [ROOM, "baptist"],
+      ]);
+      await apply(db, anna, ben);
+      const counted = counting(db);
+      const gate = await mayMessage(counted.db, anna, ben, now);
+      assert.equal(gate.ok, name === "clean", name);
+      runs.set(name, counted.seen);
+    } finally {
+      await close();
+    }
+  }
+  const clean = runs.get("clean") ?? [];
+  // The banned path reaches the meeting and the shared-room lookups.
+  const banned = runs.get("recipient banned") ?? [];
+  assert.ok(
+    banned.some((text) => text.includes("dm_attendance")),
+    "meeting lookup ran",
+  );
+  assert.ok(
+    banned.some((text) => text.includes("room_join")),
+    "room lookup ran",
+  );
+  for (const [name, seen] of runs) assert.deepEqual(seen, clean, name);
+});
