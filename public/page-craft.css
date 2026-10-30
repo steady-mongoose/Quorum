@@ -74,6 +74,7 @@
 .pc-head h1{letter-spacing:-.015em;line-height:1.05}
 .pc-rule{position:relative;width:min(15rem,70%);height:1px;margin-block:.25rem .75rem;margin-inline:4px 0;background:linear-gradient(90deg,var(--pc-gilt),transparent)}
 .pc-rule::before{content:"";position:absolute;left:-4px;top:-3px;width:7px;height:7px;background:var(--pc-gilt);transform:rotate(45deg)}
+[data-entered] .pc-head h1+.pc-rule{margin-top:.5rem}
 .pc-lede{max-width:40rem;font-family:var(--font-display);font-size:1.2rem;line-height:1.5;color:var(--pc-ink)}
 [data-entered] .illum::first-letter{color:var(--pc-rubric)}
 .pc-h{display:flex;align-items:center;gap:.75rem;font-family:var(--font-display);font-variant-caps:all-small-caps;font-size:1.25rem;font-weight:600;letter-spacing:.12em;color:var(--pc-gilt)}

@@ -39,7 +39,8 @@ test("claim copy names the code, the email, and the member steps", () => {
   assert.match(queue, /\n\s+Copy\n/);
   assert.match(queue, /Run a church or group that's already listed here\?/);
   assert.match(queue, /role="alert"/);
-  assert.match(queue, /className="plate flex flex-col gap-4"/);
+  assert.match(queue, /className="card pc-card flex flex-col gap-4 p-4 sm:p-5"/);
+  assert.equal(queue.includes('className="plate '), false);
   assert.equal(queue.includes("plate-flat"), false);
   assert.equal(source("../../../public/fluid.css").includes(".plate .plate"), false);
   assert.equal(source("../../../public/fluid.css").includes("plate-flat"), false);

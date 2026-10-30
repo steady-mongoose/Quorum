@@ -109,6 +109,8 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
   const [queue, setQueue] = useState<Queue | null>(null);
   const [error, setError] = useState("");
   const [errorWhere, setErrorWhere] = useState<"queue" | "form" | "">("");
+  // A queue that fails to load is a quiet status, not an alert: nobody submitted anything (Design #123 Low 4).
+  const [loadError, setLoadError] = useState("");
   const [roomId, setRoomId] = useState("");
   const [filter, setFilter] = useState("");
   const [method, setMethod] = useState<string>(CLAIM_ALLOWED_METHODS[0] ?? "site_code");
@@ -133,10 +135,10 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
   async function reload() {
     const loaded = await readQueue();
     if (!loaded.ok) {
-      setError(loaded.error);
-      setErrorWhere("form");
+      setLoadError(loaded.error);
       return;
     }
+    setLoadError("");
     setError("");
     setErrorWhere("");
     setQueue(loaded.queue);
@@ -209,7 +211,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
   return (
     <div className="flex flex-col gap-6">
       {canDecide ? (
-        <section className="plate flex flex-col gap-4" aria-labelledby="queue-h">
+        <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="queue-h">
           <div className="flex flex-col gap-1">
             <h3
               id="queue-h"
@@ -390,7 +392,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
         </section>
       ) : null}
 
-      <section className="plate flex flex-col gap-4" aria-labelledby="claim-h">
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="claim-h">
         <div className="flex flex-col gap-2">
           <h3 id="claim-h" className="font-display text-2xl text-fg">
             Claim your church or group
@@ -402,6 +404,11 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
           </p>
         </div>
         {errorWhere === "form" ? alert : null}
+        {loadError ? (
+          <p role="status" className="text-sm text-muted">
+            {loadError}
+          </p>
+        ) : null}
         {notice && !canDecide ? (
           <p role="status" aria-live="polite" className="text-sm text-fg">
             {notice}
@@ -554,11 +561,16 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
               aria-describedby={roomId ? undefined : "claim-submit-hint"}
               className={cn(
                 btnSignal,
-                "w-full justify-self-start aria-disabled:opacity-50 sm:w-auto sm:self-start",
+                "w-full justify-self-start aria-disabled:not-aria-busy:opacity-50 aria-busy:opacity-75 sm:w-auto sm:self-start",
               )}
             >
               {sending ? "Sending…" : "Request the claim"}
             </button>
+            {/* A focused button's new name is not always spoken, so the same words go to a polite status
+                that is mounted from the start, for members and stewards alike (Design #123 Low 1). */}
+            <span role="status" aria-live="polite" className="sr-only">
+              {sending ? "Sending your request…" : ""}
+            </span>
             {roomId ? null : (
               <p id="claim-submit-hint" className="text-sm text-muted">
                 Find and choose your listing first.

@@ -67,6 +67,7 @@ export function HomePanel() {
         <button
           type="button"
           className="inline-flex min-h-[44px] items-center text-fg underline underline-offset-4"
+          aria-expanded={requestOpen}
           aria-controls="request-place-form"
           onClick={() => {
             setKind("town");
@@ -84,7 +85,7 @@ export function HomePanel() {
 
   return (
     <section className="flex flex-col gap-6">
-      <section className="plate flex flex-col gap-4" aria-labelledby="home-h">
+      <section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="home-h">
         <div className="flex flex-col gap-2">
           <h2 id="home-h" className="font-display text-3xl text-fg">
             Your rooms, nearest first
@@ -101,7 +102,7 @@ export function HomePanel() {
       </section>
 
       <form
-        className="plate grid gap-4 sm:grid-cols-2"
+        className="card pc-card grid gap-4 p-4 sm:p-5 sm:grid-cols-2"
         aria-labelledby="place-h"
         onSubmit={(event) => {
           event.preventDefault();
@@ -194,7 +195,7 @@ export function HomePanel() {
           id="request-place-form"
           hidden={!requestOpen}
           aria-label="Request a new place"
-          className="plate mt-3 grid gap-3 sm:grid-cols-2"
+          className="card pc-card mt-3 grid gap-3 p-4 sm:p-5 sm:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault();
             setRequestError("");

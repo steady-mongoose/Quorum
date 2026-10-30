@@ -261,6 +261,7 @@ test("home: rooms are link rows inside one card, not bordered boxes like fields"
     assert.match(open.className, /underline/);
   }
   assert.equal(host.querySelectorAll(".plate .plate").length, 0, "no card inside a card");
+  assert.equal(host.querySelectorAll(".pc-card .pc-card, .plate .pc-card").length, 0, "no card inside a card");
   assert.equal(host.querySelectorAll(".illum").length, 0);
   assert.match(host.textContent ?? "", /Your rooms, nearest first/);
   assert.doesNotMatch(host.textContent ?? "", /Nothing here is ranked/);
@@ -563,6 +564,9 @@ test("qa S3: a double submit sends one POST, with a Sending… state, and no 'al
   assert.equal(button.getAttribute("aria-busy"), "true");
   assert.equal(button.getAttribute("aria-disabled"), "true");
   assert.equal(button.disabled, false, "aria-disabled, so it keeps focus");
+  const sendingStatus = /** @type {HTMLElement} */ (button.parentElement?.querySelector('[role="status"].sr-only'));
+  assert.equal(sendingStatus.getAttribute("aria-live"), "polite");
+  assert.equal(sendingStatus.textContent, "Sending your request…");
   act(() => button.click());
   act(() => /** @type {HTMLFormElement} */ (button.form).requestSubmit());
   await flush();
@@ -579,6 +583,7 @@ test("qa S3: a double submit sends one POST, with a Sending… state, and no 'al
   assert.equal(posts, 1);
   assert.equal(button.textContent, "Request the claim");
   assert.equal(button.hasAttribute("aria-busy"), false);
+  assert.equal(sendingStatus.textContent, "", "the same status node empties once sent");
   assert.equal(host.querySelector('[role="alert"]'), null);
   assert.match(host.textContent ?? "", /The claim is open\./);
   assert.doesNotMatch(host.textContent ?? "", /already open/);
@@ -719,14 +724,65 @@ test("qa S4: the ZIP note's Request a new place is a button that opens the form 
   assert.equal(ask.type, "button");
   assert.equal(ask.textContent, "Ask for one with Request a new place");
   assert.equal(ask.getAttribute("aria-controls"), "request-place-form");
+  assert.equal(ask.getAttribute("aria-expanded"), "false");
   assert.match(ask.className, /min-h-\[44px\]/);
   const form = /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form"));
   assert.equal(form.hidden, true);
   act(() => ask.click());
   await flush();
   assert.equal(form.hidden, false);
+  assert.equal(ask.getAttribute("aria-expanded"), "true");
   const kind = /** @type {HTMLSelectElement} */ (form.querySelector("select"));
   assert.equal(document.activeElement, kind);
   assert.equal(kind.value, "town");
   done();
+});
+
+test("design #123: Home and claims blocks sit on card pc-card, one material with the page heads", async () => {
+  act(() => useBoard.setState(/** @type {any} */ ({ home })));
+  const homeMount = await mount(createElement(HomePanel));
+  const intro = /** @type {HTMLElement} */ (homeMount.host.querySelector('[aria-labelledby="home-h"]'));
+  assert.equal(intro.className, "card pc-card flex flex-col gap-4 p-4 sm:p-5");
+  assert.equal(
+    homeMount.host.querySelector('[aria-labelledby="place-h"]')?.className,
+    "card pc-card grid gap-4 p-4 sm:p-5 sm:grid-cols-2",
+  );
+  assert.equal(
+    homeMount.host.querySelector("#request-place-form")?.className,
+    "card pc-card mt-3 grid gap-3 p-4 sm:p-5 sm:grid-cols-2",
+  );
+  assert.equal(homeMount.host.querySelectorAll(".plate").length, 0, "no plain .plate left on Home");
+  homeMount.done();
+  const claims = await mount(createElement(ClaimsPanel));
+  assert.equal(
+    claims.host.querySelector('[aria-labelledby="claim-h"]')?.className,
+    "card pc-card flex flex-col gap-4 p-4 sm:p-5",
+  );
+  assert.equal(claims.host.querySelectorAll(".plate").length, 0);
+  claims.done();
+  const queue = readFileSync(new URL("../../components/board/claims-queue.tsx", import.meta.url), "utf8");
+  assert.match(queue, /<section className="card pc-card flex flex-col gap-4 p-4 sm:p-5" aria-labelledby="queue-h">/);
+  assert.match(queue, /aria-disabled:not-aria-busy:opacity-50 aria-busy:opacity-75/);
+});
+
+test("design #123: a queue that fails to load is a polite status, not an alert", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = /** @type {any} */ (
+    async () => new Response("{}", { status: 503, headers: { "content-type": "application/json" } })
+  );
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  const status = [...host.querySelectorAll('[role="status"]')].find((el) =>
+    /claims queue is not available yet/.test(el.textContent ?? ""),
+  );
+  assert.ok(status, "the load failure is a status");
+  globalThis.fetch = real;
+  done();
+});
+
+test("design #123: a page head rule clears the h1 descenders, within the page-craft budget", async () => {
+  const css = readFileSync(new URL("../../../public/page-craft.css", import.meta.url), "utf8");
+  assert.match(css, /\[data-entered\] \.pc-head h1\+\.pc-rule\{margin-top:\.5rem\}/);
+  const { gzipSync } = await import("node:zlib");
+  assert.ok(gzipSync(css, { level: 9 }).length < 3072);
 });
