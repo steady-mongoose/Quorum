@@ -110,6 +110,8 @@ function RingMembers({ roomId }: { roomId: string }) {
   const focusNext = useRef(false);
   /** The member last rung, so their "Calling …" line clears when they join. */
   const calling = useRef<{ id: string; name: string } | null>(null);
+  /** Who the "… joined the call." line is about, so it can go if they leave again. */
+  const joinedNow = useRef<{ id: string; name: string } | null>(null);
   const fieldId = useId();
   const fieldRef = useRef<HTMLSelectElement | null>(null);
   /** The picker, and whether focus was last inside it (it may already be gone when we check). */
@@ -236,9 +238,16 @@ function RingMembers({ roomId }: { roomId: string }) {
       focusNext.current = true;
       handFocusOn();
     }
+    // The member who just joined has left again: "Ben joined the call." is no longer true.
+    const joined = joinedNow.current;
+    if (joined && !peerIds.includes(joined.id)) {
+      joinedNow.current = null;
+      setStatus((line) => (line === `${joined.name} joined the call.` ? "" : line));
+    }
     const rung = calling.current;
     if (!rung || !peerIds.includes(rung.id)) return;
     calling.current = null;
+    joinedNow.current = rung;
     // Say so: focus may still be on Call, whose name changes without being read out.
     setStatus((line) =>
       line.startsWith(`Calling ${rung.name}.`) ? `${rung.name} joined the call.` : line,
@@ -273,19 +282,14 @@ function RingMembers({ roomId }: { roomId: string }) {
 
   // Someone already in the call is not offered again.
   const offered = members ? members.filter((m) => !peerIds.includes(m.id)) : [];
-  if (offered.length === 0) {
-    // The "Calling …" line still shows until it clears.
-    return status ? (
-      <p className={cn("border-t border-line pt-3 text-sm text-muted", WRAP)} role="status">
-        {status}
-      </p>
-    ) : null;
-  }
+  // Never offered the picker, and nothing to say: show nothing.
+  if (!members && !status) return null;
   const chosen = offered.find((m) => m.id === choice);
 
   const ring = async () => {
     if (!chosen) return;
     setBusy(true);
+    joinedNow.current = null;
     setStatus("");
     try {
       const response = await apiFetch(`/api/calls/rooms/${roomId}/ring`, {
@@ -310,10 +314,15 @@ function RingMembers({ roomId }: { roomId: string }) {
     }
   };
 
+  // One status line stays mounted while the list empties (the last member joining), so
+  // "Ben joined the call." lands in a live region a screen reader is already watching.
   return (
     <div
       ref={wrapRef}
-      className="flex flex-col gap-2 border-t border-line pt-3"
+      className={cn(
+        "flex flex-col gap-2",
+        (offered.length > 0 || status) && "border-t border-line pt-3",
+      )}
       onFocus={() => {
         focusInside.current = true;
       }}
@@ -322,39 +331,43 @@ function RingMembers({ roomId }: { roomId: string }) {
         if (next && !event.currentTarget.contains(next)) focusInside.current = false;
       }}
     >
-      <label htmlFor={fieldId} className="text-sm font-semibold text-fg">
-        Call a member to this room
-      </label>
-      <div className="flex flex-wrap gap-2">
-        <select
-          ref={fieldRef}
-          id={fieldId}
-          className={cn(fieldClass, "min-h-[44px] max-w-xs")}
-          value={chosen ? choice : ""}
-          onChange={(event) => setChoice(event.target.value)}
-        >
-          <option value="">Choose a member</option>
-          {offered.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
-          // aria-disabled, not disabled: a natively disabled button drops focus to the page.
-          aria-disabled={!chosen || busy || undefined}
-          onClick={() => {
-            if (!chosen || busy) return;
-            void ring();
-          }}
-        >
-          <PhoneCall className="size-4" aria-hidden="true" />
-          {chosen ? `Call ${chosen.name}` : "Call"}
-        </button>
-      </div>
-      <p className="text-sm text-muted" role="status">
+      {offered.length > 0 ? (
+        <>
+          <label htmlFor={fieldId} className="text-sm font-semibold text-fg">
+            Call a member to this room
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <select
+              ref={fieldRef}
+              id={fieldId}
+              className={cn(fieldClass, "min-h-[44px] max-w-xs")}
+              value={chosen ? choice : ""}
+              onChange={(event) => setChoice(event.target.value)}
+            >
+              <option value="">Choose a member</option>
+              {offered.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
+              // aria-disabled, not disabled: a natively disabled button drops focus to the page.
+              aria-disabled={!chosen || busy || undefined}
+              onClick={() => {
+                if (!chosen || busy) return;
+                void ring();
+              }}
+            >
+              <PhoneCall className="size-4" aria-hidden="true" />
+              {chosen ? `Call ${chosen.name}` : "Call"}
+            </button>
+          </div>
+        </>
+      ) : null}
+      <p className={cn("text-sm text-muted", WRAP)} role="status">
         {status}
       </p>
     </div>
