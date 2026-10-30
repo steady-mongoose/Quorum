@@ -619,7 +619,9 @@ async function meetingStandings(
   const ids = [...new Set(userIds.filter(Boolean))];
   const rooms = [...new Set(roomIds.filter(Boolean))];
   const standing = new Set<string>();
-  if (ids.length === 0 || rooms.length === 0) return standing;
+  // No room is not a shortcut: metPeople asks with no rooms when there was no
+  // meeting, and runs the same lookups as a gated refusal (QA F1 S4 on #134).
+  if (ids.length === 0) return standing;
 
   const actors = await actorRoles(db, ids);
   const ready = await listingColumnsReady(db);
@@ -663,7 +665,8 @@ async function meetingStandings(
     audiences.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
   );
   const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
-  if ([...audienceOf.values()].some((audience) => audience !== "all")) {
+  // Read whatever the audiences are, so an audience room is not told apart by timing.
+  {
     const stated = await db.query<{
       user_id: string;
       gender: string | null;
@@ -726,7 +729,12 @@ async function metPeople(
        and ($2::text[] is null or theirs.user_id = any ($2::text[]))`,
     [callerId, others],
   );
-  if (rows.length === 0) return met;
+  if (rows.length === 0) {
+    // Never met: the same standing lookups as a met pair that a gate refuses,
+    // so a refusal's timing does not say which it was.
+    await meetingStandings(db, [callerId, ...(others ?? [])], [], now);
+    return met;
+  }
   const standing = await meetingStandings(
     db,
     [callerId, ...rows.map((row) => row.user_id)],
