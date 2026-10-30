@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import test from "node:test";
 import { MESSAGE_RULE } from "../e2ee/copy.ts";
-import { ROOM_REFUSAL, refusalText, serverReach } from "./message-reach.ts";
+import {
+  ROOM_REFUSAL,
+  createVersion,
+  currentAnswer,
+  reachKey,
+  refusalText,
+  serverReach,
+} from "./message-reach.ts";
 import * as model from "./model.ts";
 import { ROOMS, localReach, metAt, type MeetingCard, type Post, type Room } from "./model.ts";
 import type { MemberList, MemberRow } from "./room-members.ts";
@@ -93,4 +100,98 @@ test("no app code recomputes the reply rule", () => {
   const start = store.indexOf("openDm: (other)");
   const openDm = store.slice(start, store.indexOf("sendDm:", start));
   assert.match(openDm, /!get\(\)\.remote && !localReach/);
+});
+
+test("room B never shows room A's answer while B's is loading", () => {
+  const a = reachKey(["room-a"], ["c1"]);
+  const b = reachKey(["room-b"], ["c1"]);
+  const answerA = { key: a, lists: [list(row("u-x", "Xan", "open"))], peers: [] };
+  // On room A the answer counts.
+  const onA = currentAnswer(answerA, a);
+  assert.equal(onA.loaded, true);
+  assert.equal(serverReach("Josh", onA.lists, onA.peers).open.has("Xan"), true);
+  // On room B, A's answer is nothing yet: no button for Xan, who B may refuse.
+  const onB = currentAnswer(answerA, b);
+  assert.deepEqual(onB, { lists: [], peers: [], loaded: false });
+  assert.equal(serverReach("Josh", onB.lists, onB.peers).open.has("Xan"), false);
+  // New meeting cards are a different question too.
+  assert.equal(currentAnswer(answerA, reachKey(["room-a"], ["c1", "c2"])).loaded, false);
+  assert.equal(reachKey(["b", "a", "a"], ["2", "1"]), reachKey(["a", "b"], ["1", "2"]));
+  assert.equal(currentAnswer(null, a).loaded, false);
+});
+
+test("a block or unblock tells every screen to refetch", () => {
+  const version = createVersion();
+  let heard = 0;
+  const stop = version.subscribe(() => (heard += 1));
+  assert.equal(version.get(), 0);
+  version.bump();
+  assert.equal(version.get(), 1);
+  assert.equal(heard, 1);
+  stop();
+  version.bump();
+  assert.equal(heard, 1);
+  const hook = readFileSync(
+    new URL("../../components/board/use-message-reach.ts", import.meta.url),
+    "utf8",
+  );
+  const forget = hook.slice(hook.indexOf("export function forgetMessageReach"));
+  assert.match(forget.slice(0, forget.indexOf("\n}")), /reachVersion\.bump\(\)/);
+  assert.match(hook, /useSyncExternalStore\(reachVersion\.subscribe/);
+  assert.match(hook, /\[remote, key, version\]/);
+  assert.match(hook, /currentAnswer\(answer, key\)/);
+  const mailbox = readFileSync(
+    new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.equal((mailbox.match(/forgetMessageReach\(\);/g) ?? []).length, 2);
+});
+
+test("loading a room, Find or a profile only reads; attendance is written only when the mailbox opens a conversation", () => {
+  const hook = readFileSync(
+    new URL("../../components/board/use-message-reach.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(hook, /recordAttendance|\.post\(|method:\s*"(POST|PUT|PATCH|DELETE)"/);
+  const reads = readFileSync(new URL("./message-reach-reads.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(reads, /recordAttendance|\.post\(|method:\s*"(POST|PUT|PATCH|DELETE)"/);
+  assert.match(hook, /readReach\(.*cachedReads\(\)\)/);
+  const client = readFileSync(new URL("../e2ee/mailbox.ts", import.meta.url), "utf8");
+  const peersCall = client.slice(client.indexOf("export async function listDmPeers"));
+  assert.match(peersCall.slice(0, peersCall.indexOf("\n}")), /transport\.get\("\/api\/dm\/peers"\)/);
+  const members = readFileSync(new URL("./room-members.ts", import.meta.url), "utf8");
+  const load = members.slice(members.indexOf("export async function loadRoomMembers"));
+  assert.doesNotMatch(load.slice(0, load.indexOf("\n}")), /method:\s*"(POST|PUT|PATCH|DELETE)"/);
+  // The one app caller of the attendance write is the mailbox's open-a-conversation effect.
+  const root = new URL("../../", import.meta.url);
+  const callers: string[] = [];
+  const walk = (dir: URL) => {
+    for (const name of readdirSync(dir)) {
+      const url = new URL(name, dir);
+      if (statSync(url).isDirectory()) walk(new URL(`${name}/`, dir));
+      else if (/\.tsx?$/.test(name) && !/\.test\./.test(name)) {
+        if (/recordAttendance\(transport/.test(readFileSync(url, "utf8"))) callers.push(name);
+      }
+    }
+  };
+  walk(root);
+  assert.deepEqual(callers, ["encrypted-mailbox.tsx"]);
+  const mailbox = readFileSync(
+    new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
+    "utf8",
+  );
+  const effect = mailbox.slice(mailbox.indexOf("if (!me || !vault || vault.userId !== me.id || !openThread) return;"));
+  assert.ok(effect.indexOf("recordAttendance(transport") > 0);
+  assert.ok(effect.indexOf("recordAttendance(transport") < effect.indexOf("[openThread, me?.id"));
+});
+
+test("Design: the refusal is an alert in body ink, and Find waits for the answer before its hint", () => {
+  const mailbox = readFileSync(
+    new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(mailbox, /<p role="alert" className="text-sm text-fg">\s*\{refused\}\s*<\/p>/);
+  assert.match(mailbox, /setRefused\(refusalText\(opened\.message, sharesRoom\)\)/);
+  const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  assert.match(find, /card\.firstTimer && peers\.loaded/);
 });

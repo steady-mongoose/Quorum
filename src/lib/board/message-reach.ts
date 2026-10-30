@@ -40,11 +40,60 @@ export function serverReach(
 export const ROOM_REFUSAL = "You can't message this member right now.";
 
 /**
- * The server sends one refusal, MESSAGE_RULE, for every gate. When the app
- * believes the two of you share a room, that sentence reads wrong, so say
- * ROOM_REFUSAL instead. It names no reason (a ban, a bar, a block, the wait).
- * Any other error, and the plain no-shared-room case, stay as they are.
+ * The server has four refusals (server/dm/store.ts): NOT_REACHABLE, the generic
+ * one that also covers bans, bars and the audience rule; BLOCKED; ROOM_WAIT;
+ * and ROOM_DAILY_LIMIT. Only NOT_REACHABLE is reworded here: when the app
+ * believes the two of you share a room, its "message someone in one of your
+ * rooms" sentence reads wrong, so say ROOM_REFUSAL instead, which does not say
+ * which of the gates behind NOT_REACHABLE refused. Blocked, the wait and the
+ * daily limit keep the server's own sentences, as does the plain
+ * no-shared-room case.
  */
 export function refusalText(serverError: string, sharesRoom: boolean): string {
   return sharesRoom && serverError === MESSAGE_RULE ? ROOM_REFUSAL : serverError;
+}
+
+/** The server's answer for one set of rooms and meetings, tagged with what it answers. */
+export type ReachAnswer = {
+  key: string;
+  lists: MemberList[];
+  peers: { id: string; name: string }[];
+};
+
+/** What an answer is for: these rooms, these meeting cards. Order does not matter. */
+export function reachKey(roomIds: readonly string[], cardIds: readonly string[]): string {
+  const rooms = [...new Set(roomIds)].sort().join(",");
+  const cards = [...new Set(cardIds)].sort().join(",");
+  return `${rooms}|${cards}`;
+}
+
+/**
+ * The answer to use now. One fetched for other rooms (room A, while room B is
+ * on screen) counts as nothing yet, so B never shows A's Message buttons.
+ */
+export function currentAnswer(
+  answer: ReachAnswer | null,
+  key: string,
+): { lists: MemberList[]; peers: { id: string; name: string }[]; loaded: boolean } {
+  if (!answer || answer.key !== key) return { lists: [], peers: [], loaded: false };
+  return { lists: answer.lists, peers: answer.peers, loaded: true };
+}
+
+/** A counter that screens subscribe to, so a block or unblock refetches what is shown. */
+export function createVersion() {
+  let version = 0;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => version,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    bump() {
+      version += 1;
+      for (const listener of listeners) listener();
+    },
+  };
 }

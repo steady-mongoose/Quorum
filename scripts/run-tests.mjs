@@ -71,6 +71,7 @@ const appTests = [
   "server/board/post-membership.test.ts",
   "server/dm/room-messages.test.ts",
   "server/dm/member-states.test.ts",
+  "server/dm/page-load-reads.test.ts",
   "server/dm/room-messages.integration.test.ts",
   "server/board/share-post.test.ts",
   "server/board/room-options.test.ts",

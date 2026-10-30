@@ -74,6 +74,8 @@ export function EncryptedMailbox() {
   const [again, setAgain] = useState("");
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [notice, setNotice] = useState("");
+  // The server's refusal to open a conversation, announced as an alert.
+  const [refused, setRefused] = useState("");
   const mismatchId = useId();
   const mismatch = again.length > 0 && passphrase !== again;
   const [safety, setSafety] = useState("");
@@ -187,6 +189,7 @@ export function EncryptedMailbox() {
       gateName,
     );
     if (!other || other === gateName) return;
+    setRefused("");
     if (boardName && me.name && boardName !== me.name) {
       setNotice(
         "The name on this board and the name on the account do not match. Set them to the same name under About.",
@@ -275,11 +278,14 @@ export function EncryptedMailbox() {
 
   async function openPeer(userId: string, name?: string, fromRoomList = false) {
     setChoices([]);
+    setRefused("");
     const opened = await openEncryptedThread(transport, userId);
     if (!opened.ok) {
       // One refusal for every gate. Say it plainly when you share a room.
       const sharesRoom = fromRoomList || (name ? reach.sharesRoom(name) : false);
-      setNotice(refusalText(opened.message, sharesRoom));
+      setNotice("");
+      // Focus stays where it is (the row button); the alert is announced.
+      setRefused(refusalText(opened.message, sharesRoom));
       return;
     }
     setNotice("");
@@ -536,6 +542,11 @@ export function EncryptedMailbox() {
           </button>
         </form>
         {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+        {refused ? (
+          <p role="alert" className="text-sm text-fg">
+            {refused}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -718,6 +729,11 @@ export function EncryptedMailbox() {
         </ul>
       ) : null}
       {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+      {refused ? (
+        <p role="alert" className="text-sm text-fg">
+          {refused}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -61,7 +61,7 @@ export function FindView() {
     return [...new Set(cards.map((card) => card.room))].filter((id) => mine.has(id));
   }, [joined, cards]);
   const reach = useMessageReach(hostRooms);
-  const peers = useMemo(() => ({ has: reach.canMessage }), [reach]);
+  const peers = useMemo(() => ({ has: reach.canMessage, loaded: reach.loaded }), [reach]);
   const clear = useMemo(() => hostsClear(posts), [posts]);
   const groups = useMemo(() => {
     const out = {
@@ -171,7 +171,7 @@ type RowProps = {
   me: string;
   steward: boolean;
   /** Whether the server (or, on the demo board, the demo rule) lets you message them. */
-  peers: { has: (name: string) => boolean };
+  peers: { has: (name: string) => boolean; loaded: boolean };
   clear: Map<string, boolean>;
   onRemove: (card: MeetingCard) => void;
 };
@@ -282,7 +282,8 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
       </button>
     );
   }
-  return card.firstTimer ? (
+  // Only once the server has answered, so the hint does not show and then turn into a button.
+  return card.firstTimer && peers.loaded ? (
     <span className="self-center text-[13px] text-muted">
       After you have been once, you can message the host.
     </span>
