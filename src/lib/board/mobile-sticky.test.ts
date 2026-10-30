@@ -19,7 +19,9 @@ const hook = source("./mast-height.ts");
 test("Rooms chip row sticks at the measured header height, not a fixed 8rem (Josh, 29 Oct)", () => {
   assert.doesNotMatch(browse, /sticky top-32/);
   assert.match(browse, /className="room-chips sticky z-10/);
-  assert.match(fluid, /\.room-chips\{top:var\(--mast-h\)/);
+  // 1px under the header's rule: --mast-h rounds up, so a flush top left a 0.81px sliver (Design, #121)
+  assert.match(fluid, /\.room-chips\{top:calc\(var\(--mast-h\) - 1px\)/);
+  assert.doesNotMatch(fluid, /\.room-chips\{top:var\(--mast-h\)/);
   // desktop category list follows the header too, instead of top-28
   assert.match(browse, /sticky top-\[calc\(var\(--mast-h\)\+1rem\)\] hidden w-\[14rem\]/);
   // first-paint guesses until the hook measures
@@ -94,4 +96,62 @@ test("viewport units: no bare vh where the iOS toolbar changes it", () => {
   assert.match(source("../../components/board/room-call.tsx"), /landscape:max-h-\[50svh\]/);
   assert.doesNotMatch(source("../../components/not-found.tsx"), /min-h-screen/);
   assert.doesNotMatch(source("../error-component.tsx"), /min-h-screen/);
+});
+
+function rule(css: string, selector: string): string {
+  const at = css.indexOf(`${selector}{`);
+  assert.ok(at >= 0, `${selector} rule present`);
+  return css.slice(at, css.indexOf("}", at) + 1);
+}
+
+test("the chip row's top sits at or above the header's bottom", () => {
+  const chipTop = (mast: number) => mast - 1; // calc(var(--mast-h) - 1px)
+  for (const measured of [68.6, 69.19, 70, 96.4, 97]) {
+    const published = Number.parseFloat(mastHeightValue(measured) ?? "NaN");
+    assert.ok(chipTop(published) <= measured, `${measured}px header: chips at ${chipTop(published)}px`);
+  }
+});
+
+test("the chip row runs to the screen edge so the next chip peeks in; no fade over chip text", () => {
+  const chips = rule(fluid, ".room-chips");
+  assert.match(chips, /margin-inline:-1rem/);
+  assert.match(chips, /padding-inline:1rem/);
+  assert.match(chips, /scroll-padding-inline:1rem/);
+  assert.match(chips, /scroll-snap-type:x proximity/);
+  assert.match(fluid, /\.room-chips>\*\{scroll-snap-align:start;flex:none\}/);
+  assert.doesNotMatch(fluid, /\.room-chips[^{]*\{[^}]*(mask|gradient)/);
+  assert.doesNotMatch(browse, /room-chips[^"]*(mask|gradient|px-|mx-)/);
+});
+
+test("focused controls clear the tab bar on phones and the chip row on Rooms below 1024px", () => {
+  assert.match(
+    fluid,
+    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem\)\}\}/,
+  );
+  assert.match(
+    fluid,
+    /@media \(max-width:1023px\)\{html:has\(\.room-chips\)\{scroll-padding-top:calc\(var\(--mast-h\) \+ 3\.75rem \+ \.5rem\)\}\}/,
+  );
+});
+
+test("main reserves the tab bar's own height, and --tabbar-h:57px is declared exactly once", () => {
+  assert.match(
+    fluid,
+    /\.shell-body > main\{padding-bottom:calc\(var\(--tabbar-h,56px\) \+ 1rem \+ env\(safe-area-inset-bottom\)\)\}/,
+  );
+  assert.doesNotMatch(fluid, /padding-bottom:calc\(56px \+ 1rem/);
+  assert.equal(fluid.match(/--tabbar-h:57px/g)?.length, 1);
+});
+
+test("landscape: the 20-minute line pads to the notch on each side", () => {
+  assert.match(
+    fluid,
+    /\.session-line\{padding-inline:max\(1rem,env\(safe-area-inset-left\)\) max\(1rem,env\(safe-area-inset-right\)\)\}/,
+  );
+  assert.doesNotMatch(line, /className="session-line[^"]*\bpx-4\b/);
+});
+
+test("the plate keeps lvh, never dvh", () => {
+  assert.match(backgrounds, /\.plate-ground\{[^}]*height:100lvh/);
+  assert.doesNotMatch(backgrounds, /\.plate-ground\{[^}]*100dvh/);
 });

@@ -15,7 +15,8 @@ export const MAST_VAR = "--mast-h";
 /** A visual viewport this much shorter than the layout viewport means the keyboard is up. */
 export const KEYBOARD_MIN_PX = 120;
 
-/** Whole pixels, so sub-pixel layout never leaves a hairline gap under the header. */
+/** Whole pixels, rounded up so scroll-padding-top always clears the header. Rounding up leaves the value up to 1px
+ * below the header's true bottom, so .room-chips sticks at calc(var(--mast-h) - 1px), tucked under the header's rule. */
 export function mastHeightValue(height: number): string | null {
   if (!Number.isFinite(height) || height <= 0) return null;
   return `${Math.ceil(height)}px`;
