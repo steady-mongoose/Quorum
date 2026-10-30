@@ -112,15 +112,17 @@ export function RoomView() {
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
   const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerById = useBoard((state) => state.remote);
   const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
     () => boardCards.map((card) => forViewer(card, {
           admin: viewerAdmin,
           name: viewerName,
           hosts: viewerHosts,
+          byId: viewerById,
           stewardRooms: viewerRooms,
         })),
-    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
@@ -473,15 +475,17 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
   const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerById = useBoard((state) => state.remote);
   const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
     () => boardCards.map((card) => forViewer(card, {
           admin: viewerAdmin,
           name: viewerName,
           hosts: viewerHosts,
+          byId: viewerById,
           stewardRooms: viewerRooms,
         })),
-    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);

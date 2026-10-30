@@ -1249,7 +1249,15 @@ export type RsvpViewer = {
   hosts?: readonly string[];
   /** Rooms this viewer stewards. */
   stewardRooms?: readonly string[];
+  /**
+   * Signed in: a server gathering's host is known only by id (`hosts`), never
+   * by name, so a member who shares the host's name is not the host.
+   */
+  byId?: boolean;
 };
+
+/** A server gathering id (a UUID). Seed and device-only cards are not. */
+const SERVER_CARD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Josh, Oct 29, 9:04 PM ET (replaces #91's admin-only rule):
@@ -1262,8 +1270,9 @@ export type RsvpViewer = {
  */
 export function rsvpSight(card: MeetingCard, viewer: RsvpViewer): RsvpSight | undefined {
   if (viewer.admin) return "all";
+  const byId = Boolean(viewer.byId) && SERVER_CARD_ID.test(card.id);
   const host =
-    (viewer.name !== "" && card.host === viewer.name) ||
+    (!byId && viewer.name !== "" && card.host === viewer.name) ||
     Boolean(viewer.hosts?.includes(card.id.toLowerCase()));
   if (host) return "host";
   if (viewer.stewardRooms?.includes(card.room)) return "steward";

@@ -282,7 +282,23 @@ export async function removeGathering(
     `update public_gathering set removed = true, shared = false, updated_at = now() where id = $1`,
     [row.id],
   );
+  await dropGatheringRsvps(db, row.id);
   return { ok: true };
+}
+
+/**
+ * A removed gathering keeps no RSVPs or attendance. Before 0049 is applied
+ * there is no table, and that is fine.
+ */
+async function dropGatheringRsvps(db: Db, id: string): Promise<void> {
+  try {
+    await db.query(`delete from gathering_rsvp where gathering_id = $1`, [id]);
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    const message = error instanceof Error ? error.message : String(error);
+    if (code === "42P01" || /gathering_rsvp" does not exist/.test(message)) return;
+    throw error;
+  }
 }
 
 export async function readGatheringFor(

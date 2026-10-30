@@ -282,8 +282,8 @@ test("the routes check who is asking", async () => {
     // A member cannot mark themselves as having come, either.
     const self = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
     assert.equal(self.status, 403);
-    assert.deepEqual(await self.json(), { error: MARK_REFUSED });
-    assert.deepEqual(await sneak.json(), { error: MARK_REFUSED });
+    assert.deepEqual(await self.json(), { error: MARK_REFUSED, api: "rsvp" });
+    assert.deepEqual(await sneak.json(), { error: MARK_REFUSED, api: "rsvp" });
 
     // The host marks who came, but the answer names nobody.
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
@@ -511,7 +511,7 @@ test("only the host or an admin marks who came; a member and another host get 40
         userIds: [t.tom.id],
       });
       assert.equal(res.status, 403);
-      assert.deepEqual(await res.json(), { error: MARK_REFUSED });
+      assert.deepEqual(await res.json(), { error: MARK_REFUSED, api: "rsvp" });
       const self = await call(t.handler, who, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
       assert.equal(self.status, 403);
     }
@@ -566,7 +566,7 @@ test("a missing table answers 503 rsvp-not-ready, the one code the client keeps 
     await t.db.query(`drop table gathering_rsvp`);
     const res = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     assert.equal(res.status, 503);
-    assert.deepEqual(await res.json(), { error: RSVP_NOT_READY });
+    assert.deepEqual(await res.json(), { error: RSVP_NOT_READY, api: "rsvp" });
   } finally {
     await t.close();
   }
@@ -692,4 +692,130 @@ test("retention runs in the API at start and daily, not in 0049", () => {
   assert.match(host, /startRsvpRetention\(boardDb\)/);
   const sql = readFileSync(new URL("../../migrations/0049_gathering_rsvp.sql", import.meta.url), "utf8");
   assert.equal(/retention|12 months/i.test(sql), false);
+});
+
+test("concurrent toggles never answer 500, and a close racing a 'going' succeeds", async () => {
+  const t = await setup();
+  try {
+    // 20 overlapping alternating taps from one member (two devices, retries).
+    const taps = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: i % 2 === 0 }),
+      ),
+    );
+    assert.deepEqual(taps.map((r) => r.status).filter((s) => s !== 200), []);
+    // The table never holds an all-false row (the check would have refused it).
+    const empty = await t.db.query(`select 1 from gathering_rsvp where not going and not attended`);
+    assert.equal(empty.length, 0);
+
+    // Tom came once before (so the close has a row to update), Ann's going is cleared by the close.
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    const [close, going, again] = await Promise.all([
+      call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, { userIds: [t.tom.id], close: true }),
+      call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false }),
+      call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true }),
+    ]);
+    assert.equal(close.status, 200, await close.clone().text());
+    assert.equal(going.status, 200);
+    assert.equal(again.status, 200);
+    // The roll call was not rolled back.
+    const tom = await t.db.query<{ attended: boolean }>(
+      `select attended from gathering_rsvp where gathering_id = $1 and user_id = $2`,
+      [GATHERING, t.tom.id],
+    );
+    assert.equal(tom[0]?.attended, true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("request hygiene: close must be a boolean, wrong method is 405, paths match exactly, big bodies refused early", async () => {
+  const t = await setup();
+  try {
+    const bad = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [],
+      close: "true",
+    });
+    assert.equal(bad.status, 400);
+
+    const wrong = await call(t.handler, t.tom, "GET", "/api/rsvps/move");
+    assert.equal(wrong.status, 405);
+    assert.equal(wrong.headers.get("allow"), "POST");
+    assert.match(((await wrong.json()) as { error: string }).error, /Method not allowed/);
+    assert.equal((await call(t.handler, t.tom, "DELETE", "/api/rsvps")).status, 405);
+
+    // Uppercase ids and actions are not these routes.
+    const upper = await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING.toUpperCase()}/rsvp`, { going: true });
+    assert.notEqual(upper.status, 200);
+    const upperAction = await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/RSVPS`);
+    assert.notEqual(upperAction.status, 200);
+
+    // A declared oversize body is refused before it is read.
+    const big = await t.handler(
+      new Request(`${BASE}/api/rsvps/move`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": t.tom.id, "content-length": "40000" },
+        body: "{}",
+      }),
+    );
+    assert.equal(big.status, 413);
+
+    // This API's refusals carry its marker; the client keeps a change on the
+    // device only for a 404 without it (an API from before these routes).
+    const hidden = await call(t.handler, t.tom, "POST", "/api/gatherings/00000000-0000-4000-8000-000000000000/rsvp", {
+      going: true,
+    });
+    assert.equal(hidden.status, 404);
+    assert.equal(((await hidden.json()) as { api?: string }).api, "rsvp");
+  } finally {
+    await t.close();
+  }
+});
+
+test("a barred member drops out of others' lists and the roll call, and still sees their own", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    // Tom is barred from the shop room.
+    await t.db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
+      [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
+    );
+    const josh = await seen(t, t.josh);
+    assert.equal(josh.rows.some((row) => row.includes(":Tom:")), false);
+    const dale = (await (await call(t.handler, t.dale, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
+      people?: { name: string }[];
+    };
+    assert.deepEqual(dale.people?.map((p) => p.name), ["Maria"]);
+    // An expired first-strike bar no longer hides anyone.
+    await t.db.query(`update board_ban set until_at = '2026-01-01T00:00:00Z' where user_id = $1`, [t.tom.id]);
+    assert.equal((await seen(t, t.josh)).rows.some((row) => row.includes(":Tom:")), true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("removing a gathering deletes its RSVPs; the purge clears removed gatherings and gone rooms", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    const removed = await call(t.handler, t.dale, "DELETE", `/api/gatherings/${GATHERING}`);
+    assert.equal(removed.status, 200, await removed.clone().text());
+    const left = await t.db.query(`select 1 from gathering_rsvp where gathering_id = $1`, [GATHERING]);
+    assert.equal(left.length, 0);
+
+    // Rows left from before: one on a removed gathering, one in a room that no longer exists.
+    await t.db.query(`update public_gathering set removed = true where id = $1`, [OTHER]);
+    await t.db.query(`insert into gathering_rsvp (gathering_id, user_id, going) values ($1, $2, true)`, [OTHER, t.tom.id]);
+    await t.db.query(`update public_gathering set room_id = 'gone-room' where id = $1`, [MARIAS]);
+    const result = await purgeOldRsvps(t.db, new Date("2026-10-29T12:00:00Z"));
+    assert.equal(result.deleted, 3);
+    assert.equal((await t.db.query(`select 1 from gathering_rsvp`)).length, 0);
+    // Gatherings are not deleted by the purge.
+    assert.equal((await t.db.query(`select 1 from public_gathering`)).length, 3);
+  } finally {
+    await t.close();
+  }
 });

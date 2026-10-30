@@ -2,6 +2,8 @@ import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
 import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
 import { actorRole } from "./access.ts";
+import { banOpen } from "./ban.ts";
+import { queryBanTable } from "./ban-check.ts";
 import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 
 /**
@@ -50,12 +52,20 @@ export const RSVP_NOT_READY = "rsvp-not-ready";
 /** The most rows one move or one roll call may carry. */
 export const RSVP_BATCH_MAX = 200;
 
-const ONE = /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(rsvps|rsvp|attendance)$/i;
+/** Exact match only: lowercase ids (as stored) and lowercase actions. */
+const ONE = /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(rsvps|rsvp|attendance)$/;
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
+/**
+ * Every refusal from these routes says `api: "rsvp"`, so the client can tell
+ * this API's 404 (no such gathering for you) from an API that predates the
+ * RSVP routes (its 404 has no marker; the client keeps the RSVP on the device).
+ */
+function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  const marked =
+    status >= 400 && body && typeof body === "object" && !Array.isArray(body) ? { ...body, api: "rsvp" } : body;
+  return new Response(JSON.stringify(marked), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
   });
 }
 
@@ -68,6 +78,9 @@ class BadBody extends Error {
 }
 
 async function readBody(request: Request, max = 32_768): Promise<Record<string, unknown>> {
+  // Refuse a declared oversize body before reading any of it.
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > max) throw new BadBody(413, "That request is too large.");
   const text = await request.text();
   if (text.length > max) throw new BadBody(413, "That request is too large.");
   if (!text) return {};
@@ -124,7 +137,7 @@ export type RsvpReader = { userId: string; admin: boolean; stewardRooms: readonl
  */
 export async function readRsvps(
   db: Db,
-  input: RsvpReader & { gatheringIds: string[] },
+  input: RsvpReader & { gatheringIds: string[]; now?: Date },
 ): Promise<RsvpRow[]> {
   if (input.gatheringIds.length === 0) return [];
   const rows = await db.query<DbRow>(
@@ -143,7 +156,39 @@ export async function readRsvps(
      order by r.gathering_id, u.name, r.user_id`,
     [input.gatheringIds, input.admin, input.userId, [...input.stewardRooms]],
   );
-  return rows.map(toRow);
+  return hideBanned(db, rows.map(toRow), { viewer: input.userId, now: input.now ?? new Date() });
+}
+
+/**
+ * A member barred from the board, or from the gathering's room, drops out of
+ * everyone else's lists (and so out of the roll call). Their own row still
+ * reads back to them. The rule is banOpen's, applied in code, not copied
+ * into SQL.
+ */
+async function hideBanned(db: Db, rows: RsvpRow[], input: { viewer: string; now: Date }): Promise<RsvpRow[]> {
+  const others = [...new Set(rows.filter((row) => row.userId !== input.viewer).map((row) => row.userId))];
+  if (others.length === 0) return rows;
+  const bans = await queryBanTable<{ user_id: string; room_id: string; strikes: number; until_at: Date | string; reason: string }>(
+    db,
+    `select user_id, room_id, strikes, until_at, reason from board_ban where user_id = any ($1::text[])`,
+    [others],
+  );
+  const now = input.now.getTime();
+  const barred = (row: RsvpRow) =>
+    bans.some(
+      (ban) =>
+        ban.user_id === row.userId &&
+        (ban.room_id === "" || ban.room_id === row.roomId) &&
+        banOpen(
+          {
+            reason: ban.reason,
+            strikes: Number(ban.strikes),
+            until: typeof ban.until_at === "string" ? new Date(ban.until_at).getTime() : ban.until_at.getTime(),
+          },
+          now,
+        ),
+    );
+  return rows.filter((row) => row.userId === input.viewer || !barred(row));
 }
 
 /** Whether this viewer may read anyone else's row for one gathering. */
@@ -179,9 +224,13 @@ export async function setMyRsvp(
       `delete from gathering_rsvp where gathering_id = $1 and user_id = $2 and not attended`,
       [input.gatheringId, input.userId],
     );
+    // Only a row that also says "came" is left to update. A "going" that
+    // lands between the two statements (a second tap, another device) has
+    // attended = false, so it is not touched here and can never become an
+    // all-false row (the check would answer 500).
     await db.query(
       `update gathering_rsvp set going = false, updated_at = now()
-       where gathering_id = $1 and user_id = $2 and going`,
+       where gathering_id = $1 and user_id = $2 and going and attended`,
       [input.gatheringId, input.userId],
     );
     return setMyRsvp(db, { userId: input.userId, gatheringId: input.gatheringId });
@@ -224,8 +273,11 @@ export async function markAttendance(
       await tx.query(`delete from gathering_rsvp where gathering_id = $1 and not attended`, [
         input.gatheringId,
       ]);
+      // As in setMyRsvp: a "going" for the next date that arrives during the
+      // close is left alone, so the close never fails on the check.
       await tx.query(
-        `update gathering_rsvp set going = false, updated_at = now() where gathering_id = $1 and going`,
+        `update gathering_rsvp set going = false, updated_at = now()
+         where gathering_id = $1 and going and attended`,
         [input.gatheringId],
       );
     }
@@ -256,7 +308,10 @@ export function rsvpCutoff(now: Date): Date {
  *   - it says only "came" (going is false) and nobody has touched it for
  *     12 months. A weekly meeting keeps moving its date forward, so this is
  *     what ages out old attendance on a gathering that still meets. A row
- *     that says "going" is for the next date and is kept.
+ *     that says "going" is for the next date and is kept;
+ *   - its gathering was removed, or its room no longer exists (no route can
+ *     reach those rows). Removing a gathering also deletes its rows at once
+ *     (removeGathering); this catches anything left from before.
  * Deletes run in bounded batches. Before 0049 is applied there is no table,
  * and this does nothing.
  */
@@ -277,6 +332,8 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
          join public_gathering g on g.id = r.gathering_id
          where (g.gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' and g.gather_on < $1)
             or (not r.going and r.updated_at < $2)
+            or g.removed
+            or (g.room_id <> '' and not exists (select 1 from room where room.id = g.room_id))
          limit $3
        ) old
        where d.gathering_id = old.gathering_id and d.user_id = old.user_id
@@ -374,14 +431,17 @@ export async function handleRsvp(
   const list = url.pathname === "/api/rsvps";
   const move = url.pathname === "/api/rsvps/move";
   if (!one && !list && !move) return null;
-  const action = one?.[2]?.toLowerCase() ?? "";
+  const action = one?.[2] ?? "";
   const method = request.method;
   const matched =
     (list && method === "GET") ||
     (move && method === "POST") ||
     (action === "rsvps" && method === "GET") ||
     ((action === "rsvp" || action === "attendance") && method === "POST");
-  if (!matched) return json(405, { error: "Not found." });
+  if (!matched) {
+    const allow = list || action === "rsvps" ? "GET" : "POST";
+    return json(405, { error: "Method not allowed." }, { allow });
+  }
 
   const session = await deps.readSession(request.headers);
   if (!session) return json(401, { error: "Sign in first." });
@@ -398,6 +458,7 @@ export async function handleRsvp(
         gatheringIds: gatherings.map((row) => row.id),
         admin: actor.admin,
         stewardRooms: actor.stewardRooms,
+        now,
       });
       return json(200, {
         viewer: session.id,
@@ -430,7 +491,7 @@ export async function handleRsvp(
     const host = gate.gathering.hostUserId === session.id;
 
     if (action === "rsvps") {
-      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId] });
+      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId], now });
       const mine = rows.find((row) => row.userId === session.id);
       return json(200, {
         mine: { going: mine?.going === true, attended: mine?.attended === true },
@@ -463,6 +524,9 @@ export async function handleRsvp(
     // attendance
     if (!host && !gate.actor.admin) {
       return json(403, { error: MARK_REFUSED });
+    }
+    if ("close" in body && typeof body.close !== "boolean") {
+      return json(400, { error: "Say whether this closes the date: true or false." });
     }
     const raw = body.userIds ?? [];
     if (!Array.isArray(raw) || raw.length > RSVP_BATCH_MAX || raw.some((id) => typeof id !== "string")) {

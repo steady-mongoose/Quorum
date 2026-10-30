@@ -41,19 +41,33 @@ export type RollPerson = { userId: string; name: string };
 
 export type RsvpMove = { gatheringId: string; going: boolean; attended: boolean };
 
-/** `code` is the server's raw error, so a caller can tell rsvp-not-ready from a dropped connection. */
-export type RsvpFail = { ok: false; error: string; status: number; code: string };
+/**
+ * `code` is the server's raw error, so a caller can tell rsvp-not-ready from a
+ * dropped connection. `oldApi` is a 404 without the RSVP routes' marker: an
+ * API from before this change (the client shipped first).
+ */
+export type RsvpFail = { ok: false; error: string; status: number; code: string; oldApi?: boolean };
+
+/**
+ * Keep the change on this device only when the server cannot hold RSVPs yet:
+ * 0049 is not applied (rsvp-not-ready), or the API predates the RSVP routes.
+ * Anything else, a dropped connection included, is a failure.
+ */
+export function keptOnDevice(result: { ok: true } | RsvpFail): boolean {
+  return result.ok || result.code === RSVP_NOT_READY || result.oldApi === true;
+}
 type Fail = RsvpFail;
 
 const LOAD_MS = 8000;
 
 async function failure(response: Response, fallback: string): Promise<Fail> {
-  const json = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  const json = (await response.json().catch(() => null)) as { error?: unknown; api?: unknown } | null;
   const error = typeof json?.error === "string" ? json.error : "";
   return {
     ok: false,
     status: response.status,
     code: error,
+    oldApi: response.status === 404 && json?.api !== "rsvp",
     error: userFacingError(error || fallback, fallback),
   };
 }
@@ -115,7 +129,7 @@ export async function saveMyRsvp(
   input: { going?: boolean; attended?: true },
 ): Promise<{ ok: true } | Fail> {
   const saved = await post(
-    `/api/gatherings/${encodeURIComponent(gatheringId)}/rsvp`,
+    `/api/gatherings/${encodeURIComponent(gatheringId.toLowerCase())}/rsvp`,
     input,
     "Your RSVP was not saved.",
   );
@@ -128,7 +142,7 @@ export async function saveAttendance(
   input: { userIds: string[]; close: boolean },
 ): Promise<{ ok: true } | Fail> {
   const saved = await post(
-    `/api/gatherings/${encodeURIComponent(gatheringId)}/attendance`,
+    `/api/gatherings/${encodeURIComponent(gatheringId.toLowerCase())}/attendance`,
     input,
     "Who came was not saved.",
   );

@@ -73,7 +73,7 @@ test("the views read cards through forViewer with the host and steward scope", (
     assert.doesNotMatch(source, /const cards = useBoard\(\(state\) => state\.cards\)/, name);
     assert.match(
       source,
-      /forViewer\(card, \{\s*admin: viewerAdmin,\s*name: viewerName,\s*hosts: viewerHosts,\s*stewardRooms: viewerRooms,\s*\}\)/,
+      /forViewer\(card, \{\s*admin: viewerAdmin,\s*name: viewerName,\s*hosts: viewerHosts,\s*byId: viewerById,\s*stewardRooms: viewerRooms,\s*\}\)/,
       name,
     );
   }

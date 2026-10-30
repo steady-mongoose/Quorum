@@ -49,15 +49,17 @@ export function FindView() {
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
   const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerById = useBoard((state) => state.remote);
   const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
     () => boardCards.map((card) => forViewer(card, {
           admin: viewerAdmin,
           name: viewerName,
           hosts: viewerHosts,
+          byId: viewerById,
           stewardRooms: viewerRooms,
         })),
-    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerRooms],
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);

@@ -34,7 +34,7 @@ import {
   loadRsvps,
   moveRsvps,
   rollCallPeople,
-  RSVP_NOT_READY,
+  keptOnDevice,
   RSVP_NOT_SAVED,
   saveAttendance,
   saveMyRsvp,
@@ -561,16 +561,26 @@ export const useBoard = create<BoardState>()(
           posts: [post, ...get().posts.filter((item) => item.id !== post.id)],
           cards: get().cards.map((item) => (item.id === card.id ? closed : item)),
         });
-        if (get().remote && isGatheringId(card.id) && marksCame(card)) {
-          // The server ends the date too, and records who came by member id.
-          // The host (admin or not) reads their own roll call, so has the ids.
-          const userIds = cameIdsFor(get().rollCall[card.id.toLowerCase()], {
-            ...(input.cameIds ? { picked: input.cameIds } : {}),
-            names: input.came,
+      };
+      /**
+       * Before a signed-in host's write-up is filed: the server ends the date
+       * and records who came, by member id (the host reads their own roll
+       * call, so has the ids). This runs first. If it fails, nothing closes:
+       * the card, its going list and the write-up stay, and the host can try
+       * again. Only rsvp-not-ready (or an API from before 0049) carries on.
+       */
+      const closeOnServer = async (card: MeetingCard, came: string[], cameIds?: string[]) => {
+        if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return true;
+        const userIds = cameIdsFor(get().rollCall[card.id.toLowerCase()], {
+          ...(cameIds ? { picked: cameIds } : {}),
+          names: came,
+        });
+        try {
+          return savedOrLocal(await saveAttendance(card.id, { userIds, close: true }), CAME_NOT_SAVED, {
+            banner: false,
           });
-          void saveAttendance(card.id, { userIds, close: true }).then((result) =>
-            savedOrLocal(result, CAME_NOT_SAVED),
-          );
+        } catch {
+          return false;
         }
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
@@ -587,6 +597,11 @@ export const useBoard = create<BoardState>()(
           if (!result.ok) {
             set({ boardError: result.error });
             return;
+          }
+          // The server now knows me as this gathering's host, by id.
+          const gid = card.id.toLowerCase();
+          if (card.host === me() && !get().rsvpHosts.includes(gid)) {
+            set({ rsvpHosts: [...get().rsvpHosts, gid] });
           }
           // The lister (the host) has been, as on the device. Only my own name is sent.
           if (card.wentBy.includes(me()) && marksCame(card)) {
@@ -635,14 +650,19 @@ export const useBoard = create<BoardState>()(
       /** The host of this card, or an admin: the only people who mark who came. */
       const marksCame = (card: MeetingCard) =>
         get().admin ||
-        card.host === me() ||
-        get().rsvpHosts.includes(card.id.toLowerCase());
+        // Signed in: the host is known by id, from the server (a member who
+        // shares the host's name is not the host). On this device only, by name.
+        (get().remote && isGatheringId(card.id)
+          ? get().rsvpHosts.includes(card.id.toLowerCase())
+          : card.host === me());
       /** One RSVP save per card at a time. A second tap while one is out does nothing. */
       const rsvpInFlight = new Set<string>();
       /**
        * After sign-in: move this browser's own RSVPs to the server once, then
-       * read the server's. A member gets back only their own rows; an admin
-       * gets every row. Before 0049 is applied (503) the device keeps its own.
+       * read the server's, filtered by role on the server: an admin gets every
+       * row, a host every row for their own gatherings, a steward every row
+       * in the rooms they steward, anyone else only their own. Before 0049 is
+       * applied (503) the device keeps its own.
        */
       const syncRsvps = async (gatheringIds: ReadonlySet<string>) => {
         let list = await loadRsvps();
@@ -664,8 +684,8 @@ export const useBoard = create<BoardState>()(
         });
       };
       /**
-       * Only the server's rsvp-not-ready (0049 not applied yet) keeps a change
-       * on this device. Anything else, a dropped connection included, is a
+       * Only the server's rsvp-not-ready (0049 not applied yet), or a 404 from
+       * an API that predates the RSVP routes, keeps a change on this device. Anything else, a dropped connection included, is a
        * failure: the screen does not change and the member is told. The RSVP
        * button passes banner: false, because its own line says it (one message,
        * not two); "I went" and the close have no line, so they use the banner.
@@ -675,7 +695,7 @@ export const useBoard = create<BoardState>()(
         message: string,
         options: { banner?: boolean } = {},
       ) => {
-        if (result.ok || result.code === RSVP_NOT_READY) return true;
+        if (keptOnDevice(result)) return true;
         if (options.banner !== false) set({ boardError: message });
         return false;
       };
@@ -690,8 +710,8 @@ export const useBoard = create<BoardState>()(
           remote: true,
           boardError: "",
           rooms,
-          // RSVPs come from /api/rsvps (syncRsvps), filtered on the server: a
-          // member gets only their own rows. The views still apply forViewer.
+          // RSVPs come from /api/rsvps (syncRsvps), filtered on the server by
+          // role (admin, host, steward, member). The views still apply forViewer.
           posts: board.posts,
           markLog: board.marks,
           removals: board.removals,
@@ -898,6 +918,12 @@ export const useBoard = create<BoardState>()(
           posting = true;
           try {
             if (get().remote) {
+              if (draft.type === "hosted") {
+                const closing = cards.find((item) => item.id === draft.cardId);
+                if (closing && !(await closeOnServer(closing, draft.came, options?.cameIds))) {
+                  return { ok: false, stops: [CAME_NOT_SAVED], notes: check.notes };
+                }
+              }
               const saved = await (await getBoardClient()).createPost(draft);
               if (!saved.ok)
                 return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
@@ -1296,6 +1322,9 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
+            if (!(await closeOnServer(card, came, cameIds))) {
+              return { ok: false, stops: [CAME_NOT_SAVED], notes: [] };
+            }
             const saved = await (await getBoardClient()).createPost(draft);
             if (!saved.ok) return { ok: false, stops: saved.stops ?? [saved.error], notes: [] };
             hosted(card, {
