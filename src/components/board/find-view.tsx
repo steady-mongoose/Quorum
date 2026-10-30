@@ -38,7 +38,15 @@ import {
   seesCame,
   takesRoll,
 } from "@/lib/board/model";
-import { ROLL_CALL_STALE, rollCallFor, rollKey, toggleRoll } from "@/lib/board/rsvp-api";
+import {
+  droppedLine,
+  resetRollPicks,
+  ROLL_CALL_STALE,
+  rollCallFor,
+  rollKey,
+  toggleRoll,
+} from "@/lib/board/rsvp-api";
+import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
@@ -377,22 +385,23 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
    * picks still on it, so a retry never sends a list the host did not see
    * (QA S3).
    */
+  const [dropped, setDropped] = useState("");
   const resetPicks = () => {
-    const fresh = rollCallFor(card, useBoard.getState().rollCall);
-    let keys: string[] = [];
-    let names: string[] = [];
-    let ids: string[] = [];
-    for (const person of fresh) {
-      if (!cameKeys.includes(rollKey(person))) continue;
-      const next = toggleRoll(fresh, keys, person);
-      keys = next.keys;
-      names = next.came;
-      ids = next.cameIds;
-    }
-    setCameKeys(keys);
-    setCame(names);
-    setCameIds(ids);
+    const next = resetRollPicks(roll, rollCallFor(card, useBoard.getState().rollCall), cameKeys);
+    setCameKeys(next.keys);
+    setCame(next.came);
+    setCameIds(next.cameIds);
+    setDropped(droppedLine(next.dropped));
   };
+  // Reload takes its own button away: focus the first chip, or Save (Design #126 M2).
+  const firstChip = useRef<HTMLInputElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const [afterReload, setAfterReload] = useState(false);
+  useEffect(() => {
+    if (!afterReload) return;
+    setAfterReload(false);
+    focusWithRing(firstChip.current ?? saveButton.current);
+  }, [afterReload]);
   const pagesId = useId();
   const lineId = useId();
   const lineHintId = useId();
@@ -492,6 +501,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 event.preventDefault();
                 // Clear first so a repeat failure re-mounts the alert and is announced again.
                 setRefused([]);
+                setDropped("");
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
                 void closeCard(
@@ -564,15 +574,16 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                       {stop === ROLL_CALL_STALE ? (
                         <button
                           type="button"
-                          className={cn(btnQuiet, "min-h-[44px]")}
+                          className={cn(btnGhost, "min-h-[44px]")}
                           onClick={() => {
                             void reloadRsvps().then(() => {
                               resetPicks();
                               setRefused([]);
+                              setAfterReload(true);
                             });
                           }}
                         >
-                          Reload
+                          Reload the list
                         </button>
                       ) : null}
                     </li>
@@ -582,15 +593,16 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               {takesRoll(card) && rollOn && roll.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
-                  {roll.map((person) => (
+                  {roll.map((person, index) => (
                     <label
                       key={rollKey(person)}
                       className={cn(
-                        "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3",
+                        "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3 has-[[data-focus-ring]:focus]:outline has-[[data-focus-ring]:focus]:outline-2 has-[[data-focus-ring]:focus]:outline-offset-2",
                         cameKeys.includes(rollKey(person)) && "bg-signal text-signal-ink",
                       )}
                     >
                       <input
+                        ref={index === 0 ? firstChip : undefined}
                         type="checkbox"
                         className="sr-only"
                         checked={cameKeys.includes(rollKey(person))}
@@ -606,6 +618,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </div>
               ) : null}
+              <p role="status" className={cn("text-sm text-muted", !dropped && "sr-only")}>
+                {dropped}
+              </p>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex basis-full flex-col gap-2 text-sm text-muted">
                   Next date
@@ -616,7 +631,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     onChange={(event) => setNextDate(event.target.value)}
                   />
                 </label>
-                <button type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
+                <button ref={saveButton} type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
                   It happened
                 </button>
                 <button type="submit" value="no" className={cn(btnGhost, "whitespace-nowrap")}>

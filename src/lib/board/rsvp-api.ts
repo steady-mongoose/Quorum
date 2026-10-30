@@ -16,7 +16,7 @@ import type { MeetingCard } from "./model.ts";
 export const RSVP_NOT_READY = "rsvp-not-ready";
 export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
 /** A roll call named someone the server no longer lists (a stale or unknown handle). */
-export const ROLL_CALL_STALE = "That list is out of date. Reload and try again.";
+export const ROLL_CALL_STALE = "That list is out of date.";
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 
 export type ServerRsvp = {
@@ -275,6 +275,32 @@ export function rollCallFor(
 /** A pill's key: the member id, or the name on an offline board. */
 export function rollKey(person: RollPerson): string {
   return person.userId || `name:${person.name}`;
+}
+
+/**
+ * After a stale roll call the list was read again: keep the picks still on
+ * it. `dropped` names the picks that left, from the list the host already
+ * saw (`before`), never anyone new (Design #126 M1).
+ */
+export function resetRollPicks(
+  before: readonly RollPerson[],
+  fresh: readonly RollPerson[],
+  keys: readonly string[],
+): { keys: string[]; came: string[]; cameIds: string[]; dropped: string[] } {
+  const still = new Set(fresh.map(rollKey));
+  const kept = fresh.filter((person) => keys.includes(rollKey(person)));
+  const dropped = before.filter((person) => keys.includes(rollKey(person)) && !still.has(rollKey(person)));
+  return {
+    keys: kept.map(rollKey),
+    came: [...new Set(kept.map((person) => person.name))],
+    cameIds: kept.map((person) => person.userId).filter(Boolean),
+    dropped: [...new Set(dropped.map((person) => person.name))],
+  };
+}
+
+/** The line under the roll call for picks that left the list. Empty when none did. */
+export function droppedLine(names: readonly string[]): string {
+  return names.length === 0 ? "" : `No longer on this list, so not marked: ${names.join(", ")}.`;
 }
 
 /** Toggle one pill. Returns the new keys, the names for the write-up, and the ids for the server. */

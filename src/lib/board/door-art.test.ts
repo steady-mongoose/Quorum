@@ -26,7 +26,7 @@ function lastReduceBlock(css: string): string {
 test("reduced motion reaches pseudo-elements, not just elements", () => {
   assert.match(
     backgrounds,
-    /@media \(prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important\}/,
+    /@media \(prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important;transition-delay:0s!important\}/,
   );
 });
 

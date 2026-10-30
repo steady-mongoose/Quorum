@@ -8,6 +8,8 @@ import {
   applyServerRsvps,
   CAME_NOT_SAVED,
   ROLL_CALL_STALE,
+  droppedLine,
+  resetRollPicks,
   cameIdsFor,
   deviceRsvpMoves,
   rollCallPeople,
@@ -616,4 +618,24 @@ test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a s
     globalThis.fetch = priorFetch;
     setBoardClient(null);
   }
+});
+
+test("Design #126 M1: after a stale roll call, kept picks stay and dropped ones are named from the old list only", () => {
+  const before = [
+    { userId: "h_tom", name: "Tom" },
+    { userId: "h_ann", name: "Ann" },
+    { userId: "h_ben", name: "Ben" },
+  ];
+  // Ann and Ben left; Cal is new and was never on the host's list.
+  const fresh = [
+    { userId: "h_tom", name: "Tom" },
+    { userId: "h_cal", name: "Cal" },
+  ];
+  const next = resetRollPicks(before, fresh, ["h_tom", "h_ann", "h_ben"]);
+  assert.deepEqual(next, { keys: ["h_tom"], came: ["Tom"], cameIds: ["h_tom"], dropped: ["Ann", "Ben"] });
+  assert.equal(droppedLine(next.dropped), "No longer on this list, so not marked: Ann, Ben.");
+  assert.equal(droppedLine([]), "");
+  // Unpicked people who left are not named.
+  assert.deepEqual(resetRollPicks(before, fresh, ["h_tom"]).dropped, []);
+  assert.equal(ROLL_CALL_STALE, "That list is out of date.");
 });

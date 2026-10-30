@@ -52,7 +52,7 @@ export const MARK_REFUSED = "Only the host or an admin marks who came.";
 /** Before 0049 is applied. The client keeps the RSVP on the device for this code only. */
 export const RSVP_NOT_READY = "rsvp-not-ready";
 /** Same line as src/lib/board/rsvp-api.ts ROLL_CALL_STALE (a test keeps them equal). */
-export const ROLL_CALL_STALE = "That list is out of date. Reload and try again.";
+export const ROLL_CALL_STALE = "That list is out of date.";
 
 /** The most rows one move or one roll call may carry. */
 export const RSVP_BATCH_MAX = 200;

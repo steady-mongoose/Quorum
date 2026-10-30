@@ -110,7 +110,7 @@ test("door copy: you see your own answer; host, stewards and admins see who is g
 
 test("Find clears refused at each close submit so a repeat failure is announced again", () => {
   const source = read("find-view.tsx");
-  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*const happened =/);
+  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*setDropped\(""\);\s*const happened =/);
 });
 
 import { cameText, forViewer } from "./model.ts";
@@ -177,14 +177,16 @@ test("the RSVP button is aria-busy while saving, says when it failed, and only a
   assert.doesNotMatch(css, /^\.rsvp-mark \.(rule|laurel)\{[^}]*transition/m);
   // The sheet-wide reduced-motion rule (every transition at 0s) covers the mark;
   // a rule of its own would push the sheet past its 3 KB budget.
-  assert.match(css, /prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important\}/);
+  assert.match(css, /prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important;transition-delay:0s!important\}/);
 });
 
 test("Find's close form: a stale roll call resets the picks and offers Reload; focus survives a card leaving (#126)", () => {
   const src = read("find-view.tsx");
   assert.match(src, /check\.stops\.includes\(ROLL_CALL_STALE\)\) resetPicks\(\)/);
   assert.match(src, /stop === ROLL_CALL_STALE \?[\s\S]{0,400}reloadRsvps\(\)\.then\(\(\) => \{\s*resetPicks\(\);/);
-  assert.match(src, />\s*Reload\s*</);
+  assert.match(src, />\s*Reload the list\s*</);
+  // Ghost (bordered), not quiet (Design #126 low 2).
+  assert.match(src, /className=\{cn\(btnGhost, "min-h-\[44px\]"\)\}\s*onClick=\{\(\) => \{\s*void reloadRsvps\(\)/);
   assert.match(src, /id=\{FIND_LIST_HEADING\}\s*tabIndex=\{-1\}\s*className="focus-target /);
   assert.match(src, /document\.getElementById\(FIND_LIST_HEADING\)\?\.focus\(\)/);
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
@@ -199,4 +201,24 @@ test("the roll call option copy (Design #126)", async () => {
     ROOM_OPTION_WHAT.roll_call,
     "After a gathering, the host records who came. The host, the room's stewards, and the admins see it. You see your own.",
   );
+});
+
+test("Design #126 M1: dropped picks are named in a status line, cleared on the next submit", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /setDropped\(droppedLine\(next\.dropped\)\)/);
+  assert.match(src, /<p role="status" className=\{cn\("text-sm text-muted", !dropped && "sr-only"\)\}>\s*\{dropped\}/);
+  assert.match(src, /setRefused\(\[\]\);\s*setDropped\(""\);\s*const happened/);
+});
+
+test("Design #126 M2: after Reload, focus goes to the first chip with the ring, or Save", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /setAfterReload\(true\)/);
+  assert.match(src, /focusWithRing\(firstChip\.current \?\? saveButton\.current\)/);
+  assert.match(src, /ref=\{index === 0 \? firstChip : undefined\}/);
+  assert.match(src, /<button ref=\{saveButton\} type="submit" value="yes"/);
+});
+
+test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #126 low 3)", () => {
+  const css = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
+  assert.match(css, /transition-duration:0s!important;transition-delay:0s!important/);
 });
