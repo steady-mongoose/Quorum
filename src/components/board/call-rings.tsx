@@ -155,12 +155,34 @@ export function CallRings({
     if (restore) restoreFocus();
     else returnTo.current = null;
     setRings((list) => list.filter((row) => row.id !== item.id));
-    void apiFetch(`/api/calls/rings/${item.id}/${how}`, {
+    return apiFetch(`/api/calls/rings/${item.id}/${how}`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
       body: "{}",
-    }).catch(() => undefined);
+    }).catch(() => null);
+  };
+
+  // Join: the server checks the ring still stands (no block since, still in
+  // the room) before anything opens. A refusal shows in plain words instead.
+  const join = async (item: IncomingRing) => {
+    setNotice(NO_NOTICE);
+    const back = returnTo.current;
+    const res = await settle(item, "dismiss", false);
+    if (!res || !res.ok) {
+      returnTo.current = back;
+      restoreFocus();
+      const body = res ? await res.json().catch(() => null) : null;
+      const said = (body as { error?: unknown } | null)?.error;
+      setNotice({
+        text:
+          typeof said === "string" && said.length > 0 && said.length <= 200 ? said : JOIN_FAILED,
+        missed: [],
+      });
+      return;
+    }
+    if (item.kind === "dm") setInCall({ threadId: item.threadId, fromName: item.fromName });
+    else onGo(item.roomId);
   };
 
   // A new ring moves focus to the card itself, never to Join or Decline: a
@@ -174,7 +196,7 @@ export function CallRings({
     const card = cardRef.current;
     if (!card) return;
     if (active instanceof HTMLElement && active !== document.body) returnTo.current = active;
-    card.focus();
+    card.focus({ preventScroll: true });
   }, [ringId]);
 
   // Escape declines from anywhere while a ring shows, except while typing or
@@ -188,7 +210,7 @@ export function CallRings({
       if (escapeBelongsElsewhere(event.target)) return;
       event.preventDefault();
       const inside = cardRef.current?.contains(document.activeElement) ?? false;
-      settleRef.current(ring, "decline", inside);
+      void settleRef.current(ring, "decline", inside);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -197,7 +219,7 @@ export function CallRings({
   // Always mounted, so screen readers hear text that changes in it.
   const spoken = ring ? ringLine(ring, Infinity) : inCall ? "" : notice.text;
   const live = (
-    <p role="status" aria-live="assertive" aria-atomic="true" className="sr-only">
+    <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
       {spoken}
     </p>
   );
@@ -305,13 +327,7 @@ export function CallRings({
           <button
             type="button"
             className={cn(btnSignal, "min-h-[44px]")}
-            onClick={() => {
-              setNotice(NO_NOTICE);
-              settle(ring, "dismiss", false);
-              if (ring.kind === "dm")
-                setInCall({ threadId: ring.threadId, fromName: ring.fromName });
-              else onGo(ring.roomId);
-            }}
+            onClick={() => void join(ring)}
           >
             <PhoneCall className="size-4" aria-hidden="true" />
             Join
@@ -319,7 +335,7 @@ export function CallRings({
           <button
             type="button"
             className={cn(btnGhost, "min-h-[44px]")}
-            onClick={() => settle(ring, "decline", true)}
+            onClick={() => void settle(ring, "decline", true)}
           >
             <PhoneOff className="size-4" aria-hidden="true" />
             Decline
@@ -338,8 +354,10 @@ export function CallRings({
  */
 export const WRAPPER = "call-rings contents";
 
-/** The script-focus ring on the call card (same as the call panel's). */
-export const FOCUS_RING = "focus:outline-2 focus:outline-offset-2 focus:outline-[var(--color-fg)]";
+/** The team's script-focus ring (styles.css `.focus-target:focus`), as on the call panel. */
+export const FOCUS_RING = "focus-target";
+
+export const JOIN_FAILED = "That call isn't available any more.";
 
 export const ESCAPE_HINT = "Press Escape to decline.";
 const NO_NOTICE = { text: "", missed: [] as string[] };
@@ -353,7 +371,24 @@ export function escapeBelongsElsewhere(target: EventTarget | null): boolean {
       return true;
     if (target.isContentEditable) return true;
   }
-  return Boolean(document.querySelector("dialog[open], [aria-modal='true']"));
+  return dialogIsOpen();
+}
+
+/**
+ * True only for a dialog that is actually showing: an open <dialog>, or an
+ * aria-modal element that is not hidden or display: none. Closed dialogs
+ * that stay mounted (Sign out, say) do not count.
+ */
+export function dialogIsOpen(): boolean {
+  const found = document.querySelectorAll<HTMLElement>("dialog[open], [aria-modal='true']");
+  for (const el of found) {
+    if (el.tagName === "DIALOG" && !(el as HTMLDialogElement).open) continue;
+    if (el.closest("[hidden], [inert]")) continue;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") continue;
+    return true;
+  }
+  return false;
 }
 
 export const ROOM_CALL_STATUS_ID = "room-call-status";

@@ -58,11 +58,21 @@ let ringsReply = [];
 let settledReply = [];
 let joinReply = null;
 let pollReplies = [];
+/** url suffix -> [status, body] for a one-off reply (say, a refused Join). */
+let overrides = {};
 const posts = [];
 globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (init?.method === "POST") posts.push({ url, body: init.body });
   let body;
+  const hit = Object.keys(overrides).find((end) => url.endsWith(end));
+  if (hit) {
+    const [status, reply] = overrides[hit];
+    return new Response(JSON.stringify(reply), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
   if (url.endsWith("/api/calls/status")) body = { enabled: true, record: false };
   else if (url.endsWith("/api/calls/rings"))
     body = { record: false, rings: ringsReply, settled: settledReply };
@@ -74,6 +84,14 @@ globalThis.fetch = async (input, init) => {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+};
+
+/** Every .focus() call, so a test can check preventScroll. */
+const focusCalls = [];
+const realFocus = window.HTMLElement.prototype.focus;
+window.HTMLElement.prototype.focus = function (options) {
+  focusCalls.push({ el: this, options });
+  return realFocus.call(this, options);
 };
 
 class FakePc {
@@ -536,6 +554,7 @@ test("S2: the prompt stays position: fixed under the shell's position: relative 
 
 test("a ring focuses the card, not Join, so a stray Enter or Space does not join", async () => {
   posts.length = 0;
+  focusCalls.length = 0;
   document.body.focus();
   ringsReply = [{ id: "r40", kind: "dm", threadId: thread, fromName: "Ann" }];
   let went = 0;
@@ -544,10 +563,8 @@ test("a ring focuses the card, not Join, so a stray Enter or Space does not join
   assert.ok(card);
   assert.equal(document.activeElement, card, "the card region has focus");
   assert.equal(card.getAttribute("tabindex"), "-1", "focusable by script, not a Tab stop");
-  assert.match(
-    card.className,
-    /focus:outline-2 focus:outline-offset-2 focus:outline-\[var\(--color-fg\)\]/,
-  );
+  assert.match(card.className, /(^|\s)focus-target(\s|$)/, "the team's focus ring");
+  assert.deepEqual(focusCalls.at(-1), { el: card, options: { preventScroll: true } });
   const join = [...card.querySelectorAll("button")].find((b) => b.textContent === "Join");
   assert.notEqual(document.activeElement, join, "Join is not focused");
   assert.equal(document.activeElement.tagName, "SECTION");
@@ -623,4 +640,60 @@ test("a ring does not take focus while a dialog is open", async () => {
   ringsReply = [];
   await act(async () => root.unmount());
   dialog.remove();
+});
+
+test("S3: Join on a ring that went away (a block, say) opens nothing and says so", async () => {
+  posts.length = 0;
+  settledReply = [];
+  ringsReply = [{ id: "r50", kind: "dm", threadId: thread, fromName: "Ann" }];
+  overrides = {
+    "/api/calls/rings/r50/dismiss": [
+      409,
+      { error: "That call isn't available any more.", record: false },
+    ],
+  };
+  let went = 0;
+  const { host, root, button } = await mountRings(ringtoneSpy().fn, () => went++);
+  ringsReply = [];
+  await act(async () => button("Join").click());
+  await flush();
+  assert.ok(posts.some((p) => p.url.endsWith("/api/calls/rings/r50/dismiss")));
+  assert.equal(
+    posts.some((p) => p.url.endsWith("/join")),
+    false,
+    "no join was sent, so no mic",
+  );
+  assert.equal(went, 0);
+  assert.match(host.textContent, /That call isn't available any more\./);
+  assert.equal(
+    [...host.querySelectorAll("button")].some((b) => /Leave call|Mute/.test(b.textContent)),
+    false,
+  );
+  overrides = {};
+  await act(async () => root.unmount());
+});
+
+test("S3: a Join refused with a raw or missing error still shows plain words", async () => {
+  ringsReply = [{ id: "r51", kind: "room", roomId: "shop", fromName: "Josh" }];
+  overrides = { "/api/calls/rings/r51/dismiss": [503, null] };
+  let went = 0;
+  const { host, root, button } = await mountRings(ringtoneSpy().fn, () => went++);
+  ringsReply = [];
+  await act(async () => button("Join").click());
+  await flush();
+  assert.equal(went, 0, "the room is not opened");
+  assert.match(host.textContent, /That call isn't available any more\./);
+  overrides = {};
+  await act(async () => root.unmount());
+});
+
+test("the live line is polite, so a focused ring is not announced twice", async () => {
+  ringsReply = [{ id: "r52", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const { host, root } = await mountRings(ringtoneSpy().fn);
+  const spoken = host.querySelector('p[role="status"]');
+  assert.equal(spoken.getAttribute("aria-live"), "polite");
+  assert.equal(spoken.getAttribute("aria-atomic"), "true");
+  assert.equal(host.querySelectorAll('[aria-live="assertive"]').length, 0);
+  ringsReply = [];
+  await act(async () => root.unmount());
 });

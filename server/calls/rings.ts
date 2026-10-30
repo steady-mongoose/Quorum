@@ -150,12 +150,23 @@ export function createRingStore() {
       settle(ring, "answered", at);
       return true;
     },
-    /** Drop a ring the person can no longer answer (say, removed from the room). */
+    /**
+     * Drop a ring the person can no longer answer (removed from the room,
+     * left it, or a block either way). The caller is told in the same words
+     * as a decline, so a block never shows as anything different.
+     */
     drop(id: string, at: number): void {
       const ring = rings.get(id);
       if (!ring) return;
       rings.delete(id);
+      tell(ring, "declined", at);
       settle(ring, "gone", at);
+    },
+    /** One ring still out for this person, or null. */
+    get(userId: string, id: string, at: number): Ring | null {
+      sweep(at);
+      const ring = rings.get(id);
+      return ring && ring.to === userId ? ring : null;
     },
     /** True while this caller still has a ring out into this call. */
     ringing(from: string, key: string, at: number): boolean {
@@ -239,6 +250,15 @@ export async function canRing(db: Db, userId: string, roomId: string): Promise<b
  * refusal look the same to the caller. Fails closed (an error counts as blocked).
  */
 export async function blockedEitherWay(db: Db, a: string, b: string): Promise<boolean> {
+  return (await blockState(db, a, b)) !== "clear";
+}
+
+/** Like blockedEitherWay, but tells a failed check apart from a block. */
+export async function blockState(
+  db: Db,
+  a: string,
+  b: string,
+): Promise<"clear" | "blocked" | "error"> {
   try {
     const rows = await db.query<{ one: number }>(
       `select 1 as one from dm_block
@@ -247,9 +267,9 @@ export async function blockedEitherWay(db: Db, a: string, b: string): Promise<bo
         limit 1`,
       [a, b],
     );
-    return rows.length > 0;
+    return rows.length > 0 ? "blocked" : "clear";
   } catch {
-    return true;
+    return "error";
   }
 }
 

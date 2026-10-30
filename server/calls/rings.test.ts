@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRingStore, MAX_RINGS_PER_RINGER, RING_TTL_MS, RINGER_WINDOW_MS } from "./rings.ts";
-import { DM_CALL_REFUSED, handleCalls, RING_CAP_ERROR, type CallsRuntime } from "./routes.ts";
+import {
+  CALLS_TRY_AGAIN,
+  DM_CALL_REFUSED,
+  handleCalls,
+  PICKER_FAILED,
+  RING_CAP_ERROR,
+  RING_GONE,
+  type CallsRuntime,
+} from "./routes.ts";
 import { readCallsConfig } from "./config.ts";
 import { createCallStore } from "./store.ts";
 import type { Db } from "../db.ts";
@@ -393,6 +401,103 @@ test("a ring for a room the person was removed from goes away, with no missed ca
   const after = await send(r, "ada", "/api/calls/rings");
   assert.deepEqual(after.body.rings, []);
   assert.deepEqual(after.body.settled, [{ id, how: "gone" }]);
+  // The caller is told in plain words, the same as a decline.
+  const poll = await send(r, "host", "/api/calls/rooms/shop?since=0");
+  assert.deepEqual(
+    (poll.body.rings as { kind: string }[]).map((o) => o.kind),
+    ["declined"],
+    "the caller's line reads \"Ada isn't available right now.\"",
+  );
+  assert.equal(poll.body.ringsOut, false);
+});
+
+test("S3: a block either way mid-ring cancels the ring, and Join from the prompt is refused", async () => {
+  for (const [id, name] of [
+    ["kit", "TEST Kit"],
+    ["lou", "TEST Lou"],
+    ["max", "TEST Max"],
+  ]) {
+    await db.query(
+      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ($1, $2, $1 || '@example.test', true, now(), now()) on conflict do nothing`,
+      [id, name],
+    );
+  }
+  // Lou (rung) blocks Kit (caller) mid-ring: the next /rings poll drops it.
+  const r = rt(["kit"], ["kit", "lou", "max"]);
+  await send(r, "kit", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "kit", "/api/calls/rooms/shop/ring", "POST", { to: "lou" });
+  const lou = await send(r, "lou", "/api/calls/rings");
+  const louId = (lou.body.rings as { id: string }[])[0]?.id;
+  assert.ok(louId);
+  await db.query(`insert into dm_block (blocker_user_id, blocked_user_id) values ('lou', 'kit')`);
+  const louAfter = await send(r, "lou", "/api/calls/rings");
+  assert.deepEqual(louAfter.body.rings, [], "the callee's own block cancels the ring");
+  assert.deepEqual(louAfter.body.settled, [{ id: louId, how: "gone" }], "no missed call");
+  const told = await send(r, "kit", "/api/calls/rooms/shop?since=0");
+  assert.deepEqual(
+    (told.body.rings as { kind: string }[]).map((o) => o.kind),
+    ["declined"],
+    "the caller hears the same words as a decline",
+  );
+
+  // Kit (caller) blocks Max mid-ring, and Max presses Join on a prompt still showing.
+  await send(r, "kit", "/api/calls/rooms/shop/ring", "POST", { to: "max" });
+  const max = await send(r, "max", "/api/calls/rings");
+  const maxId = (max.body.rings as { id: string }[])[0]?.id;
+  assert.ok(maxId);
+  await db.query(`insert into dm_block (blocker_user_id, blocked_user_id) values ('kit', 'max')`);
+  const join = await send(r, "max", `/api/calls/rings/${maxId}/dismiss`, "POST", {});
+  assert.equal(join.status, 409, "Join from the prompt is refused");
+  assert.equal(join.body.error, RING_GONE);
+  assert.equal(RING_GONE, "That call isn't available any more.");
+  assert.deepEqual((await send(r, "max", "/api/calls/rings")).body.rings, []);
+});
+
+test("S3: a block check that fails hides the ring (fail closed) and refuses Join in plain words", async () => {
+  const r: CallsRuntime = { ...rt(["host"], ["host", "ada"]), blockState: async () => "error" };
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  const seen = await send(r, "ada", "/api/calls/rings");
+  assert.deepEqual(seen.body.rings, [], "not shown while it can't be checked");
+  assert.deepEqual(seen.body.settled, [], "and not reported as missed");
+  const id = (r.rings!.pending("ada", Date.parse("2026-10-27T12:00:00Z"))[0] ?? { id: "" }).id;
+  assert.ok(id, "the ring is kept for the next check");
+  const join = await send(r, "ada", `/api/calls/rings/${id}/dismiss`, "POST", {});
+  assert.equal(join.status, 503);
+  assert.equal(join.body.error, CALLS_TRY_AGAIN);
+  const poll = await send(r, "host", "/api/calls/rooms/shop?since=0");
+  assert.deepEqual(poll.body.rings, [], "the caller is told nothing yet");
+});
+
+test("S4: a picker whose block check fails says so plainly and lists no one", async () => {
+  const r: CallsRuntime = {
+    ...rt(["host"], ["host", "ada"]),
+    ringable: async () => {
+      throw new Error('relation "dm_block" does not exist');
+    },
+  };
+  const res = await send(r, "host", "/api/calls/rooms/shop/ring");
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error, PICKER_FAILED);
+  assert.equal(PICKER_FAILED, "We couldn't load who you can call. Try again in a moment.");
+  assert.deepEqual(res.body.members, [], "fail closed");
+  assert.equal(res.body.canRing, false);
+  assert.doesNotMatch(JSON.stringify(res.body), /relation|dm_block|does not exist/);
+});
+
+test("S4: an unexpected database error never reaches the person as raw text", async () => {
+  const r: CallsRuntime = {
+    ...rt(["host"], ["host", "ada"]),
+    memberName: async () => {
+      throw new Error('relation "user" does not exist');
+    },
+  };
+  await send(r, "host", "/api/calls/rooms/shop/join", "POST", {});
+  const res = await send(r, "host", "/api/calls/rooms/shop/ring", "POST", { to: "ada" });
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error, CALLS_TRY_AGAIN);
+  assert.doesNotMatch(JSON.stringify(res.body), /relation|does not exist/);
 });
 
 test("DM call: refusal wording, and the ring cap says the ring wasn't sent", async () => {

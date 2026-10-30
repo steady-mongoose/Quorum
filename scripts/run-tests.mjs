@@ -116,6 +116,7 @@ const appTests = [
   "src/lib/board/call-rings.render.test.mjs",
   "src/lib/board/call-panel.render.test.mjs",
   "src/lib/board/call-alerts.render.test.mjs",
+  "src/lib/board/call-rings-app.render.test.mjs",
   "src/lib/media/bounds.test.ts",
   "src/lib/media/e2e.test.ts",
   "src/lib/media/upload.test.ts",

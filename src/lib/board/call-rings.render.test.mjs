@@ -93,7 +93,7 @@ test("incoming call prompt: live line, Join and Decline, the card takes focus, E
   assert.equal(line.textContent, "Josh is calling you into a room call.");
   assert.equal(banner.getAttribute("aria-labelledby"), line.id, "named by its line");
   const spoken = host.querySelector('p[role="status"]');
-  assert.equal(spoken.getAttribute("aria-live"), "assertive");
+  assert.equal(spoken.getAttribute("aria-live"), "polite");
   assert.equal(spoken.getAttribute("aria-atomic"), "true");
   assert.equal(spoken.className, "sr-only");
   assert.equal(spoken.textContent, "Josh is calling you into a room call.");
@@ -106,7 +106,7 @@ test("incoming call prompt: live line, Join and Decline, the card takes focus, E
   assert.match(banner.className, /md:bottom-6/);
   assert.equal(document.activeElement, banner, "nothing else had focus, so the card takes it");
   assert.equal(banner.getAttribute("tabindex"), "-1");
-  assert.match(banner.className, /focus:outline-2 focus:outline-offset-2/);
+  assert.match(banner.className, /(^|\s)focus-target(\s|$)/);
   const buttons = [...banner.querySelectorAll("button")];
   assert.deepEqual(
     buttons.map((b) => b.textContent),

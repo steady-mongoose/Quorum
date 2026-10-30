@@ -401,7 +401,7 @@ export function CallPanel({
     autoJoined.current = true;
     // The alert that opened this panel is gone; hold focus here (not <body>)
     // until Mute takes it once the call is live.
-    panelRef.current?.focus();
+    panelRef.current?.focus({ preventScroll: true });
     void join();
     // Once, when the panel opens from an incoming-call alert.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,7 +420,7 @@ export function CallPanel({
     <section
       ref={panelRef}
       tabIndex={autoJoin ? -1 : undefined}
-      className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 focus:outline-2 focus:outline-offset-2 focus:outline-[var(--color-fg)]"
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 focus-target"
       aria-label={label}
     >
       <p className={cn("text-sm text-muted", WRAP)}>{note}</p>

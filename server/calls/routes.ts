@@ -4,6 +4,7 @@ import { createIceSource, publicCallsStatus, type CallsConfig, type IceSource } 
 import { bindTurnRelease } from "./evict.ts";
 import {
   blockedEitherWay,
+  blockState,
   canRing,
   createRingStore,
   dmOther,
@@ -37,6 +38,10 @@ export type CallsRuntime = {
   ) => Promise<{ id: string; name: string } | null>;
   /** Tests may stub the block check. Production reads dm_block. */
   blocked?: (db: Db, a: string, b: string) => Promise<boolean>;
+  /** Tests may stub the three-way block check used on rings already out. */
+  blockState?: typeof blockState;
+  /** Tests may stub the picker's member query. */
+  ringable?: typeof ringableMembers;
 };
 
 /** The caller's note when the per-caller ring cap stops a ring. */
@@ -45,6 +50,12 @@ export const RING_CAP_ERROR = "You've called a lot of people just now. Try again
 export const DM_CALL_REFUSED = "This member isn't taking messages right now.";
 /** Same words for a block or for someone who can't join this room's call. */
 export const ROOM_RING_REFUSED = "That member can't join this room's call.";
+/** Answering a ring that went away (a block, or you left the room) since it showed. */
+export const RING_GONE = "That call isn't available any more.";
+/** Any check that failed for a reason the person can't act on. Never a raw error. */
+export const CALLS_TRY_AGAIN = "Calls aren't working right now. Try again in a moment.";
+/** The picker's member list could not be checked. */
+export const PICKER_FAILED = "We couldn't load who you can call. Try again in a moment.";
 
 const defaultIce = createIceSource();
 bindTurnRelease((userId, prefix) => defaultIce.release(userId, prefix));
@@ -127,18 +138,13 @@ export async function handleCalls(
           rings.cancel(ring.key, at);
           continue;
         }
-        // Removed from the room, banned, or blocked since: the ring goes, quietly.
-        const still =
-          ring.kind === "dm"
-            ? await (runtime.dmMember ?? dmCallMember)(db, session.id, ring.roomId, runtime.now())
-            : await (runtime.roomMember ?? roomCallMember)(
-                db,
-                session.id,
-                ring.roomId,
-                runtime.now(),
-              );
-        if (still.kind === "member") live.push(ring);
-        else if (still.kind !== "unavailable") rings.drop(ring.id, at);
+        const still = await ringStillValid(runtime, db, session.id, ring);
+        if (still === "ok") live.push(ring);
+        // Removed from the room, left it, banned, or a block either way since:
+        // the ring goes, and the caller hears "Ann isn't available right now."
+        else if (still === "refused") rings.drop(ring.id, at);
+        // A check that failed: fail closed and hide it this time, without
+        // telling anyone anything. The next poll checks again.
       }
       return json(200, {
         rings: live.map(ringRow),
@@ -147,8 +153,21 @@ export async function handleCalls(
       });
     }
     if (ringMatch[1] && request.method === "POST") {
-      if (ringMatch[2] === "decline") rings.decline(session.id, ringMatch[1], at);
-      else rings.dismiss(session.id, ringMatch[1], at);
+      if (ringMatch[2] === "decline") {
+        rings.decline(session.id, ringMatch[1], at);
+        return json(200, { ok: true, record: false });
+      }
+      // Join from the prompt: check the ring still stands before the join.
+      const ring = rings.get(session.id, ringMatch[1], at);
+      if (ring) {
+        const still = await ringStillValid(runtime, db, session.id, ring);
+        if (still === "error") return json(503, { error: CALLS_TRY_AGAIN, record: false });
+        if (still === "refused") {
+          rings.drop(ring.id, at);
+          return json(409, { error: RING_GONE, record: false });
+        }
+      }
+      rings.dismiss(session.id, ringMatch[1], at);
       return json(200, { ok: true, record: false });
     }
     return json(404, { error: "Not found.", record: false });
@@ -222,7 +241,13 @@ export async function handleCalls(
       if (!(await (runtime.canRing ?? canRing)(db, session.id, targetId))) {
         return json(200, { canRing: false, members: [], record: false });
       }
-      const rows = await ringableMembers(db, targetId, session.id);
+      let rows: { id: string; name: string }[];
+      try {
+        rows = await (runtime.ringable ?? ringableMembers)(db, targetId, session.id);
+      } catch {
+        // Fail closed: no list beats a list that skipped the block check.
+        return json(503, { canRing: false, members: [], error: PICKER_FAILED, record: false });
+      }
       return json(200, {
         canRing: true,
         members: rows.map((row) => ({ id: row.id, name: ringName(row.name) })),
@@ -369,9 +394,36 @@ export async function handleCalls(
     }
     return json(404, { error: "Not found.", record: false });
   } catch (error) {
+    // Only our own errors (they carry a status, e.g. "Send JSON.") reach the
+    // person. Anything else, such as a database error, becomes plain words.
     const status =
-      typeof error === "object" && error && "status" in error ? Number(error.status) : 400;
-    const message = error instanceof Error ? error.message : "Send JSON.";
-    return json(Number.isInteger(status) ? status : 400, { error: message, record: false });
+      typeof error === "object" && error && "status" in error ? Number(error.status) : NaN;
+    if (Number.isInteger(status) && error instanceof Error) {
+      return json(status, { error: error.message, record: false });
+    }
+    return json(503, { error: CALLS_TRY_AGAIN, record: false });
   }
+}
+
+/**
+ * Whether a ring already out may still be answered: the person rung is
+ * still in the room or the conversation, and neither has blocked the other.
+ * "error" when a check failed (the caller fails closed).
+ */
+async function ringStillValid(
+  runtime: CallsRuntime,
+  db: Db,
+  userId: string,
+  ring: Ring,
+): Promise<"ok" | "refused" | "error"> {
+  const now = runtime.now();
+  const member =
+    ring.kind === "dm"
+      ? await (runtime.dmMember ?? dmCallMember)(db, userId, ring.roomId, now)
+      : await (runtime.roomMember ?? roomCallMember)(db, userId, ring.roomId, now);
+  if (member.kind === "unavailable") return "error";
+  if (member.kind !== "member") return "refused";
+  const block = await (runtime.blockState ?? blockState)(db, userId, ring.from);
+  if (block === "error") return "error";
+  return block === "blocked" ? "refused" : "ok";
 }
