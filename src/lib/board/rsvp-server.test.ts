@@ -391,7 +391,7 @@ test("a host who is not an admin closes a date and the server gets who came, by 
     assert.equal(check.ok, true, JSON.stringify(check));
     await settle();
     const attendance = sent.filter((s) => s.path.endsWith("/attendance"));
-    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["u-tom"], close: true, seen: ["u-tom", "u-ann"] } }]);
+    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["u-tom"], close: true, happened: true, seen: ["u-tom", "u-ann"] } }]);
     assert.equal(useBoard.getState().boardError, "");
 
     // A failed roll call: the card stays open with its going list, so the
@@ -893,21 +893,23 @@ async function lockedRun(
   retry: (state: ReturnType<typeof useBoard.getState>) => Promise<{ ok: boolean }>,
 ) {
   const G7 = "2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3";
-  const drafts: { claim: string; came: string[]; named: string }[] = [];
+  const drafts: { claim: string; came: string[]; named: string; cameIds?: string[]; happened?: boolean }[] = [];
+  const bodies: Record<string, unknown>[] = [];
   let postFails = true;
   let closes = 0;
   const priorFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://x");
     if (url.pathname === `/api/gatherings/${G7}/attendance`) {
       closes += 1;
+      bodies.push(JSON.parse(String(init?.body)));
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
     return new Response(null, { status: 404 });
   }) as typeof fetch;
   const base = stubClient();
   const createPost: BoardClient["createPost"] = async (draft) => {
-    drafts.push({ claim: draft.claim, came: draft.came, named: draft.named });
+    drafts.push({ claim: draft.claim, came: draft.came, named: draft.named, ...(draft.cameIds ? { cameIds: draft.cameIds } : {}), ...(draft.happened !== undefined ? { happened: draft.happened } : {}) });
     return postFails ? { ok: false, error: "Not saved." } : base.createPost(draft);
   };
   try {
@@ -934,21 +936,40 @@ async function lockedRun(
     postFails = false;
     const done = await retry(useBoard.getState());
     assert.equal(done.ok, true);
-    return { G7, drafts, closes };
+    return { G7, drafts, closes, bodies };
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);
   }
 }
 
-test("Design #126 M1: after a saved 'It happened' close, 'It did not' still files it happened with the kept names", async () => {
-  const { G7, drafts, closes } = await lockedRun({ happened: true, came: ["Ann", "Ben"], ids: ["h_ann", "h_ben"] }, (s) =>
-    s.closeCard("2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", false, "", "", [], "", []),
+test("QA S2: saved close with Tom, failed write-up, then 'It did not' files came: [] and no handles", async () => {
+  const { drafts, closes } = await lockedRun({ happened: true, came: ["Ann", "Ben"], ids: ["h_ann", "h_ben"] }, (s) =>
+    s.closeCard("2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", false, "", "", ["Ann"], "", ["h_ann"]),
   );
   assert.equal(closes, 1);
-  assert.equal(drafts.at(-1)?.claim, "It happened.");
-  assert.deepEqual(drafts.at(-1)?.came, ["Ann", "Ben"]);
-  assert.equal(savedClose(G7, "2026-10-31"), null);
+  assert.equal(drafts.at(-1)?.claim, "It did not happen.");
+  assert.deepEqual(drafts.at(-1)?.came, []);
+  assert.equal(drafts.at(-1)?.happened, false);
+  assert.ok(!drafts.at(-1)?.cameIds?.length, "no handles");
+});
+
+test("QA S2: the composer's did-not-happen write-up drops the kept names and handles", async () => {
+  const { drafts } = await lockedRun({ composer: { came: ["Ben"], ids: ["h_ben"] } }, (s) =>
+    s.file(
+      { ...blankDraft("shop"), type: "hosted", claim: "Rained out.", on: "2026-10-31", next: "", came: ["Ben"], named: "Ben", cardId: "2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", happened: false },
+      { cameIds: ["h_ben"] },
+    ),
+  );
+  assert.deepEqual(drafts.at(-1), { claim: "Rained out.", came: [], named: "", cameIds: [], happened: false });
+});
+
+test("QA S3: a did-not-happen close sends happened: false and no member ids", async () => {
+  const { bodies } = await lockedRun({ happened: false, came: ["Ann"], ids: ["h_ann"] }, (s) =>
+    s.closeCard("2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", false, "", "", [], "", []),
+  );
+  assert.equal(bodies[0]?.happened, false);
+  assert.deepEqual(bodies[0]?.userIds, []);
 });
 
 test("Design #126 M1: after a saved 'It did not' close, a retry files it did not, naming no one", async () => {
@@ -968,5 +989,5 @@ test("Design #126 L1: the composer's retry drops a named person the saved close 
     ),
   );
   assert.equal(closes, 1);
-  assert.deepEqual(drafts.at(-1), { claim: "Good.", came: ["Ben"], named: "" });
+  assert.deepEqual(drafts.at(-1), { claim: "Good.", came: ["Ben"], named: "", cameIds: ["h_ben"] });
 });

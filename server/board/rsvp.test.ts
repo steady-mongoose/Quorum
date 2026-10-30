@@ -1074,6 +1074,43 @@ test("two members named Ann: 'You were there' follows the host's pick by account
   }
 });
 
+test("QA S4 e: a did-not-happen close links nobody, and happened:false with names answers 400", async () => {
+  const t = await setup();
+  try {
+    await inShop(t, [t.dale.id, t.tom.id]);
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    const named = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [tomH], close: true, happened: false, seen: [tomH],
+    });
+    assert.equal(named.status, 400);
+    const odd = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [], close: true, happened: "no", seen: [tomH],
+    });
+    assert.equal(odd.status, 400);
+    const closed = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [], close: true, happened: false, seen: [tomH],
+    });
+    assert.equal(closed.status, 200);
+    const rows = await t.db.query<{ attended: boolean }>(
+      `select attended from gathering_rsvp where gathering_id = $1 and user_id = $2`, [GATHERING, t.tom.id],
+    );
+    assert.notEqual(rows[0]?.attended, true, "Tom is not marked");
+    const base = { type: "hosted", claim: "It did not happen.", on: "2026-10-29", cardId: GATHERING, happened: false };
+    const refused = await createPost(t.db, { userId: t.dale.id, name: "Dale", roomId: "shop", body: { ...base, came: ["Tom"], cameIds: [tomH] }, now: new Date("2026-10-29T12:00:00Z") });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.ok ? 0 : refused.status, 400);
+    const posted = await createPost(t.db, { userId: t.dale.id, name: "Dale", roomId: "shop", body: { ...base, came: [] }, now: new Date("2026-10-29T12:00:00Z") });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    const board = await listBoard(t.db, t.tom.id, new Date("2026-10-29T12:00:00Z"), { room: "shop" });
+    const post = board.ok ? board.value.posts.find((item) => item.type === "hosted") : undefined;
+    assert.ok(post);
+    assert.equal(post?.youCame, false, "a did-not-happen write-up links nobody");
+  } finally {
+    await t.close();
+  }
+});
+
 /** Helpers for the write-up link tests: members of the shop room, and Dale's write-up. */
 async function inShop(t: Awaited<ReturnType<typeof setup>>, ids: string[]) {
   for (const id of ids) {

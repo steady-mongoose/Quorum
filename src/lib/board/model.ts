@@ -757,6 +757,8 @@ export type Draft = {
   subject: "" | "candidate" | "business";
   /** A gathering write-up: the roll call this close sent (handles), so the server links exactly them. */
   cameIds?: string[];
+  /** A gathering write-up: false files "It did not happen", which names no one (QA S3). */
+  happened?: boolean;
 };
 
 export function blankDraft(room: RoomId): Draft {

@@ -635,19 +635,24 @@ export const useBoard = create<BoardState>()(
         card: MeetingCard,
         came: string[],
         cameIds?: string[],
+        happened = true,
       ): Promise<{ stop: string | null; sent: string[] }> => {
         if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return { stop: null, sent: [] };
         const roll = get().rollCall[card.id.toLowerCase()] ?? [];
-        const userIds = cameIdsFor(roll, {
-          ...(cameIds ? { picked: cameIds } : {}),
-          names: came,
-        });
+        // "It did not": nobody is marked, whatever the form held (QA S2).
+        const userIds = happened
+          ? cameIdsFor(roll, {
+              ...(cameIds ? { picked: cameIds } : {}),
+              names: came,
+            })
+          : [];
         try {
           // `seen`: everyone this list showed, so a close cannot clear a
           // "going" the host never saw (QA S3).
           const result = await saveAttendance(card.id, {
             userIds,
             close: true,
+            happened,
             seen: roll.map((person) => person.userId),
           });
           if (savedOrLocal(result, CAME_NOT_SAVED, { banner: false })) return { stop: null, sent: userIds };
@@ -1013,13 +1018,24 @@ export const useBoard = create<BoardState>()(
                 const closing = cards.find((item) => item.id === draft.cardId);
                 if (closing) {
                   const kept = savedCloseNames(closing.id, closing.next || todayIso());
-                  if (kept) {
+                  const keptClose = savedClose(closing.id, closing.next || todayIso());
+                  if (draft.happened === false || keptClose?.happened === false) {
+                    // Did not happen: no names, no handles, kept or not (QA S2).
+                    draft = { ...draft, happened: false, came: [], named: "", cameIds: [] };
+                  } else if (kept) {
                     // Only someone the saved close marked can be named (Design #126 L1).
                     draft = { ...draft, came: kept, named: kept.includes(draft.named) ? draft.named : "" };
                   }
-                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id, closing.next || todayIso(), draft.came);
+                  const went = draft.happened !== false;
+                  const closed = await closeOnce(
+                    () => closeOnServer(closing, draft.came, went ? options?.cameIds : [], went),
+                    closing.id,
+                    closing.next || todayIso(),
+                    draft.came,
+                    went,
+                  );
                   if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
-                  if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
+                  if (went && closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
                 }
               }
               const saved = await (await getBoardClient()).createPost(draft);
@@ -1034,7 +1050,7 @@ export const useBoard = create<BoardState>()(
                 const card = cards.find((item) => item.id === draft.cardId);
                 if (card) {
                   hosted(card, {
-                    happened: true,
+                    happened: draft.happened !== false,
                     next: draft.next,
                     line: draft.claim.trim(),
                     on: draft.on,
@@ -1414,9 +1430,14 @@ export const useBoard = create<BoardState>()(
           // A saved close's outcome and names win: the retry files what that close
           // saved, so "It did not" never names who came (Design #126 M1).
           const saved0 = savedClose(card.id, card.next || todayIso());
-          if (saved0) {
-            happened = saved0.happened;
-            came = saved0.happened ? saved0.names : [];
+          // A saved "It did not" stays did-not; "It did not" chosen now drops the
+          // kept names and handles too (Design #126 M1, QA S2).
+          if (saved0 && !saved0.happened) happened = false;
+          if (!happened) {
+            came = [];
+            cameIds = [];
+          } else if (saved0) {
+            came = saved0.names;
           }
           const claim = line.trim() || (happened ? "It happened." : "It did not happen.");
           const draft: Draft = {
@@ -1428,14 +1449,15 @@ export const useBoard = create<BoardState>()(
             came,
             pages,
             cardId: card.id,
+            happened,
           };
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on, came, happened);
+            const closed = await closeOnce(() => closeOnServer(card, came, cameIds, happened), card.id, draft.on, came, happened);
             if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
             const saved = await (await getBoardClient()).createPost(
-              closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,
+              happened && closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,
             );
             if (!saved.ok) {
               // Same as post(): the close may have saved, so read the RSVPs again (QA S4).

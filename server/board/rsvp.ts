@@ -1,4 +1,4 @@
-import { rsvpHandle } from "./rsvp-handle.ts";
+import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
 import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
@@ -619,9 +619,19 @@ export async function handleRsvp(
     if ("close" in body && typeof body.close !== "boolean") {
       return json(400, { error: "Say whether this closes the date: true or false." });
     }
+    if ("happened" in body && typeof body.happened !== "boolean") {
+      return json(400, { error: "Say whether it happened: true or false." });
+    }
     const raw = body.userIds ?? [];
     if (!Array.isArray(raw) || raw.length > RSVP_BATCH_MAX || raw.some((id) => typeof id !== "string")) {
       return json(400, { error: `Send up to ${RSVP_BATCH_MAX} member ids.` });
+    }
+    // "It did not happen" marks nobody (QA S3). The attended marks an earlier
+    // close of this date set are not cleared: `attended` is one flag per
+    // member and gathering, not per date, so clearing it would also erase
+    // earlier weeks. Doing that needs a per-date column (a migration).
+    if (body.happened === false && raw.length > 0) {
+      return json(400, { error: DID_NOT_NAMES });
     }
     if (raw.length > 0 && (await rollOff())) {
       return json(409, { error: ROOM_OPTION_OFF.roll_call });

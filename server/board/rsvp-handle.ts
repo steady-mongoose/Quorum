@@ -17,3 +17,6 @@ export function rsvpHandle(gatheringId: string, userId: string): string {
     .digest("base64url");
   return `h_${mac.slice(0, 22)}`;
 }
+
+/** A did-not-happen close or write-up that still names someone (QA S3). */
+export const DID_NOT_NAMES = "A gathering that did not happen names no one.";

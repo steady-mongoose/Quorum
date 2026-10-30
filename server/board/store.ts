@@ -58,7 +58,7 @@ import { cameFor, cameViewer, cameViewerFor, namedIn, type CameViewer } from "./
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
-import { rsvpHandle } from "./rsvp-handle.ts";
+import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
 import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 import {
   DEFAULT_ROOM_OPTIONS,
@@ -1107,6 +1107,12 @@ export async function createPost(
   const cameIds = cameIdsRaw
     .filter((id): id is string => typeof id === "string" && id.length <= 64)
     .slice(0, 200);
+  if ("happened" in input.body && typeof input.body.happened !== "boolean") {
+    return fail(400, "Say whether it happened: true or false.");
+  }
+  if (type === "hosted" && input.body.happened === false && (came.length > 0 || cameIds.length > 0 || named)) {
+    return fail(400, DID_NOT_NAMES);
+  }
   const tradeId = field(input.body, "tradeId").trim();
   const campaignId = field(input.body, "campaignId").trim().slice(0, 80);
   if (cardId && !OBJECT_ID.test(cardId)) return fail(400, "That card is not valid.");

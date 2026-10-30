@@ -147,7 +147,7 @@ export async function saveMyRsvp(
 /** Host or admin: who came, and end this date so every "going" resets. */
 export async function saveAttendance(
   gatheringId: string,
-  input: { userIds: string[]; close: boolean; seen?: string[] },
+  input: { userIds: string[]; close: boolean; seen?: string[]; happened?: boolean },
 ): Promise<{ ok: true } | Fail> {
   const saved = await post(
     `/api/gatherings/${encodeURIComponent(gatheringId.toLowerCase())}/attendance`,
