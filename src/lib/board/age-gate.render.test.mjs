@@ -671,3 +671,102 @@ test("the phone tab bar height is defined for things that must clear it", () => 
   assert.ok(phone > -1);
   assert.match(css.slice(phone, phone + 200), /:root\{--tabbar-h:57px\}/);
 });
+
+test("an admin with no authenticator ticks the box, presses Continue, and is through to the app (real server, no dead end)", async () => {
+  const { randomUUID } = await import("node:crypto");
+  // By file URL, so Node strips the server's types itself (the TSX loader only takes src/).
+  const { createApp } = await import(new URL("../../../server/http.ts", import.meta.url).href);
+  const { openTestDb } = await import(new URL("../../../server/closed-test/test-db.ts", import.meta.url).href);
+  const { confirmAgeServer } = await import("../account-api.ts");
+  const { db, close } = await openTestDb({ ageUnconfirmed: true });
+  const id = randomUUID();
+  await db.query(
+    `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+     values ($1, 'Josh', 'admin@example.com', true, now(), now())`,
+    [id],
+  );
+  // An admin from before the 18+ check, with no authenticator on yet.
+  await db.query(`insert into member_role (user_id, is_admin) values ($1, true)`, [id]);
+  const app = createApp({
+    db,
+    origins: ["http://localhost"],
+    now: () => new Date("2026-10-30T11:00:00Z"),
+    createAccount: async () => ({ id: randomUUID() }),
+    signIn: async () => ({ ok: false }),
+    readSession: async () => ({ id, name: "Josh", email: "admin@example.com" }),
+    forwardAuth: async () => new Response("no", { status: 404 }),
+  });
+  /** @type {string[]} */
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = /** @type {typeof fetch} */ (
+    async (input, init) => {
+      const url = new URL(String(input), "http://localhost");
+      sent.push(`${init?.method ?? "GET"} ${url.pathname}`);
+      const headers = new Headers(init?.headers);
+      headers.set("origin", "http://localhost");
+      return app(new Request(`http://127.0.0.1:8787${url.pathname}`, { ...init, headers }));
+    }
+  );
+
+  function AdminHarness() {
+    const [ageConfirmed, setAgeConfirmed] = useState(false);
+    const session = {
+      ...EMPTY_SERVER_SESSION,
+      mode: /** @type {const} */ ("live"),
+      configured: true,
+      user: { id, name: "Josh", email: "admin@example.com" },
+      mfa: /** @type {const} */ ("enroll"),
+      mfaEnrolled: false,
+      ageConfirmed,
+      confirmAge: async (/** @type {boolean} */ adult) => {
+        const result = await confirmAgeServer(adult);
+        if (result.ok) setAgeConfirmed(true);
+        return result;
+      },
+    };
+    return createElement(SessionContext.Provider, {
+      value: /** @type {any} */ (session),
+      children: ageConfirmed
+        ? createElement("main", { id: "main", tabIndex: -1 }, createElement("h1", { id: "hall", tabIndex: -1 }, "The hall"))
+        : createElement(AgeStep),
+    });
+  }
+
+  try {
+    for (const width of [390, 1280]) {
+      setWidth(width);
+      await db.query(`update "user" set age_confirmed_at = null where id = $1`, [id]);
+      sent.length = 0;
+      const view = render(createElement(AdminHarness));
+      try {
+        const box = view.host.querySelector('input[type="checkbox"]');
+        assert.ok(box instanceof HTMLInputElement);
+        act(() => {
+          box.click();
+        });
+        const form = view.host.querySelector("form");
+        assert.ok(form);
+        await act(async () => {
+          form.requestSubmit();
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        });
+        assert.deepEqual(sent, ["POST /api/age/confirm"]);
+        assert.doesNotMatch(
+          view.host.textContent ?? "",
+          /Turn on an authenticator before using this/,
+          `${width}: no dead end`,
+        );
+        assert.equal(view.host.querySelector("#age-step"), null, `${width}: the step is gone`);
+        assert.ok(view.host.querySelector("#hall"), `${width}: through to the app`);
+        const stored = await db.query(`select age_confirmed_at from "user" where id = $1`, [id]);
+        assert.notEqual(/** @type {any} */ (stored[0])?.age_confirmed_at, null);
+      } finally {
+        view.cleanup();
+      }
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    await close();
+  }
+});
