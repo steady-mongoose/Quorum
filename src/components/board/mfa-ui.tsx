@@ -9,6 +9,7 @@ import {
   confirmMfaEnroll,
   disableMfa,
   listMfaResets,
+  MFA_RESETS_LOAD_FAILED,
   readMfaStatus,
   requestMfaReset,
   startMfaEnroll,
@@ -135,6 +136,10 @@ export function MfaChallenge({
 }
 
 export function MfaSettings() {
+  // The session's phase (server.mfa) drives About's Admin lists card and the top
+  // banner. It is read when the session loads, so read it again whenever this
+  // panel turns the authenticator on or off.
+  const { refreshPhase } = useServerSession();
   const [status, setStatus] = useState<MfaStatus | null>(null);
   const [secret, setSecret] = useState("");
   const [modules, setModules] = useState<number[][] | null>(null);
@@ -257,6 +262,7 @@ export function MfaSettings() {
                 setSecret("");
                 setCode("");
                 refresh();
+                void refreshPhase();
               });
             }}
           >
@@ -333,6 +339,7 @@ export function MfaSettings() {
               setCode("");
               setNotice("Authenticator is off.");
               refresh();
+              void refreshPhase();
             });
           }}
         >
@@ -426,8 +433,11 @@ export function MfaResetQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
     void listMfaResets().then((result) => {
       if (cancel) return;
       if (!result.ok) {
-        // A bare code (the message falls back to it) never reaches the page.
-        const said = result.message === result.error ? "" : result.message;
+        // A bare code (the message falls back to it) never reaches the page, and
+        // nor does the API's own fallback: every load failure that is not the
+        // authenticator gate says "That did not load.", as on the other lists.
+        const said =
+          result.message === result.error || result.message === MFA_RESETS_LOAD_FAILED ? "" : result.message;
         failed(panelFailure({ error: result.error, message: said }, PANEL_LOAD_FAILED));
         return;
       }

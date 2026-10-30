@@ -52,6 +52,8 @@ for (const key of [
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Stands in for [status, body] when the connection itself fails. */
+const NETWORK = Symbol("network");
 /** Path -> [status, body]. Anything missing answers 404. */
 let routes = {};
 const seen = [];
@@ -61,17 +63,26 @@ globalThis.fetch = async (input, init) => {
   const path = new URL(String(input), "http://localhost/").pathname;
   seen.push(`${init?.method ?? "GET"} ${path}`);
   if (hold) await hold;
-  const [status, body] = routes[path] ?? [404, { error: "Not found." }];
-  return new Response(JSON.stringify(body), {
+  const answer = routes[path] ?? [404, { error: "Not found." }];
+  if (answer === NETWORK) throw new TypeError("fetch failed");
+  const [status, body] = answer;
+  // A string body goes out as is: markup as text/html (which apiFetch turns into
+  // a 503), anything else as text/plain, so its .json() fails and reads as null.
+  // Every other body is JSON.
+  const type =
+    typeof body !== "string" ? "application/json" : body.startsWith("<") ? "text/html" : "text/plain";
+  return new Response(typeof body === "string" ? body : JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": type },
   });
 };
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AboutView } = await import("../../components/board/about-view.tsx");
-const { MfaResetQueue } = await import("../../components/board/mfa-ui.tsx");
+const { MfaResetQueue, MfaSettings } = await import("../../components/board/mfa-ui.tsx");
+const { ServerSessionProvider } = await import("../server-session.tsx");
+const { listMfaResets } = await import("../mfa-api.ts");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { useBoard } = await import("./store.ts");
 
@@ -241,6 +252,145 @@ test("Authenticator reset: a submit error still raises an alert", async () => {
     await flush();
     assert.deepEqual(view.alerts(), ["That account was not found."]);
   } finally {
+    await view.cleanup();
+  }
+});
+
+const OPEN = {
+  "/api/mfa/reset": [200, { resets: [] }],
+  "/api/account/deletion-requests": [200, { requests: [] }],
+  "/api/admin/rooms": [200, { rooms: [] }],
+  "/api/admin/dm-reports": [200, { reports: [] }],
+  "/api/admin/invites": [200, { invites: [] }],
+};
+
+function typeInto(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+test("turning the authenticator on in this session replaces the Admin lists card with the lists, no reload", async () => {
+  const USER = { id: "u-admin", name: "TEST Admin", email: "admin@test.invalid" };
+  routes = {
+    "/api/health": [200, { ok: true }],
+    "/api/auth/get-session": [200, { user: USER, mfa: "enroll", mfaEnrolled: false }],
+    "/api/mfa/status": [200, { required: true, enrolled: false, pending: false, recoveryRemaining: 0, mfa: "enroll" }],
+    "/api/mfa/enroll/start": [200, { secret: "ABCDEFGHIJKLMNOP", otpauth: "otpauth://totp/x", modules: [[1, 0], [0, 1]] }],
+    ...GATED,
+  };
+  useBoard.setState({ remote: true, admin: true });
+  // The real session provider, so the test covers the phase being read again.
+  const view = await mount(
+    createElement(
+      ServerSessionProvider,
+      null,
+      createElement(MfaSettings),
+      createElement(AboutView, { onSetUp: () => {} }),
+    ),
+  );
+  try {
+    assert.ok(headings(view.host).includes("Admin lists"), "the card shows before");
+    assert.ok(!headings(view.host).includes("Rooms"));
+    await act(async () => buttons(view.host, "Turn on authenticator")[0].click());
+    await flush();
+    const input = view.host.querySelector('input[autocomplete="one-time-code"]');
+    await act(async () => typeInto(input, "123456"));
+    // The server now says the authenticator is on, and opens the five lists.
+    routes = {
+      ...routes,
+      ...OPEN,
+      "/api/mfa/enroll/confirm": [200, { recoveryCodes: Array.from({ length: 10 }, (_, i) => `code-${i}`) }],
+      "/api/auth/get-session": [200, { user: USER, mfa: "ok", mfaEnrolled: true }],
+      "/api/mfa/status": [200, { required: true, enrolled: true, pending: false, recoveryRemaining: 10, mfa: "ok" }],
+    };
+    seen.length = 0;
+    await act(async () => buttons(view.host, "Confirm code")[0].click());
+    await flush();
+    const all = headings(view.host);
+    assert.ok(!all.includes("Admin lists"), "the card is gone without a reload");
+    for (const name of WAITING) assert.ok(all.includes(name), `${name} shows`);
+    assert.equal(buttons(view.host, "Turn it on under You").length, 0, "no button loops back to You");
+    assert.ok(seen.includes("GET /api/auth/get-session"), "the session was read again");
+    assert.ok(view.host.textContent.includes("code-0"), "the recovery codes stay on screen");
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("Authenticator reset: a 200 that is not JSON is a failed load, not a blank panel", async () => {
+  routes = { "/api/mfa/reset": [200, "ok, not JSON"] };
+  const result = await listMfaResets();
+  assert.equal(result.ok, false, "listMfaResets does not throw on a null body");
+  const view = await mount(createElement(MfaResetQueue));
+  try {
+    const note = view.host.querySelector("[data-panel-note]");
+    assert.ok(note?.textContent?.includes("That did not load."), "says it did not load");
+    assert.equal(buttons(view.host, "Try again").length, 1, "with Try again");
+    assert.ok(!view.host.textContent.includes("No resets are waiting."));
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("Authenticator reset: every load failure says the same sentence as the other lists", async () => {
+  const cases = [
+    ["empty 500", [500, ""]],
+    ["HTML 500", [500, "<!doctype html><p>Internal Server Error</p>"]],
+    ["JSON 500 with no message", [500, {}]],
+    ["502 with a code", [502, { error: "bad_gateway" }]],
+    ["500 with a code", [500, { error: "internal_error" }]],
+    ["non-JSON 200", [200, "ok, not JSON"]],
+    ["HTML 200", [200, "<!doctype html><title>Avouch</title>"]],
+    ["200 without a list", [200, { resets: null }]],
+    ["network failure", NETWORK],
+  ];
+  for (const [name, answer] of cases) {
+    routes = { "/api/mfa/reset": answer };
+    const view = await mount(createElement(MfaResetQueue));
+    try {
+      const note = view.host.querySelector("[data-panel-note]");
+      const shown = [...note.querySelectorAll("span")].map((n) => n.textContent).join("");
+      assert.equal(shown, "That did not load.", `${name}: one sentence`);
+      assert.ok(!view.host.textContent.includes("The reset queue did not load."), `${name}: no second wording`);
+      assert.equal(buttons(view.host, "Try again").length, 1, `${name}: Try again`);
+    } finally {
+      await view.cleanup();
+    }
+  }
+});
+
+test("Authenticator reset: focus reaches the heading in the same commit that takes Try again away", async () => {
+  routes = { "/api/mfa/reset": [500, { error: "internal_error" }] };
+  const view = await mount(createElement(MfaResetQueue));
+  const heading = view.host.querySelector("h2");
+  const tryAgain = buttons(view.host, "Try again")[0];
+  const samples = [];
+  const removeChild = window.Node.prototype.removeChild;
+  // Look at focus straight after the commit that removes Try again: a microtask
+  // runs after React's layout effects but before its passive effects.
+  window.Node.prototype.removeChild = function (child) {
+    if (child === tryAgain) queueMicrotask(() => samples.push(document.activeElement));
+    return removeChild.call(this, child);
+  };
+  globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    routes["/api/mfa/reset"] = [200, { resets: [] }];
+    tryAgain.focus();
+    tryAgain.click();
+    for (let i = 0; i < 50 && !view.host.textContent.includes("No resets are waiting."); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(view.host.textContent.includes("No resets are waiting."), "the list loaded");
+    assert.equal(samples.length, 1, "Try again was taken away once");
+    // Compare names, not elements: a failing diff of two DOM nodes runs out of memory.
+    const where = (el) => (el === heading ? "heading" : (el?.tagName ?? "nothing").toLowerCase());
+    assert.equal(where(samples[0]), "heading", "focus was already on the heading, never on <body>");
+    assert.equal(where(document.activeElement), "heading");
+  } finally {
+    window.Node.prototype.removeChild = removeChild;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     await view.cleanup();
   }
 });

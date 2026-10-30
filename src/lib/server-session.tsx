@@ -79,6 +79,21 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
     setMode(next);
   };
 
+  const refreshPhase = async () => {
+    if (demo) return;
+    try {
+      const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+      const body = await response.json().catch(() => null);
+      const session = parseSessionBody(response.status, body);
+      // Only a session that came back replaces this one. A 5xx, a non-JSON body
+      // or a dropped connection leaves the page as it is.
+      if (response.status !== 200 || !session) return;
+      applyPhase(parseMfaPhase(body), session);
+    } catch {
+      // Keep the current phase; the next load reads it again.
+    }
+  };
+
   const value: ServerSession = {
     configured,
     mode,
@@ -135,6 +150,7 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
       }
     },
     recheck,
+    refreshPhase,
     createInvite: createServerInvite,
   };
 

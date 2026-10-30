@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn";
 import { PANEL_SET_UP, type PanelFailure } from "@/lib/board/load-failure";
 import { focusWithRing } from "@/lib/board/focus-ring";
@@ -49,7 +49,10 @@ export function usePanelRetry(heading: RefObject<HTMLElement | null>) {
     },
     [settle],
   );
-  useEffect(() => {
+  // A layout effect, not a passive one: Try again leaves the page in the same
+  // commit, so focus has to reach the heading before the browser paints, or it
+  // sits on <body> for a frame (QA on d12063f). #114's Groups has the same gap.
+  useLayoutEffect(() => {
     if (!retried.current) return;
     retried.current = false;
     // Failed again with Try again still there: focus stays on it.
