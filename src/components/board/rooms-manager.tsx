@@ -14,6 +14,8 @@ import {
   saveRoomCategories,
   type AdminRoom,
 } from "@/lib/board/rooms-admin";
+import { ROOMS_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 const AUDIENCE: Record<AdminRoom["audience"], string> = {
   all: "Everyone",
@@ -27,13 +29,15 @@ const chip = "inline-flex items-center rounded-full border border-line px-3 py-1
  * Admin-only. Every room, grouped by category, with "Not yet sorted" last.
  * Categories edits where a room is listed. Archive and delete wait on migration 0039.
  */
-export function RoomsManager() {
+export function RoomsManager({ onSetUp }: { onSetUp?: () => void } = {}) {
   const categories = useCategories();
   const choices = (categories.length > 0 ? categories : [...CATEGORY_LIST]).filter(
     (category) => category.slug !== UNCATEGORIZED_SLUG,
   );
   const [rooms, setRooms] = useState<AdminRoom[] | null>(null);
   const [error, setError] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
   const [note, setNote] = useState("");
   const [announced, setAnnounced] = useState("");
   const statusRef = useRef<HTMLParagraphElement>(null);
@@ -51,13 +55,18 @@ export function RoomsManager() {
     let live = true;
     void loadAdminRooms().then((result) => {
       if (!live) return;
-      if (result.ok) setRooms(result.rooms);
-      else setError(result.error);
+      // A failed load is said inside this panel, never as a page alert.
+      if (result.ok) {
+        setRooms(result.rooms);
+        loaded();
+      } else {
+        failed(result);
+      }
     });
     return () => {
       live = false;
     };
-  }, []);
+  }, [tick]);
 
   useEffect(() => {
     if (editing) firstBox.current?.focus();
@@ -140,27 +149,38 @@ export function RoomsManager() {
       aria-labelledby="rooms-manager-heading"
       className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 lg:max-w-3xl"
     >
-      <h2 id="rooms-manager-heading" className="text-2xl text-fg">
+      <h2 ref={heading} id="rooms-manager-heading" tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
         Rooms
       </h2>
       <p className="max-w-prose text-sm text-muted">
         Every room, by category. Check each room is in the right place. Move changes where members
         find it. A room can be in more than one category.
       </p>
-      <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
-        Find a room
-        <input
-          id={searchId}
-          type="search"
-          className={cn(fieldClass, "min-h-[44px]")}
-          value={query}
-          placeholder="Name or slug"
-          onChange={(event) => {
-            setNote("");
-            setQuery(event.target.value);
-          }}
-        />
-      </label>
+      <PanelNote
+        failure={failure}
+        gateText={ROOMS_WAIT}
+        onRetry={retry}
+        onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
+      />
+      {/* Nothing to search until the list has loaded, so no field flashes before a gate. */}
+      {rooms === null ? null : (
+        <label htmlFor={searchId} className="flex flex-col gap-2 text-sm text-muted">
+          Find a room
+          <input
+            id={searchId}
+            type="search"
+            className={cn(fieldClass, "min-h-[44px]")}
+            value={query}
+            placeholder="Name or slug"
+            onChange={(event) => {
+              setNote("");
+              setQuery(event.target.value);
+            }}
+          />
+        </label>
+      )}
       <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className="text-sm text-fg">
         {note || announced}
       </p>
@@ -169,7 +189,6 @@ export function RoomsManager() {
           {error}
         </p>
       ) : null}
-      {rooms === null && !error ? <p className="text-sm text-muted">Loading rooms…</p> : null}
 
       {groups.map((group) => (
         <div key={group.slug} className="flex flex-col gap-2">
@@ -283,7 +302,7 @@ export function RoomsManager() {
         </div>
       ))}
 
-      <p className="max-w-prose text-sm text-muted">Archive and delete are coming soon.</p>
+      {failure ? null : <p className="max-w-prose text-sm text-muted">Archive and delete are coming soon.</p>}
 
       <ConfirmDialog
         open={confirming && editingRoom !== null}
