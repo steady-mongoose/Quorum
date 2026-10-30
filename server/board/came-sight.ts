@@ -17,7 +17,12 @@ export type CameViewer = {
   nameOwn?: boolean;
   actor: BoardActor;
   /** Write-ups whose roll call names this account by id (dm_named_account). */
-  namedIn?: ReadonlySet<string> & { resolved?: ReadonlySet<string>; stale?: ReadonlySet<string> };
+  namedIn?: ReadonlySet<string> & {
+    resolved?: ReadonlySet<string>;
+    stale?: ReadonlySet<string>;
+    /** Write-ups of a gathering that is not special now: no names, own "You came" kept. */
+    hidden?: ReadonlySet<string>;
+  };
   /**
    * Gathering ids this account really hosts (public_gathering.host_user_id).
    * For a gathering's write-up the host role comes from here, never from who
@@ -25,6 +30,12 @@ export type CameViewer = {
    */
   hosts?: ReadonlySet<string>;
 };
+
+/**
+ * SQL: gathering `g` is special now. The same text as GATHERING_IS_SPECIAL in
+ * gathering-record.ts, which imports store.ts, which imports this file.
+ */
+export const NOW_SPECIAL = `coalesce((to_jsonb(g) ->> 'special')::boolean, false)`;
 
 /** The gatherings this account hosts, lowercased. */
 export async function hostedGatherings(db: Db, userId: string): Promise<Set<string>> {
@@ -82,10 +93,13 @@ export function cameFor(
   viewer: CameViewer,
   post: { id: string; roomId: string; hostId: string | null | undefined; cardId?: string | null },
 ): { came: string[]; youCame: boolean } {
+  // Unticked: who came is hidden until the host ticks it again; each member
+  // keeps their own "You came" (Josh via Design, Oct 30 2:03 PM ET).
+  const shown = (names: string[]) => (viewer.namedIn?.hidden?.has(post.id) ? [] : names);
   // Older than 12 months (Josh's rule, QA N7): no "You came", whether or not
   // OLD_WRITE_UPS_DROP_DM_LINKS kept the link for DMs.
   if (viewer.namedIn?.stale?.has(post.id)) {
-    return { came: seesWhoCame(viewer, post.roomId, post.hostId, post.cardId) ? came : [], youCame: false };
+    return { came: seesWhoCame(viewer, post.roomId, post.hostId, post.cardId) ? shown(came) : [], youCame: false };
   }
   const byId = viewer.namedIn?.has(post.id) ?? false;
   const resolved = viewer.namedIn?.resolved?.has(post.id) ?? false;
@@ -93,7 +107,7 @@ export function cameFor(
   // name never stands in for one.
   const byNameOk = !resolved && !isGatheringId(post.cardId ?? "");
   const youCame = byId || (byNameOk && viewer.nameOwn !== false && viewer.name !== "" && came.includes(viewer.name));
-  if (seesWhoCame(viewer, post.roomId, post.hostId, post.cardId)) return { came, youCame };
+  if (seesWhoCame(viewer, post.roomId, post.hostId, post.cardId)) return { came: shown(came), youCame };
   return { came: [], youCame };
 }
 
@@ -103,11 +117,23 @@ export async function namedIn(
   userId: string,
   postIds: string[],
   now: Date = new Date(),
-): Promise<Set<string> & { resolved?: Set<string>; stale?: Set<string> }> {
-  const out: Set<string> & { resolved?: Set<string>; stale?: Set<string> } = new Set();
+): Promise<Set<string> & { resolved?: Set<string>; stale?: Set<string>; hidden?: Set<string> }> {
+  const out: Set<string> & { resolved?: Set<string>; stale?: Set<string>; hidden?: Set<string> } = new Set();
   out.resolved = new Set();
   out.stale = new Set();
+  out.hidden = new Set();
   if (postIds.length === 0) return out;
+  // A gathering's write-up while the gathering is not special: its came list
+  // is hidden, not deleted. Before 0050 nothing is special, and no came list
+  // can be filed on one (store.ts), so this is read through to_jsonb too.
+  const plain = await db.query<{ id: string }>(
+    `select p.id from board_post p
+     join public_gathering g on lower(g.id) = lower(p.card_id)
+     where p.id = any ($1::text[]) and p.type = 'hosted'
+       and not ${NOW_SPECIAL}`,
+    [postIds],
+  );
+  for (const row of plain) out.hidden.add(row.id);
   // Write-ups older than the 12-month cutoff read as nobody came, for "You came" (QA N7).
   const cutoff = rsvpCutoff(now);
   const old = await db.query<{ id: string }>(

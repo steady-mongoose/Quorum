@@ -80,27 +80,13 @@ export const SPECIAL_HINT =
   "Members can say they're going, and you or a steward can mark who came. Other gatherings don't take RSVPs.";
 
 /**
- * What unticking "This is a special event" does to its RSVPs and who came.
- * Josh is deciding (Design 5716107154 H1). "delete" matches the server today
- * (saveGathering drops them); "hide" needs that drop removed on the server.
- * Switching is this one line.
+ * Unticking "This is a special event" hides who is going and who came; ticking
+ * it again brings them back. Nothing is deleted (Josh via Design, Oct 30
+ * 2:03 PM ET: "Hide them; re-ticking brings them back").
  */
-export const UNTICK_SPECIAL: UntickSpecial = "delete";
-export type UntickSpecial = "delete" | "hide";
-export const UNTICK_SPECIAL_COPY: Record<UntickSpecial, { confirm: string; done: string }> = {
-  delete: {
-    confirm:
-      "Turn off special event? This removes who said they're going and who came for this gathering. It can't be undone.",
-    done: "This is no longer a special event. Its RSVPs and who came were removed.",
-  },
-  hide: {
-    confirm:
-      "Turn off special event? This hides who said they're going and who came. Tick it again to bring them back.",
-    done: "This is no longer a special event. Who said they're going and who came are hidden until you tick it again.",
-  },
-};
-export const SPECIAL_ON_LINE = "This is now a special event. Members can say they're going.";
-export const SPECIAL_OFF_LINE = "This is no longer a special event.";
+export const SPECIAL_OFF_LINE = "Special event turned off. Who's going and who came are hidden until you turn it back on.";
+/** My wording, for Design to confirm. */
+export const SPECIAL_ON_LINE = "Special event turned on. Members can say they're going, and anyone who already said so shows again.";
 
 /** The app shows RSVP and attendance controls only where this is true. */
 export function isSpecial(card: { special?: boolean }): boolean {

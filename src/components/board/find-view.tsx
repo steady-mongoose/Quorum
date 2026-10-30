@@ -58,8 +58,6 @@ import {
   SPECIAL_HINT,
   SPECIAL_OFF_LINE,
   SPECIAL_ON_LINE,
-  UNTICK_SPECIAL,
-  UNTICK_SPECIAL_COPY,
 } from "@/lib/board/rsvp-rules";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
@@ -967,59 +965,25 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
 
 /**
  * The host's "This is a special event" box on the card, with its hint (L2).
- * Unticking when anyone is going or has been marked asks first, on a solid
- * card, in the words of UNTICK_SPECIAL (Design 5716107154 H1). Every toggle
- * ends in a role=status line; a refusal reverts the box and shows role=alert (L3, L4).
- * Exported for render tests.
+ * Unticking hides who is going and who came, and ticking again brings them
+ * back (Josh via Design, Oct 30 2:03 PM ET), so nothing is lost and there is
+ * no confirm. Every toggle ends in a role=status line; a refusal reverts the
+ * box and shows role=alert (L3, L4). Exported for render tests.
  */
-export function SpecialEventToggle({
-  card,
-  initialConfirm = false,
-}: {
-  card: MeetingCard;
-  /** Opens with the untick confirm showing (screenshots), as StewardRollCall's initialOpen. */
-  initialConfirm?: boolean;
-}) {
+export function SpecialEventToggle({ card }: { card: MeetingCard }) {
   const updateCard = useBoard((state) => state.updateCard);
   const refused = useBoard((state) => state.specialRefused[card.id] ?? "");
-  const [confirmPlain, setConfirmPlain] = useState(initialConfirm);
   const [note, setNote] = useState("");
   const hintId = useId();
-  const plainId = useId();
-  const box = useRef<HTMLInputElement>(null);
-  const keep = useRef<HTMLButtonElement>(null);
-  const opened = useRef(false);
-  // Focus goes to "Keep it special" when the confirm opens, and back to the box when it closes.
-  useEffect(() => {
-    if (confirmPlain) {
-      opened.current = true;
-      keep.current?.focus();
-    } else if (opened.current) {
-      opened.current = false;
-      box.current?.focus();
-    }
-  }, [confirmPlain]);
-  // The host's own "has been" (the lister) is not someone else's record.
-  // Only the host sees this box, and the host sees both lists.
-  const hasMarks =
-    (seesGoing(card) && card.going.length > 0) || (seesCame(card) && card.wentBy.some((name) => name !== card.host));
-  const copy = UNTICK_SPECIAL_COPY[UNTICK_SPECIAL];
   return (
     <div className="flex w-full flex-col gap-1">
       <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
         <input
-          ref={box}
           type="checkbox"
           className="size-5"
           checked={card.special === true}
           aria-describedby={hintId}
           onChange={(event) => {
-            if (!event.target.checked && hasMarks) {
-              setNote("");
-              setConfirmPlain(true);
-              return;
-            }
-            setConfirmPlain(false);
             updateCard(card.id, { special: event.target.checked });
             setNote(event.target.checked ? SPECIAL_ON_LINE : SPECIAL_OFF_LINE);
           }}
@@ -1029,38 +993,6 @@ export function SpecialEventToggle({
       <p id={hintId} className="text-[13px] text-muted">
         {SPECIAL_HINT}
       </p>
-      {confirmPlain ? (
-        <div
-          role="group"
-          aria-labelledby={plainId}
-          className="flex w-full flex-col gap-2 rounded-md border border-line bg-surface p-3"
-        >
-          <p id={plainId} className="text-sm text-fg">
-            {copy.confirm}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={cn(btnGhost, "min-h-[44px]")}
-              onClick={() => {
-                updateCard(card.id, { special: false });
-                setConfirmPlain(false);
-                setNote(copy.done);
-              }}
-            >
-              Turn it off
-            </button>
-            <button
-              type="button"
-              ref={keep}
-              className={cn(btnQuiet, "min-h-[44px]")}
-              onClick={() => setConfirmPlain(false)}
-            >
-              Keep it special
-            </button>
-          </div>
-        </div>
-      ) : null}
       <p role="status" className={cn("w-full text-sm text-fg", (!note || refused) && "sr-only")}>
         {refused ? "" : note}
       </p>

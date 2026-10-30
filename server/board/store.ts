@@ -2104,7 +2104,10 @@ export async function decideAppeal(
       db,
       posts.map((post) => post.id),
     );
-    const sight = await cameViewer(db, input.userId, actor);
+    const sight = {
+      ...(await cameViewer(db, input.userId, actor)),
+      namedIn: await namedIn(db, input.userId, posts.map((post) => post.id)),
+    };
     return {
       ok: true,
       value: {

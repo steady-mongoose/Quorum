@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import test from "node:test";
-import { readFileSync } from "node:fs";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -425,69 +424,22 @@ test("Design M1: a refused date shows inline as role=alert and the field goes ba
 
 const hostCard = (over) => card({ host: "Dale", seeing: "host", ...over });
 
-test("Design H1: unticking with anyone going asks first on a solid card; Keep it special keeps it and returns focus", async () => {
-  assert.equal(rules.UNTICK_SPECIAL, "delete", "defaults to the delete copy, which matches the server");
+test("Josh H1 (hide): untick and tick go straight through with no confirm, each with a role=status line", async () => {
+  assert.equal(rules.UNTICK_SPECIAL, undefined, "no delete/hide switch is left");
+  assert.equal(rules.UNTICK_SPECIAL_COPY, undefined);
+  assert.equal(rules.SPECIAL_OFF_LINE, "Special event turned off. Who's going and who came are hidden until you turn it back on.");
   const patches = [];
   const updateCard = useBoard.getState().updateCard;
   useBoard.setState({ specialRefused: {}, updateCard: (id, patch) => patches.push([id, patch]) });
   try {
-    const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: ["Ann"], wentBy: ["Dale"] }) }));
-    try {
-      const box = view.host.querySelector('input[type="checkbox"]');
-      await act(async () => box.click());
-      assert.deepEqual(patches, [], "nothing is sent before the host confirms");
-      const group = view.host.querySelector('[role="group"]');
-      assert.ok(group);
-      assert.match(group.className, /bg-surface/);
-      assert.doesNotMatch(group.className, /blur/);
-      const labelled = view.host.ownerDocument.getElementById(group.getAttribute("aria-labelledby"));
-      assert.equal(labelled?.textContent, rules.UNTICK_SPECIAL_COPY.delete.confirm);
-      assert.equal(
-        rules.UNTICK_SPECIAL_COPY.delete.confirm,
-        "Turn off special event? This removes who said they're going and who came for this gathering. It can't be undone.",
-      );
-      const keep = buttonNamed(view.host, "Keep it special");
-      assert.equal(view.host.ownerDocument.activeElement, keep, "focus on Keep it special");
-      for (const b of [keep, buttonNamed(view.host, "Turn it off")]) assert.match(b.className, /min-h-\[44px\]/);
-      await act(async () => keep.click());
-      assert.equal(view.host.querySelector('[role="group"]'), null);
-      assert.equal(view.host.ownerDocument.activeElement, box, "focus back on the box");
-      assert.deepEqual(patches, []);
-      // Turn it off: sent, and the status line says what happened.
-      await act(async () => box.click());
-      await act(async () => buttonNamed(view.host, "Turn it off").click());
-      assert.deepEqual(patches, [["0123456789abcdef01234567", { special: false }]]);
-      assert.equal(view.host.querySelector('[role="status"]')?.textContent, rules.UNTICK_SPECIAL_COPY.delete.done);
-      assert.equal(rules.UNTICK_SPECIAL_COPY.delete.done, "This is no longer a special event. Its RSVPs and who came were removed.");
-    } finally {
-      await view.unmount();
-    }
-    // Someone marked as came (not the host's own lister mark) also asks first.
-    patches.length = 0;
-    const marked = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: [], wentBy: ["Dale", "Ann"] }) }));
-    try {
-      await act(async () => marked.host.querySelector('input[type="checkbox"]').click());
-      assert.ok(marked.host.querySelector('[role="group"]'));
-      assert.deepEqual(patches, []);
-    } finally {
-      await marked.unmount();
-    }
-  } finally {
-    useBoard.setState({ updateCard });
-  }
-});
-
-test("Design H1: with nobody going or marked, untick and tick go straight through, each with a role=status line", async () => {
-  const patches = [];
-  const updateCard = useBoard.getState().updateCard;
-  useBoard.setState({ specialRefused: {}, updateCard: (id, patch) => patches.push([id, patch]) });
-  try {
-    const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: [], wentBy: ["Dale"] }) }));
+    // Even with people going and marked, unticking asks nothing: nothing is lost.
+    const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: ["Ann"], wentBy: ["Dale", "Ann"] }) }));
     try {
       await act(async () => view.host.querySelector('input[type="checkbox"]').click());
       assert.equal(view.host.querySelector('[role="group"]'), null);
+      assert.equal(buttonNamed(view.host, "Turn it off"), undefined);
       assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { special: false }]);
-      assert.equal(view.host.querySelector('[role="status"]')?.textContent, "This is no longer a special event.");
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, rules.SPECIAL_OFF_LINE);
     } finally {
       await view.unmount();
     }
@@ -495,24 +447,14 @@ test("Design H1: with nobody going or marked, untick and tick go straight throug
     try {
       await act(async () => off.host.querySelector('input[type="checkbox"]').click());
       assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { special: true }]);
-      assert.equal(off.host.querySelector('[role="status"]')?.textContent, "This is now a special event. Members can say they're going.");
+      assert.equal(off.host.querySelector('[role="status"]')?.textContent, rules.SPECIAL_ON_LINE);
+      assert.match(rules.SPECIAL_ON_LINE, /^Special event turned on\./);
     } finally {
       await off.unmount();
     }
   } finally {
     useBoard.setState({ updateCard });
   }
-});
-
-test("Design H1: the hide copy is ready behind the one constant", () => {
-  assert.equal(
-    rules.UNTICK_SPECIAL_COPY.hide.confirm,
-    "Turn off special event? This hides who said they're going and who came. Tick it again to bring them back.",
-  );
-  assert.ok(rules.UNTICK_SPECIAL_COPY.hide.done.length > 0);
-  // One line to switch: the constant is declared once.
-  const source = readFileSync(new URL("./rsvp-rules.ts", import.meta.url), "utf8");
-  assert.equal(source.match(/export const UNTICK_SPECIAL: UntickSpecial = "(delete|hide)";/g)?.length, 1);
 });
 
 test("Design L1, L2: the special-event box in the add form and on the card is 44px and described by its hint", async () => {

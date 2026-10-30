@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
 import { actorRole, stewardsRoom } from "./access.ts";
-import { cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
+import { NOW_SPECIAL, cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
 import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
@@ -107,11 +107,14 @@ export async function listRoomMembers(
     created_at: Date | string;
     card_id: string | null;
     user_id: string | null;
+    hidden: boolean;
   }>(
     `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name, p.card_id,
-            p.on_date, p.created_at, n.user_id
+            p.on_date, p.created_at, n.user_id,
+            (g.id is not null and not ${NOW_SPECIAL}) as hidden
      from board_post p
      left join dm_named_account n on n.post_id = p.id and cardinality(p.came) > 0
+     left join public_gathering g on lower(g.id) = lower(p.card_id) and p.card_id <> ''
      where p.room_id = $1 and p.type = 'hosted' and p.removed = false and p.parent_id is null
        and ${writeUpWithin("$2", "$3")}
      order by p.created_at desc, p.id`,
@@ -128,6 +131,9 @@ export async function listRoomMembers(
   const note = (personId: string | null, row: (typeof roll)[number], hosted: boolean) => {
     if (!personId) return;
     if (personId !== userId && !seesWhoCame(viewer, roomId, row.host_id, row.card_id)) return;
+    // A gathering that is not special now: who came is hidden from others
+    // until it is ticked again; each member keeps their own (Josh via Design, Oct 30 2:03 PM ET).
+    if (personId !== userId && !hosted && row.hidden) return;
     const mine = attended.get(personId) ?? new Map();
     if (!mine.has(row.post_id)) {
       mine.set(row.post_id, {
