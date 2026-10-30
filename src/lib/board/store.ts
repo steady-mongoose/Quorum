@@ -44,7 +44,7 @@ import {
   newCard,
   newPost,
   setRoomCatalog,
-  messageableNames,
+  localReach,
   threadIdFor,
   todayIso,
   type AppealDecision,
@@ -1356,7 +1356,11 @@ export const useBoard = create<BoardState>()(
           })),
         openDm: (other) => {
           const name = other.trim();
-          if (!messageableNames(me(), get().cards, get().posts, get().rooms).has(name)) return;
+          if (!name || name === me()) return;
+          // Signed in, the server decides when the conversation opens (the mailbox
+          // asks it). On the demo board the demo rule decides here.
+          if (!get().remote && !localReach(me(), get().cards, get().posts, get().rooms).has(name))
+            return;
           const id = threadIdFor(me(), name);
           const threads = get().threads.some((thread) => thread.id === id)
             ? get().threads
@@ -1389,7 +1393,7 @@ export const useBoard = create<BoardState>()(
           const name = member.name.trim();
           if (!name || name === me()) return;
           // On this device the room's posts decide who you may write to.
-          if (!get().remote && !messageableNames(me(), get().cards, get().posts, get().rooms).has(name))
+          if (!get().remote && !localReach(me(), get().cards, get().posts, get().rooms).has(name))
             return;
           const id = threadIdFor(me(), name);
           const threads = get().threads.some((thread) => thread.id === id)

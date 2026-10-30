@@ -55,7 +55,6 @@ import {
   roomIncludes,
   shelfFor,
   sortRoom,
-  messageableNames,
   todayIso,
   typeMeta,
   typesFor,
@@ -75,6 +74,7 @@ import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
+import { useMessageReach } from "@/components/board/use-message-reach";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
@@ -129,10 +129,7 @@ export function RoomView() {
 
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
-  const peers = useMemo(
-    () => messageableNames(me, cards, posts, rooms),
-    [me, cards, posts, rooms],
-  );
+  const reach = useMessageReach([room]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const shelf = useMemo(
     () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
@@ -352,7 +349,7 @@ export function RoomView() {
                 card={post.cardId ? cardById.get(post.cardId) : undefined}
                 trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
                 mine={post.author === me}
-                canMessage={peers.has(post.author)}
+                canMessage={reach.canMessage(post.author)}
                 steward={steward && tools}
                 canPost={canPost}
               />
@@ -1069,7 +1066,11 @@ const PostCard = memo(function PostCard({
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!canPost ? (
-          <MemberGate allowed={false}>{null}</MemberGate>
+          // Its own line, so the buttons below never share it and the card
+          // keeps its height when "Message X" appears.
+          <div className="basis-full">
+            <MemberGate allowed={false}>{null}</MemberGate>
+          </div>
         ) : replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <input

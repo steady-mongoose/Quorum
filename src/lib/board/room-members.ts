@@ -58,7 +58,7 @@ export function parseMemberList(value: unknown): MemberList | null {
 
 export async function loadRoomMembers(
   roomId: string,
-): Promise<{ ok: true; list: MemberList } | { ok: false; error: string }> {
+): Promise<{ ok: true; list: MemberList } | { ok: false; error: string; status?: number }> {
   const fallback = "The member list did not load.";
   const response = await apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members`, {
     method: "GET",
@@ -70,7 +70,7 @@ export async function loadRoomMembers(
       json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string"
         ? (json as { error: string }).error
         : fallback;
-    return { ok: false, error: userFacingError(raw, fallback) };
+    return { ok: false, error: userFacingError(raw, fallback), status: response.status };
   }
   const list = parseMemberList(json);
   return list ? { ok: true, list } : { ok: false, error: fallback };
