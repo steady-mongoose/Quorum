@@ -6,7 +6,14 @@ import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
-import { MARK_REFUSED, moveEntries, RSVP_BATCH_MAX, RSVP_NOT_READY } from "./rsvp.ts";
+import {
+  MARK_REFUSED,
+  moveEntries,
+  purgeOldRsvps,
+  RSVP_BATCH_MAX,
+  RSVP_NOT_READY,
+  rsvpCutoff,
+} from "./rsvp.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -619,4 +626,70 @@ test("migration 0049 is valid, owner-approved, idempotent, and has no counts", a
   } finally {
     await close();
   }
+});
+
+test("retention: RSVP rows are deleted after 12 months, going and attended alike; newer ones stay", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const now = new Date("2026-10-29T12:00:00Z");
+    assert.equal(rsvpCutoff(now).toISOString(), "2025-10-29T12:00:00.000Z");
+    const host = await user(db, "Dale");
+    const ann = await user(db, "Ann");
+    const tom = await user(db, "Tom");
+    const id = () => randomUUID();
+    const gathering = async (on: string) => {
+      const gid = id();
+      await db.query(
+        `insert into public_gathering (id, title, host_user_id, room_id, gather_on) values ($1, 'T', $2, 'shop', $3)`,
+        [gid, host, on],
+      );
+      return gid;
+    };
+    const rsvp = async (gid: string, uid: string, going: boolean, attended: boolean, touched: string) =>
+      db.query(
+        `insert into gathering_rsvp (gathering_id, user_id, going, attended, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $5)`,
+        [gid, uid, going, attended, touched],
+      );
+    // Ended 13 months ago: every row goes, going and attended.
+    const old = await gathering("2025-09-29");
+    await rsvp(old, ann, false, true, "2025-09-29T20:00:00Z");
+    await rsvp(old, tom, true, false, "2025-09-28T20:00:00Z");
+    // Ended 11 months ago: kept.
+    const recent = await gathering("2025-11-29");
+    await rsvp(recent, ann, false, true, "2025-11-29T20:00:00Z");
+    await rsvp(recent, tom, true, false, "2025-11-28T20:00:00Z");
+    // A weekly meeting that still meets: its date moved forward. Attendance
+    // last touched 13 months ago ages out; 11 months ago stays; a "going"
+    // for the next date stays even if the row is old.
+    const weekly = await gathering("2026-11-05");
+    await rsvp(weekly, ann, false, true, "2025-09-29T20:00:00Z");
+    await rsvp(weekly, tom, false, true, "2025-11-29T20:00:00Z");
+    await rsvp(weekly, host, true, true, "2025-09-29T20:00:00Z");
+
+    const result = await purgeOldRsvps(db, now);
+    assert.equal(result.deleted, 3);
+    const left = await db.query<{ gathering_id: string; user_id: string }>(
+      `select gathering_id, user_id from gathering_rsvp order by gathering_id, user_id`,
+    );
+    const key = (g: string, u: string) => `${g}:${u}`;
+    assert.deepEqual(
+      left.map((r) => key(r.gathering_id, r.user_id)).sort(),
+      [key(recent, ann), key(recent, tom), key(weekly, tom), key(weekly, host)].sort(),
+    );
+    // The gatherings themselves are not touched.
+    const gatherings = await db.query(`select id from public_gathering`);
+    assert.equal(gatherings.length, 3);
+    // A second run deletes nothing more.
+    assert.equal((await purgeOldRsvps(db, now)).deleted, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("retention runs in the API at start and daily, not in 0049", () => {
+  const host = readFileSync(new URL("../host.ts", import.meta.url), "utf8");
+  assert.match(host, /startRsvpRetention\(boardDb\)/);
+  const sql = readFileSync(new URL("../../migrations/0049_gathering_rsvp.sql", import.meta.url), "utf8");
+  assert.equal(/retention|12 months/i.test(sql), false);
 });

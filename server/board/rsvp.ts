@@ -233,6 +233,81 @@ export async function markAttendance(
   await db.transaction(run);
 }
 
+/** RSVP and attendance rows are kept this many months (Josh, Oct 29, 9:29 PM ET). */
+export const RSVP_RETENTION_MONTHS = 12;
+/** One delete removes at most this many rows; a run stops after RSVP_PURGE_ROUNDS. */
+export const RSVP_PURGE_BATCH = 1000;
+const RSVP_PURGE_ROUNDS = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The same instant RSVP_RETENTION_MONTHS calendar months earlier (UTC). */
+export function rsvpCutoff(now: Date): Date {
+  const cutoff = new Date(now.getTime());
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - RSVP_RETENTION_MONTHS);
+  return cutoff;
+}
+
+/**
+ * Retention: "Delete attendance records after 12 months." (Josh, Oct 29,
+ * 9:29 PM ET). Runs in the API, not in 0049. A row is deleted, going and
+ * attended alike, when either:
+ *   - its gathering's date (gather_on, YYYY-MM-DD) is more than 12 months
+ *     ago: the gathering ended and was never given a later date; or
+ *   - it says only "came" (going is false) and nobody has touched it for
+ *     12 months. A weekly meeting keeps moving its date forward, so this is
+ *     what ages out old attendance on a gathering that still meets. A row
+ *     that says "going" is for the next date and is kept.
+ * Deletes run in bounded batches. Before 0049 is applied there is no table,
+ * and this does nothing.
+ */
+export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: number }> {
+  const present = await db.query<{ present: string | null }>(
+    `select to_regclass('public.gathering_rsvp')::text as present`,
+  );
+  if (!present[0]?.present) return { deleted: 0 };
+  const cutoff = rsvpCutoff(now);
+  const cutoffDay = cutoff.toISOString().slice(0, 10);
+  let deleted = 0;
+  for (let round = 0; round < RSVP_PURGE_ROUNDS; round += 1) {
+    const rows = await db.query<{ gathering_id: string }>(
+      `delete from gathering_rsvp d
+       using (
+         select r.gathering_id, r.user_id
+         from gathering_rsvp r
+         join public_gathering g on g.id = r.gathering_id
+         where (g.gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' and g.gather_on < $1)
+            or (not r.going and r.updated_at < $2)
+         limit $3
+       ) old
+       where d.gathering_id = old.gathering_id and d.user_id = old.user_id
+       returning d.gathering_id`,
+      [cutoffDay, cutoff, RSVP_PURGE_BATCH],
+    );
+    deleted += rows.length;
+    if (rows.length < RSVP_PURGE_BATCH) break;
+  }
+  console.log(JSON.stringify({ event: "rsvp-retention-purge", deleted }));
+  return { deleted };
+}
+
+/** Runs once at start and then every 24 hours, like the security-log purge. */
+export function startRsvpRetention(db: Db, now: () => Date = () => new Date()): () => void {
+  const run = () => {
+    void purgeOldRsvps(db, now()).catch((error: unknown) => {
+      console.error(
+        JSON.stringify({
+          event: "rsvp-retention-purge-failed",
+          message: error instanceof Error ? error.message : "unknown",
+        }),
+      );
+    });
+  };
+  run();
+  const timer = setInterval(run, DAY_MS);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 export type MoveEntry = { gatheringId: string; going: boolean; attended: boolean };
 
 /** Read the move body. Bad rows are dropped; nothing here is about anyone else. */
