@@ -17,6 +17,8 @@ export const RSVP_NOT_READY = "rsvp-not-ready";
 export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
 /** A roll call named someone the server no longer lists (a stale or unknown handle). */
 export const ROLL_CALL_STALE = "That list is out of date.";
+/** After a close saved but its write-up did not (Design #126 L1). */
+export const WHO_CAME_SAVED = "Who came is already saved. Send the write-up again.";
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 
 export type ServerRsvp = {
@@ -296,6 +298,27 @@ export function resetRollPicks(
     cameIds: kept.map((person) => person.userId).filter(Boolean),
     dropped: [...new Set(dropped.map((person) => person.name))],
   };
+}
+
+/**
+ * The dropped picks to show after a reset: the earlier ones, plus picks that
+ * just left (named from `before`, the list the host saw), minus anyone who is
+ * back on the fresh list. Someone who comes back stays unticked (Design #126 M1).
+ */
+export function nextDropped(
+  shown: readonly RollPerson[],
+  before: readonly RollPerson[],
+  fresh: readonly RollPerson[],
+  keys: readonly string[],
+): RollPerson[] {
+  const still = new Set(fresh.map(rollKey));
+  const out = new Map<string, RollPerson>();
+  for (const person of shown) out.set(rollKey(person), person);
+  for (const person of before) {
+    if (keys.includes(rollKey(person)) && !still.has(rollKey(person))) out.set(rollKey(person), person);
+  }
+  for (const key of still) out.delete(key);
+  return [...out.values()];
 }
 
 /** The line under the roll call for picks that left the list. Empty when none did. */

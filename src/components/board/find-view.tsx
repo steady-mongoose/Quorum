@@ -40,15 +40,18 @@ import {
 } from "@/lib/board/model";
 import {
   droppedLine,
+  nextDropped,
   resetRollPicks,
   ROLL_CALL_STALE,
   rollCallFor,
   rollKey,
   toggleRoll,
+  WHO_CAME_SAVED,
+  type RollPerson,
 } from "@/lib/board/rsvp-api";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
-import { useBoard } from "@/lib/board/store";
+import { closeSavedFor, useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -385,15 +388,19 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
    * picks still on it, so a retry never sends a list the host did not see
    * (QA S3).
    */
-  const [dropped, setDropped] = useState("");
+  const [droppedPeople, setDroppedPeople] = useState<RollPerson[]>([]);
+  const dropped = droppedLine([...new Set(droppedPeople.map((person) => person.name))]);
+  // A close saved while its write-up did not: the retry sends that roll call,
+  // so the chips are locked until the write-up is filed (Design #126 L1).
+  const [whoSaved, setWhoSaved] = useState(false);
   const resetPicks = () => {
-    const next = resetRollPicks(roll, rollCallFor(card, useBoard.getState().rollCall), cameKeys);
+    const fresh = rollCallFor(card, useBoard.getState().rollCall);
+    const next = resetRollPicks(roll, fresh, cameKeys);
     setCameKeys(next.keys);
     setCame(next.came);
     setCameIds(next.cameIds);
-    // Only add names: Reload runs this again and drops nobody, and the line
-    // stays until the next submit (QA S4 #3).
-    if (next.dropped.length > 0) setDropped(droppedLine(next.dropped));
+    // Add the picks that just left, drop anyone who is back (Design #126 M1).
+    setDroppedPeople((shown) => nextDropped(shown, roll, fresh, cameKeys));
   };
   // Reload takes its own button away: focus the first chip, or Save (Design #126 M2).
   const firstChip = useRef<HTMLInputElement>(null);
@@ -503,7 +510,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 event.preventDefault();
                 // Clear first so a repeat failure re-mounts the alert and is announced again.
                 setRefused([]);
-                setDropped("");
+                setDroppedPeople([]);
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
                 void closeCard(
@@ -517,10 +524,12 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 ).then(
                   (check) => {
                     if (!check.ok) {
+                      setWhoSaved(closeSavedFor(card.id));
                       setRefused(check.stops);
                       if (check.stops.includes(ROLL_CALL_STALE)) resetPicks();
                       return;
                     }
+                    setWhoSaved(false);
                     setClosing(false);
                     // A gathering that drops off the list takes its button with
                     // it: focus goes to the list heading instead.
@@ -601,6 +610,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                       className={cn(
                         "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3 has-[[data-focus-ring]:focus]:outline has-[[data-focus-ring]:focus]:outline-2 has-[[data-focus-ring]:focus]:outline-offset-2",
                         cameKeys.includes(rollKey(person)) && "bg-signal text-signal-ink",
+                        whoSaved && "cursor-not-allowed opacity-70",
                       )}
                     >
                       <input
@@ -608,7 +618,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                         type="checkbox"
                         className="sr-only"
                         checked={cameKeys.includes(rollKey(person))}
+                        disabled={whoSaved}
+                        aria-disabled={whoSaved || undefined}
                         onChange={() => {
+                          if (whoSaved) return;
                           const next = toggleRoll(roll, cameKeys, person);
                           setCameKeys(next.keys);
                           setCame(next.came);
@@ -622,6 +635,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               ) : null}
               <p role="status" className={cn("text-sm text-fg", !dropped && "sr-only")}>
                 {dropped}
+              </p>
+              <p role="status" className={cn("text-sm text-fg", !whoSaved && "sr-only")}>
+                {whoSaved ? WHO_CAME_SAVED : ""}
               </p>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex basis-full flex-col gap-2 text-sm text-muted">

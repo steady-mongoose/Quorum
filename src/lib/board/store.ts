@@ -23,6 +23,10 @@ import { removalFailedCopy } from "./errors.ts";
  * with no picks (QA S3 #2).
  */
 const closedUnfiled = new Map<string, string[]>();
+/** True while a close saved on the server and its write-up is not filed yet. */
+export function closeSavedFor(cardId: string): boolean {
+  return closedUnfiled.has(cardId);
+}
 /** Close once; a retry after a failed write-up reuses the first close's roll call. */
 async function closeOnce(
   close: () => Promise<{ stop: string | null; sent: string[] }>,

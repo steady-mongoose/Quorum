@@ -110,7 +110,7 @@ test("door copy: you see your own answer; host, stewards and admins see who is g
 
 test("Find clears refused at each close submit so a repeat failure is announced again", () => {
   const source = read("find-view.tsx");
-  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*setDropped\(""\);\s*const happened =/);
+  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*setDroppedPeople\(\[\]\);\s*const happened =/);
 });
 
 import { cameText, forViewer } from "./model.ts";
@@ -206,9 +206,11 @@ test("the roll call option copy (Design #126)", async () => {
 test("Design #126 M1: dropped picks are named in a status line, cleared on the next submit", () => {
   const src = read("find-view.tsx");
   // Reload runs the reset again and drops nobody: the line stays until submit (QA S4 #3).
-  assert.match(src, /if \(next\.dropped\.length > 0\) setDropped\(droppedLine\(next\.dropped\)\)/);
+  // A list of people, not a stored sentence: each reset adds and removes (Design #126 M1).
+  assert.match(src, /setDroppedPeople\(\(shown\) => nextDropped\(shown, roll, fresh, cameKeys\)\)/);
+  assert.match(src, /const dropped = droppedLine\(/);
   assert.match(src, /<p role="status" className=\{cn\("text-sm text-fg", !dropped && "sr-only"\)\}>\s*\{dropped\}/);
-  assert.match(src, /setRefused\(\[\]\);\s*setDropped\(""\);\s*const happened/);
+  assert.match(src, /setRefused\(\[\]\);\s*setDroppedPeople\(\[\]\);\s*const happened/);
 });
 
 test("Design #126 M2: after Reload, focus goes to the first chip with the ring, or Save", () => {
@@ -222,4 +224,14 @@ test("Design #126 M2: after Reload, focus goes to the first chip with the ring, 
 test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #126 low 3)", () => {
   const css = readFileSync(new URL("../../../public/backgrounds.css", import.meta.url), "utf8");
   assert.match(css, /transition-duration:0s!important;transition-delay:0s!important/);
+});
+
+test("Design #126 L1: after a saved close, the chips lock and a status line says who came is saved", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /setWhoSaved\(closeSavedFor\(card\.id\)\)/);
+  assert.match(src, /disabled=\{whoSaved\}\s*aria-disabled=\{whoSaved \|\| undefined\}/);
+  assert.match(src, /if \(whoSaved\) return;/);
+  assert.match(src, /<p role="status" className=\{cn\("text-sm text-fg", !whoSaved && "sr-only"\)\}>\s*\{whoSaved \? WHO_CAME_SAVED : ""\}/);
+  // Cleared once the write-up is filed.
+  assert.match(src, /setWhoSaved\(false\);\s*setClosing\(false\)/);
 });

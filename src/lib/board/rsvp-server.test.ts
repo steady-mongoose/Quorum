@@ -9,6 +9,8 @@ import {
   CAME_NOT_SAVED,
   ROLL_CALL_STALE,
   droppedLine,
+  nextDropped,
+  WHO_CAME_SAVED,
   resetRollPicks,
   cameIdsFor,
   deviceRsvpMoves,
@@ -18,7 +20,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { useBoard } from "./store.ts";
+import { closeSavedFor, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const G2 = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -680,8 +682,12 @@ test("QA S3 #2: the close saves but the write-up fails; the retry reuses the clo
       rollCall: { [G3]: [{ userId: "h_tom", name: "Tom" }] },
       cards: [card(G3, { host: "Dale", next: "2026-10-31", going: ["Tom"] })],
     });
+    assert.equal(closeSavedFor(G3), false);
     const first = await useBoard.getState().closeCard(G3, true, "", "Good morning.", ["Tom"], "", ["h_tom"]);
     assert.equal(first.ok, false);
+    // Design #126 L1: the form locks its chips and says who came is saved.
+    assert.equal(closeSavedFor(G3), true);
+    assert.equal(WHO_CAME_SAVED, "Who came is already saved. Send the write-up again.");
     // The close saved, so Tom left the list: the form now has no picks to send.
     useBoard.setState({ rollCall: { [G3]: [] } });
     postFails = false;
@@ -689,8 +695,31 @@ test("QA S3 #2: the close saves but the write-up fails; the retry reuses the clo
     assert.equal(retry.ok, true, JSON.stringify(retry));
     assert.equal(sent.filter((s) => s.path.endsWith("/attendance")).length, 1, "the date is closed once");
     assert.deepEqual(drafts.map((d) => d.cameIds), [["h_tom"], ["h_tom"]]);
+    assert.equal(closeSavedFor(G3), false, "cleared once the write-up is filed");
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);
   }
+});
+
+test("Design #126 M1: dropped picks accumulate, and anyone back on the list leaves the line", () => {
+  const tom = { userId: "h_tom", name: "Tom" };
+  const ann = { userId: "h_ann", name: "Ann" };
+  const ben = { userId: "h_ben", name: "Ben" };
+  const cal = { userId: "h_cal", name: "Cal" };
+  const names = (people: { name: string }[]) => droppedLine(people.map((p) => p.name));
+  // First 409: Ann left. Cal is new and is never named.
+  let shown = nextDropped([], [tom, ann, ben], [tom, ben, cal], ["h_tom", "h_ann", "h_ben"]);
+  assert.equal(names(shown), "No longer on this list, so not marked: Ann.");
+  // Second 409: Ben left too. Ann is still named.
+  shown = nextDropped(shown, [tom, ben, cal], [tom, cal], ["h_tom", "h_ben"]);
+  assert.equal(names(shown), "No longer on this list, so not marked: Ann, Ben.");
+  // Reload brings Ann back: she leaves the line, and stays unticked.
+  const back = [tom, ann, cal];
+  shown = nextDropped(shown, [tom, cal], back, ["h_tom"]);
+  assert.equal(names(shown), "No longer on this list, so not marked: Ben.");
+  assert.deepEqual(resetRollPicks([tom, cal], back, ["h_tom"]).keys, ["h_tom"]);
+  // Everyone back: the line is empty. Submit clears the list (shown = []).
+  assert.equal(names(nextDropped(shown, [tom, ann, cal], [tom, ann, ben, cal], ["h_tom"])), "");
+  assert.equal(names([]), "");
 });
