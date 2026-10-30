@@ -47,25 +47,25 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/,
   );
-  const narrow = css.slice(css.indexOf("@container mast (max-width:420px)"));
+  const narrow = css.slice(css.indexOf("@container mast (max-width:26.25em)"));
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("text-overflow"), false);
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("white-space"), false);
 
@@ -194,7 +194,7 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
       at('"door-rooms ') < at('"door-side '),
   );
   const desk = css.slice(css.indexOf("/* Desktop door:"));
-  assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
+  assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:64em\)\{/);
   assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
   assert.match(desk, /\.door-main\{display:contents\}/);
   assert.match(desk, /\.door-rooms\{grid-area:rooms/);

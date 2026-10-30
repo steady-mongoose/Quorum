@@ -137,7 +137,7 @@ test("focused controls clear the tab bar on phones and the chip row on Rooms bel
   );
   assert.match(
     fluid,
-    /@media \(max-width:1023px\)\{html:has\(\.room-chips\)\{scroll-padding-top:calc\(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\}\}/,
+    /@media \(max-width:63.99em\)\{html:has\(\.room-chips\)\{scroll-padding-top:calc\(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\}\}/,
   );
 });
 
@@ -147,7 +147,7 @@ test("header controls cancel the scroll padding, so focusing them never scrolls 
   assert.match(fluid, /\.mast-bar,\.mast-bar \*\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ \.5rem\)\)\}/);
   assert.match(
     fluid,
-    /@media \(max-width:1023px\)\{html:has\(\.room-chips\) :is\(\.mast-bar,\.mast-bar \*,\.room-chips,\.room-chips \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\)\}\}/,
+    /@media \(max-width:63.99em\)\{html:has\(\.room-chips\) :is\(\.mast-bar,\.mast-bar \*,\.room-chips,\.room-chips \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\)\}\}/,
   );
   // Every scroll-padding-top on html has a matching cancel on the header.
   const pads = [...fluid.matchAll(/scroll-padding-top:calc\(([^;}]+)\)[;}]/g)].map((m) => m[1]);

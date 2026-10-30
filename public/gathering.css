@@ -68,7 +68,7 @@ body{margin:0}
 }
 /* The desktop gold frame is fixed to the viewport. On this page it would stop
    partway down and cross Privacy, so the page carries the frame instead. */
-@media (min-width:1024px) {
+@media (min-width:64em) {
   .gathering-page { position: relative; }
   .gathering-page::after {
     content: "";
