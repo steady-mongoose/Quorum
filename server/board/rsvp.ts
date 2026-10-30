@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { rsvpHandle } from "./rsvp-handle.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
 import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
@@ -159,14 +159,7 @@ function toRow(row: DbRow): RsvpRow {
  * The host sends handles back to mark who came; the server maps them. Admins
  * keep real ids. A viewer's own row keeps their own id.
  */
-const HANDLE_KEY = process.env.BETTER_AUTH_SECRET || randomBytes(32).toString("hex");
-
-export function rsvpHandle(gatheringId: string, userId: string): string {
-  const mac = createHmac("sha256", `rsvp-handle:${HANDLE_KEY}`)
-    .update(`${gatheringId.toLowerCase()}\n${userId}`)
-    .digest("base64url");
-  return `h_${mac.slice(0, 22)}`;
-}
+export { rsvpHandle } from "./rsvp-handle.ts";
 
 export function withHandles(rows: RsvpRow[], reader: { userId: string; admin: boolean }): RsvpRow[] {
   if (reader.admin) return rows;
@@ -629,6 +622,24 @@ export async function handleRsvp(
       now,
     });
     if (!userIds) return json(409, { error: ROLL_CALL_STALE });
+    if (body.close === true) {
+      // A close clears every "going". Refuse one from a list that never showed
+      // someone who is going now (a retry after a stale roll call, another
+      // tab), so a close cannot wipe RSVPs the host never saw (QA S3).
+      const seenRaw = body.seen ?? [];
+      if (!Array.isArray(seenRaw) || seenRaw.length > RSVP_BATCH_MAX || seenRaw.some((id) => typeof id !== "string")) {
+        return json(400, { error: `Send up to ${RSVP_BATCH_MAX} member ids.` });
+      }
+      const seen = new Set([...(seenRaw as string[]), ...(raw as string[])]);
+      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId], now });
+      const unseen = rows.some(
+        (row) =>
+          row.going &&
+          !seen.has(rsvpHandle(gatheringId, row.userId)) &&
+          !((reader.admin || row.userId === reader.userId) && seen.has(row.userId)),
+      );
+      if (unseen) return json(409, { error: ROLL_CALL_STALE });
+    }
     await markAttendance(deps.db, {
       gatheringId,
       userIds,

@@ -567,6 +567,7 @@ test("a host who is not an admin closes a date and attendance is recorded on the
     const closed = await call(t.handler, t.maria, "POST", `/api/gatherings/${MARIAS}/attendance`, {
       userIds: [tomId],
       close: true,
+      seen: roll.people.map((p) => p.userId),
     });
     assert.equal(closed.status, 200);
     const rows = await t.db.query<{ user_id: string; going: boolean; attended: boolean }>(
@@ -738,7 +739,11 @@ test("concurrent toggles never answer 500, and a close racing a 'going' succeeds
     await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     const [close, going, again] = await Promise.all([
-      call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, { userIds: [rsvpHandle(GATHERING, t.tom.id)], close: true }),
+      call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+        userIds: [rsvpHandle(GATHERING, t.tom.id)],
+        close: true,
+        seen: [rsvpHandle(GATHERING, t.maria.id)],
+      }),
       call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false }),
       call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true }),
     ]);
@@ -916,9 +921,16 @@ test("a room with roll off refuses who came; a close with no names still clears 
     assert.equal(self.status, 409);
     const attended = await t.db.query(`select 1 from gathering_rsvp where attended`);
     assert.equal(attended.length, 0);
+    // A close that never saw Tom's "going" is refused (QA S3); one that saw it clears it.
+    const blind = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [],
+      close: true,
+    });
+    assert.equal(blind.status, 409);
     const closed = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
       userIds: [],
       close: true,
+      seen: [rsvpHandle(GATHERING, t.tom.id)],
     });
     assert.equal(closed.status, 200);
     assert.equal((await t.db.query(`select 1 from gathering_rsvp`)).length, 0);
@@ -1029,6 +1041,7 @@ test("two members named Ann: 'You were there' follows the host's pick by account
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
       userIds: [rsvpHandle(GATHERING, annB)],
       close: true,
+      seen: [rsvpHandle(GATHERING, annA), rsvpHandle(GATHERING, annB)],
     });
     assert.equal(marked.status, 200);
     const now = new Date("2026-10-29T12:00:00Z");
@@ -1042,7 +1055,7 @@ test("two members named Ann: 'You were there' follows the host's pick by account
       userId: t.dale.id,
       name: "Dale",
       roomId: "shop",
-      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-29", came: ["Ann"], cardId: GATHERING },
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-29", came: ["Ann"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, annB)] },
       now,
     });
     assert.equal(posted.ok, true, JSON.stringify(posted));
@@ -1056,6 +1069,115 @@ test("two members named Ann: 'You were there' follows the host's pick by account
     };
     assert.equal(await youCame(annB), true);
     assert.equal(await youCame(annA), false);
+  } finally {
+    await t.close();
+  }
+});
+
+/** Helpers for the write-up link tests: members of the shop room, and Dale's write-up. */
+async function inShop(t: Awaited<ReturnType<typeof setup>>, ids: string[]) {
+  for (const id of ids) {
+    await t.db.query(
+      `insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2) on conflict do nothing`,
+      [id, new Date("2026-10-01T00:00:00Z")],
+    );
+  }
+}
+const WRITE_NOW = new Date("2026-10-29T12:00:00Z");
+async function writeUp(t: Awaited<ReturnType<typeof setup>>, came: string[], cameIds: string[], on = "2026-10-29") {
+  const posted = await createPost(t.db, {
+    userId: t.dale.id,
+    name: "Dale",
+    roomId: "shop",
+    body: { type: "hosted", claim: "The lift went well and the next one is set.", on, came, cardId: GATHERING, cameIds },
+    now: WRITE_NOW,
+  });
+  assert.equal(posted.ok, true, JSON.stringify(posted));
+  return posted.ok ? posted.value.id : "";
+}
+async function youCameOn(t: Awaited<ReturnType<typeof setup>>, viewer: string, postId: string) {
+  const board = await listBoard(t.db, viewer, WRITE_NOW, { room: "shop" });
+  assert.equal(board.ok, true);
+  const post = board.ok ? board.value.posts.find((item) => item.id === postId) : undefined;
+  assert.ok(post, "the write-up is on the board");
+  return post?.youCame;
+}
+const att = (t: Awaited<ReturnType<typeof setup>>, body: unknown) =>
+  call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, body);
+
+test("QA S3: a retry after a stale roll call cannot clear a going it never saw, and a cancelled Ann is not linked", async () => {
+  const t = await setup();
+  try {
+    const ann = await user(t.db, "Ann");
+    await grant(t.db, ann, "Ann");
+    await inShop(t, [t.dale.id, t.tom.id, ann]);
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await call(t.handler, { id: ann }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    const annH = rsvpHandle(GATHERING, ann);
+    // Dale's list shows Tom and Ann; then Ann cancels.
+    await call(t.handler, { id: ann }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false });
+    const first = await att(t, { userIds: [tomH, annH], close: true, seen: [tomH, annH] });
+    assert.equal(first.status, 409);
+    assert.deepEqual(await first.json(), { error: ROLL_CALL_STALE, api: "rsvp" });
+    // The old form's retry: no picks, and a list that held only Ann.
+    const retry = await att(t, { userIds: [], close: true, seen: [annH] });
+    assert.equal(retry.status, 409);
+    const tomRow = await t.db.query<{ going: boolean }>(
+      `select going from gathering_rsvp where gathering_id = $1 and user_id = $2`,
+      [GATHERING, t.tom.id],
+    );
+    assert.equal(tomRow[0]?.going, true, "Tom's going row is still there");
+    // The reset form sends Tom only, from the refreshed list.
+    assert.equal((await att(t, { userIds: [tomH], close: true, seen: [tomH] })).status, 200);
+    // Even a write-up that names Ann, and carries her old handle, does not link her.
+    const post = await writeUp(t, ["Tom", "Ann"], [tomH, annH]);
+    assert.equal(await youCameOn(t, ann, post), false);
+    assert.equal(await youCameOn(t, t.tom.id, post), true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA S4 2: on a repeating gathering, week 2's write-up links only week 2's roll call", async () => {
+  const t = await setup();
+  try {
+    const ann = await user(t.db, "Ann");
+    await grant(t.db, ann, "Ann");
+    await inShop(t, [t.dale.id, t.tom.id, ann]);
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    const annH = rsvpHandle(GATHERING, ann);
+    // Week 1: Tom came.
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal((await att(t, { userIds: [tomH], close: true, seen: [tomH] })).status, 200);
+    const week1 = await writeUp(t, ["Tom"], [tomH], "2026-10-22");
+    // Week 2: Tom and Ann say they are going; only Ann comes. The close
+    // re-stamps Tom's old attended row, but he is not on this roll call.
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await call(t.handler, { id: ann }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal((await att(t, { userIds: [annH], close: true, seen: [tomH, annH] })).status, 200);
+    const week2 = await writeUp(t, ["Ann", "Tom"], [annH]);
+    assert.equal(await youCameOn(t, t.tom.id, week1), true);
+    assert.equal(await youCameOn(t, t.tom.id, week2), false, "Tom came to week 1, not week 2");
+    assert.equal(await youCameOn(t, ann, week2), true);
+    assert.equal(await youCameOn(t, ann, week1), false);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA S4 3: a write-up filed long after the close still links the roll call", async () => {
+  const t = await setup();
+  try {
+    await inShop(t, [t.dale.id, t.tom.id]);
+    const tomH = rsvpHandle(GATHERING, t.tom.id);
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal((await att(t, { userIds: [tomH], close: true, seen: [tomH] })).status, 200);
+    await t.db.query(`update gathering_rsvp set updated_at = now() - interval '3 hours' where gathering_id = $1`, [
+      GATHERING,
+    ]);
+    const post = await writeUp(t, ["Tom"], [tomH]);
+    assert.equal(await youCameOn(t, t.tom.id, post), true);
   } finally {
     await t.close();
   }

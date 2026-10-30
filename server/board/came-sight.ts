@@ -1,5 +1,6 @@
 import type { Db } from "../db.ts";
 import { stewardsRoom, type BoardActor } from "./access.ts";
+import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
 
 /**
  * Who came is private (Josh, Oct 29, 10:06 PM ET): "Make who came private: only
@@ -45,11 +46,14 @@ export function seesWhoCame(
 export function cameFor(
   came: string[],
   viewer: CameViewer,
-  post: { id: string; roomId: string; hostId: string | null | undefined },
+  post: { id: string; roomId: string; hostId: string | null | undefined; cardId?: string | null },
 ): { came: string[]; youCame: boolean } {
   const byId = viewer.namedIn?.has(post.id) ?? false;
   const resolved = viewer.namedIn?.resolved?.has(post.id) ?? false;
-  const youCame = byId || (!resolved && viewer.nameOwn !== false && viewer.name !== "" && came.includes(viewer.name));
+  // A gathering's write-up is linked by the roll call's ids only (QA S3): a
+  // name never stands in for one.
+  const byNameOk = !resolved && !isGatheringId(post.cardId ?? "");
+  const youCame = byId || (byNameOk && viewer.nameOwn !== false && viewer.name !== "" && came.includes(viewer.name));
   if (seesWhoCame(viewer, post.roomId, post.hostId)) return { came, youCame };
   return { came: [], youCame };
 }
@@ -76,4 +80,15 @@ export async function namedIn(
     if (row.user_id === userId) out.add(row.post_id);
   }
   return out;
+}
+
+/** A viewer for one post's response (create, edit): "You came" by id, as on the board (QA S4 5). */
+export async function cameViewerFor(
+  db: Db,
+  userId: string,
+  actor: BoardActor,
+  postId: string,
+): Promise<CameViewer> {
+  const viewer = await cameViewer(db, userId, actor);
+  return { ...viewer, namedIn: await namedIn(db, userId, [postId]) };
 }

@@ -38,7 +38,7 @@ import {
   seesCame,
   takesRoll,
 } from "@/lib/board/model";
-import { rollCallFor, rollKey, toggleRoll } from "@/lib/board/rsvp-api";
+import { ROLL_CALL_STALE, rollCallFor, rollKey, toggleRoll } from "@/lib/board/rsvp-api";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
@@ -104,7 +104,11 @@ export function FindView() {
       <div className="flex flex-col gap-8">
         <section className="flex flex-col gap-3">
           <Kicker>Find</Kicker>
-          <h1 className="illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl">
+          <h1
+            id={FIND_LIST_HEADING}
+            tabIndex={-1}
+            className="focus-target illum max-w-xl font-display text-4xl text-balance text-fg lg:text-5xl"
+          >
             Every meeting, in one list.
           </h1>
           <p className="max-w-prose text-base text-muted">
@@ -349,11 +353,15 @@ function InviteNote() {
   );
 }
 
+/** Focus lands here when a closed gathering drops off the list (Design #126). */
+const FIND_LIST_HEADING = "find-list-h";
+
 function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const visited = useBoard((state) => state.visited);
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const closeCard = useBoard((state) => state.closeCard);
+  const reloadRsvps = useBoard((state) => state.reloadRsvps);
   const [closing, setClosing] = useState(false);
   const [nextDate, setNextDate] = useState(card.next || todayIso());
   const [line, setLine] = useState("");
@@ -364,6 +372,27 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const roll = rollCallFor(card, rollCall);
   const [pages, setPages] = useState("");
   const [refused, setRefused] = useState<string[]>([]);
+  /**
+   * After a stale roll call (409) the list was read again: keep only the
+   * picks still on it, so a retry never sends a list the host did not see
+   * (QA S3).
+   */
+  const resetPicks = () => {
+    const fresh = rollCallFor(card, useBoard.getState().rollCall);
+    let keys: string[] = [];
+    let names: string[] = [];
+    let ids: string[] = [];
+    for (const person of fresh) {
+      if (!cameKeys.includes(rollKey(person))) continue;
+      const next = toggleRoll(fresh, keys, person);
+      keys = next.keys;
+      names = next.came;
+      ids = next.cameIds;
+    }
+    setCameKeys(keys);
+    setCame(names);
+    setCameIds(ids);
+  };
   const pagesId = useId();
   const lineId = useId();
   const lineHintId = useId();
@@ -477,9 +506,17 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   (check) => {
                     if (!check.ok) {
                       setRefused(check.stops);
+                      if (check.stops.includes(ROLL_CALL_STALE)) resetPicks();
                       return;
                     }
                     setClosing(false);
+                    // A gathering that drops off the list takes its button with
+                    // it: focus goes to the list heading instead.
+                    window.setTimeout(() => {
+                      if (!document.getElementById(`card-${card.id}`)) {
+                        document.getElementById(FIND_LIST_HEADING)?.focus();
+                      }
+                    }, 0);
                     setRefocus(true);
                     setLine("");
                     setCame([]);
@@ -522,7 +559,23 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               {refused.length > 0 ? (
                 <ul className="flex flex-col gap-1 text-sm text-danger" role="alert">
                   {refused.map((stop) => (
-                    <li key={stop}>{stop}</li>
+                    <li key={stop} className="flex flex-wrap items-center gap-2">
+                      {stop}
+                      {stop === ROLL_CALL_STALE ? (
+                        <button
+                          type="button"
+                          className={cn(btnQuiet, "min-h-[44px]")}
+                          onClick={() => {
+                            void reloadRsvps().then(() => {
+                              resetPicks();
+                              setRefused([]);
+                            });
+                          }}
+                        >
+                          Reload
+                        </button>
+                      ) : null}
+                    </li>
                   ))}
                 </ul>
               ) : null}

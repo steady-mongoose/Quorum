@@ -177,3 +177,22 @@ test("the RSVP button is aria-busy while saving, says when it failed, and only a
   assert.doesNotMatch(css, /^\.rsvp-mark \.(rule|laurel)\{[^}]*transition/m);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\{\.rsvp-mark \.rule,\.rsvp-mark \.laurel\{transition:none!important\}\}/);
 });
+
+test("Find's close form: a stale roll call resets the picks and offers Reload; focus survives a card leaving (#126)", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /check\.stops\.includes\(ROLL_CALL_STALE\)\) resetPicks\(\)/);
+  assert.match(src, /stop === ROLL_CALL_STALE \?[\s\S]{0,400}reloadRsvps\(\)\.then\(\(\) => \{\s*resetPicks\(\);/);
+  assert.match(src, />\s*Reload\s*</);
+  assert.match(src, /id=\{FIND_LIST_HEADING\}\s*tabIndex=\{-1\}\s*className="focus-target /);
+  assert.match(src, /document\.getElementById\(FIND_LIST_HEADING\)\?\.focus\(\)/);
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.focus-target:focus \{\s*outline: 2px solid #f0e7d3;/);
+});
+
+test("the roll call option copy (Design #126)", async () => {
+  const { ROOM_OPTION_WHAT } = await import("./room-options.ts");
+  assert.equal(
+    ROOM_OPTION_WHAT.roll_call,
+    "After a gathering, the host records who came. The host, the room's stewards, and the admins see it. You see your own.",
+  );
+});

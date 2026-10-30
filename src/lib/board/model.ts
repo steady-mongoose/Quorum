@@ -755,6 +755,8 @@ export type Draft = {
   postId: string;
   media: SharedMedia[];
   subject: "" | "candidate" | "business";
+  /** A gathering write-up: the roll call this close sent (handles), so the server links exactly them. */
+  cameIds?: string[];
 };
 
 export function blankDraft(room: RoomId): Draft {

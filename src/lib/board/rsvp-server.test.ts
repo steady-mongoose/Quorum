@@ -386,7 +386,7 @@ test("a host who is not an admin closes a date and the server gets who came, by 
     assert.equal(check.ok, true, JSON.stringify(check));
     await settle();
     const attendance = sent.filter((s) => s.path.endsWith("/attendance"));
-    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["u-tom"], close: true } }]);
+    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["u-tom"], close: true, seen: ["u-tom", "u-ann"] } }]);
     assert.equal(useBoard.getState().boardError, "");
 
     // A failed roll call: the card stays open with its going list, so the

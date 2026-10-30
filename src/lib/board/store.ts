@@ -242,6 +242,8 @@ type BoardState = {
     pages?: string,
     cameIds?: string[],
   ) => Promise<Check>;
+  /** Read the RSVPs and roll calls again (the Reload next to a stale roll call). */
+  reloadRsvps: () => Promise<void>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
   /** "I've been": only the card's host or an admin. Anyone else's tap does nothing. */
@@ -570,27 +572,39 @@ export const useBoard = create<BoardState>()(
        * the card, its going list and the write-up stay, and the host can try
        * again. Only rsvp-not-ready (or an API from before 0049) carries on.
        */
-      /** null when saved (or kept on this device); otherwise the one line to show the host. */
+      /**
+       * stop: null when saved (or kept on this device); otherwise the one line
+       * to show the host. sent: the roll call this close sent, which the
+       * write-up carries so the server links exactly these people (QA S4 2).
+       */
       const closeOnServer = async (
         card: MeetingCard,
         came: string[],
         cameIds?: string[],
-      ): Promise<string | null> => {
-        if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return null;
-        const userIds = cameIdsFor(get().rollCall[card.id.toLowerCase()], {
+      ): Promise<{ stop: string | null; sent: string[] }> => {
+        if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return { stop: null, sent: [] };
+        const roll = get().rollCall[card.id.toLowerCase()] ?? [];
+        const userIds = cameIdsFor(roll, {
           ...(cameIds ? { picked: cameIds } : {}),
           names: came,
         });
         try {
-          const result = await saveAttendance(card.id, { userIds, close: true });
-          if (savedOrLocal(result, CAME_NOT_SAVED, { banner: false })) return null;
+          // `seen`: everyone this list showed, so a close cannot clear a
+          // "going" the host never saw (QA S3).
+          const result = await saveAttendance(card.id, {
+            userIds,
+            close: true,
+            seen: roll.map((person) => person.userId),
+          });
+          if (savedOrLocal(result, CAME_NOT_SAVED, { banner: false })) return { stop: null, sent: userIds };
           if (!result.ok && result.code === ROLL_CALL_STALE) {
-            void refreshRsvps();
-            return ROLL_CALL_STALE;
+            // Read the list again before answering, so the form can reset its picks to it.
+            await refreshRsvps();
+            return { stop: ROLL_CALL_STALE, sent: [] };
           }
-          return CAME_NOT_SAVED;
+          return { stop: CAME_NOT_SAVED, sent: [] };
         } catch {
-          return CAME_NOT_SAVED;
+          return { stop: CAME_NOT_SAVED, sent: [] };
         }
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
@@ -940,8 +954,11 @@ export const useBoard = create<BoardState>()(
             if (get().remote) {
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
-                const closeStop = closing ? await closeOnServer(closing, draft.came, options?.cameIds) : null;
-                if (closeStop) return { ok: false, stops: [closeStop], notes: check.notes };
+                if (closing) {
+                  const closed = await closeOnServer(closing, draft.came, options?.cameIds);
+                  if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
+                  if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
+                }
               }
               const saved = await (await getBoardClient()).createPost(draft);
               if (!saved.ok) {
@@ -1345,9 +1362,11 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closeStop = await closeOnServer(card, came, cameIds);
-            if (closeStop) return { ok: false, stops: [closeStop], notes: [] };
-            const saved = await (await getBoardClient()).createPost(draft);
+            const closed = await closeOnServer(card, came, cameIds);
+            if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
+            const saved = await (await getBoardClient()).createPost(
+              closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,
+            );
             if (!saved.ok) {
               // Same as post(): the close may have saved, so read the RSVPs again (QA S4).
               void refreshRsvps();
@@ -1369,6 +1388,7 @@ export const useBoard = create<BoardState>()(
           hosted(card, { happened, next, line: claim, on: draft.on, came, named: "", pages });
           return check;
         },
+        reloadRsvps: () => refreshRsvps(),
         rsvp: (id) => {
           const card = get().cards.find((item) => item.id === id);
           if (!card) return;

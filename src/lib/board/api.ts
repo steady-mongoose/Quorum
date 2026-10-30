@@ -415,6 +415,7 @@ function draftBody(draft: Draft, extra?: { campaignId?: string }): Record<string
     came: draft.came,
     named: draft.named,
     cardId: draft.cardId,
+    ...(draft.cameIds && draft.cameIds.length > 0 ? { cameIds: draft.cameIds } : {}),
     tradeId: draft.tradeId,
     attested: draft.attested,
     mediaCount: draft.media.length,
