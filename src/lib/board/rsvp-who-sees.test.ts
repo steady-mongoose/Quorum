@@ -188,7 +188,9 @@ test("Find's close form: a stale roll call resets the picks and offers Reload; f
   assert.match(src, /id=\{FIND_LIST_HEADING\}\s*tabIndex=\{-1\}\s*className="focus-target /);
   assert.match(src, /document\.getElementById\(FIND_LIST_HEADING\)\?\.focus\(\)/);
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  assert.match(css, /\.focus-target:focus \{\s*outline: 2px solid #f0e7d3;/);
+  // One house definition (#117); no second rule.
+  assert.match(css, /\.focus-target:focus,\s*\[data-focus-ring\]:focus \{\s*outline: 2px solid currentColor;/);
+  assert.equal(css.match(/\.focus-target:focus/g)?.length, 1);
 });
 
 test("the roll call option copy (Design #126)", async () => {
