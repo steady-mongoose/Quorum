@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { actorRole, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
+import { banOpen } from "../board/ban.ts";
+import { queryBanTable } from "../board/ban-check.ts";
+import { GENDER_POLICY, audienceDecision, parseAudience, parseGender } from "../gender-policy.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -455,7 +458,7 @@ const REAL_MEETINGS = `
     order by p.card_id, p.created_at asc, p.id asc
   ),
   host_cards as (
-    select f.meeting_id, f.host_id
+    select f.meeting_id, f.host_id, f.room_id
     from first_host f
     join room r on r.id = f.room_id
     where f.removed = false
@@ -463,7 +466,7 @@ const REAL_MEETINGS = `
       and 'meeting' = any (r.card_kinds)
   ),
   named_accounts as (
-    select distinct h.meeting_id, h.host_id, n.user_id
+    select distinct h.meeting_id, h.host_id, h.room_id, n.user_id
     from host_cards h
     join board_post p
       on p.card_id = h.meeting_id
@@ -476,10 +479,10 @@ const REAL_MEETINGS = `
 
 const VERIFIED_ATTENDANCE = `
   ${REAL_MEETINGS}
-  select h.host_id as user_id, h.meeting_id
+  select h.host_id as user_id, h.meeting_id, h.room_id
   from host_cards h
   union
-  select n.user_id, n.meeting_id
+  select n.user_id, n.meeting_id, n.room_id
   from named_accounts n
   join dm_attendance att on att.user_id = n.user_id and att.meeting_id = n.meeting_id
   where n.user_id <> n.host_id
@@ -559,42 +562,163 @@ export async function recordAttendance(
   return { ok: true, value: null };
 }
 
-export async function listPeers(db: Db, userId: string): Promise<{ id: string; name: string }[]> {
-  const rows = await db.query<{ id: string; name: string }>(
-    `select distinct peer.id, peer.name
+/**
+ * Which of these people may message through a meeting held in that room right
+ * now: no open bar on the board or in that room, and the room's audience lets
+ * them in. These are the bar and audience gates the shared-room route applies
+ * through roomStandings, without its "has joined the room" step, because
+ * someone the host named need not have joined. Keys are standingKey(user, room).
+ */
+async function meetingStandings(
+  db: Db,
+  userIds: string[],
+  roomIds: string[],
+  now: Date,
+): Promise<Set<string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const rooms = [...new Set(roomIds.filter(Boolean))];
+  const standing = new Set<string>();
+  if (ids.length === 0 || rooms.length === 0) return standing;
+
+  const bans = await queryBanTable<{
+    user_id: string;
+    room_id: string;
+    strikes: number;
+    until_at: Date | string;
+    reason: string;
+  }>(
+    db,
+    `select user_id, room_id, strikes, until_at, reason from board_ban
+     where user_id = any ($1::text[]) and (room_id = '' or room_id = any ($2::text[]))`,
+    [ids, rooms],
+  );
+  const barred = new Set<string>();
+  for (const row of bans) {
+    const until = new Date(row.until_at).getTime();
+    const open = banOpen(
+      { reason: row.reason, strikes: Number(row.strikes), until },
+      now.getTime(),
+    );
+    if (open) barred.add(standingKey(row.user_id, row.room_id));
+  }
+
+  const audiences = await db.query<{ id: string; audience: string }>(
+    `select id, audience from room where id = any ($1::text[])`,
+    [rooms],
+  );
+  const audienceOf = new Map(
+    audiences.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
+  );
+  const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
+  if ([...audienceOf.values()].some((audience) => audience !== "all")) {
+    const stated = await db.query<{
+      user_id: string;
+      gender: string | null;
+      gender_confirmed_at: Date | string | null;
+    }>(
+      `select user_id, gender, gender_confirmed_at from members where user_id = any ($1::text[])`,
+      [ids],
+    );
+    for (const row of stated) {
+      if (genders.has(row.user_id)) continue;
+      genders.set(row.user_id, {
+        stated: parseGender(row.gender),
+        confirmed: Boolean(row.gender_confirmed_at),
+      });
+    }
+  }
+
+  for (const userId of ids) {
+    if (barred.has(standingKey(userId, ""))) continue;
+    for (const roomId of rooms) {
+      if (barred.has(standingKey(userId, roomId))) continue;
+      const audience = audienceOf.get(roomId) ?? "all";
+      if (audience !== "all") {
+        const gender = genders.get(userId) ?? { stated: null, confirmed: false };
+        const decision = audienceDecision(
+          { audience, stated: gender.stated, confirmed: gender.confirmed, canModerate: false },
+          GENDER_POLICY,
+        );
+        if (!decision.allow) continue;
+      }
+      standing.add(standingKey(userId, roomId));
+    }
+  }
+  return standing;
+}
+
+/**
+ * The people the caller has a verified meeting with that still counts: both
+ * pass meetingStandings for the room the meeting was held in. Limit to
+ * `others` when given.
+ */
+async function metPeople(
+  db: Db,
+  callerId: string,
+  now: Date,
+  others: string[] | null = null,
+): Promise<Set<string>> {
+  const met = new Set<string>();
+  if (!callerId || (others !== null && others.length === 0)) return met;
+  const rows = await db.query<{ user_id: string; room_id: string }>(
+    `select distinct theirs.user_id, mine.room_id
      from (${VERIFIED_ATTENDANCE}) mine
      join (${VERIFIED_ATTENDANCE}) theirs
        on theirs.meeting_id = mine.meeting_id and theirs.user_id <> mine.user_id
-     join "user" peer on peer.id = theirs.user_id
      where mine.user_id = $1
+       and ($2::text[] is null or theirs.user_id = any ($2::text[]))`,
+    [callerId, others],
+  );
+  if (rows.length === 0) return met;
+  const standing = await meetingStandings(
+    db,
+    [callerId, ...rows.map((row) => row.user_id)],
+    rows.map((row) => row.room_id),
+    now,
+  );
+  for (const row of rows) {
+    if (!standing.has(standingKey(callerId, row.room_id))) continue;
+    if (!standing.has(standingKey(row.user_id, row.room_id))) continue;
+    met.add(row.user_id);
+  }
+  return met;
+}
+
+export async function listPeers(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<{ id: string; name: string }[]> {
+  const met = [...(await metPeople(db, userId, now))];
+  if (met.length === 0) return [];
+  const rows = await db.query<{ id: string; name: string }>(
+    `select peer.id, peer.name
+     from "user" peer
+     where peer.id = any ($2::text[])
        and not exists (
          select 1 from dm_block b
          where (b.blocker_user_id = $1 and b.blocked_user_id = peer.id)
             or (b.blocker_user_id = peer.id and b.blocked_user_id = $1)
        )
      order by peer.name, peer.id`,
-    [userId],
+    [userId, met],
   );
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
+/**
+ * A verified meeting together that still counts: neither is barred on the
+ * board or in the meeting's room, and that room's audience lets both in.
+ */
 export async function sharesMeeting(
   db: Db,
   callerId: string,
   otherUserId: string,
+  now: Date = new Date(),
 ): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
-  const rows = await db.query<{ meeting_id: string }>(
-    `select mine.meeting_id
-     from (${VERIFIED_ATTENDANCE}) mine
-     join (${VERIFIED_ATTENDANCE}) theirs
-       on theirs.meeting_id = mine.meeting_id and theirs.user_id = $2
-     where mine.user_id = $1
-     limit 1`,
-    [callerId, otherUserId],
-  );
-  return Boolean(rows[0]);
+  return (await metPeople(db, callerId, now, [otherUserId])).has(otherUserId);
 }
 
 /** A member who joined a room this recently cannot start a conversation through it. */
@@ -687,7 +811,7 @@ export async function mayMessage(
   if (callerId === otherUserId) return { ok: true, via: "self" };
   if (await blockedBetween(db, callerId, otherUserId))
     return { ok: false, status: 403, error: BLOCKED };
-  if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
+  if (await sharesMeeting(db, callerId, otherUserId, now)) return { ok: true, via: "meeting" };
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
   if (!options.starting) return { ok: true, via: "room" };
@@ -749,15 +873,7 @@ export async function memberMessageStates(
     threads.map((row) => (row.user_a === callerId ? row.user_b : row.user_a)),
   );
 
-  const met = await db.query<{ user_id: string }>(
-    `select distinct theirs.user_id
-     from (${VERIFIED_ATTENDANCE}) mine
-     join (${VERIFIED_ATTENDANCE}) theirs
-       on theirs.meeting_id = mine.meeting_id and theirs.user_id = any ($2::text[])
-     where mine.user_id = $1`,
-    [callerId, open],
-  );
-  const metThem = new Set(met.map((row) => row.user_id));
+  const metThem = await metPeople(db, callerId, now, open);
 
   // Rooms the caller and each of them are both in, with the caller's join date.
   const common = await db.query<{
