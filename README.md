@@ -2,7 +2,7 @@
 
 **An invite-only social app for your church, your shop, and your county.**
 
-Avouch Social is a social network built around showing up. It holds where a small set of people meet, who said they'd be there, what they did, and what the parish needs this week. Members get in by a host's code to one real event; they RSVP, the host takes roll, and the people you've stood in a room with are the people you can message. There is no feed algorithm, no reshare, no likes, no scores. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
+Avouch Social is a social network built around showing up. It holds where a small set of people meet, who said they'd be there, what they did, and what the parish needs this week. Members get in by a host's code to one real event; they RSVP, the host takes roll, and the people you share a room or a meeting with are the people you can message. There is no feed algorithm, no reshare, no likes, no scores. You open it, see where to be this week, and go. Success is a person who opens it, sees Thursday, and leaves.
 
 Quorum (below) is the engine of The County room. A campaign is one demand on one office in one hour; while its window is open it is **this week's call** on the front page, and every call, letter, or visit logged on the desk files in The County as a **Did**: an act, a date, one proof.
 
@@ -58,10 +58,10 @@ Every feature proposal gets the same question: _does this make someone leave the
 
 **Profiles are four lines** (name, household, parish, trade) plus what was earned by going: who you have stood in a room with, what you host, the last three times a host named you. Visible in full only to people who have stood in a room with you; everyone else sees a name.
 
-**Messages** are two names, plain text, no groups. Today the server deletes a message 30 days after it is sent (moving to archive after 30 days). A message under an open report is kept until the report closes. You can message someone when:
+**Messages** are two names, plain text, no groups. A message stops showing 30 days after it is sent and is deleted, except while it is under an open report; it is kept until that report closes. The cleanup runs at most once an hour, when a message request comes in. Every message route needs you signed in, past the second factor, confirmed 18 or older, and not banned board-wide. You can message someone when:
 
-- you share a room: you have both joined it, neither of you is barred there, and its men-only or women-only rule lets you both in. Starting a new conversation through a room also needs three days in that room (a steward of it does not wait), and you can start five of those in any 24 hours.
-- you have been to a meeting together: a hosted post in a room that takes meeting cards, still up. The host counts. Someone the host named counts after they confirm they came, and only if the name matched exactly one account when the post was filed.
+- you share a room: you are both members, you have each joined it or stood in it at a meeting, neither of you is barred there, the room is listed, and its men-only or women-only rule lets you both in. Starting a new conversation through a room also needs three days since you joined it yourself. Someone who only stood there cannot start one through that room. A steward of the room, or an admin, does not wait. You can start five of those in any 24 hours.
+- you have been to a meeting together: the first hosted post for that meeting card is in a room that takes meeting cards and is still up. The host counts. Anyone on that post's "came" list counts after they confirm they came, and only if their name matched exactly one account when the post was filed.
 
 A block by either of you stops it. The demo board in the browser also lets you message someone who replied to your post; the server has no such rule. On the demo board the text stays in the browser. When you are signed in, the text is encrypted on the device first. The server stores ciphertext and public keys, not the message.
 
