@@ -100,12 +100,20 @@ export type MfaResetRow = {
   approvals: { approverId: string; approverName: string; at: string }[];
 };
 
+/**
+ * The reset list's own words for "did not load". The panel on About says the
+ * same sentence as the other four admin lists ("That did not load.") for every
+ * failure that is not the authenticator gate, so this is never shown as is.
+ */
+export const MFA_RESETS_LOAD_FAILED = "The reset queue did not load.";
+
 export async function listMfaResets(): Promise<MfaResult<{ resets: MfaResetRow[] }>> {
   const response = await apiFetch("/api/mfa/reset", { credentials: "include" });
   const json = await response.json().catch(() => null);
-  if (!response.ok) return { ok: false, ...messageOf(json, "The reset queue did not load.") };
-  const resets = (json as { resets?: unknown }).resets;
-  if (!Array.isArray(resets)) return { ok: false, message: "The reset queue did not load." };
+  if (!response.ok) return { ok: false, ...messageOf(json, MFA_RESETS_LOAD_FAILED) };
+  // A 2xx that is not JSON (an HTML page, say) is null here: it did not load.
+  const resets = (json as { resets?: unknown } | null)?.resets;
+  if (!Array.isArray(resets)) return { ok: false, message: MFA_RESETS_LOAD_FAILED };
   return { ok: true, value: { resets: resets as MfaResetRow[] } };
 }
 

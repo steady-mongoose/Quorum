@@ -25,6 +25,13 @@ export type ServerSession = {
   signOut: () => Promise<void>;
   /** Run the health probe again. Used when sign-in is unavailable. */
   recheck: () => Promise<void>;
+  /**
+   * Read the session again, without the health probe, and take its authenticator
+   * phase. Used after an authenticator is turned on or off in this session, so
+   * About's Admin lists card and the top banner do not wait for a reload. A
+   * failed read keeps what is there, and never signs anyone out.
+   */
+  refreshPhase: () => Promise<void>;
   createInvite: typeof createServerInvite;
 };
 
@@ -41,6 +48,7 @@ export const EMPTY_SERVER_SESSION: ServerSession = {
   finishMfa: async () => ({ ok: false, message: "Sign in first." }),
   signOut: async () => undefined,
   recheck: async () => undefined,
+  refreshPhase: async () => undefined,
   createInvite: createServerInvite,
 };
 
