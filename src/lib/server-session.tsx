@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { addUnauthorizedHandler, apiBaseUrl, apiFetch } from "@/lib/api-base";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { addUnauthorizedHandler, apiBaseUrl, apiFetch, apiUrl, softenFetch } from "@/lib/api-base";
 import { parseMfaPhase, parseSessionBody } from "@/lib/account-result";
 import { submitMfaChallenge } from "@/lib/mfa-api";
 import {
@@ -21,8 +21,12 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<AccountUser | null>(null);
   const [mfa, setMfa] = useState<ServerSession["mfa"]>("ok");
   const [mfaEnrolled, setMfaEnrolled] = useState(false);
+  // The signed-in user as of the last set, so refreshPhase compares against the
+  // current person rather than the one captured when its render ran.
+  const userRef = useRef<AccountUser | null>(null);
   function setUser(next: AccountUser | null) {
     focusBrowserVault(next?.id ?? null);
+    userRef.current = next;
     setUserState(next);
   }
 
@@ -82,13 +86,22 @@ export function ServerSessionProvider({ children }: { children: ReactNode }) {
   const refreshPhase = async () => {
     if (demo) return;
     try {
-      const response = await apiFetch("/api/auth/get-session", { credentials: "include" });
+      // softenFetch, not apiFetch: a 401 here must not run the sign-out
+      // handlers. The panel that asked has just shown recovery codes or
+      // "Authenticator is off."; the next ordinary API call still signs out.
+      const response = await softenFetch(apiUrl("/api/auth/get-session"), { credentials: "include" });
       const body = await response.json().catch(() => null);
       const session = parseSessionBody(response.status, body);
-      // Only a session that came back replaces this one. A 5xx, a non-JSON body
-      // or a dropped connection leaves the page as it is.
+      // Only a session that came back replaces this one. A 401, a 5xx, a
+      // non-JSON body or a dropped connection leaves the page as it is.
       if (response.status !== 200 || !session) return;
-      applyPhase(parseMfaPhase(body), session);
+      const phase = parseMfaPhase(body);
+      setMfa(phase.mfa);
+      setMfaEnrolled(phase.mfaEnrolled);
+      // Same person: keep the user object, so the board does not reload and
+      // the open panel (with its recovery codes) stays mounted.
+      if (phase.mfa === "challenge") setUser(null);
+      else if (session.id !== userRef.current?.id) setUser(session);
     } catch {
       // Keep the current phase; the next load reads it again.
     }
