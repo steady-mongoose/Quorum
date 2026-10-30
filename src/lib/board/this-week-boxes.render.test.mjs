@@ -160,7 +160,8 @@ test("claim: nothing matching says so and points at Request a new place", async 
 
 test("claim: picking a listing shows it with Change, and Change brings the search back", async () => {
   const { host, done } = await mount(createElement(ClaimsPanel));
-  assert.equal(submit(host).disabled, true, "submit is disabled before a pick");
+  assert.equal(submit(host).getAttribute("aria-disabled"), "true", "submit says it is not ready");
+  assert.equal(submit(host).disabled, false, "but stays in the tab order");
   assert.match(host.textContent ?? "", /Find and choose your listing first\./);
   const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
   await type(input, "river");
@@ -169,7 +170,7 @@ test("claim: picking a listing shows it with Change, and Change brings the searc
   await flush();
   assert.equal(host.querySelector('input[role="combobox"]'), null);
   assert.match(host.textContent ?? "", /Your listingRiverview Shop Night/);
-  assert.equal(submit(host).disabled, false, "submit enabled once chosen");
+  assert.equal(submit(host).hasAttribute("aria-disabled"), false, "submit ready once chosen");
   assert.doesNotMatch(host.textContent ?? "", /Find and choose your listing first\./);
   const change = /** @type {HTMLButtonElement} */ (
     [...host.querySelectorAll("button")].find((b) => b.textContent === "Change")
@@ -178,7 +179,7 @@ test("claim: picking a listing shows it with Change, and Change brings the searc
   act(() => change.click());
   await flush();
   assert.ok(host.querySelector('input[role="combobox"]'));
-  assert.equal(submit(host).disabled, true);
+  assert.equal(submit(host).getAttribute("aria-disabled"), "true");
   done();
 });
 
@@ -186,14 +187,12 @@ test("claim: keyboard picks with arrow and Enter", async () => {
   const { host, done } = await mount(createElement(ClaimsPanel));
   const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
   await type(input, "hillsborough");
+  assert.match(input.getAttribute("aria-activedescendant") ?? "", /-0$/, "first match highlighted");
   act(() => {
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
   await flush();
-  assert.match(input.getAttribute("aria-activedescendant") ?? "", /-0$/);
-  act(() => {
-    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-  });
+  assert.match(input.getAttribute("aria-activedescendant") ?? "", /-1$/);
   act(() => {
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
@@ -281,14 +280,15 @@ test("home: Save place is a normal-size button on its own row, and the ZIP note 
     host.querySelector("#place-zip-note")?.textContent ?? "",
     /There is no town room for ZIP 33598 yet\. You can ask for one with Request a new place\./,
   );
-  const summary = /** @type {HTMLElement} */ (host.querySelector("details > summary"));
-  assert.equal(summary.textContent, "Request a new place");
-  assert.match(summary.className, /w-fit/);
-  assert.match(summary.className, /min-h-\[44px\]/);
+  const request = /** @type {HTMLButtonElement} */ (
+    [...host.querySelectorAll("button")].find((b) => b.textContent === "Request a new place")
+  );
+  assert.match(request.className, /w-fit/);
+  assert.match(request.className, /min-h-\[44px\]/);
   done();
 });
 
-test("week: the This week plate keeps its phone look, spans the desktop width, and only the list labels change", () => {
+test("week: the This week plate keeps its phone look, spans the desktop width, and uses the v3 rule and pc-h", () => {
   const week = readFileSync(
     new URL("../../components/board/week-view.tsx", import.meta.url),
     "utf8",
@@ -296,26 +296,176 @@ test("week: the This week plate keeps its phone look, spans the desktop width, a
   // Josh (Oct 29, 7:51 PM): keep the drop cap, the kicker and the phone size; a larger desktop heading.
   assert.match(
     week,
-    /<section className="plate plate--hero week-hero flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>\s*<h1 className="illum font-display text-4xl text-balance text-fg lg:text-6xl">/,
+    /<section className="plate plate--hero flex flex-col gap-2">\s*<Kicker>This week<\/Kicker>\s*<h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">/,
   );
+  // Design #123: the desktop title matches every other page head (lg:text-5xl, never 6xl).
+  assert.doesNotMatch(week, /text-6xl/);
+  // v3's 1px gilt rule with the diamond sits right after the title, desktop only (the phone card is unchanged).
+  assert.match(week, /<\/h1>\s*\{\/\*[^*]*\*\/\}\s*<div className="pc-rule hidden lg:block" aria-hidden="true" \/>/);
   // The plate comes before the two-column grid, so the side column cannot halve it on a desktop.
-  assert.ok(week.indexOf("plate--hero week-hero") < week.indexOf('"week-columns grid gap-8"'));
+  assert.ok(week.indexOf("plate plate--hero") < week.indexOf('"week-columns grid gap-8"'));
   assert.match(week, /week\.length === 0 && "max-lg:hidden"/);
   const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  assert.match(
-    css,
-    /@media \(min-width: 1024px\) \{\s*\.plate\.week-hero \{[^}]*border-top: 3px solid var\(--color-gilt\)/,
-  );
+  // No 3px gold top border, no .week-hero and no .list-label.
+  assert.doesNotMatch(css, /week-hero|list-label|border-top: 3px/);
+  assert.doesNotMatch(week, /week-hero/);
+  assert.match(css, /\.pc-rule \{[^}]*width: min\(15rem, 70%\);[^}]*height: 1px;[^}]*var\(--pc-gilt\)/);
+  assert.match(css, /\.pc-rule::before \{[^}]*width: 7px;[^}]*height: 7px;[^}]*rotate\(45deg\)/);
+  assert.match(css, /:root \{\s*--pc-gilt: #c9a45c;\s*\}/);
+  assert.match(css, /\[data-palette="parchment"\] \[data-section\] \{\s*--pc-gilt: #6f5420;\s*\}/);
+  assert.match(css, /\.pc-h \{[^}]*font-variant-caps: all-small-caps;[^}]*color: var\(--pc-gilt\)/);
   // The kicker the phone shows is unchanged; list labels use their own readable style.
   assert.match(
     css,
     /\.kicker \{[^}]*font-variant-caps: all-small-caps;[^}]*font-size: 0\.8125rem;/,
   );
-  assert.match(css, /\.list-label \{[^}]*font-size: 0\.875rem;[^}]*font-weight: 600;/);
   const home = readFileSync(
     new URL("../../components/board/home-view.tsx", import.meta.url),
     "utf8",
   );
+  assert.match(home, /<h3 className="pc-h">\{section\.label\}<\/h3>/);
   assert.equal(home.includes("tracking-widest"), false);
   assert.equal(home.includes("illum"), false);
+});
+
+/** @param {Element} el @param {string} key */
+function press(el, key) {
+  act(() => {
+    el.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+test("picker (1): submitting before a pick shows the error and focuses search, not a disabled button", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const button = submit(host);
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-disabled"), "true");
+  assert.equal(button.getAttribute("aria-describedby"), "claim-submit-hint");
+  const before = posted.length;
+  act(() => button.click());
+  await flush();
+  assert.equal(posted.length, before, "nothing was sent");
+  assert.equal(host.querySelector('[role="alert"]')?.textContent, "Find and choose your listing first.");
+  assert.equal(document.activeElement, host.querySelector('input[role="combobox"]'));
+  done();
+});
+
+test("picker (2): the polite hint says how many listings match and how to choose", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  const hint = () => document.getElementById(input.getAttribute("aria-describedby") ?? "")?.textContent;
+  await type(input, "hillsborough");
+  assert.equal(hint(), "2 listings match. Use the up and down arrows to choose.");
+  await type(input, "grace");
+  assert.equal(hint(), "1 listing matches. Use the up and down arrows to choose.");
+  done();
+});
+
+test("picker (3): the first match is highlighted, and Enter picks the highlighted one", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  await type(input, "hillsborough");
+  const first = host.querySelector('[role="option"]');
+  assert.equal(input.getAttribute("aria-activedescendant"), first?.id);
+  assert.equal(first?.getAttribute("aria-selected"), "true");
+  press(input, "Enter");
+  await flush();
+  assert.match(host.textContent ?? "", /Your listingGrace Bible Church of Brandon/);
+  done();
+});
+
+test("picker (4): Escape closes an open list, then clears the field once the list is closed", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  await type(input, "grace");
+  assert.equal(input.getAttribute("aria-expanded"), "true");
+  press(input, "Escape");
+  await flush();
+  assert.equal(input.getAttribute("aria-expanded"), "false");
+  assert.equal(input.value, "grace");
+  press(input, "Escape");
+  await flush();
+  assert.equal(input.value, "");
+  done();
+});
+
+test("picker (5): proof cards name the radio by its title, describe it by its hint, and ring the whole card", async () => {
+  const { host, done } = await mount(createElement(ClaimsPanel));
+  const cards = [...host.querySelectorAll("label.proof-option")];
+  assert.equal(cards.length, 3);
+  for (const card of cards) {
+    const radio = /** @type {HTMLInputElement} */ (card.querySelector('input[type="radio"]'));
+    assert.equal(radio.hasAttribute("style"), false, "no inline border-radius");
+    const title = document.getElementById(radio.getAttribute("aria-labelledby") ?? "");
+    const hint = document.getElementById(radio.getAttribute("aria-describedby") ?? "");
+    assert.ok(title && hint);
+    assert.equal(title.className, "text-base text-fg");
+    assert.equal(hint.className, "text-sm text-muted");
+    assert.notEqual(title.textContent, hint.textContent);
+    assert.match(card.className, /has-\[:focus-visible\]:outline-2/);
+    assert.match(card.className, /has-\[:focus-visible\]:outline-offset-2/);
+  }
+  assert.equal(
+    document.getElementById(
+      cards[0]?.querySelector("input")?.getAttribute("aria-labelledby") ?? "",
+    )?.textContent,
+    "Add a code to your website",
+  );
+  done();
+});
+
+test("request (6): Request a new place is a real button that opens the form, focuses Kind, and confirms", async () => {
+  /** @type {any[]} */
+  const sent = [];
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        requestRoom: async (/** @type {any} */ body) => {
+          sent.push(body);
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  assert.equal(host.querySelector("details > summary")?.textContent?.includes("Request a new place") ?? false, false);
+  const request = /** @type {HTMLButtonElement} */ (
+    [...host.querySelectorAll("button")].find((b) => b.textContent === "Request a new place")
+  );
+  assert.equal(request.type, "button");
+  assert.equal(request.getAttribute("aria-expanded"), "false");
+  assert.equal(request.getAttribute("aria-controls"), "request-place-form");
+  const form = /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form"));
+  assert.equal(form.hidden, true);
+  act(() => request.click());
+  await flush();
+  assert.equal(request.getAttribute("aria-expanded"), "true");
+  assert.equal(form.hidden, false);
+  assert.equal(document.activeElement, form.querySelector("select"), "focus on Kind");
+  const name = /** @type {HTMLInputElement} */ (form.querySelectorAll("input")[0]);
+  await type(name, "Riverview");
+  act(() => form.requestSubmit());
+  await flush();
+  assert.equal(sent.length, 1);
+  const status = host.querySelector('[role="status"]');
+  assert.equal(status?.textContent, "Request sent. An admin will look at it.");
+  assert.equal(document.activeElement, status?.querySelector("p"));
+  done();
+});
+
+test("request (6): Not listed in the claim picker opens Request a new place on its first field", async () => {
+  act(() => useBoard.setState(/** @type {any} */ ({ home })));
+  const { host, done } = await mount(createElement(HomePanel));
+  const input = /** @type {HTMLInputElement} */ (host.querySelector('input[role="combobox"]'));
+  await type(input, "zzz");
+  const ask = /** @type {HTMLButtonElement} */ (
+    [...host.querySelectorAll("button")].find((b) => /Ask for it with Request a new place/.test(b.textContent ?? ""))
+  );
+  act(() => ask.click());
+  await flush();
+  const form = /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form"));
+  assert.equal(form.hidden, false);
+  assert.equal(document.activeElement, form.querySelector("select"));
+  done();
 });

@@ -59,11 +59,13 @@ export function WeekView() {
       {/* The This week plate sits above the columns, so on a desktop it spans the full width
           instead of sharing a row with the side column. On a phone the order and gaps are unchanged. */}
       <div className="flex flex-col gap-8">
-        <section className="plate plate--hero week-hero flex flex-col gap-2">
+        <section className="plate plate--hero flex flex-col gap-2">
           <Kicker>This week</Kicker>
-          <h1 className="illum font-display text-4xl text-balance text-fg lg:text-6xl">
+          <h1 className="illum font-display text-4xl text-balance text-fg lg:text-5xl">
             {week.length === 0 ? "Nothing on the calendar yet." : "This week"}
           </h1>
+          {/* v3 head rule under the title, desktop only so the phone card keeps Josh's look (29 Oct). */}
+          <div className="pc-rule hidden lg:block" aria-hidden="true" />
           {week.length > 0 ? (
             <p className="max-w-prose text-base text-muted">
               The next seven days. Press{" "}

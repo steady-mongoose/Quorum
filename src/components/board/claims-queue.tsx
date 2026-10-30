@@ -112,6 +112,7 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
   const queueHead = useRef<HTMLHeadingElement>(null);
   const headings = useRef(new Map<string, HTMLHeadingElement>());
   const focusAfter = useRef<string | null>(null);
+  const proofId = useId();
 
   async function reload() {
     const loaded = await readQueue();
@@ -416,8 +417,10 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
             event.preventDefault();
             setNotice("");
             if (!roomId) {
+              // aria-disabled, not disabled: the button stays in the tab order and says why.
+              setErrorWhere("form");
+              setError("Find and choose your listing first.");
               listingRef.current?.focus();
-              showError("form", "Choose a listing.");
               return;
             }
             if (chosen === "domain_email" && !email.trim()) {
@@ -478,21 +481,28 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
                 key={item}
                 className={cn(
                   "proof-option flex min-h-[44px] cursor-pointer items-start gap-3 rounded-md border p-3",
+                  "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-fg",
                   chosen === item ? "border-fg bg-raised" : "border-line",
                 )}
               >
+                {/* The radio's name is the short title; the hint is its description, not part of its name. */}
                 <input
                   type="radio"
                   name="claim-method"
                   value={item}
-                  className="mt-0.5 size-5 shrink-0 accent-[var(--color-fg)]"
-                  style={{ borderRadius: "9999px" }}
+                  aria-labelledby={`${proofId}-${item}-title`}
+                  aria-describedby={`${proofId}-${item}-hint`}
+                  className="mt-0.5 size-5 shrink-0 rounded-full accent-[var(--color-fg)] focus-visible:outline-none"
                   checked={chosen === item}
                   onChange={() => setMethod(item)}
                 />
                 <span className="flex flex-col gap-1">
-                  <span className="text-base text-fg">{CLAIM_METHOD_LABEL[item]}</span>
-                  <span className="text-sm text-muted">{CLAIM_METHOD_HINT[item]}</span>
+                  <span id={`${proofId}-${item}-title`} className="text-base text-fg">
+                    {CLAIM_METHOD_LABEL[item]}
+                  </span>
+                  <span id={`${proofId}-${item}-hint`} className="text-sm text-muted">
+                    {CLAIM_METHOD_HINT[item]}
+                  </span>
                 </span>
               </label>
             ))}
@@ -514,9 +524,12 @@ export function ClaimsPanel({ onNotListed }: { onNotListed?: () => void } = {}) 
           <div className="flex flex-col gap-2">
             <button
               type="submit"
-              disabled={!roomId}
+              aria-disabled={!roomId || undefined}
               aria-describedby={roomId ? undefined : "claim-submit-hint"}
-              className={cn(btnSignal, "w-full justify-self-start sm:w-auto sm:self-start")}
+              className={cn(
+                btnSignal,
+                "w-full justify-self-start aria-disabled:opacity-50 sm:w-auto sm:self-start",
+              )}
             >
               Request the claim
             </button>
@@ -587,6 +600,11 @@ export function matchListings(rows: ListingRow[], query: string): ListingRow[] {
   );
 }
 
+/** "1 listing matches." or "N listings match." for the picker's polite hint. */
+export function matchCount(count: number): string {
+  return count === 1 ? "1 listing matches." : `${count} listings match.`;
+}
+
 function listingLine(row: ListingRow): string {
   return [row.town, row.county].filter(Boolean).join(", ");
 }
@@ -625,9 +643,10 @@ export function ListingPicker({
   const typed = query.trim().length > 0;
   const expanded = open && typed && shown.length > 0;
 
+  // The first match is highlighted as soon as there is one, so Enter picks what is shown and announced.
   useEffect(() => {
-    setActive(-1);
-  }, [query]);
+    setActive(shown.length > 0 ? 0 : -1);
+  }, [query, shown.length]);
 
   useEffect(() => {
     if (picked) changeRef.current?.focus();
@@ -705,10 +724,15 @@ export function ListingPicker({
               setActive((index) => (index <= 0 ? shown.length - 1 : index - 1));
             } else if (event.key === "Enter" && expanded) {
               event.preventDefault();
-              const row = shown[active >= 0 ? active : 0];
+              const row = active >= 0 ? shown[active] : undefined;
               if (row) pick(row);
             } else if (event.key === "Escape") {
-              setOpen(false);
+              // APG combobox: Escape closes an open list; on a closed list it clears the field.
+              if (expanded) setOpen(false);
+              else if (query) {
+                event.preventDefault();
+                onQuery("");
+              }
             }
           }}
         />
@@ -760,7 +784,9 @@ export function ListingPicker({
           </p>
         ) : matches.length > shown.length ? (
           <p>More listings match. Keep typing to narrow it down.</p>
-        ) : null}
+        ) : (
+          <p>{matchCount(matches.length)} Use the up and down arrows to choose.</p>
+        )}
       </div>
     </div>
   );

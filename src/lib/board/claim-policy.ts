@@ -47,7 +47,7 @@ export const CLAIM_METHOD_LABEL: Record<ClaimMethod, string> = {
  */
 export const CLAIM_METHOD_HINT: Record<ClaimMethod, string> = {
   site_code:
-    "We give you a short code to put on your homepage or About page. A steward has Avouch Social check your site for it. Usually the fastest.",
+    "We give you a short code to put on your homepage or About page. A steward then checks your site for it. Usually the fastest.",
   domain_email:
     "We email a code to an address on your organization's own website domain. Free mail services like Gmail don't count. You type the code here.",
   steward_review:

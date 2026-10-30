@@ -24,12 +24,28 @@ export function HomePanel() {
   const [stateCode, setStateCode] = useState("");
   const [placeError, setPlaceError] = useState("");
   const [requestError, setRequestError] = useState("");
-  const requestRef = useRef<HTMLDetailsElement>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestSent, setRequestSent] = useState("");
+  const kindRef = useRef<HTMLSelectElement>(null);
+  const sentRef = useRef<HTMLParagraphElement>(null);
+  const focusKind = useRef(false);
 
   useEffect(() => {
     setZip(home?.zip ?? "");
     setCongregationId(home?.congregationId ?? "");
   }, [home?.zip, home?.congregationId]);
+
+  // Opening "Request a new place" moves focus to its first field (Kind), from the button or from the claim picker.
+  useEffect(() => {
+    if (requestOpen && focusKind.current) {
+      focusKind.current = false;
+      kindRef.current?.focus();
+    }
+  }, [requestOpen]);
+
+  useEffect(() => {
+    if (requestSent) sentRef.current?.focus();
+  }, [requestSent]);
 
   if (!home) return null;
 
@@ -41,10 +57,13 @@ export function HomePanel() {
         : "";
 
   const openRequest = () => {
-    const details = requestRef.current;
-    if (!details) return;
-    details.open = true;
-    details.querySelector("summary")?.focus();
+    setRequestSent("");
+    if (requestOpen) {
+      kindRef.current?.focus();
+      return;
+    }
+    focusKind.current = true;
+    setRequestOpen(true);
   };
 
   return (
@@ -132,15 +151,38 @@ export function HomePanel() {
         ) : null}
       </form>
 
-      <details ref={requestRef} className="group flex flex-col">
-        <summary className={cn(btnGhost, "w-fit list-none [&::-webkit-details-marker]:hidden")}>
+      <div className="flex flex-col">
+        <button
+          type="button"
+          className={cn(btnGhost, "w-fit")}
+          aria-expanded={requestOpen}
+          aria-controls="request-place-form"
+          onClick={() => {
+            if (requestOpen) {
+              setRequestOpen(false);
+              return;
+            }
+            openRequest();
+          }}
+        >
           Request a new place
-        </summary>
+        </button>
+        <div role="status">
+          {requestSent ? (
+            <p ref={sentRef} tabIndex={-1} className="mt-2 text-sm text-fg">
+              {requestSent}
+            </p>
+          ) : null}
+        </div>
         <form
+          id="request-place-form"
+          hidden={!requestOpen}
+          aria-label="Request a new place"
           className="plate mt-3 grid gap-3 sm:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault();
             setRequestError("");
+            setRequestSent("");
             void requestRoom({ kind, name, state: stateCode }).then((result) => {
               if (!result.ok) {
                 setRequestError(result.error ?? "That was not saved.");
@@ -148,6 +190,7 @@ export function HomePanel() {
               }
               setName("");
               setStateCode("");
+              setRequestSent("Request sent. An admin will look at it.");
             });
           }}
         >
@@ -158,6 +201,7 @@ export function HomePanel() {
           <label className="flex flex-col gap-2 text-sm text-muted">
             Kind
             <select
+              ref={kindRef}
               className={fieldClass}
               value={kind}
               onChange={(event) => setKind(event.target.value as typeof kind)}
@@ -195,7 +239,7 @@ export function HomePanel() {
             </p>
           ) : null}
         </form>
-      </details>
+      </div>
 
       <ClaimsPanel onNotListed={openRequest} />
 
@@ -224,7 +268,7 @@ function HomeSectionBlock({
 }) {
   return (
     <div className="flex flex-col gap-1 border-t border-line pt-3">
-      <h3 className="list-label">{section.label}</h3>
+      <h3 className="pc-h">{section.label}</h3>
       {section.tier === "council" ? (
         section.posts.map((post) => (
           <article key={post.id} className="flex flex-col gap-1 py-2">
