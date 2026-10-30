@@ -6,6 +6,36 @@ import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
 import { RoomAudienceMark } from "@/components/board/audience";
 
+type SaveResult = { ok: boolean; error?: string };
+
+/** The board's code for a barred account, said in words on the page. */
+const BARRED = "This account is barred from the board.";
+
+/**
+ * Runs a save and always settles with words to show: a refusal keeps the server's reason,
+ * and a dropped connection is a refusal too, never a silent no-op (Josh, Oct 30).
+ */
+export async function settleSave(
+  run: () => Promise<SaveResult>,
+  fallback: string,
+): Promise<SaveResult> {
+  try {
+    const result = await run();
+    if (result.ok) return { ok: true };
+    const error = result.error === "banned" ? BARRED : result.error?.trim() || fallback;
+    return { ok: false, error };
+  } catch {
+    return { ok: false, error: `${fallback} Check your connection and try again.` };
+  }
+}
+
+/** What Save place says once the server keeps it. */
+export function placeSavedText(input: { zip: string; congregationName: string }): string {
+  const zip = input.zip.trim();
+  const parts = [zip ? `ZIP ${zip}` : "no ZIP", input.congregationName || "no congregation"];
+  return `Saved. Your place is ${parts.join(" and ")}.`;
+}
+
 /**
  * Home is the server's list. Joined rooms, then the ZIP town, then the
  * congregation, then farther out. Council-approved posts sit above that.
@@ -23,6 +53,12 @@ export function HomePanel() {
   const [name, setName] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [placeError, setPlaceError] = useState("");
+  const [placeSaved, setPlaceSaved] = useState("");
+  const [placeSaving, setPlaceSaving] = useState(false);
+  const placeSavingRef = useRef(false);
+  const [requestSending, setRequestSending] = useState(false);
+  const requestSendingRef = useRef(false);
+  const [leftNote, setLeftNote] = useState("");
   const [requestError, setRequestError] = useState("");
   const [requestOpen, setRequestOpen] = useState(false);
   const [requestSent, setRequestSent] = useState("");
@@ -97,8 +133,17 @@ export function HomePanel() {
           </p>
         </div>
         {home.sections.map((section) => (
-          <HomeSectionBlock key={section.tier} section={section} onOpen={setRoom} />
+          <HomeSectionBlock
+            key={section.tier}
+            section={section}
+            onOpen={setRoom}
+            onLeft={(roomName) => setLeftNote(`You left ${roomName}.`)}
+          />
         ))}
+        {/* A room you leave drops out of Joined, so the result is said here, outside the row. */}
+        <div role="status" aria-live="polite">
+          {leftNote ? <p className="text-sm text-fg">{leftNote}</p> : null}
+        </div>
       </section>
 
       <form
@@ -106,9 +151,25 @@ export function HomePanel() {
         aria-labelledby="place-h"
         onSubmit={(event) => {
           event.preventDefault();
+          if (placeSavingRef.current) return;
+          placeSavingRef.current = true;
+          setPlaceSaving(true);
           setPlaceError("");
-          void savePlace({ zip, congregationId }).then((result) => {
-            if (!result.ok) setPlaceError(result.error ?? "That was not saved.");
+          setPlaceSaved("");
+          const congregationName =
+            home.congregations.find((row) => row.id === congregationId)?.name ?? "";
+          const typedZip = zip;
+          void settleSave(
+            () => savePlace({ zip, congregationId }),
+            "Your place was not saved.",
+          ).then((result) => {
+            placeSavingRef.current = false;
+            setPlaceSaving(false);
+            if (!result.ok) {
+              setPlaceError(result.error ?? "Your place was not saved.");
+              return;
+            }
+            setPlaceSaved(placeSavedText({ zip: typedZip, congregationName }));
           });
         }}
       >
@@ -131,7 +192,10 @@ export function HomePanel() {
             autoComplete="postal-code"
             aria-describedby="place-zip-note"
             value={zip}
-            onChange={(event) => setZip(event.target.value)}
+            onChange={(event) => {
+              setZip(event.target.value);
+              setPlaceSaved("");
+            }}
           />
           <p id="place-zip-note" className="text-sm text-muted" aria-live="polite">
             {zipNote}
@@ -145,7 +209,10 @@ export function HomePanel() {
             id="place-congregation"
             className={fieldClass}
             value={congregationId}
-            onChange={(event) => setCongregationId(event.target.value)}
+            onChange={(event) => {
+              setCongregationId(event.target.value);
+              setPlaceSaved("");
+            }}
           >
             <option value="">None</option>
             {home.congregations.map((row) => (
@@ -157,15 +224,19 @@ export function HomePanel() {
         </div>
         <button
           type="submit"
+          aria-busy={placeSaving || undefined}
           className={cn(btnSignal, "w-full justify-self-start sm:col-span-2 sm:w-auto")}
         >
-          Save place
+          {placeSaving ? "Saving…" : "Save place"}
         </button>
-        {placeError ? (
-          <p role="alert" className="text-sm text-danger sm:col-span-2">
-            {placeError}
-          </p>
-        ) : null}
+        {/* Mounted from the start so every Save is spoken and seen: saved, or the server's reason. */}
+        <div role="status" aria-live="polite" className="sm:col-span-2">
+          {placeError ? (
+            <p className="text-sm text-danger">{placeError}</p>
+          ) : placeSaved ? (
+            <p className="text-sm text-fg">{placeSaved}</p>
+          ) : null}
+        </div>
       </form>
 
       <div className="flex flex-col">
@@ -198,11 +269,19 @@ export function HomePanel() {
           className="card pc-card mt-3 grid gap-3 p-4 sm:p-5 sm:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault();
+            if (requestSendingRef.current) return;
+            requestSendingRef.current = true;
+            setRequestSending(true);
             setRequestError("");
             setRequestSent("");
-            void requestRoom({ kind, name, state: stateCode }).then((result) => {
+            void settleSave(
+              () => requestRoom({ kind, name, state: stateCode }),
+              "That request was not sent.",
+            ).then((result) => {
+              requestSendingRef.current = false;
+              setRequestSending(false);
               if (!result.ok) {
-                setRequestError(result.error ?? "That was not saved.");
+                setRequestError(result.error ?? "That request was not sent.");
                 return;
               }
               setName("");
@@ -246,9 +325,10 @@ export function HomePanel() {
           </label>
           <button
             type="submit"
+            aria-busy={requestSending || undefined}
             className={cn(btnSignal, "w-full justify-self-start sm:col-span-2 sm:w-auto")}
           >
-            Request room
+            {requestSending ? "Sending…" : "Request room"}
           </button>
           {requestError ? (
             <p role="alert" className="text-sm text-danger sm:col-span-2">
@@ -279,9 +359,11 @@ export function HomePanel() {
 function HomeSectionBlock({
   section,
   onOpen,
+  onLeft,
 }: {
   section: HomeSection;
   onOpen: (roomId: string) => void;
+  onLeft: (roomName: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-1 border-t border-line pt-3">
@@ -320,6 +402,7 @@ function HomeSectionBlock({
               audience={room.audience}
               joined={section.tier === "joined"}
               onOpen={onOpen}
+              onLeft={onLeft}
             />
           ))}
         </ul>
@@ -335,15 +418,19 @@ function RoomJoinRow({
   audience,
   joined,
   onOpen,
+  onLeft,
 }: {
   roomId: string;
   name: string;
   audience?: "men" | "women";
   joined: boolean;
   onOpen: (roomId: string) => void;
+  onLeft: (roomName: string) => void;
 }) {
   const leaveRoom = useBoard((state) => state.leaveRoom);
   const [error, setError] = useState("");
+  const [leaving, setLeaving] = useState(false);
+  const leavingRef = useRef(false);
 
   return (
     <li className="room-row flex flex-col gap-1">
@@ -363,14 +450,24 @@ function RoomJoinRow({
             type="button"
             className={btnGhost}
             aria-label={`Leave ${name}`}
+            aria-busy={leaving || undefined}
             onClick={() => {
+              if (leavingRef.current) return;
+              leavingRef.current = true;
+              setLeaving(true);
               setError("");
-              void leaveRoom(roomId).then((result) => {
-                if (!result.ok) setError(result.error ?? "That was not saved.");
+              void settleSave(() => leaveRoom(roomId), "That room was not left.").then((result) => {
+                leavingRef.current = false;
+                setLeaving(false);
+                if (!result.ok) {
+                  setError(result.error ?? "That room was not left.");
+                  return;
+                }
+                onLeft(name);
               });
             }}
           >
-            Leave
+            {leaving ? "Leaving…" : "Leave"}
           </button>
         ) : null}
       </div>
@@ -389,11 +486,27 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
   const [stewardEmail, setStewardEmail] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [error, setError] = useState("");
+  const [decided, setDecided] = useState("");
+  const [deciding, setDeciding] = useState(false);
+  const decidingRef = useRef(false);
 
   const decide = (decision: "approved" | "refused") => {
+    if (decidingRef.current) return;
+    decidingRef.current = true;
+    setDeciding(true);
     setError("");
-    void decideRoom(request.id, { decision, note, stewardEmail, inviterEmail }).then((result) => {
-      if (!result.ok) setError(result.error ?? "That decision was not saved.");
+    setDecided("");
+    void settleSave(
+      () => decideRoom(request.id, { decision, note, stewardEmail, inviterEmail }),
+      "That decision was not saved.",
+    ).then((result) => {
+      decidingRef.current = false;
+      setDeciding(false);
+      if (!result.ok) {
+        setError(result.error ?? "That decision was not saved.");
+        return;
+      }
+      setDecided(decision === "approved" ? "Approved." : "Refused.");
     });
   };
 
@@ -440,6 +553,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             <button
               type="button"
               className={`${btnSignal} min-h-[44px]`}
+              aria-busy={deciding || undefined}
               onClick={() => decide("approved")}
             >
               Approve
@@ -447,6 +561,7 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
             <button
               type="button"
               className={`${btnGhost} min-h-[44px]`}
+              aria-busy={deciding || undefined}
               onClick={() => decide("refused")}
             >
               Refuse
@@ -459,6 +574,10 @@ function RequestRow({ request, admin }: { request: HomeRequest; admin: boolean }
           ) : null}
         </div>
       ) : null}
+      {/* Approve and Refuse take their buttons away, so the outcome is said in the row. */}
+      <div role="status" aria-live="polite">
+        {decided ? <p className="mt-2 text-sm text-fg">{decided}</p> : null}
+      </div>
     </article>
   );
 }

@@ -452,7 +452,9 @@ test("request (6): Request a new place is a real button that opens the form, foc
   act(() => form.requestSubmit());
   await flush();
   assert.equal(sent.length, 1);
-  const status = host.querySelector('[role="status"]');
+  const status = [...host.querySelectorAll('[role="status"]')].find((el) =>
+    /Request sent/.test(el.textContent ?? ""),
+  );
   assert.equal(status?.textContent, "Request sent. An admin will look at it.");
   assert.equal(document.activeElement, status?.querySelector("p"));
   done();
@@ -785,4 +787,169 @@ test("design #123: a page head rule clears the h1 descenders, within the page-cr
   assert.match(css, /\[data-entered\] \.pc-head h1\+\.pc-rule\{margin-top:\.5rem\}/);
   const { gzipSync } = await import("node:zlib");
   assert.ok(gzipSync(css, { level: 9 }).length < 3072);
+});
+
+// Josh (Oct 30, 7:57 AM ET): "some buttons" did nothing on Save. Save place kept his ZIP and
+// congregation on the server, but said nothing on success, so a Save with no town room looked dead.
+
+/** @param {Element} host @param {RegExp} name */
+const buttonNamed = (host, name) =>
+  /** @type {HTMLButtonElement} */ ([...host.querySelectorAll("button")].find((b) => name.test(b.textContent ?? "")));
+/** @param {Element} host @param {RegExp} text */
+const statusWith = (host, text) =>
+  [...host.querySelectorAll('[role="status"]')].find((el) => text.test(el.textContent ?? ""));
+/** @param {Element} host */
+const placeForm = (host) => /** @type {HTMLFormElement} */ (host.querySelector('form[aria-labelledby="place-h"]'));
+
+test("save feedback: Save place with no town room says Saved in a status, and posts once", async () => {
+  /** @type {any[]} */
+  const sent = [];
+  /** @type {(value: any) => void} */
+  let finish = () => {};
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        savePlace: (/** @type {any} */ body) => {
+          sent.push(body);
+          return new Promise((resolve) => (finish = resolve));
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  const form = placeForm(host);
+  const status = form.querySelector('[role="status"]');
+  assert.ok(status, "the place status is mounted before the first Save");
+  act(() => form.requestSubmit());
+  await flush();
+  assert.equal(buttonNamed(host, /Saving…/).getAttribute("aria-busy"), "true");
+  act(() => form.requestSubmit());
+  await flush();
+  assert.equal(sent.length, 1, "a second tap while saving does not post again");
+  assert.deepEqual(sent[0], { zip: "33598", congregationId: "grace" });
+  await act(async () => finish({ ok: true }));
+  await flush();
+  assert.equal(
+    status?.textContent,
+    "Saved. Your place is ZIP 33598 and Grace Bible Church of Brandon.",
+  );
+  assert.ok(buttonNamed(host, /^Save place$/), "the button is back to Save place");
+  await type(/** @type {HTMLInputElement} */ (host.querySelector("#place-zip")), "33511");
+  assert.equal(status?.textContent, "", "editing clears the old Saved");
+  done();
+});
+
+test("save feedback: a refused Save place shows the server's reason in the status", async () => {
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({ home, savePlace: async () => ({ ok: false, error: "Enter a five-digit ZIP." }) }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => placeForm(host).requestSubmit());
+  await flush();
+  assert.equal(placeForm(host).querySelector('[role="status"]')?.textContent, "Enter a five-digit ZIP.");
+  done();
+});
+
+test("save feedback: a barred account and a dropped connection are said in words, not silence", async () => {
+  act(() => useBoard.setState(/** @type {any} */ ({ home, savePlace: async () => ({ ok: false, error: "banned" }) })));
+  let mounted = await mount(createElement(HomePanel));
+  act(() => placeForm(mounted.host).requestSubmit());
+  await flush();
+  assert.equal(
+    placeForm(mounted.host).querySelector('[role="status"]')?.textContent,
+    "This account is barred from the board.",
+  );
+  mounted.done();
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        savePlace: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    ),
+  );
+  mounted = await mount(createElement(HomePanel));
+  act(() => placeForm(mounted.host).requestSubmit());
+  await flush();
+  assert.equal(
+    placeForm(mounted.host).querySelector('[role="status"]')?.textContent,
+    "Your place was not saved. Check your connection and try again.",
+  );
+  assert.ok(buttonNamed(mounted.host, /^Save place$/), "Save place works again after a failure");
+  mounted.done();
+});
+
+test("save feedback: Request room that cannot reach the server says so", async () => {
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        requestRoom: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Request a new place$/).click());
+  await flush();
+  act(() => /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form")).requestSubmit());
+  await flush();
+  assert.match(
+    host.querySelector('#request-place-form [role="alert"]')?.textContent ?? "",
+    /^That request was not sent\. Check your connection and try again\.$/,
+  );
+  done();
+});
+
+test("save feedback: Leave says which room you left, after the row is gone", async () => {
+  const joinedHome = {
+    ...home,
+    sections: [{ tier: "joined", label: "Joined", rooms: [{ id: "grace-room", name: "Grace Bible Church of Brandon" }] }],
+  };
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home: joinedHome,
+        leaveRoom: async () => {
+          useBoard.setState(/** @type {any} */ ({ home: { ...joinedHome, sections: [] } }));
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Leave$/).click());
+  await flush();
+  assert.equal(host.querySelector("li.room-row"), null);
+  assert.ok(statusWith(host, /^You left Grace Bible Church of Brandon\.$/));
+  done();
+});
+
+test("save feedback: Approve says it was approved, since its buttons go away", async () => {
+  const request = { id: "r1", kind: "town", name: "Riverview", state: "FL", status: "open", by: "Ann", note: "" };
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        admin: true,
+        home: { ...home, requests: [request] },
+        decideRoom: async () => {
+          useBoard.setState(/** @type {any} */ ({ home: { ...home, requests: [{ ...request, status: "approved" }] } }));
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Approve$/).click());
+  await flush();
+  assert.equal(buttonNamed(host, /^Approve$/), undefined);
+  assert.ok(statusWith(host, /^Approved\.$/));
+  act(() => useBoard.setState(/** @type {any} */ ({ admin: false })));
+  done();
 });
