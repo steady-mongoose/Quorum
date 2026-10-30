@@ -61,7 +61,7 @@ test("the sign-in after signup is not stopped by the per-IP sign-in cap", async 
       new Request(`${baseURL}/api/invites`, {
         method: "POST",
         headers: { origin, cookie: cookieHeader(signedIn), "content-type": "application/json" },
-        body: JSON.stringify({ maxUses: 5 }),
+        body: JSON.stringify({ maxUses: 5, attestAdult: true }),
       }),
     );
     assert.equal(minted.status, 201);
@@ -91,6 +91,7 @@ test("the sign-in after signup is not stopped by the per-IP sign-in cap", async 
           email: "nora@example.test",
           password: "correct-horse",
           inviteCode: code,
+          adult: true,
         }),
       }),
     );

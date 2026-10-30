@@ -33,6 +33,7 @@ import { signOutClearsReadHistory } from "@/lib/e2ee/read-history";
 import { GroupsView } from "@/components/board/groups-view";
 import { DmView } from "@/components/board/dm-view";
 import { Door } from "@/components/board/door";
+import { AgeStep } from "@/components/board/age-step";
 import { FindView } from "@/components/board/find-view";
 import { ProfileView } from "@/components/board/profile-view";
 import { RoomView } from "@/components/board/room-view";
@@ -108,7 +109,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const server = useServerSession();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
-  const entered = server.mode === "live" ? Boolean(server.user) || localEntry : member;
+  // A member whose account predates the 18+ check confirms once before the app.
+  const ageDue = server.mode === "live" && Boolean(server.user) && !server.ageConfirmed;
+  const entered = !ageDue && (server.mode === "live" ? Boolean(server.user) || localEntry : member);
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
@@ -160,7 +163,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   }, [undoClear, undoBar]);
 
   useEffect(() => {
-    if (server.mode !== "live" || !server.user) return;
+    if (server.mode !== "live" || !server.user || !server.ageConfirmed) return;
     const name = server.user.name.trim();
     if (!name) return;
     const next = useBoard.getState();
@@ -178,7 +181,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     return () => {
       cancel = true;
     };
-  }, [server.mode, server.user]);
+  }, [server.mode, server.user, server.ageConfirmed]);
 
   // /#invite (Find's invite link, a shared link, or back/forward) opens About at
   // the invite section. ServerInvite then focuses its heading.
@@ -255,7 +258,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           </button>
         </div>
       ) : null}
-      {!entered && <Door />}
+      {ageDue ? <AgeStep /> : null}
+      {!entered && !ageDue && <Door />}
       {entered && shown === "week" && <WeekView />}
       {entered && shown === "rooms" && <RoomView />}
       {entered && shown === "groups" && <GroupsView />}
@@ -322,7 +326,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
                   />
                 </IconNav>
               </div>
-            ) : (
+            ) : ageDue ? null : (
               <a
                 className="mast-door"
                 href={signingIn ? "#sign-in" : "#open-the-door"}

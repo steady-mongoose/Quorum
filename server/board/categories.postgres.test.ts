@@ -119,8 +119,8 @@ test("room category links on Postgres", async (t) => {
 
     const steward = randomUUID();
     await db.query(
-      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
-       values ($1, 'Tom', 'tom@example.com', true, $2, $2)`,
+      `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt", age_confirmed_at)
+       values ($1, 'Tom', 'tom@example.com', true, $2, $2, $2)`,
       [steward, now],
     );
     for (const role of ["member", "steward"] as const) {

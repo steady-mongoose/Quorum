@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { Copy, Check, Trash2 } from "lucide-react";
 import { btnGhost, btnSignal, copyStatus, fieldClass, Kicker, useCopy } from "@/components/quorum/bits";
 import { officeById, phoneTree } from "@/lib/quorum/model";
@@ -13,6 +14,7 @@ export function CellView() {
   const removeMember = useQuorum((state) => state.removeMember);
   const [name, setName] = useState("");
   const [place, setPlace] = useState("");
+  const placeId = useId();
   const [deskId, setDeskId] = useState(campaigns[0]?.id ?? "");
   const { copied, failed, copy } = useCopy();
 
@@ -49,15 +51,19 @@ export function CellView() {
               onChange={(event) => setProfile({ name: event.target.value })}
             />
           </label>
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            City and state
+          <div className="flex flex-col gap-2 text-sm text-muted">
+            <label htmlFor={placeId}>City and state</label>
             <input
+              id={placeId}
               className={fieldClass}
+              aria-describedby={`${placeId}-hint`}
               value={profile.place}
-              placeholder="City, State"
               onChange={(event) => setProfile({ place: event.target.value })}
             />
-          </label>
+            <p id={`${placeId}-hint`} className="text-xs text-muted">
+              {FIELD_HINT.cityState}
+            </p>
+          </div>
         </div>
       </section>
 
