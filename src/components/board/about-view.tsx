@@ -114,6 +114,23 @@ const HOW = [
   },
 ];
 
+/** About's How it works, by what a reader wants to know. Every entry in HOW sits in one group. */
+const HOW_HEADINGS: { heading: string; titles: string[] }[] = [
+  { heading: "Getting in and showing up", titles: ["Getting in", "The week", "After a meeting"] },
+  {
+    heading: "Rooms and groups",
+    titles: ["What a room includes", "Members", "Room chat", "Interest groups", "Home"],
+  },
+  { heading: "Talking to people", titles: ["Who can see you", "Posting"] },
+  { heading: "Keeping it clean", titles: ["Stewards", "Moderation"] },
+  { heading: "What's in the rooms", titles: ["Debates", "Tradesmen", "Church needs"] },
+];
+
+const HOW_GROUPS = HOW_HEADINGS.map(({ heading, titles }) => ({
+  heading,
+  items: HOW.filter((item) => titles.includes(item.title)),
+}));
+
 export function AboutView({
   publicView = false,
   onSetUp,
@@ -205,14 +222,19 @@ export function AboutView({
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>How it works</h2>
-        <dl className="about-how columns-1 gap-x-8 lg:columns-2">
-          {HOW.map((item) => (
-            <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
-              <dt className="font-semibold text-fg">{item.title}</dt>
-              <dd className="max-w-prose text-sm text-muted">{item.text}</dd>
-            </div>
-          ))}
-        </dl>
+        {HOW_GROUPS.map((group) => (
+          <div key={group.heading} className="flex flex-col gap-3">
+            <h3 className="font-display text-xl text-fg">{group.heading}</h3>
+            <dl className="about-how columns-1 gap-x-8 lg:columns-2">
+              {group.items.map((item) => (
+                <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
+                  <dt className="font-semibold text-fg">{item.title}</dt>
+                  <dd className="max-w-prose text-base text-fg/85">{item.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
       </section>
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>

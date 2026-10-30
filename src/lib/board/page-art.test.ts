@@ -70,7 +70,7 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   const route = (name: string) => readFileSync(new URL(`../../routes/${name}.tsx`, import.meta.url), "utf8");
   assert.match(route("privacy"), /<PublicDocument art="jerome">/);
   assert.match(route("terms"), /<PublicDocument art="jerome">/);
-  assert.match(route("about"), /<PublicDocument>/);
+  assert.match(route("about"), /<PublicDocument wide>/);
   assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
   assert.doesNotMatch(doc, /hero-band/);
 });
