@@ -7,6 +7,7 @@ import { ROOMS } from "./model.ts";
 import {
   applyServerRsvps,
   CAME_NOT_SAVED,
+  ROLL_CALL_STALE,
   cameIdsFor,
   deviceRsvpMoves,
   rollCallPeople,
@@ -558,4 +559,61 @@ test("signed in, the host view is chosen by id, not by name", () => {
   // A seed card (not a server id) keeps the name rule even when signed in.
   const seed = card("seed-1", { host: "Dale", going: ["Tom"] });
   assert.deepEqual(forViewer(seed, { admin: false, name: "Dale", hosts: [], byId: true }).going, ["Tom"]);
+});
+
+test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a stale roll call", async () => {
+  const reads: string[] = [];
+  let attendance: "ok" | "stale" = "ok";
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === "/api/rsvps" && (init?.method ?? "GET") === "GET") reads.push(url.pathname);
+    if (url.pathname === `/api/gatherings/${G1}/attendance`) {
+      return attendance === "ok"
+        ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+        : new Response(JSON.stringify({ error: ROLL_CALL_STALE, api: "rsvp" }), { status: 409 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const base = stubClient();
+  try {
+    // The close saves, the write-up does not: the card is read again.
+    setBoardClient(
+      new Proxy(base, {
+        get: (target, key, receiver) =>
+          key === "createPost"
+            ? async () => ({ ok: false as const, error: "Not saved." })
+            : Reflect.get(target, key, receiver),
+      }),
+    );
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G1],
+      rollCall: { [G1]: [{ userId: "h_tom", name: "Tom" }] },
+      cards: [card(G1, { host: "Dale", next: "2026-10-31", going: ["Tom"] })],
+    });
+    const failed = await useBoard.getState().closeCard(G1, true, "", "Good.", ["Tom"], "", ["h_tom"]);
+    await settle();
+    assert.equal(failed.ok, false);
+    assert.deepEqual(failed.ok ? [] : failed.stops, ["Not saved."]);
+    assert.equal(reads.length, 1, "RSVPs read again after the failed write-up");
+
+    // A stale handle: the host sees the plain line, and the list is read again.
+    reads.length = 0;
+    attendance = "stale";
+    setBoardClient(base);
+    const stale = await useBoard.getState().closeCard(G1, true, "", "Good.", ["Tom"], "", ["h_tom"]);
+    await settle();
+    assert.equal(stale.ok, false);
+    assert.deepEqual(stale.ok ? [] : stale.stops, [ROLL_CALL_STALE]);
+    assert.equal(reads.length, 1, "RSVPs read again after a stale roll call");
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
 });

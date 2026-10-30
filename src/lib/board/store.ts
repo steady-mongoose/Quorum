@@ -29,6 +29,7 @@ import { isGatheringId } from "./public-gathering.ts";
 import {
   applyServerRsvps,
   CAME_NOT_SAVED,
+  ROLL_CALL_STALE,
   cameIdsFor,
   deviceRsvpMoves,
   loadRsvps,
@@ -569,18 +570,27 @@ export const useBoard = create<BoardState>()(
        * the card, its going list and the write-up stay, and the host can try
        * again. Only rsvp-not-ready (or an API from before 0049) carries on.
        */
-      const closeOnServer = async (card: MeetingCard, came: string[], cameIds?: string[]) => {
-        if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return true;
+      /** null when saved (or kept on this device); otherwise the one line to show the host. */
+      const closeOnServer = async (
+        card: MeetingCard,
+        came: string[],
+        cameIds?: string[],
+      ): Promise<string | null> => {
+        if (!get().remote || !isGatheringId(card.id) || !marksCame(card)) return null;
         const userIds = cameIdsFor(get().rollCall[card.id.toLowerCase()], {
           ...(cameIds ? { picked: cameIds } : {}),
           names: came,
         });
         try {
-          return savedOrLocal(await saveAttendance(card.id, { userIds, close: true }), CAME_NOT_SAVED, {
-            banner: false,
-          });
+          const result = await saveAttendance(card.id, { userIds, close: true });
+          if (savedOrLocal(result, CAME_NOT_SAVED, { banner: false })) return null;
+          if (!result.ok && result.code === ROLL_CALL_STALE) {
+            void refreshRsvps();
+            return ROLL_CALL_STALE;
+          }
+          return CAME_NOT_SAVED;
         } catch {
-          return false;
+          return CAME_NOT_SAVED;
         }
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
@@ -930,9 +940,8 @@ export const useBoard = create<BoardState>()(
             if (get().remote) {
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
-                if (closing && !(await closeOnServer(closing, draft.came, options?.cameIds))) {
-                  return { ok: false, stops: [CAME_NOT_SAVED], notes: check.notes };
-                }
+                const closeStop = closing ? await closeOnServer(closing, draft.came, options?.cameIds) : null;
+                if (closeStop) return { ok: false, stops: [closeStop], notes: check.notes };
               }
               const saved = await (await getBoardClient()).createPost(draft);
               if (!saved.ok) {
@@ -1336,11 +1345,14 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            if (!(await closeOnServer(card, came, cameIds))) {
-              return { ok: false, stops: [CAME_NOT_SAVED], notes: [] };
-            }
+            const closeStop = await closeOnServer(card, came, cameIds);
+            if (closeStop) return { ok: false, stops: [closeStop], notes: [] };
             const saved = await (await getBoardClient()).createPost(draft);
-            if (!saved.ok) return { ok: false, stops: saved.stops ?? [saved.error], notes: [] };
+            if (!saved.ok) {
+              // Same as post(): the close may have saved, so read the RSVPs again (QA S4).
+              void refreshRsvps();
+              return { ok: false, stops: saved.stops ?? [saved.error], notes: [] };
+            }
             hosted(card, {
               happened,
               next,

@@ -51,6 +51,8 @@ export const MARK_REFUSED = "Only the host or an admin marks who came.";
 
 /** Before 0049 is applied. The client keeps the RSVP on the device for this code only. */
 export const RSVP_NOT_READY = "rsvp-not-ready";
+/** Same line as src/lib/board/rsvp-api.ts ROLL_CALL_STALE (a test keeps them equal). */
+export const ROLL_CALL_STALE = "That list is out of date. Reload and try again.";
 
 /** The most rows one move or one roll call may carry. */
 export const RSVP_BATCH_MAX = 200;
@@ -177,7 +179,7 @@ export function withHandles(rows: RsvpRow[], reader: { userId: string; admin: bo
 export async function idsFromHandles(
   db: Db,
   input: RsvpReader & { gatheringId: string; sent: string[]; now: Date },
-): Promise<string[]> {
+): Promise<string[] | null> {
   // Only rows this reader can see: a barred member, hidden from the list,
   // cannot be marked by handle or by id (QA S4).
   const rows = await readRsvps(db, { ...input, gatheringIds: [input.gatheringId] });
@@ -186,7 +188,10 @@ export async function idsFromHandles(
   const out: string[] = [];
   for (const sent of input.sent) {
     const id = byHandle.get(sent) ?? (input.admin && ids.has(sent) ? sent : undefined);
-    if (id) out.push(id);
+    // A stale or unknown entry fails the whole call: marking the rest would
+    // silently drop someone the host picked (QA S4).
+    if (!id) return null;
+    out.push(id);
   }
   return out;
 }
@@ -617,14 +622,16 @@ export async function handleRsvp(
     if (raw.length > 0 && (await rollOff())) {
       return json(409, { error: ROOM_OPTION_OFF.roll_call });
     }
+    const userIds = await idsFromHandles(deps.db, {
+      ...reader,
+      gatheringId,
+      sent: raw as string[],
+      now,
+    });
+    if (!userIds) return json(409, { error: ROLL_CALL_STALE });
     await markAttendance(deps.db, {
       gatheringId,
-      userIds: await idsFromHandles(deps.db, {
-        ...reader,
-        gatheringId,
-        sent: (raw as string[]).slice(0, RSVP_BATCH_MAX),
-        now,
-      }),
+      userIds,
       close: body.close === true,
     });
     return json(200, { ok: true });

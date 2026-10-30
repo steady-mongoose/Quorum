@@ -124,6 +124,8 @@ export type Post = {
   next: string;
   /** Hosted: who came, from the card's going list. They join wentBy. */
   came: string[];
+  /** Hosted: the server says this viewer came (matched on account id). */
+  youCame?: boolean;
   /** Hosted: one person the host names. Must be on `came`. */
   named: string;
   author: string;
@@ -599,12 +601,12 @@ export function typeMeta(type: PostType): TypeMeta {
 /**
  * The write-up's who-came line. Who came is private (Josh, Oct 29, 10:06 PM ET):
  * the server sends the full list only to the host, the room's stewards and admins;
- * anyone else gets at most their own name, shown as "You were there."
+ * anyone else gets no names, only `youCame` (matched on account id), shown as
+ * "You were there."
  */
-export function cameText(came: string[], me: string, seesAll: boolean): string {
-  if (came.length === 0) return "";
-  if (!seesAll) return came.includes(me.trim()) ? "You were there. " : "";
-  return `There: ${came.join(", ")}. `;
+export function cameText(came: string[], youCame: boolean, seesAll: boolean): string {
+  if (seesAll && came.length > 0) return `There: ${came.join(", ")}. `;
+  return youCame ? "You were there. " : "";
 }
 
 export function authorName(me: string): string {

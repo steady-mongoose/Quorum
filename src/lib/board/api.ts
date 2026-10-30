@@ -117,6 +117,7 @@ function postFrom(value: unknown): Post | null {
     on: typeof row.on === "string" ? row.on : "",
     next: typeof row.next === "string" ? row.next : "",
     came: strings(row.came),
+    ...(row.youCame === true ? { youCame: true } : {}),
     named: typeof row.named === "string" ? row.named : "",
     author: row.author,
     at: row.at,

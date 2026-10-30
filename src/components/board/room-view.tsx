@@ -367,6 +367,7 @@ export function RoomView() {
                 mine={post.author === me}
                 canMessage={peers.has(post.author)}
                 steward={steward && tools}
+                seesWhoCame={viewerAdmin || viewerRooms.includes(room)}
                 canPost={canPost}
               />
             ))}
@@ -957,6 +958,7 @@ const PostCard = memo(function PostCard({
   mine,
   canMessage,
   steward,
+  seesWhoCame,
   canPost,
 }: {
   post: Post;
@@ -965,13 +967,15 @@ const PostCard = memo(function PostCard({
   trade?: MeetingCard;
   mine: boolean;
   canMessage: boolean;
+  /** Moderation buttons only. */
   steward: boolean;
+  /** Admin, or a steward of this room: reads the whole roll call, tools on or off. */
+  seesWhoCame: boolean;
   canPost: boolean;
 }) {
   const now = useNow();
   const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
-  const viewerMe = useBoard((state) => state.me);
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
@@ -1079,7 +1083,7 @@ const PostCard = memo(function PostCard({
           ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              {cameText(post.came, viewerMe, mine || steward)}
+              {cameText(post.came, post.youCame === true, mine || seesWhoCame)}
               {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
               {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>

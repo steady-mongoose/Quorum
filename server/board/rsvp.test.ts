@@ -6,6 +6,7 @@ import { trustAuthenticator } from "../mfa/test-trust.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
+import { createPost, listBoard } from "./store.ts";
 import {
   rsvpHandle,
   MARK_REFUSED,
@@ -13,6 +14,7 @@ import {
   purgeOldRsvps,
   RSVP_BATCH_MAX,
   RSVP_NOT_READY,
+  ROLL_CALL_STALE,
   rsvpCutoff,
 } from "./rsvp.ts";
 
@@ -288,16 +290,31 @@ test("the routes check who is asking", async () => {
     assert.deepEqual(await self.json(), { error: MARK_REFUSED, api: "rsvp" });
     assert.deepEqual(await sneak.json(), { error: MARK_REFUSED, api: "rsvp" });
 
+    // A handle the host's list does not hold (Maria has no RSVP here) is
+    // stale: the whole call is refused, so Tom is not marked either.
+    const stale = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [rsvpHandle(GATHERING, t.tom.id), rsvpHandle(GATHERING, t.maria.id)],
+      close: true,
+    });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(await stale.json(), { error: ROLL_CALL_STALE, api: "rsvp" });
+    const unknown = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: ["h_notarealhandleatall00"],
+    });
+    assert.equal(unknown.status, 409);
+    const tomBefore = await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`);
+    assert.deepEqual(await tomBefore.json(), { mine: { going: true, attended: false } });
+
     // The host marks who came, but the answer names nobody.
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-      userIds: [rsvpHandle(GATHERING, t.tom.id), rsvpHandle(GATHERING, t.maria.id)],
+      userIds: [rsvpHandle(GATHERING, t.tom.id)],
       close: true,
     });
     assert.equal(marked.status, 200);
     assert.deepEqual(await marked.json(), { ok: true });
     const tomNow = await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`);
     assert.deepEqual(await tomNow.json(), { mine: { going: false, attended: true } });
-    // Maria never said she would come, so she was not marked.
+    // Maria was never sent, so she was not marked.
     const mariaNow = await call(t.handler, t.maria, "GET", `/api/gatherings/${GATHERING}/rsvps`);
     assert.deepEqual(await mariaNow.json(), { mine: { going: false, attended: false } });
 
@@ -852,11 +869,11 @@ test("host and steward lists carry no account ids; an admin's do (Josh, 10:21 PM
     }
     // Handles differ per gathering, so lists cannot be linked.
     assert.notEqual(rsvpHandle(GATHERING, t.tom.id), rsvpHandle(MARIAS, t.tom.id));
-    // A made-up handle marks nobody.
+    // A made-up handle or a raw id is refused as stale and marks nobody.
     const fake = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
       userIds: ["h_AAAAAAAAAAAAAAAAAAAAAA", t.maria.id],
     });
-    assert.equal(fake.status, 200);
+    assert.equal(fake.status, 409);
     const maria = await t.db.query<{ attended: boolean }>(
       `select attended from gathering_rsvp where gathering_id = $1 and user_id = $2`,
       [GATHERING, t.maria.id],
@@ -922,7 +939,9 @@ test("a host cannot mark a hidden barred member as came, by handle or by id", as
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
       userIds: [rsvpHandle(GATHERING, t.tom.id), t.tom.id],
     });
-    assert.equal(marked.status, 200);
+    // Hidden from the host, so the handle reads as stale: refused, nobody marked.
+    assert.equal(marked.status, 409);
+    assert.deepEqual(await marked.json(), { error: ROLL_CALL_STALE, api: "rsvp" });
     const row = await t.db.query<{ attended: boolean }>(
       `select attended from gathering_rsvp where user_id = $1`,
       [t.tom.id],
@@ -986,6 +1005,57 @@ test("oddly cased or trailing-slash RSVP paths answer 404 with the api marker; a
       } as RequestInit),
     );
     assert.equal(res.status, 413);
+  } finally {
+    await t.close();
+  }
+});
+
+test("the stale roll call line matches the browser's copy", async () => {
+  const api = await import("../../src/lib/board/rsvp-api.ts");
+  assert.equal(ROLL_CALL_STALE, api.ROLL_CALL_STALE);
+});
+
+test("two members named Ann: 'You were there' follows the host's pick by account id (QA S4)", async () => {
+  const t = await setup();
+  try {
+    const annA = await user(t.db, "Ann");
+    const annB = await user(t.db, "Ann");
+    await grant(t.db, annA, "Ann");
+    await grant(t.db, annB, "Ann");
+    for (const id of [annA, annB]) {
+      assert.equal((await call(t.handler, { id }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true })).status, 200);
+    }
+    // Dale picks the second Ann by handle, then files the write-up naming "Ann".
+    const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [rsvpHandle(GATHERING, annB)],
+      close: true,
+    });
+    assert.equal(marked.status, 200);
+    const now = new Date("2026-10-29T12:00:00Z");
+    for (const id of [t.dale.id, annA, annB]) {
+      await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [
+        id,
+        new Date("2026-10-01T00:00:00Z"),
+      ]);
+    }
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-29", came: ["Ann"], cardId: GATHERING },
+      now,
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    const youCame = async (id: string) => {
+      const board = await listBoard(t.db, id, now, { room: "shop" });
+      assert.equal(board.ok, true);
+      const post = board.ok ? board.value.posts.find((item) => item.type === "hosted") : undefined;
+      assert.ok(post, "the write-up is on the board");
+      assert.deepEqual(post?.came, [], "no names for a member");
+      return post?.youCame;
+    };
+    assert.equal(await youCame(annB), true);
+    assert.equal(await youCame(annA), false);
   } finally {
     await t.close();
   }

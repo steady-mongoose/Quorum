@@ -66,11 +66,37 @@ test("door roll call copy: only host, stewards and admins see who came", () => {
   );
 });
 
-test("a write-up shows a plain member only their own attendance", () => {
-  assert.equal(cameText(["Ann", "Ben"], "Ann", true), "There: Ann, Ben. ");
-  assert.equal(cameText(["Ann"], "Ann", false), "You were there. ");
-  assert.equal(cameText(["Ben"], "Ann", false), "");
-  assert.equal(cameText([], "Ann", true), "");
+test("a write-up shows a plain member only their own attendance, matched by the server on id", () => {
+  // Admin, or a steward of the room (tools on or off), or the host: every name.
+  assert.equal(cameText(["Ann", "Ben"], false, true), "There: Ann, Ben. ");
+  assert.equal(cameText(["Ann", "Ben"], true, true), "There: Ann, Ben. ");
+  // A plain member gets no names, only the server's youCame.
+  assert.equal(cameText([], true, false), "You were there. ");
+  assert.equal(cameText([], false, false), "");
+  // A name in the list is ignored for a member who is not told they came.
+  assert.equal(cameText(["Ann"], false, false), "");
+  assert.equal(cameText([], false, true), "");
+});
+
+test("who came on a write-up follows admin or steward of the room, not steward tools", () => {
+  const room = read("room-view.tsx");
+  assert.match(room, /seesWhoCame=\{viewerAdmin \|\| viewerRooms\.includes\(room\)\}/);
+  assert.match(room, /cameText\(post\.came, post\.youCame === true, mine \|\| seesWhoCame\)/);
+  assert.doesNotMatch(room, /cameText\([^)]*steward\)/);
+  // Tools still gate only the moderation buttons.
+  assert.match(room, /steward=\{steward && tools\}/);
+});
+
+test("Find close form: hint, not placeholder; wrapping buttons; focus back to Write it up", () => {
+  const find = read("find-view.tsx");
+  assert.doesNotMatch(find, /placeholder="One line is enough"/);
+  assert.match(find, /aria-describedby=\{lineHintId\}/);
+  assert.match(find, /One line is enough\./);
+  assert.match(find, /flex flex-wrap items-end gap-2/);
+  assert.match(find, /flex basis-full flex-col gap-2 text-sm text-muted">\s*Next date/);
+  assert.equal((find.match(/whitespace-nowrap/g) ?? []).length >= 3, true);
+  assert.match(find, /ref=\{writeUp\}/);
+  assert.match(find, /setClosing\(false\);\s*setRefocus\(true\);/);
 });
 
 test("door copy: you see your own answer; host, stewards and admins see who is going", () => {

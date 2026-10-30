@@ -254,13 +254,13 @@ test("who came is private: host, the room's stewards and admins see it; a member
     assert.equal(posted.ok, true);
     if (posted.ok) assert.deepEqual(posted.value.came, ["Ann", "Ben"], "the host's own reply");
 
-    const cameOnBoard = async (viewer: string) => {
+    const hostedFor = async (viewer: string) => {
       const board = await listBoard(db, viewer, now, { room: "shop" });
       assert.equal(board.ok, true);
       if (!board.ok) return null;
-      const post = board.value.posts.find((item) => item.type === "hosted");
-      return post?.came ?? null;
+      return board.value.posts.find((item) => item.type === "hosted") ?? null;
     };
+    const cameOnBoard = async (viewer: string) => (await hostedFor(viewer))?.came ?? null;
     const attendedOf = async (viewer: string) => {
       const list = await listRoomMembers(db, viewer, "shop", now);
       assert.equal(list.ok, true);
@@ -275,8 +275,10 @@ test("who came is private: host, the room's stewards and admins see it; a member
       assert.equal(seen.Ann, 1);
       assert.equal(seen.Ben, 1);
     }
-    // A member who came sees only themselves, everywhere.
-    assert.deepEqual(await cameOnBoard(ann), ["Ann"]);
+    // A member who came gets no names, only youCame, matched on account id.
+    assert.deepEqual(await cameOnBoard(ann), []);
+    assert.equal((await hostedFor(ann))?.youCame, true);
+    assert.equal((await hostedFor(cal))?.youCame, false);
     const annSees = await attendedOf(ann);
     assert.equal(annSees.Ann, 1);
     assert.equal(annSees.Ben, 0);

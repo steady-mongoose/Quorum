@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
@@ -365,6 +365,16 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const [pages, setPages] = useState("");
   const [refused, setRefused] = useState<string[]>([]);
   const pagesId = useId();
+  const lineId = useId();
+  const lineHintId = useId();
+  // After a close lands, focus goes back to "Write it up" (Design r5707626934).
+  const writeUp = useRef<HTMLButtonElement>(null);
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (!refocus || closing) return;
+    writeUp.current?.focus();
+    setRefocus(false);
+  }, [refocus, closing]);
   const pagesHintId = useId();
   const room = roomById(card.room);
   // A room with roll off has no Who came section (QA r5707425337).
@@ -470,6 +480,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                       return;
                     }
                     setClosing(false);
+                    setRefocus(true);
                     setLine("");
                     setCame([]);
                     setCameKeys([]);
@@ -480,15 +491,19 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 );
               }}
             >
-              <label className="flex flex-col gap-2 text-sm text-muted">
-                How it went
+              <div className="flex flex-col gap-2 text-sm text-muted">
+                <label htmlFor={lineId}>How it went</label>
                 <input
+                  id={lineId}
                   className={cn(fieldClass, "min-h-[44px]")}
-                  placeholder="One line is enough"
+                  aria-describedby={lineHintId}
                   value={line}
                   onChange={(event) => setLine(event.target.value)}
                 />
-              </label>
+                <p id={lineHintId} className="text-[13px] text-muted">
+                  One line is enough.
+                </p>
+              </div>
               {card.book ? (
                 <div className="flex flex-col gap-2 text-sm text-muted">
                   <label htmlFor={pagesId}>What to have read by then</label>
@@ -538,8 +553,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </div>
               ) : null}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <label className="flex flex-col gap-2 text-sm text-muted">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex basis-full flex-col gap-2 text-sm text-muted">
                   Next date
                   <input
                     type="date"
@@ -548,19 +563,26 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     onChange={(event) => setNextDate(event.target.value)}
                   />
                 </label>
-                <button type="submit" value="yes" className={btnSignal}>
+                <button type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
                   It happened
                 </button>
-                <button type="submit" value="no" className={btnGhost}>
+                <button type="submit" value="no" className={cn(btnGhost, "whitespace-nowrap")}>
                   It did not
                 </button>
-                <button type="button" className={btnQuiet} onClick={() => setClosing(false)}>
+                <button
+                  type="button"
+                  className={cn(btnQuiet, "whitespace-nowrap")}
+                  onClick={() => {
+                    setClosing(false);
+                    setRefocus(true);
+                  }}
+                >
                   Cancel
                 </button>
               </div>
             </form>
           ) : (
-            <button type="button" className={btnQuiet} onClick={() => setClosing(true)}>
+            <button ref={writeUp} type="button" className={btnQuiet} onClick={() => setClosing(true)}>
               Write it up
             </button>
           )

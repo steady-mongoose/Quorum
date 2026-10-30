@@ -15,6 +15,8 @@ import type { MeetingCard } from "./model.ts";
 /** The server's one code for "0049 is not applied yet". Only this keeps a change on the device. */
 export const RSVP_NOT_READY = "rsvp-not-ready";
 export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
+/** A roll call named someone the server no longer lists (a stale or unknown handle). */
+export const ROLL_CALL_STALE = "That list is out of date. Reload and try again.";
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 
 export type ServerRsvp = {

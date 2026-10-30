@@ -54,7 +54,7 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
-import { cameFor, cameViewer, type CameViewer } from "./came-sight.ts";
+import { cameFor, cameViewer, namedIn, type CameViewer } from "./came-sight.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
@@ -86,6 +86,8 @@ export type BoardPost = {
   on: string;
   next: string;
   came: string[];
+  /** Whether the roll call names this viewer (by account id where resolved). */
+  youCame: boolean;
   named: string;
   author: string;
   at: number;
@@ -414,7 +416,9 @@ function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewe
     on: row.on_date,
     next: row.next_date,
     // Without a viewer the roll call is never sent (fail closed).
-    came: viewer ? cameFor(textList(row.came), viewer, row.room_id, row.author_user_id) : [],
+    ...(viewer
+      ? cameFor(textList(row.came), viewer, { id: row.id, roomId: row.room_id, hostId: row.author_user_id })
+      : { came: [], youCame: false }),
     named: row.named,
     author: row.author_name,
     at: atMs(row.created_at),
@@ -748,7 +752,10 @@ export async function listBoard(
     db,
     postRows.map((row) => row.id),
   );
-  const sight = await cameViewer(db, userId, actor);
+  const sight = {
+    ...(await cameViewer(db, userId, actor)),
+    namedIn: await namedIn(db, userId, postRows.map((row) => row.id)),
+  };
   const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [], sight)));
   const councils = await councilMarks(
     db,
@@ -1201,7 +1208,10 @@ export async function createPost(
       );
       const saved = inserted[0];
       if (!saved) throw new Stop(500, "The post was not filed.");
-      if (type === "hosted") await rememberNamedAccounts(tx, saved.id);
+      if (type === "hosted") {
+        await rememberNamedAccounts(tx, saved.id);
+        if (cardId) await rememberRollCall(tx, saved.id, cardId, input.userId);
+      }
       return saved;
     });
     return {
@@ -1213,6 +1223,34 @@ export async function createPost(
     if (isUniqueViolation(error)) return fail(409, "That post was already filed.");
     throw error;
   }
+}
+
+/**
+ * Two members can share a name, so a name alone cannot say who came (QA S4).
+ * The host's roll call for this gathering was saved by account id just before
+ * the write-up (closeOnServer, then createPost): link those accounts to the
+ * post too, so "You were there" is matched on id. Only rows the host marked in
+ * the last ten minutes, on a gathering this author hosts, whose name is on the
+ * write-up. Queries only; no schema change.
+ */
+async function rememberRollCall(db: Db, postId: string, cardId: string, hostId: string): Promise<void> {
+  const ready = await db.query<{ named: string | null; rsvp: string | null }>(
+    `select to_regclass('public.dm_named_account')::text as named,
+            to_regclass('public.gathering_rsvp')::text as rsvp`,
+  );
+  if (!ready[0]?.named || !ready[0]?.rsvp) return;
+  await db.query(
+    `insert into dm_named_account (post_id, user_id)
+     select p.id, r.user_id
+     from board_post p
+     join public_gathering g on g.id = lower($2) and g.host_user_id = $3
+     join gathering_rsvp r on r.gathering_id = g.id and r.attended
+                          and r.updated_at >= now() - interval '10 minutes'
+     join "user" u on u.id = r.user_id and u.name = any(p.came)
+     where p.id = $1
+     on conflict do nothing`,
+    [postId, cardId, hostId],
+  );
 }
 
 export async function replyToPost(
