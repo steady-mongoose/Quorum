@@ -17,25 +17,36 @@ import type { RoomOption } from "./room-options.ts";
 import { removalFailedCopy } from "./errors.ts";
 
 /**
- * A close that saved on the server while its write-up did not, by card id:
- * the roll call it sent. The going rows are gone after that close, so the
- * refreshed list is empty; a retry reuses these instead of closing again
- * with no picks (QA S3 #2).
+ * A close that saved on the server while its write-up did not: the roll call
+ * it sent, for this card AND this date. The going rows are gone after that
+ * close, so the refreshed list is empty; a retry of the same date reuses
+ * these instead of closing again with no picks (QA S3 #2). Keyed by date so
+ * next week's close of a repeating gathering calls attendance fresh, and
+ * cleared on Cancel, sign-out, or another account (QA S3 #1).
  */
-const closedUnfiled = new Map<string, string[]>();
-/** True while a close saved on the server and its write-up is not filed yet. */
-export function closeSavedFor(cardId: string): boolean {
-  return closedUnfiled.has(cardId);
+let rsvpViewer: string | null = null;
+const closedUnfiled = new Map<string, { date: string; sent: string[] }>();
+/** True while this card's close for `date` saved and its write-up is not filed yet. */
+export function closeSavedFor(cardId: string, date?: string): boolean {
+  const kept = closedUnfiled.get(cardId);
+  return !!kept && (date === undefined || kept.date === date);
 }
-/** Close once; a retry after a failed write-up reuses the first close's roll call. */
+/** Cancel on the close form, or a composer cleared: the next close calls attendance again. */
+export function forgetSavedClose(cardId?: string): void {
+  if (cardId === undefined) closedUnfiled.clear();
+  else closedUnfiled.delete(cardId);
+}
+/** Close once per date; a retry after a failed write-up reuses that close's roll call. */
 async function closeOnce(
   close: () => Promise<{ stop: string | null; sent: string[] }>,
   cardId: string,
+  date: string,
 ): Promise<{ stop: string | null; sent: string[] }> {
   const kept = closedUnfiled.get(cardId);
-  if (kept) return { stop: null, sent: kept };
+  if (kept && kept.date === date) return { stop: null, sent: kept.sent };
+  closedUnfiled.delete(cardId);
   const closed = await close();
-  if (!closed.stop) closedUnfiled.set(cardId, closed.sent);
+  if (!closed.stop) closedUnfiled.set(cardId, { date, sent: closed.sent });
   return closed;
 }
 
@@ -714,6 +725,9 @@ export const useBoard = create<BoardState>()(
       const syncRsvps = async (gatheringIds: ReadonlySet<string>) => {
         let list = await loadRsvps();
         if (!list.ok) return;
+        // Another account in this tab: forget the last one's saved closes (QA S3 #1).
+        if (rsvpViewer !== null && rsvpViewer !== list.viewer) forgetSavedClose();
+        rsvpViewer = list.viewer;
         if (!get().rsvpMovedFor.includes(list.viewer)) {
           const moves = deviceRsvpMoves(get().cards, me());
           const moved = moves.length > 0 ? await moveRsvps(moves) : { ok: true as const };
@@ -978,7 +992,7 @@ export const useBoard = create<BoardState>()(
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
                 if (closing) {
-                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id);
+                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id, closing.next || todayIso());
                   if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
                   if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
                 }
@@ -1386,7 +1400,7 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id);
+            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on);
             if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
             const saved = await (await getBoardClient()).createPost(
               closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,
@@ -1858,6 +1872,8 @@ export const useBoard = create<BoardState>()(
           });
         },
         disconnectRemote: () => {
+          // Signed out: no saved close carries into the next account (QA S3 #1).
+          forgetSavedClose();
           setRoomCatalog(ROOMS);
           set({
             remote: false,

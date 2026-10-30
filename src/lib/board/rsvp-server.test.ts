@@ -20,7 +20,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { closeSavedFor, useBoard } from "./store.ts";
+import { closeSavedFor, forgetSavedClose, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const G2 = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -572,7 +572,7 @@ test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a s
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://x");
     if (url.pathname === "/api/rsvps" && (init?.method ?? "GET") === "GET") reads.push(url.pathname);
-    if (url.pathname === `/api/gatherings/${G1}/attendance` || url.pathname === `/api/gatherings/${G2}/attendance`) {
+    if (url.pathname === `/api/gatherings/${G1}/attendance`) {
       return attendance === "ok"
         ? new Response(JSON.stringify({ ok: true }), { status: 200 })
         : new Response(JSON.stringify({ error: ROLL_CALL_STALE, api: "rsvp" }), { status: 409 });
@@ -607,18 +607,13 @@ test("Find's 'Write it up' re-reads RSVPs after a failed write-up, and shows a s
     assert.deepEqual(failed.ok ? [] : failed.stops, ["Not saved."]);
     assert.equal(reads.length, 1, "RSVPs read again after the failed write-up");
 
-    // A stale handle on another gathering (G1's close already saved, so its
-    // retry does not close again): the host sees the plain line, and the list
-    // is read again.
+    // The host cancels (which forgets the saved close), then a stale handle:
+    // the host sees the plain line, and the list is read again.
+    forgetSavedClose(G1);
     reads.length = 0;
     attendance = "stale";
     setBoardClient(base);
-    useBoard.setState({
-      rsvpHosts: [G1, G2],
-      rollCall: { [G2]: [{ userId: "h_tom", name: "Tom" }] },
-      cards: [card(G2, { host: "Dale", next: "2026-10-31", going: ["Tom"] })],
-    });
-    const stale = await useBoard.getState().closeCard(G2, true, "", "Good.", ["Tom"], "", ["h_tom"]);
+    const stale = await useBoard.getState().closeCard(G1, true, "", "Good.", ["Tom"], "", ["h_tom"]);
     await settle();
     assert.equal(stale.ok, false);
     assert.deepEqual(stale.ok ? [] : stale.stops, [ROLL_CALL_STALE]);
@@ -722,4 +717,58 @@ test("Design #126 M1: dropped picks accumulate, and anyone back on the list leav
   // Everyone back: the line is empty. Submit clears the list (shown = []).
   assert.equal(names(nextDropped(shown, [tom, ann, cal], [tom, ann, ben, cal], ["h_tom"])), "");
   assert.equal(names([]), "");
+});
+
+test("QA S3 #1: a saved close is for one date; Cancel, a new week, or sign-out calls attendance fresh", async () => {
+  const G4 = "9e4c5d6f-7a8b-4d9e-8fa0-2b3c4d5e6f70";
+  const sent: { path: string; body: { userIds: string[] } }[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G4}/attendance`) {
+      sent.push({ path: url.pathname, body: JSON.parse(String(init?.body)) });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const base = stubClient();
+  const failing = new Proxy(base, {
+    get: (t, key) => (key === "createPost" ? async () => ({ ok: false as const, error: "Not saved." }) : Reflect.get(t, key)),
+  });
+  const week = (next: string, roll: { userId: string; name: string }[]) =>
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G4],
+      rollCall: { [G4]: roll },
+      cards: [card(G4, { host: "Dale", next, going: roll.map((p) => p.name) })],
+    });
+  try {
+    setBoardClient(failing);
+    // Week 1: the close saves with Tom, the write-up fails, the host cancels.
+    week("2026-10-31", [{ userId: "h_tom", name: "Tom" }]);
+    await useBoard.getState().closeCard(G4, true, "", "Good.", ["Tom"], "", ["h_tom"]);
+    assert.equal(closeSavedFor(G4, "2026-10-31"), true);
+    forgetSavedClose(G4);
+    assert.equal(closeSavedFor(G4), false, "Cancel forgets it");
+    // Week 2 with Ann: attendance is called again, with Ann, not week 1's Tom.
+    week("2026-11-07", [{ userId: "h_ann", name: "Ann" }]);
+    await useBoard.getState().closeCard(G4, true, "", "Good.", ["Ann"], "", ["h_ann"]);
+    assert.deepEqual(sent.map((s) => s.body.userIds), [["h_tom"], ["h_ann"]]);
+    // Without a Cancel, a new date still closes fresh (the saved close is per date).
+    week("2026-11-14", [{ userId: "h_ben", name: "Ben" }]);
+    assert.equal(closeSavedFor(G4, "2026-11-14"), false);
+    await useBoard.getState().closeCard(G4, true, "", "Good.", ["Ben"], "", ["h_ben"]);
+    assert.deepEqual(sent.map((s) => s.body.userIds).at(-1), ["h_ben"]);
+    // Sign-out clears it.
+    assert.equal(closeSavedFor(G4), true);
+    useBoard.getState().disconnectRemote();
+    assert.equal(closeSavedFor(G4), false, "sign-out forgets it");
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
 });

@@ -165,6 +165,7 @@ const appTests = [
   "server/board/public-fetch.test.ts",
   "server/board/claim-attempts.pg.test.ts",
   "server/board/steward-race.pg.test.ts",
+  "server/board/rsvp-race.pg.test.ts",
   "server/board/public-gathering.test.ts",
   "server/board/gathering-visibility.test.ts",
   "server/board/groups.test.ts",

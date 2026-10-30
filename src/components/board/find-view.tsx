@@ -51,7 +51,7 @@ import {
 } from "@/lib/board/rsvp-api";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
-import { closeSavedFor, useBoard } from "@/lib/board/store";
+import { closeSavedFor, forgetSavedClose, useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -524,7 +524,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 ).then(
                   (check) => {
                     if (!check.ok) {
-                      setWhoSaved(closeSavedFor(card.id));
+                      setWhoSaved(closeSavedFor(card.id, card.next || todayIso()));
                       setRefused(check.stops);
                       if (check.stops.includes(ROLL_CALL_STALE)) resetPicks();
                       return;
@@ -659,6 +659,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   type="button"
                   className={cn(btnQuiet, "whitespace-nowrap")}
                   onClick={() => {
+                    // A saved close is for this open form only (QA S3 #1).
+                    forgetSavedClose(card.id);
+                    setWhoSaved(false);
                     setClosing(false);
                     setRefocus(true);
                   }}

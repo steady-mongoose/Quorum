@@ -332,6 +332,9 @@ export async function markAttendance(
       // Lock this gathering's rows, then check the host's list inside the same
       // transaction, so an RSVP that lands between the check and the close
       // cannot be deleted by it (QA S4 #5).
+      // The gathering row first: a first-time RSVP insert takes a key-share
+      // lock on it (the foreign key), so it waits for this close (QA S3 #2).
+      await tx.query(`select 1 from public_gathering where id = $1 for update`, [input.gatheringId]);
       await tx.query(`select 1 from gathering_rsvp where gathering_id = $1 for update`, [input.gatheringId]);
       if (!(await input.check(tx))) return false;
     }

@@ -77,7 +77,7 @@ import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
-import { useBoard } from "@/lib/board/store";
+import { forgetSavedClose, useBoard } from "@/lib/board/store";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
@@ -561,6 +561,8 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setResult(null);
   };
   const reset = () => {
+    // A cleared composer starts fresh: its next close calls attendance (QA S3 #1).
+    if (current.cardId) forgetSavedClose(current.cardId);
     pendingRef.current = false;
     setPending(false);
     setDraft(blankDraft(room));

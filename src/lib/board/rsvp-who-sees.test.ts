@@ -228,7 +228,7 @@ test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #1
 
 test("Design #126 L1: after a saved close, the chips lock and a status line says who came is saved", () => {
   const src = read("find-view.tsx");
-  assert.match(src, /setWhoSaved\(closeSavedFor\(card\.id\)\)/);
+  assert.match(src, /setWhoSaved\(closeSavedFor\(card\.id, card\.next \|\| todayIso\(\)\)\)/);
   assert.match(src, /disabled=\{whoSaved\}\s*aria-disabled=\{whoSaved \|\| undefined\}/);
   assert.match(src, /if \(whoSaved\) return;/);
   assert.match(src, /<p role="status" className=\{cn\("text-sm text-fg", !whoSaved && "sr-only"\)\}>\s*\{whoSaved \? WHO_CAME_SAVED : ""\}/);
