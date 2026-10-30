@@ -11,7 +11,7 @@ export const Route = createFileRoute("/terms")({
 /** Terms, with no sign-in. The notice is not written yet. */
 function TermsPage() {
   return (
-    <PublicDocument>
+    <PublicDocument art="jerome">
       <LegalNotice title="Terms" />
     </PublicDocument>
   );

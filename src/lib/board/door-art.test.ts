@@ -198,7 +198,6 @@ test("Josh: the glow on every plate is constant — no animation, no transition,
     /\[data-entered\]>\.plate-ground::after\{content:"";position:absolute;inset:-10%;pointer-events:none;background:radial-gradient\(46% 40% at var\(--door-light\),var\(--door-glow\) 0%,rgba\(201,164,92,\.55\) 34%,transparent 72%\);mix-blend-mode:screen;opacity:\.32;animation:none;transition:none\}/,
   );
   assert.match(door, /\[data-entered\]>\.plate-ground::before\{[^}]*background:var\(--door-motes\)[^}]*opacity:\.3;animation:none;transition:none\}/);
-  assert.match(door, /\[data-section="week"\] \[data-entered\]>\.plate-ground\{--door-light:50% 14%\}/);
   // No keyframe in the sheet touches opacity except the cards' short rise: the light never fades in or out.
   for (const m of door.matchAll(/@keyframes ([a-z-]+)\{((?:[^{}]*\{[^}]*\})*)[^}]*\}/g)) {
     if (m[1] === "door-rise") continue;
@@ -233,7 +232,7 @@ test("public pages stand on the door's plate, and data savers still get none", (
     ["NotFoundPage", src("../../components/not-found.tsx")],
     ["/e server HTML", src("./public-gathering.ts")],
   ] as const) {
-    assert.match(file, /(className|class)="plate-ground door-ground"/, `${name} renders the plate`);
+    assert.match(file, /(className=|class=|: )"plate-ground door-ground"/, `${name} renders the plate`);
     assert.match(file, /(className|class)="scrim"/, `${name} renders the scrim`);
     assert.doesNotMatch(file, /hero-band/, `${name} drops the band`);
     assert.doesNotMatch(file, /backdrop-filter|backdrop-blur|blur\(/, `${name} has no blur`);
@@ -241,4 +240,87 @@ test("public pages stand on the door's plate, and data savers still get none", (
   assert.match(src("../../components/not-found.tsx"), /<div className="shell /);
   assert.match(src("../../components/board/public-document.tsx"), /<div className="card pc-card /);
   assert.match(src("../../components/not-found.tsx"), /<div className="card pc-card /);
+});
+
+/** Where the light lands on screen: the ::after box is inset -10%, so 120% of the plate. */
+const onScreen = (v: number) => -10 + 1.2 * v;
+const light = (css: string, selector: string) => {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = css.match(new RegExp(`${esc}\\{--door-light:(\\d+)% (\\d+)%\\}`));
+  assert.ok(m, `no light for ${selector}`);
+  return [Number(m[1]), Number(m[2])] as const;
+};
+const phoneBlock = () => {
+  const at = door.indexOf('@media (max-width:640px){\n  [data-section="week"] [data-entered]>.plate-ground{--door-light');
+  assert.ok(at > 0, "the phone light block");
+  return door.slice(at, door.indexOf("\n}", at));
+};
+
+test("Design r178: each plate's light lands on screen where the picture shows, below the header and the head card", () => {
+  const plate = (s: string) => `[data-section="${s}"] [data-entered]>.plate-ground`;
+  assert.deepEqual(light(door, plate("week")), [62, 50]);
+  const phone = phoneBlock();
+  assert.deepEqual(light(phone, plate("week")), [70, 58]);
+  assert.deepEqual(light(phone, plate("rooms")), [12, 36]);
+  assert.deepEqual(light(phone, plate("messages")), [36, 44]);
+  assert.deepEqual(light(phone, plate("about")), [50, 34]);
+  assert.doesNotMatch(door, /--door-light:40% 20%|--door-light:36% 22%/, "the old phone values are gone");
+  // The plates Design asked to sanity-check sit their light in the side margin the column leaves, not under the
+  // head card (measured r2: 41-65% of the glow shows at 1280, against 8-22% before).
+  const view = (s: string, v: string) => `[data-section="${s}"][data-view="${v}"] [data-entered]>.plate-ground`;
+  assert.deepEqual(light(door, plate("groups")), [86, 46]);
+  assert.deepEqual(light(door, view("groups", "group")), [84, 44]);
+  assert.deepEqual(light(door, plate("civic")), [12, 46]);
+  assert.deepEqual(light(door, plate("profile")), [12, 46]);
+  assert.deepEqual(light(door, plate("rooms")), [22, 22], "desktop rooms kept");
+  assert.deepEqual(light(door, view("rooms", "room")), [58, 24], "desktop room kept");
+  assert.deepEqual(light(door, plate("messages")), [16, 22], "desktop messages kept");
+  assert.deepEqual(light(phone, view("rooms", "room")), [88, 34]);
+  assert.deepEqual(light(phone, plate("groups")), [86, 60]);
+  assert.deepEqual(light(phone, view("groups", "group")), [86, 62]);
+  assert.deepEqual(light(phone, plate("civic")), [88, 46]);
+  assert.deepEqual(light(phone, plate("profile")), [12, 56]);
+  // On a phone the header and head card take the top ~30% of the screen: every phone light clears it.
+  for (const s of ["week", "rooms", "messages", "groups", "civic", "profile"]) {
+    const [, y] = light(phone, plate(s));
+    assert.ok(onScreen(y) >= 30, `${s} phone light at ${onScreen(y)}% is under the head card`);
+  }
+  // The light never lands off-screen.
+  for (const m of door.matchAll(/--door-light:(\d+)% (\d+)%/g)) {
+    for (const v of [Number(m[1]), Number(m[2])]) assert.ok(onScreen(v) >= 0 && onScreen(v) <= 100, m[0]);
+  }
+});
+
+test("Josh: on a phone Doré's Jacob is never cropped at the edge, in the app or on the shared /e page", () => {
+  assert.ok(
+    door.includes(
+      '@media (max-width:640px){.gathering-page .plate-ground.door-ground,[data-section="week"] [data-entered]>.plate-ground{background-position:6% 35%}}',
+    ),
+  );
+});
+
+test("the public h1s (About, Privacy, Terms, /e, 404) carry the door title's gilt glow", () => {
+  assert.ok(door.includes(".door-ground~* h1{text-shadow:0 1px 0 rgba(0,0,0,.35),0 0 24px rgba(201,164,92,.12)}"));
+});
+
+test("Privacy and Terms stand on Dürer's Saint Jerome, with its own light; About and 404 keep Martin", () => {
+  assert.ok(door.includes(".door-ground.doc-jerome{--door-art:url(/art/plate-rooms-A.webp)}"));
+  assert.ok(door.includes(".plate-ground.door-ground.doc-jerome::after{--door-light:22% 22%}"));
+  assert.match(door, /@media \(max-width:640px\)\{\n  \.door-ground\.doc-jerome\{--door-art:url\(\/art\/plate-rooms-A-900\.webp\)\}\n  \.plate-ground\.door-ground\.doc-jerome::after\{--door-light:12% 36%\}\n\}/);
+  assert.ok(door.includes("@media (min-width:1600px){.door-ground.doc-jerome{--door-art:url(/art/plate-rooms-A-2400.webp)}}"));
+  for (const f of ["plate-rooms-A.webp", "plate-rooms-A-900.webp", "plate-rooms-A-2400.webp"]) {
+    assert.ok(readFileSync(new URL(`../../../public/art/${f}`, import.meta.url)).length > 0, f);
+  }
+  const notFound = readFileSync(new URL("../../components/not-found.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(notFound, /doc-jerome/);
+});
+
+test("the app /e card is as wide as the server one", () => {
+  const gathering = readFileSync(new URL("../../../public/gathering.css", import.meta.url), "utf8");
+  assert.ok(gathering.includes(".gathering-page .shell-body > main { width: min(1088px, 100%); margin-inline: auto; }"));
+});
+
+test("QA #130: at 320 the edge tabs keep their whole focus ring", () => {
+  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.ok(fluid.includes(".tabbar button:focus-visible{outline-offset:-3px}"));
 });

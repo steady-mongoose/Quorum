@@ -5,15 +5,21 @@ import { heroLabel } from "@/lib/board/engraved";
 import { APP_NAME } from "@/lib/board/model";
 
 /**
- * A page outside the sign-in gate: About, Privacy, or Terms. All three stand on the door's
- * whole plate, Martin's Creation of Light, with its constant light and motes (door.css section 7).
- * Every word sits on one solid card; the plate shows around it. Data savers get no plate.
+ * A page outside the sign-in gate: About, Privacy, or Terms. Each stands on a whole plate with the door's
+ * constant light and motes (door.css section 7): About on the door's own Martin, Privacy and Terms on
+ * Dürer's Saint Jerome in His Study (`art="jerome"`). Every word sits on one solid card; the plate shows
+ * around it. Data savers get no plate.
  */
-export function PublicDocument({ children }: { children: ReactNode }) {
+export function PublicDocument({ children, art = "martin" }: { children: ReactNode; art?: "martin" | "jerome" }) {
   useEngravedDocument("about");
+  const jerome = art === "jerome";
   return (
     <div className="shell min-h-dvh overflow-x-clip text-fg">
-      <div className="plate-ground door-ground" role="img" aria-label={heroLabel("about") ?? undefined} />
+      <div
+        className={jerome ? "plate-ground door-ground doc-jerome" : "plate-ground door-ground"}
+        role="img"
+        aria-label={heroLabel(jerome ? "rooms" : "about") ?? undefined}
+      />
       <div className="scrim" aria-hidden="true" />
       <main
         id="main"

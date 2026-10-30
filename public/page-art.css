@@ -1,8 +1,5 @@
-/* The public About, Privacy and Terms band. The signed-in pages have no band since #116: each has one
-   full-bleed plate (page-craft.css). The band is the right half of Martin's Creation of Light, the door's file,
-   so it adds no download for anyone who came through the door. Josh's artists: Doré, Martin, Dürer, Rackham, Bauer.
-   The section attribute is set only after first paint and never under reduced data. */
-[data-section="about"] .hero-band{--band:var(--art-landing);--band-h:clamp(150px,18vw,240px);background-position:75% 40%}
+/* No page has a band any more: the signed-in pages stand on one full-bleed plate each (page-craft.css), and
+   About, Privacy, Terms, /e and 404 on a whole plate with the door's light (door.css section 7). */
 
 /* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
    navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because section rules

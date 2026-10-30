@@ -28,12 +28,10 @@ test("each page names its own work, by an approved artist, except Messages, whic
   assert.match(backgrounds, /--art-messages-side:url\("\/art\/durer-hands-side-A\.webp"\)/);
 });
 
-test("the public About band is the right half of Martin's Creation of Light, the door's file", () => {
-  assert.ok(
-    pageArt.includes(
-      '[data-section="about"] .hero-band{--band:var(--art-landing);--band-h:clamp(150px,18vw,240px);background-position:75% 40%}',
-    ),
-  );
+test("the public About band is gone (QA #130): About stands on Martin's whole plate instead", () => {
+  assert.doesNotMatch(pageArt, /\[data-section="about"\] \.hero-band/);
+  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.doesNotMatch(fluid, /\.hero-band\.category-engraving/);
   assert.equal([...pageArt.matchAll(/url\(/g)].length, 0, "no file of its own");
   assert.equal(heroLabel("about"), "John Martin, The Creation of Light, 1824–27");
 });
@@ -64,10 +62,15 @@ test("the page art loads after fluid.css and stays small", () => {
   assert.ok(gzipSync(pageArt).length <= 2 * 1024);
 });
 
-test("About, Privacy, and Terms stand on the door's whole plate, not a band", () => {
+test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for About, Jerome for the legal pages", () => {
   const doc = readFileSync(new URL("../../components/board/public-document.tsx", import.meta.url), "utf8");
   assert.match(doc, /useEngravedDocument\("about"\);/);
-  assert.match(doc, /<div className="plate-ground door-ground" role="img" aria-label=\{heroLabel\("about"\) \?\? undefined\} \/>/);
+  assert.match(doc, /className=\{jerome \? "plate-ground door-ground doc-jerome" : "plate-ground door-ground"\}/);
+  assert.match(doc, /aria-label=\{heroLabel\(jerome \? "rooms" : "about"\) \?\? undefined\}/);
+  const route = (name: string) => readFileSync(new URL(`../../routes/${name}.tsx`, import.meta.url), "utf8");
+  assert.match(route("privacy"), /<PublicDocument art="jerome">/);
+  assert.match(route("terms"), /<PublicDocument art="jerome">/);
+  assert.match(route("about"), /<PublicDocument>/);
   assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
   assert.doesNotMatch(doc, /hero-band/);
 });

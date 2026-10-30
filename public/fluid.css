@@ -184,14 +184,6 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   background:var(--gold);
   flex:none;
 }
-.hero-band.category-engraving{
-  display:block;
-  width:100%;
-  height:var(--band-h);
-  object-fit:cover;
-  background-image:none;
-  border-bottom:1px solid var(--gold);
-}
 /* The phone chip row sticks flush under the header, whatever height the header has. html's scroll-padding covers
    the header; this covers the chips under it. */
 /* top tucks the row 1px under the header's gold rule: --mast-h rounds the header up, so a flush top left a
@@ -252,6 +244,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   }
   .tabbar button svg{width:24px;height:24px}
   .tabbar button[aria-current="page"]{color:var(--fg);border-top:2px solid var(--gold)}
+  /* The bar runs to the screen edge: draw the focus ring inside each tab so the first and last are not cut off. */
+  .tabbar button:focus-visible{outline-offset:-3px}
   /* --call-card-h: a call card showing above the tab bar (call-rings.tsx), so the last field can scroll clear of it. */
   .shell-body > main{padding-bottom:calc(var(--tabbar-h,56px) + 1rem + env(safe-area-inset-bottom) + var(--call-card-h,0px))}
   .more-sheet[open]{
