@@ -37,7 +37,7 @@ export async function handlePlaces(
   const ban = await openBan(deps.db, session.id, deps.now());
   if (ban) return json(403, { error: "banned", ban });
   if (!deps.places)
-    return json(503, { error: "Place search is off. Choose Not listed to type it in." });
+    return json(503, { error: "Place search is off for now. Choose Not listed to type it in." });
 
   const raw = await request.text();
   if (raw.length > 2048) return json(413, { error: "That request is too large." });

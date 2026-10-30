@@ -8,6 +8,8 @@
   --content-max:72rem;
   --side-art:clamp(16rem,22vw,22rem);
   --flag-h:clamp(36px,4.5vw,56px);
+  /* Phone tabbar: 56px buttons plus its 1px top border. */
+  --tabbar-h:57px;
 }
 html{-webkit-text-size-adjust:100%}
 body{line-height:1.6;min-height:100dvh;overflow-x:clip}
@@ -361,3 +363,11 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 }
 /* The rooms list on the door reads at body size. */
 .door-rooms p{font-size:0.95rem;line-height:1.6}
+
+/* Place search list (#124): short enough to sit above the phone tabbar and
+   keyboard, and scrolled clear of the tabbar when it opens. */
+.place-pop{
+  max-height:min(18rem,40dvh);
+  scroll-margin-bottom:calc(var(--tabbar-h,57px) + env(safe-area-inset-bottom) + 1rem);
+  scroll-margin-top:1rem;
+}

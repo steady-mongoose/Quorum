@@ -56,6 +56,17 @@ function shortText(
   return { ok: true, text };
 }
 
+/** True once 0048 has added members.church_osm_ref and members.church_address. */
+export async function churchPlaceReady(db: Db): Promise<boolean> {
+  const rows = await db.query<{ present: number }>(
+    `select 1 as present from information_schema.columns
+     where table_schema = current_schema() and table_name = 'members'
+       and column_name in ('church_osm_ref', 'church_address')
+     having count(*) = 2`,
+  );
+  return Boolean(rows[0]);
+}
+
 /** A picked OpenStreetMap place: { ref: "node/123", address }. Null clears it. */
 export function parseChurchPlace(
   raw: unknown,
@@ -325,20 +336,15 @@ export async function saveProfile(
         await tx.query(`update members set church = $2 where user_id = $1`, [userId, next.church]);
       }
       if (next.churchPlace !== undefined) {
-        // The columns come from 0048. Until it is applied, a typed church
-        // saves as before and a picked place is refused with a plain line.
-        const ready = await tx.query<{ ok: number }>(
-          `select 1 as ok from information_schema.columns
-           where table_schema = current_schema() and table_name = 'members'
-             and column_name = 'church_osm_ref'`,
-        );
-        if (ready[0]) {
+        // The columns come from 0048. Until it is applied, the church name
+        // still saves and the picked place is left out, so a profile save
+        // never fails on a missing column. The answer then has no churchPlace,
+        // and the browser keeps the pick on that device.
+        if (await churchPlaceReady(tx)) {
           await tx.query(
             `update members set church_osm_ref = $2, church_address = $3 where user_id = $1`,
             [userId, next.churchPlace?.ref ?? null, next.churchPlace?.address ?? ""],
           );
-        } else if (next.churchPlace) {
-          throw new Rollback(503, "Saving a picked place is not on yet. Type the church in for now.");
         }
       }
       if (next.interests) {

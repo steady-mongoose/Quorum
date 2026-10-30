@@ -146,7 +146,7 @@ test("0048 refuses a bad reference and an address with no reference", async () =
   }
 });
 
-test("a picked church saves its reference and reads back verified; a typed one clears it", async () => {
+test("a picked church saves its reference and reads back on the map; a typed one clears it", async () => {
   const { db, close } = await openTestDb();
   try {
     await member(db, "ann");
@@ -160,7 +160,13 @@ test("a picked church saves its reference and reads back verified; a typed one c
     assert.deepEqual(JSON.parse(pickedText).profile.churchPlace, {
       ref: "node/358757062",
       address: "Jackson Road, Florida 33592",
-      verified: true,
+    });
+    const stored = await db.query<{ church_osm_ref: string | null; church_address: string }>(
+      `select church_osm_ref, church_address from members where user_id = 'ann'`,
+    );
+    assert.deepEqual(stored[0], {
+      church_osm_ref: "node/358757062",
+      church_address: "Jackson Road, Florida 33592",
     });
     const typed = await patch(handler, "ann", { church: "My home church" });
     const typedBody = JSON.parse(await typed.text()) as {
@@ -183,21 +189,75 @@ test("before 0048 is applied, profiles still read and typed churches still save"
     const handler = app(db);
     const typed = await patch(handler, "ann", { church: "My home church" });
     assert.equal(typed.status, 200, await typed.text());
+    // A picked place still saves the church name; the place is left out
+    // until 0048 is applied, and the save does not fail.
     const picked = await patch(handler, "ann", {
       church: "Epiphany of Our Lord",
-      churchPlace: { ref: "node/1", address: "" },
+      churchPlace: { ref: "node/1", address: "1 Main Street" },
     });
-    assert.equal(picked.status, 503);
+    const pickedText = await picked.text();
+    assert.equal(picked.status, 200, pickedText);
+    const pickedBody = JSON.parse(pickedText) as {
+      profile: { church: string; churchPlace?: unknown };
+    };
+    assert.equal(pickedBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(pickedBody.profile.churchPlace, undefined);
     const read = await handler(
       new Request("http://127.0.0.1:8787/api/profile", { headers: { "x-user-id": "ann" } }),
     );
     assert.equal(read.status, 200);
-    assert.equal(
-      ((await read.json()) as { profile: { church: string } }).profile.church,
-      "My home church",
-    );
+    const readBody = (await read.json()) as { profile: { church: string; churchPlace?: unknown } };
+    assert.equal(readBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(readBody.profile.churchPlace, undefined);
   } finally {
     await pg.close();
+  }
+});
+
+test("others see the church address only where they may see Location", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    await db.query(`insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ('bob', 'Bob Reed', 'bob@example.com', true, $1, $1)`, [now]);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, 'bob', 'Bob Reed', 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $2)`,
+      [randomUUID(), now],
+    );
+    await db.query(`insert into members (user_id, display_name, gender) values ('bob', 'Bob Reed', 'man')`);
+    const handler = app(db);
+    const saved = await patch(handler, "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+      location: { county: "hillsborough", town: "brandon" },
+      visibility: { church: "members", location: "private" },
+    });
+    assert.equal(saved.status, 200, await saved.text());
+    const view = async () => {
+      const response = await handler(
+        new Request("http://127.0.0.1:8787/api/profile/ann", { headers: { "x-user-id": "bob" } }),
+      );
+      const text = await response.text();
+      assert.equal(response.status, 200, text);
+      return (JSON.parse(text) as {
+        profile: { church?: string; churchPlace?: { ref: string; address?: string }; location?: unknown };
+      }).profile;
+    };
+    const hidden = await view();
+    assert.equal(hidden.church, "Epiphany of Our Lord");
+    assert.equal(hidden.location, undefined);
+    assert.deepEqual(hidden.churchPlace, { ref: "node/358757062" });
+    const opened = await patch(handler, "ann", { visibility: { location: "members" } });
+    assert.equal(opened.status, 200, await opened.text());
+    const shown = await view();
+    assert.deepEqual(shown.churchPlace, {
+      ref: "node/358757062",
+      address: "Jackson Road, Florida 33592",
+    });
+  } finally {
+    await close();
   }
 });
 
