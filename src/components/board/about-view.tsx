@@ -62,11 +62,11 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, a room\'s stewards see who is coming and who came in that room, and admins see every list. Only the host or an admin records who came. Press "I\'ll be there" on the ones you will attend.',
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, and a room\'s stewards see who is coming and who came in that room. Other admins see only totals, with small counts hidden. Press "I\'ll be there" on the ones you will attend.',
   },
   {
     title: "After a meeting",
-    text: "The host writes it up: how it went and the next date. In a room that takes roll, the host also records who came, and can name one person who did something worth mentioning. There is no headcount and no score.",
+    text: "The host writes it up: how it went and the next date. In a room that takes roll, the host or a steward records who came, and the host can name one person who did something worth mentioning. There is no headcount and no score.",
   },
   {
     title: "What a room includes",
@@ -74,7 +74,7 @@ const HOW = [
   },
   {
     title: "Members",
-    text: "In a room with a member list, everyone in the room can see who else is in it, when each joined, and when each last posted. The list is in name order, and nobody is ranked. Who is going and who came stay with the host, the room's stewards, and the admins.",
+    text: "In a room with a member list, everyone in the room can see who else is in it, when each joined, and when each last posted. The list is in name order, and nobody is ranked. Who is going and who came stay with the host and the room's stewards.",
   },
   {
     title: "Who can see you",
@@ -188,7 +188,7 @@ export function AboutView({
         </h1>
         <p className="max-w-prose text-base text-muted">
           {APP_NAME} shows you the week's meetings, lets you say you will be there, and, in
-          rooms that take roll, lets the host record who came. You get in by invitation to a real meeting. There is no feed to
+          rooms that take roll, lets the host or a steward record who came. You get in by invitation to a real meeting. There is no feed to
           scroll and nothing to like. Open it, see where to be, go.
         </p>
       </section>

@@ -63,21 +63,29 @@ export const MARK_TIME_ZONE = "America/New_York";
 
 /** Why a mark was refused: before the gathering, or someone who never said they'd go. */
 export const MARK_TOO_EARLY = "You can mark who came once the gathering has started.";
+
+/** The "I went" line on a started gathering for a member who did not say going (Design #126 review 5713515017). */
+export const ONLY_GOING_CAN_SAY_WENT = "Only members who said they were going can mark “I went”.";
 export const MARK_NOT_GOING = "Only members who said they're going can be marked as came.";
 
 /**
  * The start time in minutes after midnight, read from the free-text time
  * field (QA N2, Oct 30), or null when no time can be read. "7 pm", "7pm",
  * "7:00 p.m.", "11:59 PM", "noon" and 24-hour "19:00" / "07:30" all read.
- * The first time in the text counts ("Doors 6:30 pm, talk at 7" is 6:30 pm).
- * A bare "9:30" with no am/pm and no leading zero could be morning or
- * evening, so it reads as the later one (21:30): marking never opens early.
- * A bare number with no colon and no am/pm ("Room 12") is not a time.
+ * When the text has more than one time, the latest counts (QA N5): "Doors
+ * 6:30 pm, talk at 7:15 pm" is 7:15 pm, so marking never opens early. "noon"
+ * reads as 12:00 only when it is the only time in the text: "after noon
+ * service, 3 pm" is 3 pm. A bare "9:30" with no am/pm and no leading zero
+ * could be morning or evening, so it reads as the later one (21:30). A bare
+ * number with no colon and no am/pm ("Room 12", "talk at 7") is not a time.
  */
 export function startMinutes(time: string | undefined): number | null {
   const text = (time ?? "").toLowerCase();
-  if (/\bnoon\b/.test(text)) return 12 * 60;
   const token = /(?<![\d:])(\d{1,2})(?::([0-5]\d))?\s*(a\.?\s?m\b\.?|p\.?\s?m\b\.?)?/g;
+  let latest: number | null = null;
+  const keep = (minutes: number) => {
+    if (latest === null || minutes > latest) latest = minutes;
+  };
   for (const match of text.matchAll(token)) {
     const [, h, m, meridiem] = match;
     const hour = Number(h);
@@ -85,15 +93,17 @@ export function startMinutes(time: string | undefined): number | null {
     if (meridiem) {
       if (hour < 1 || hour > 12) continue;
       const pm = meridiem.startsWith("p");
-      return ((hour % 12) + (pm ? 12 : 0)) * 60 + minute;
+      keep(((hour % 12) + (pm ? 12 : 0)) * 60 + minute);
+      continue;
     }
     if (m === undefined || hour > 23) continue;
     // "07:30", "0:30", "13:00"…"23:59": a 24-hour time.
-    if (hour === 0 || hour >= 13 || h!.length === 2 && h!.startsWith("0")) return hour * 60 + minute;
+    if (hour === 0 || hour >= 13 || (h!.length === 2 && h!.startsWith("0"))) keep(hour * 60 + minute);
     // "12:15" is past noon at the latest; "9:30" could be either, so the later reading.
-    return (hour === 12 ? 12 : hour + 12) * 60 + minute;
+    else keep((hour === 12 ? 12 : hour + 12) * 60 + minute);
   }
-  return null;
+  if (latest !== null) return latest;
+  return /\bnoon\b/.test(text) ? 12 * 60 : null;
 }
 
 /**

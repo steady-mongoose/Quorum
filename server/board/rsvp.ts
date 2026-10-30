@@ -418,12 +418,17 @@ export function rsvpCutoff(now: Date): Date {
  * Deletes run in bounded batches. Before 0049 is applied there is no table,
  * and this does nothing.
  */
-export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: number; writeUps?: number }> {
+export async function purgeOldRsvps(
+  db: Db,
+  now: Date,
+  /** Tests only: the purge with the other setting of OLD_WRITE_UPS_DROP_DM_LINKS. */
+  dropDmLinks: boolean = OLD_WRITE_UPS_DROP_DM_LINKS,
+): Promise<{ deleted: number; writeUps?: number }> {
   const present = await db.query<{ present: string | null }>(
     `select to_regclass('public.gathering_rsvp')::text as present`,
   );
   const cutoff = rsvpCutoff(now);
-  if (!present[0]?.present) return { deleted: 0, writeUps: await purgeOldWriteUpNames(db, cutoff) };
+  if (!present[0]?.present) return { deleted: 0, writeUps: await purgeOldWriteUpNames(db, cutoff, dropDmLinks) };
   const cutoffDay = cutoff.toISOString().slice(0, 10);
   let deleted = 0;
   for (let round = 0; round < RSVP_PURGE_ROUNDS; round += 1) {
@@ -446,7 +451,7 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
     deleted += rows.length;
     if (rows.length < RSVP_PURGE_BATCH) break;
   }
-  const writeUps = await purgeOldWriteUpNames(db, cutoff);
+  const writeUps = await purgeOldWriteUpNames(db, cutoff, dropDmLinks);
   console.log(JSON.stringify({ event: "rsvp-retention-purge", deleted, writeUps }));
   return { deleted, writeUps };
 }
@@ -460,7 +465,10 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
  * loses its links, so someone named only there loses that DM eligibility.
  * false: the links stay and that eligibility stays; the came list itself
  * is still cleared, so a write-up with no link (named by name only) loses
- * it either way.
+ * it either way. Either way the room member list shows no "came" date older
+ * than 12 months: it reads the came list and the 12-month window, never a
+ * link alone (QA N4, server/board/members.ts). This switch only moves DM
+ * eligibility.
  */
 export const OLD_WRITE_UPS_DROP_DM_LINKS = true;
 
@@ -473,12 +481,12 @@ export const OLD_WRITE_UPS_DROP_DM_LINKS = true;
  * ends DM "met at a meeting" eligibility from that write-up: see
  * OLD_WRITE_UPS_DROP_DM_LINKS.
  */
-async function purgeOldWriteUpNames(db: Db, cutoff: Date): Promise<number> {
+async function purgeOldWriteUpNames(db: Db, cutoff: Date, dropDmLinks: boolean): Promise<number> {
   const cutoffDay = cutoff.toISOString().slice(0, 10);
   const old = `p.type = 'hosted'
        and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date < $1 else p.created_at < $2 end)`;
   const named = await db.query<{ ready: string | null }>(`select to_regclass('public.dm_named_account')::text as ready`);
-  if (OLD_WRITE_UPS_DROP_DM_LINKS && named[0]?.ready) {
+  if (dropDmLinks && named[0]?.ready) {
     await db.query(
       `delete from dm_named_account n using board_post p where n.post_id = p.id and ${old}`,
       [cutoffDay, cutoff],

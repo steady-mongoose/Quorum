@@ -98,7 +98,7 @@ function CameTimes({ count }: { count: SummaryCount }) {
 export function SummaryLine({ cells }: { cells: { going: SummaryCount; came: SummaryCount; writeUps: SummaryCount } }) {
   return (
     <>
-      going <Shown count={cells.going} /> · <CameTimes count={cells.came} /> · write-ups <Shown count={cells.writeUps} />
+      going <Shown count={cells.going} />{"\u00a0· "}<CameTimes count={cells.came} />{"\u00a0· "}write-ups <Shown count={cells.writeUps} />
     </>
   );
 }

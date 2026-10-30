@@ -116,7 +116,9 @@ test("after the real hiding step, no count under 5 is visible; headers read 'Tim
     }
     // Summary lines: "going 13 · came 10 times · write-ups 6".
     const county = [...host.querySelectorAll("summary")].find((s) => (s.textContent ?? "").startsWith("The County"));
-    assert.equal(county?.textContent, "The County: going 13 · came 10 times · write-ups 6");
+    assert.equal(county?.textContent, "The County: going 13\u00a0· came 10 times\u00a0· write-ups 6");
+    // No line can wrap to start with "·" (review 5713515017, low 1): every "·" follows a no-break space.
+    for (const summary of host.querySelectorAll("summary")) assert.doesNotMatch(summary.textContent ?? "", /[^\u00a0]·/);
     // A hidden "came" reads "came Hidden", never "came Hidden times".
     for (const s of host.querySelectorAll("summary")) assert.doesNotMatch(s.textContent ?? "", /Hidden(hidden to protect privacy)? times/);
   } finally {
@@ -186,7 +188,8 @@ test("'I went' says why it is not open in a visible line the button is described
     const line = started.host.ownerDocument.getElementById(id);
     assert.equal(line?.tagName, "P");
     assert.equal(line?.className.includes("sr-only"), false);
-    assert.match(line?.textContent ?? "", /Say you’re going first/);
+    assert.equal(line?.textContent, "Only members who said they were going can mark “I went”.");
+    assert.doesNotMatch(started.host.textContent ?? "", /going first/);
     // The steward's Mark who came is offered on a gathering that has started.
     assert.ok([...started.host.querySelectorAll("button")].some((b) => b.textContent === "Mark who came"));
   } finally {
@@ -209,5 +212,56 @@ test("'I went' says why it is not open in a visible line the button is described
     assert.equal(button?.getAttribute("aria-disabled"), null);
   } finally {
     await open.unmount();
+  }
+});
+
+test("'I went' and 'I'll be there' share one row height: items-center and min-h 44px on both (low 2)", async () => {
+  useBoard.setState({ rollCall: {} });
+  const row = await mount(createElement(MeetingRow, { card: card({}), shown: true, ...rowProps }));
+  try {
+    const buttons = [...row.host.querySelectorAll("button")];
+    const went = buttons.find((b) => b.textContent === "I went");
+    const rsvp = buttons.find((b) => b.textContent === "I'll be there");
+    assert.ok(went && rsvp);
+    for (const b of [went, rsvp]) assert.match(b.className, /min-h-\[44px\]/);
+    const shared = went.parentElement;
+    assert.ok(shared?.contains(rsvp));
+    assert.match(shared.className, /items-center/);
+    // The RSVP control adds no top margin of its own inside this row.
+    const wrap = rsvp.parentElement?.parentElement;
+    assert.equal(wrap?.parentElement, shared);
+    assert.doesNotMatch(wrap.className, /\bmt-3\b/);
+  } finally {
+    await row.unmount();
+  }
+});
+
+const { createRootRoute, createRouter, createMemoryHistory, RouterProvider } = await import("@tanstack/react-router");
+
+/** A host's row has links (the invite note), so it mounts inside a router. @param {unknown} element */
+async function mountRouted(element) {
+  const rootRoute = createRootRoute({ component: () => element });
+  const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ["/"] }) });
+  /** @type {any} */ (router)._rendered ??= [];
+  await router.load();
+  return mount(createElement(RouterProvider, { router }));
+}
+
+test("a host gets no 'I went' and no going-first line they could not act on (low 3)", async () => {
+  useBoard.setState({ rollCall: {} });
+  for (const next of ["2026-10-28", "2099-01-01"]) {
+    const row = await mountRouted(
+      createElement(MeetingRow, { card: card({ next }), shown: true, ...rowProps, me: "Dale", steward: false }),
+    );
+    try {
+      const buttons = [...row.host.querySelectorAll("button")];
+      assert.equal(buttons.some((b) => /I went|You've been|I'll be there/.test(b.textContent ?? "")), false);
+      // The host's state: they record who came in the write-up.
+      assert.ok(buttons.some((b) => b.textContent?.trim() === "Write it up"));
+      assert.doesNotMatch(row.host.textContent ?? "", /going first|Only members who said|can mark “I went”/);
+      assert.equal(row.host.querySelector("[aria-describedby]")?.textContent?.includes("I went") ?? false, false);
+    } finally {
+      await row.unmount();
+    }
   }
 });

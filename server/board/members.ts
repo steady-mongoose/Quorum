@@ -4,6 +4,7 @@ import { actorRole, stewardsRoom } from "./access.ts";
 import { cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
+import { rsvpCutoff } from "./rsvp.ts";
 
 /**
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
@@ -93,6 +94,11 @@ export async function listRoomMembers(
   const lastPosted = new Map(posted.map((row) => [row.author_user_id, day(row.last_at)]));
 
   // The host's roll call: each write-up in this room, the host and the accounts it named.
+  // Dated from the came list, not from a dm_named_account link alone (QA N4):
+  // a link counts only while its write-up still has a came list, and nothing
+  // older than 12 months (Josh's rule, by the write-up's date or when it was
+  // filed) is shown, whatever OLD_WRITE_UPS_DROP_DM_LINKS keeps for DMs.
+  const cutoff = rsvpCutoff(now);
   const roll = await db.query<{
     post_id: string;
     host_id: string | null;
@@ -105,10 +111,11 @@ export async function listRoomMembers(
     `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name, p.card_id,
             p.on_date, p.created_at, n.user_id
      from board_post p
-     left join dm_named_account n on n.post_id = p.id
+     left join dm_named_account n on n.post_id = p.id and cardinality(p.came) > 0
      where p.room_id = $1 and p.type = 'hosted' and p.removed = false and p.parent_id is null
+       and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= $2 else p.created_at >= $3 end)
      order by p.created_at desc, p.id`,
-    [roomId],
+    [roomId, cutoff.toISOString().slice(0, 10), cutoff],
   );
   // The viewer's role from the batch above when they are listed; one lookup otherwise.
   const self = people.find((person) => person.id === userId);

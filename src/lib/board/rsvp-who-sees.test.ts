@@ -24,20 +24,20 @@ test("every going or has-been list is behind seesGoing, seesCame or takesRoll", 
     // The old admin-only gate is gone from the lists.
     assert.doesNotMatch(read(name), /admin && (card|closing)\.going/, name);
   }
-  // Who came: the host, admins and the room's stewards read it (Josh, 9:24 PM ET).
+  // Who came: the host and the room's stewards read it (Josh, 9:24 PM ET; admins dropped 7:55 AM Oct 30).
   assert.match(read("find-view.tsx"), /seesCame\(card\) \? <span>· has been:/);
-  // Marking it (the "I went" button and the roll-call pills) stays host or admin only.
+  // Marking it (the roll-call pills) is the host or a steward, once it has started.
   assert.match(read("find-view.tsx"), /takesRoll\(card\) && rollOn && started && roll\.length > 0/);
   assert.match(read("room-view.tsx"), /closing && takesRoll\(closing\) && roll\.length > 0/);
 });
 
-test("members keep their own RSVP, and the 'I went' control is only for the host or an admin", () => {
+test("members keep their own RSVP, and 'I went' is for members who can say going (not the host)", () => {
   assert.match(read("week-view.tsx"), /const going = card\.going\.includes\(me\)/);
   const find = read("find-view.tsx");
   assert.match(find, /const going = card\.going\.includes\(rest\.me\)/);
   assert.match(read("rsvp-control.tsx"), /You’re going/);
   // "I went" is aria-disabled with a guard until it has started and you're going (QA F4, Design).
-  assert.match(find, /\{takesRoll\(card\) \? \(\s*<button[\s\S]{0,400}?if \(!canSayWent\) return;\s*visited\(card\.id\);/);
+  assert.match(find, /const showWent = takesRoll\(card\) && !isHost;[\s\S]*\{showWent \? \(\s*<button[\s\S]{0,400}?if \(!canSayWent\) return;\s*visited\(card\.id\);/);
   // The Find intro no longer tells members to press "I went".
   assert.doesNotMatch(find, /<strong className="font-semibold text-fg">I went<\/strong>/);
 });
@@ -47,24 +47,24 @@ test("about copy says who sees the list", () => {
   assert.doesNotMatch(source, /who is going/);
   assert.match(
     source,
-    /Who\\'s coming stays private\. The host sees who is coming to their own gathering, a room\\'s stewards see who is coming and who came in that room, and admins see every list\. Only the host or an admin records who came\./,
+    /Who\\'s coming stays private\. The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room\. Other admins see only totals, with small counts hidden\. Press "I\\'ll be there"/,
   );
 });
 
-test("about members copy: who is going and who came stay with the host, stewards and admins", () => {
+test("about members copy: who is going and who came stay with the host and the stewards (Josh 7:55)", () => {
   const source = read("about-view.tsx");
   assert.doesNotMatch(source, /stays with the admins/);
   assert.doesNotMatch(source, /members can see which gatherings each person came to/);
   assert.match(
     source,
-    /The list is in name order, and nobody is ranked\. Who is going and who came stay with the host, the room's stewards, and the admins\./,
+    /The list is in name order, and nobody is ranked\. Who is going and who came stay with the host and the room's stewards\./,
   );
 });
 
-test("door roll call copy: only host, stewards and admins see who came", () => {
+test("door roll call copy: the host or a steward records who came, and only they see it", () => {
   assert.match(
     read("door.tsx"),
-    /In a room that takes roll, the host records who came\. Only the host, the room's stewards, and the admins see it\. You see your own\./,
+    /In a room that takes roll, the host or a steward records who came\. Only they see the list\. You see your own\./,
   );
 });
 
@@ -104,12 +104,12 @@ test("Find close form: hint, not placeholder; wrapping buttons; focus back to Wr
   assert.match(find, /setClosing\(false\);\s*setRefocus\(true\);/);
 });
 
-test("door copy: you see your own answer; host, stewards and admins see who is going", () => {
+test("door copy: you see your own answer; the host and stewards see who is going", () => {
   const source = read("door.tsx");
   assert.doesNotMatch(source, /Only the room's admins see the full list/);
   assert.match(
     source,
-    /Say you're going to a gathering\. You see only your own answer\. The host, the room's stewards, and the admins see who is going\./,
+    /Say you're going to a gathering\. You see only your own answer\. The host and the room's stewards see who is going\./,
   );
 });
 
@@ -206,7 +206,7 @@ test("the roll call option copy (Design #126)", async () => {
   const { ROOM_OPTION_WHAT } = await import("./room-options.ts");
   assert.equal(
     ROOM_OPTION_WHAT.roll_call,
-    "After a gathering, the host records who came. The host, the room's stewards, and the admins see it. You see your own.",
+    "After a gathering, the host or a steward records who came. Only they see it. You see your own.",
   );
 });
 

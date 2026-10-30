@@ -23,10 +23,13 @@ export function RsvpControl({
   card,
   going,
   onToggle,
+  className = "mt-3",
 }: {
   card: MeetingCard;
   going: boolean;
   onToggle: () => void;
+  /** Spacing above; a row that lines it up with other buttons passes "". */
+  className?: string;
 }) {
   const pending = useBoard((state) => state.rsvpPending.includes(card.id));
   const failed = useBoard((state) => state.rsvpFailed.includes(card.id));
@@ -40,11 +43,11 @@ export function RsvpControl({
     return () => clearTimeout(timer);
   }, [tapped, pending]);
   return (
-    <div className="mt-3 flex flex-col items-start gap-2">
+    <div className={cn("flex flex-col items-start gap-2", className)}>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          className={cn(btn, "btn-rsvp", going ? "btn-primary" : "border border-line bg-transparent text-fg")}
+          className={cn(btn, "btn-rsvp min-h-[44px]", going ? "btn-primary" : "border border-line bg-transparent text-fg")}
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           data-tapped={tapped ? "" : undefined}

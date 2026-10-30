@@ -1921,6 +1921,32 @@ test("QA N2: startMinutes reads am/pm, p.m., noon and 24-hour times; a bare 9:30
   for (const [text, minutes] of cases) assert.equal(startMinutes(text), minutes, text);
 });
 
+// ---- QA N5: more than one time reads as the latest; "noon" only on its own ----
+
+test("QA N5: the latest time in the text counts, and 'noon' counts only when it is the only time", () => {
+  const cases: Array<[string, number | null]> = [
+    ["after noon service, 3 pm", 15 * 60],
+    ["noon service, then 3 pm", 15 * 60],
+    ["3 pm, after the noon service", 15 * 60],
+    ["noon", 12 * 60],
+    ["lunch at noon", 12 * 60],
+    ["Doors 6:30 pm, talk at 7:15 pm", 19 * 60 + 15],
+    ["7:15 pm talk, doors 6:30 pm", 19 * 60 + 15],
+    ["10 am and 7 pm", 19 * 60],
+    ["19:00, coffee from 08:30", 19 * 60],
+    ["9:30 or 10 am", 21 * 60 + 30],
+  ];
+  for (const [text, minutes] of cases) assert.equal(startMinutes(text), minutes, text);
+  // Never early: 'after noon service, 3 pm' is closed at 12:00 and 2:59 pm in New York, open at 3 pm.
+  const time = "after noon service, 3 pm";
+  assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T16:00:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T18:59:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time }, new Date("2026-10-30T19:00:00Z")), true);
+  // 'noon' alone still opens at noon.
+  assert.equal(markOpen({ date: "2026-10-30", time: "noon" }, new Date("2026-10-30T15:59:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: "noon" }, new Date("2026-10-30T16:00:00Z")), true);
+});
+
 test("QA N2: markOpen in New York time, across the clock change; unreadable times wait for the date to end; undated never opens", () => {
   // Nov 1 2026 is the day the clocks go back: 23:30 UTC is 6:30 pm EST.
   const at = (iso: string) => new Date(iso);
@@ -1998,6 +2024,32 @@ test("QA N3: someone named only on a write-up older than 12 months loses that DM
     // And Tom can no longer confirm it.
     await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING]);
     assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA N4: with OLD_WRITE_UPS_DROP_DM_LINKS off, the purge keeps that DM eligibility (the came list still goes)", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id)] },
+      now: new Date("2026-11-01T12:00:00Z"),
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    // That write-up is the only one naming Tom; make it older than 12 months.
+    await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
+    assert.equal((await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING])).ok, true);
+    assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "before the purge, Tom and Dale met at a meeting");
+    await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"), false);
+    assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "the links stay, so they are still peers");
+    const post = await t.db.query<{ came: string[] }>(`select came from board_post where type = 'hosted' and card_id = $1`, [GATHERING]);
+    assert.deepEqual(post[0]?.came, [], "the came list is cleared either way");
   } finally {
     await t.close();
   }

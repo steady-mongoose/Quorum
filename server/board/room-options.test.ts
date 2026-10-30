@@ -297,3 +297,56 @@ test("who came is private: host and the room's stewards see it; an admin as an a
     await close();
   }
 });
+
+// QA N4 (9fad3a8 pre-check): the member list dates "came" from the came lists
+// and shows nothing older than 12 months, so OLD_WRITE_UPS_DROP_DM_LINKS only
+// moves DM eligibility. Run with the switch on and off.
+for (const dropDmLinks of [true, false]) {
+  test(`member list: no 'came' older than 12 months, links kept or not (OLD_WRITE_UPS_DROP_DM_LINKS=${dropDmLinks})`, async () => {
+    const { purgeOldRsvps, OLD_WRITE_UPS_DROP_DM_LINKS } = await import("./rsvp.ts");
+    assert.equal(typeof OLD_WRITE_UPS_DROP_DM_LINKS, "boolean");
+    const { db, close } = await openTestDb();
+    try {
+      const admin = await person(db, "Ada", [["admin", ""]]);
+      const sue = await person(db, "Sue", [["steward", "shop"]]);
+      const hal = await person(db, "Hal");
+      const ann = await person(db, "Ann");
+      const ben = await person(db, "Ben");
+      for (const id of [admin, sue, hal, ann, ben]) await join(db, id, "shop", 400);
+      await updateRoom(db, { userId: admin, id: "shop", options: ["roll_call", "members"], now });
+      // Ann only on a write-up from 14 months ago; Ben on that one and a recent one.
+      const old = await createPost(db, {
+        userId: hal, name: "Hal", roomId: "shop", body: { ...hosted(["Ann", "Ben"]), on: "2025-08-20" }, now,
+      });
+      assert.equal(old.ok, true, old.ok ? "" : old.error);
+      const recent = await createPost(db, {
+        userId: hal, name: "Hal", roomId: "shop", body: hosted(["Ben"]), now,
+      });
+      assert.equal(recent.ok, true);
+      const dates = async () => {
+        const list = await listRoomMembers(db, sue, "shop", now);
+        assert.equal(list.ok, true);
+        if (!list.ok) return {};
+        return Object.fromEntries(list.value.members.map((row) => [row.name, row.attended.map((a) => a.on)]));
+      };
+      // Before the purge: the 12-month window already hides the old write-up.
+      const before = await dates();
+      assert.deepEqual(before.Ann, []);
+      assert.deepEqual(before.Ben, ["2026-10-22"]);
+      assert.deepEqual(before.Hal, ["2026-10-22"]);
+
+      await purgeOldRsvps(db, now, dropDmLinks);
+      const after = await dates();
+      assert.deepEqual(after.Ann, [], "no old came date, with or without the links");
+      assert.deepEqual(after.Ben, ["2026-10-22"]);
+      const links = await db.query<{ n: number }>(
+        `select count(*)::int as n from dm_named_account where post_id = $1`,
+        [old.ok ? old.value.id : ""],
+      );
+      assert.equal(links[0]?.n, dropDmLinks ? 0 : 2);
+      // The switch moves only the DM links (DM eligibility: rsvp.test.ts QA N3/N4).
+    } finally {
+      await close();
+    }
+  });
+}

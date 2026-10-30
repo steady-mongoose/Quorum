@@ -51,7 +51,7 @@ import {
   DID_NOT_SAVED_LINE,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
-import { markOpen } from "@/lib/board/rsvp-rules";
+import { markOpen, ONLY_GOING_CAN_SAY_WENT } from "@/lib/board/rsvp-rules";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
@@ -128,7 +128,7 @@ export function FindView() {
           <p className="max-w-prose text-base text-muted">
             Every meeting, church service, vouched-for business, and family that needs meals. Press{" "}
             <strong className="font-semibold text-fg">I'll be there</strong> for next time. The host
-            records who came. A meeting drops off after it is missed twice. If you host something,
+            or a steward records who came. A meeting drops off after it is missed twice. If you host something,
             this is where you write it up afterwards. Invite codes are made under More, on About.
           </p>
         </section>
@@ -638,11 +638,15 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   const started = markOpen({ date: card.next, time: card.time }, new Date());
   // "I went": only once it has started, and only after saying "going" (QA F4).
   const canSayWent = !went && started && going;
+  // A host has no RSVP control, so "I went" could never open for them: hosts get
+  // no "I went" and no going-first line; they record who came in the write-up
+  // (Design #126 review 5713515017, low 3).
+  const showWent = takesRoll(card) && !isHost;
   // Why "I went" is not open yet: a visible line the button is described by, not a tooltip (Design #126 L1).
   const wentReason =
-    takesRoll(card) && !went && !canSayWent
+    showWent && !went && !canSayWent
       ? started
-        ? "Say you’re going first, then you can mark “I went”."
+        ? ONLY_GOING_CAN_SAY_WENT
         : card.next
           ? "You can mark “I went” once the gathering has started."
           : "You can mark “I went” once the gathering has a date and has started."
@@ -697,14 +701,15 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
           {wentReason}
         </p>
       ) : null}
-      <div className={cn("flex flex-wrap gap-2", wentReason ? "mt-2" : "mt-3")}>
+      {/* items-center and min-h-[44px] on both, so "I went" and "I'll be there" are one height (low 2). */}
+      <div className={cn("flex flex-wrap items-center gap-2", wentReason ? "mt-2" : "mt-3")}>
         {!isHost && card.next ? (
-          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
+          <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} className="" />
         ) : null}
-        {takesRoll(card) ? (
+        {showWent ? (
           <button
             type="button"
-            className={cn(btnGhost, "aria-disabled:opacity-70")}
+            className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
             aria-disabled={!canSayWent || undefined}
             aria-describedby={wentReason ? wentReasonId : undefined}
             onClick={() => {
