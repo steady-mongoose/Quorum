@@ -68,7 +68,7 @@ test("the design follow-ups are in the screens they belong to", () => {
   assert.match(find, /Next date/);
   assert.match(find, /aria-label="Room"/);
   assert.match(find, /aria-label="Kind"/);
-  assert.match(find, /text-\[13px\]/);
+  assert.match(find, /text-\[0\.8125rem\]/);
   assert.equal(find.includes("text-xs"), false);
   assert.match(find, />\s*Remove\s*</);
 
