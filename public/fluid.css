@@ -22,7 +22,7 @@ html{-webkit-text-size-adjust:100%}
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
    clears the sticky chip row too (--chips-h, 3.75rem: 44px chips plus py-2). */
-@media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem)}}
+@media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem + var(--call-card-h,0px))}}
 @media (max-width:1023px){html:has(.room-chips){scroll-padding-top:calc(var(--mast-h) + var(--chips-h) + .5rem)}}
 /* The header's and the sticky chip row's own controls are never "obscured by the header": cancel the scroll padding on them, or focusing a
    header control (Tab, the desktop More dialog returning focus) scrolls the page (QA B1 on #121, 1200 to 745 at 1280). */
@@ -242,7 +242,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   }
   .tabbar button svg{width:24px;height:24px}
   .tabbar button[aria-current="page"]{color:var(--fg);border-top:2px solid var(--gold)}
-  .shell-body > main{padding-bottom:calc(var(--tabbar-h,56px) + 1rem + env(safe-area-inset-bottom))}
+  /* --call-card-h: a call card showing above the tab bar (call-rings.tsx), so the last field can scroll clear of it. */
+  .shell-body > main{padding-bottom:calc(var(--tabbar-h,56px) + 1rem + env(safe-area-inset-bottom) + var(--call-card-h,0px))}
   .more-sheet[open]{
     position:fixed;
     inset:auto 0 0 0;

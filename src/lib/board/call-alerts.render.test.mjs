@@ -67,6 +67,7 @@ globalThis.fetch = async (input, init) => {
   let body;
   const hit = Object.keys(overrides).find((end) => url.endsWith(end));
   if (hit) {
+    if (overrides[hit] === "network") throw new TypeError("Failed to fetch");
     const [status, reply] = overrides[hit];
     return new Response(JSON.stringify(reply), {
       status,
@@ -179,7 +180,8 @@ after(async () => {
   }
 });
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
-const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
+const { CallRings, focusRoomCall, keepFieldClear } =
+  await import("../../components/board/call-rings.tsx");
 const { CallPanel, RoomCall } = await import("../../components/board/room-call.tsx");
 
 const flush = async (n = 20) => {
@@ -904,27 +906,192 @@ test("low 3: someone who can't ring sees no picker, and raw server text never sh
   const picker = "/api/calls/rooms/shop/ring";
   for (const reply of [
     [200, { canRing: false, members: [], record: false }],
-    [503, { error: 'relation "dm_block" does not exist', record: false }],
+    [403, { error: 'relation "dm_block" does not exist', record: false }],
   ]) {
     overrides = { [picker]: reply };
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        createElement(
-          SessionContext.Provider,
-          { value: live },
-          createElement(RoomCall, { roomId: "shop" }),
-        ),
-      );
-    });
-    await joinRoomCall(host);
+    const { host } = await mountPicker();
     assert.equal(host.querySelector("select"), null);
     assert.equal(host.textContent.includes("Try again"), false);
     assert.equal(host.textContent.includes("dm_block"), false);
-    overrides = {};
-    await act(async () => root.unmount());
-    host.remove();
   }
+  // A server fault shows the plain line, never its own text.
+  overrides = { [picker]: [500, { error: 'relation "dm_block" does not exist', record: false }] };
+  const { host } = await mountPicker();
+  assert.ok(host.textContent.includes(PICKER_LINE));
+  assert.equal(host.textContent.includes("dm_block"), false);
+});
+
+const PICKER = "/api/calls/rooms/shop/ring";
+const PICKER_LINE = "We couldn't load who you can call. Try again in a moment.";
+
+async function mountPicker() {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      createElement(
+        SessionContext.Provider,
+        { value: live },
+        createElement(RoomCall, { roomId: "shop" }),
+      ),
+    );
+  });
+  await joinRoomCall(host);
+  const button = (text) =>
+    [...host.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+  return { host, root, button };
+}
+
+async function pressRetry(button) {
+  const retry = button("Try again");
+  assert.ok(retry, "Try again shows");
+  retry.focus();
+  await act(async () => retry.click());
+  await flush();
+  return retry;
+}
+
+test("QA S4: a network failure on the first load shows the line and Try again, not nothing", async () => {
+  overrides = { [PICKER]: "network" };
+  const { host, button } = await mountPicker();
+  const line = [...host.querySelectorAll('p[role="status"]')].find(
+    (p) => p.textContent === PICKER_LINE,
+  );
+  assert.ok(line, "the same status line");
+  assert.ok(button("Try again"));
+});
+
+test("QA S4: a Try again that fails any other way keeps the line, the button and focus", async () => {
+  overrides = { [PICKER]: [503, { canRing: false, members: [], error: PICKER_LINE }] };
+  const { host, button } = await mountPicker();
+  for (const reply of [
+    [500, { error: "boom" }],
+    [403, { error: "Not allowed." }],
+    [503, { error: "Calls aren't working right now. Try again in a moment." }],
+    "network",
+  ]) {
+    overrides = { [PICKER]: reply };
+    const retry = await pressRetry(button);
+    assert.equal(button("Try again"), retry, `${String(reply[0] ?? reply)}: the same button stays`);
+    assert.equal(document.activeElement, retry, "focus stays on Try again, not the page");
+    assert.ok(host.textContent.includes(PICKER_LINE));
+    assert.equal(host.textContent.includes("boom"), false);
+  }
+});
+
+test("Design L5: after Try again works, focus moves to the member list with the focus ring", async () => {
+  overrides = { [PICKER]: "network" };
+  const { host, button } = await mountPicker();
+  overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
+  await pressRetry(button);
+  const select = host.querySelector("select");
+  assert.ok(select);
+  assert.equal(document.activeElement, select);
+  assert.equal(select.hasAttribute("data-focus-ring"), true, "focusWithRing");
+});
+
+test("Design L6: a Try again that brings back an empty list focuses the call panel", async () => {
+  overrides = { [PICKER]: "network" };
+  const { host, button } = await mountPicker();
+  overrides = { [PICKER]: [200, { canRing: true, members: [] }] };
+  await pressRetry(button);
+  assert.equal(button("Try again"), undefined);
+  const panel = host.querySelector("section");
+  assert.equal(document.activeElement, panel, "focus lands on the call panel, not the page");
+  assert.equal(panel.hasAttribute("data-focus-ring"), true, "focusWithRing");
+  assert.equal(panel.getAttribute("tabindex"), "-1");
+});
+
+test("QA S4: once Ben answers, 'Calling Ben.' goes and Ben is no longer offered", async () => {
+  overrides = {
+    [PICKER]: [
+      200,
+      {
+        canRing: true,
+        members: [
+          { id: "ben", name: "Ben" },
+          { id: "cy", name: "Cy" },
+        ],
+      },
+    ],
+  };
+  const { host, button } = await mountPicker();
+  const select = host.querySelector("select");
+  await act(async () => {
+    select.value = "ben";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await act(async () => button("Call Ben").click());
+  await flush();
+  assert.match(host.textContent, /Calling Ben\. It rings for up to a minute\./);
+  // Ben joins: the next poll has him in the call.
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !/Calling Ben\./.test(host.textContent), 6000);
+  assert.doesNotMatch(host.textContent, /Calling Ben\./);
+  const names = [...host.querySelector("select").options].map((o) => o.textContent);
+  assert.deepEqual(names, ["Choose a member", "Cy"], "Ben is in the call, so not offered");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("QA S3: a card that shows while typing scrolls the field clear of it", async () => {
+  const box = document.createElement("div");
+  const field = document.createElement("textarea");
+  box.append(field);
+  document.body.append(box);
+  const scrolled = [];
+  field.scrollIntoView = (o) => scrolled.push(o);
+  field.getBoundingClientRect = () => ({ top: 760, bottom: 800, left: 0, right: 390 });
+  const realRect = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.matches?.('section[role="region"]')
+      ? { top: 640, bottom: 780, left: 16, right: 374 }
+      : realRect.call(this);
+  };
+  try {
+    field.focus();
+    ringsReply = [{ id: "r70", kind: "dm", threadId: thread, fromName: "Ann" }];
+    await mountRings(ringtoneSpy().fn);
+    assert.equal(document.activeElement, field, "typing keeps focus");
+    assert.ok(scrolled.length > 0, "the field was scrolled clear of the card");
+    assert.deepEqual(scrolled[0], { block: "nearest" });
+  } finally {
+    window.HTMLElement.prototype.getBoundingClientRect = realRect;
+    box.remove();
+  }
+});
+
+test("QA S3: keepFieldClear leaves a field alone when the card is not over it, or it is a button", async () => {
+  const card = document.createElement("section");
+  card.getBoundingClientRect = () => ({ top: 640, bottom: 780 });
+  const field = document.createElement("input");
+  const press = document.createElement("button");
+  document.body.append(card, field, press);
+  const scrolled = [];
+  field.scrollIntoView = press.scrollIntoView = () => scrolled.push(1);
+  field.getBoundingClientRect = () => ({ top: 300, bottom: 340 });
+  field.focus();
+  keepFieldClear(card);
+  press.getBoundingClientRect = () => ({ top: 700, bottom: 740 });
+  press.focus();
+  keepFieldClear(card);
+  assert.equal(scrolled.length, 0);
+  field.getBoundingClientRect = () => ({ top: 700, bottom: 740 });
+  field.focus();
+  keepFieldClear(card);
+  assert.equal(scrolled.length, 1);
+  card.remove();
+  field.remove();
+  press.remove();
+});
+
+test("QA S3: html's bottom scroll padding and main's padding reserve the call card's height", () => {
+  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.match(
+    css,
+    /html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}/,
+  );
+  assert.match(css, /\.shell-body > main\{padding-bottom:calc\([^}]*var\(--call-card-h,0px\)\)\}/);
 });

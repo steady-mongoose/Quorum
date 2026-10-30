@@ -133,7 +133,7 @@ test("the chip row runs to the screen edge so the next chip peeks in; no fade ov
 test("focused controls clear the tab bar on phones and the chip row on Rooms below 1024px", () => {
   assert.match(
     fluid,
-    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem\)\}\}/,
+    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}\}/,
   );
   assert.match(
     fluid,
@@ -169,7 +169,7 @@ test("the desktop --mast-h first-paint guess is the measured 84px board header (
 test("main reserves the tab bar's own height, and --tabbar-h:57px is declared exactly once", () => {
   assert.match(
     fluid,
-    /\.shell-body > main\{padding-bottom:calc\(var\(--tabbar-h,56px\) \+ 1rem \+ env\(safe-area-inset-bottom\)\)\}/,
+    /\.shell-body > main\{padding-bottom:calc\(var\(--tabbar-h,56px\) \+ 1rem \+ env\(safe-area-inset-bottom\) \+ var\(--call-card-h,0px\)\)\}/,
   );
   assert.doesNotMatch(fluid, /padding-bottom:calc\(56px \+ 1rem/);
   assert.equal(fluid.match(/--tabbar-h:57px/g)?.length, 1);

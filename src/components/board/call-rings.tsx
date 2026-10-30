@@ -117,8 +117,10 @@ export function CallRings({
       root.style.removeProperty(CARD_HEIGHT_VAR);
       return;
     }
-    const measure = () =>
+    const measure = () => {
       root.style.setProperty(CARD_HEIGHT_VAR, `${Math.ceil(node.offsetHeight) + 12}px`);
+      keepFieldClear(node);
+    };
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     observer?.observe(node);
@@ -403,6 +405,23 @@ export const ESCAPE_HINT = "Press Escape to decline.";
 const NO_NOTICE = { text: "", missed: [] as string[] };
 /** Height of the call card plus a gap; the board toast adds it to its bottom offset. */
 export const CARD_HEIGHT_VAR = "--call-card-h";
+
+const TEXT_FIELD =
+  "input:not([type='checkbox'],[type='radio'],[type='button'],[type='submit'],[type='reset'],[type='range'],[type='file'],[type='color'],[type='image']), textarea, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * A card that shows (or grows) while someone is typing must not sit on the
+ * field: scroll the field up clear of it. html's scroll-padding-bottom and
+ * main's bottom padding both add the card's height (--call-card-h), so
+ * "nearest" lands it just above the card.
+ */
+export function keepFieldClear(card: HTMLElement): void {
+  const field = document.activeElement;
+  if (!(field instanceof HTMLElement) || card.contains(field) || !field.matches(TEXT_FIELD)) return;
+  const top = card.getBoundingClientRect().top;
+  if (field.getBoundingClientRect().bottom <= top) return;
+  field.scrollIntoView?.({ block: "nearest" });
+}
 
 /** Escape inside a text field, an editable area or an open dialog is theirs, not the ring's. */
 export function escapeBelongsElsewhere(target: EventTarget | null): boolean {
