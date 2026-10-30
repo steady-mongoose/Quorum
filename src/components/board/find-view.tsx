@@ -46,6 +46,7 @@ import {
   rollCallFor,
   rollKey,
   toggleRoll,
+  savedWhoCameLine,
   whoCameSavedLine,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
@@ -364,6 +365,180 @@ function InviteNote() {
   );
 }
 
+/**
+ * "Mark who came" for the room's steward (Design #126 H1): chips and one
+ * "Save who came" that sends close: false, so the date stays open and nobody's
+ * "going" resets. No next date, no outcome buttons, no write-up.
+ */
+export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCard; initialOpen?: boolean }) {
+  const markWhoCame = useBoard((state) => state.markWhoCame);
+  const reloadRsvps = useBoard((state) => state.reloadRsvps);
+  const rollCall = useBoard((state) => state.rollCall);
+  const roll = rollCallFor(card, rollCall);
+  const [open, setOpen] = useState(initialOpen);
+  const [keys, setKeys] = useState<string[]>([]);
+  const [names, setNames] = useState<string[]>([]);
+  const [ids, setIds] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [savedLine, setSavedLine] = useState("");
+  const [refused, setRefused] = useState<string[]>([]);
+  const [droppedPeople, setDroppedPeople] = useState<RollPerson[]>([]);
+  const dropped = droppedLine(droppedPeople.map((person) => person.name));
+  const toggle = useRef<HTMLButtonElement>(null);
+  const firstChip = useRef<HTMLInputElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const [refocus, setRefocus] = useState<"toggle" | "chip" | null>(null);
+  const formId = useId();
+  useEffect(() => {
+    if (refocus === "toggle" && !open) toggle.current?.focus();
+    if (refocus === "chip") focusWithRing(firstChip.current ?? saveButton.current);
+    if (refocus) setRefocus(null);
+  }, [refocus, open]);
+  const resetPicks = () => {
+    const fresh = rollCallFor(card, useBoard.getState().rollCall);
+    const next = resetRollPicks(roll, fresh, keys);
+    setKeys(next.keys);
+    setNames(next.came);
+    setIds(next.cameIds);
+    setDroppedPeople((shown) => nextDropped(shown, roll, fresh, keys));
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-3 flex flex-col gap-2">
+        <button
+          ref={toggle}
+          type="button"
+          className={cn(btnQuiet, "self-start")}
+          aria-expanded={false}
+          aria-controls={formId}
+          onClick={() => {
+            setSavedLine("");
+            setOpen(true);
+          }}
+        >
+          Mark who came
+        </button>
+        <p role="status" className={cn("text-sm text-fg", !savedLine && "sr-only")}>
+          {savedLine}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <form
+      id={formId}
+      aria-label={`Mark who came to ${card.name}`}
+      className="mt-3 flex flex-col gap-2 rounded-md border border-line p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (sending) return;
+        setRefused([]);
+        setDroppedPeople([]);
+        setSavedLine("");
+        setSending(true);
+        const picked = names;
+        void markWhoCame(card.id, { userIds: ids, names: picked })
+          .then((result) => {
+            if (!result.ok) {
+              setRefused(result.stops);
+              if (result.stops.includes(ROLL_CALL_STALE)) resetPicks();
+              return;
+            }
+            setSavedLine(savedWhoCameLine(picked));
+            setKeys([]);
+            setNames([]);
+            setIds([]);
+          })
+          .finally(() => setSending(false));
+      }}
+    >
+      {refused.length > 0 ? (
+        <ul className="flex flex-col gap-1 text-sm text-danger" role="alert">
+          {refused.map((stop) => (
+            <li key={stop} className="flex flex-wrap items-center gap-2">
+              {stop}
+              {stop === ROLL_CALL_STALE ? (
+                <button
+                  type="button"
+                  className={cn(btnGhost, "min-h-[44px]")}
+                  onClick={() => {
+                    void reloadRsvps().then(() => {
+                      resetPicks();
+                      setRefused([]);
+                      setRefocus("chip");
+                    });
+                  }}
+                >
+                  Reload the list
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {takesRoll(card) && roll.length > 0 ? (
+        <fieldset className="flex flex-wrap items-center gap-2 text-sm text-muted">
+          <legend className="mb-2">Who came:</legend>
+          {roll.map((person, index) => (
+            <label
+              key={rollKey(person)}
+              className={cn(
+                "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3 has-[[data-focus-ring]:focus]:outline has-[[data-focus-ring]:focus]:outline-2 has-[[data-focus-ring]:focus]:outline-offset-2",
+                keys.includes(rollKey(person)) && "bg-signal text-signal-ink",
+              )}
+            >
+              <input
+                ref={index === 0 ? firstChip : undefined}
+                type="checkbox"
+                className="sr-only"
+                checked={keys.includes(rollKey(person))}
+                onChange={() => {
+                  const next = toggleRoll(roll, keys, person);
+                  setKeys(next.keys);
+                  setNames(next.came);
+                  setIds(next.cameIds);
+                }}
+              />
+              {person.name}
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <p className="text-sm text-muted">Nobody has said they're going yet.</p>
+      )}
+      <p role="status" className={cn("text-sm text-fg", !dropped && "sr-only")}>
+        {dropped}
+      </p>
+      <p role="status" className={cn("text-sm text-fg", !savedLine && "sr-only")}>
+        {savedLine}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          ref={saveButton}
+          type="submit"
+          className={cn(btnSignal, "whitespace-nowrap aria-disabled:opacity-70")}
+          aria-disabled={sending || undefined}
+          aria-busy={sending || undefined}
+        >
+          Save who came
+        </button>
+        <button
+          type="button"
+          className={cn(btnQuiet, "whitespace-nowrap")}
+          onClick={() => {
+            setOpen(false);
+            setRefused([]);
+            setRefocus("toggle");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 /** Focus lands here when a closed gathering drops off the list (Design #126). */
 const FIND_LIST_HEADING = "find-list-h";
 
@@ -478,6 +653,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         {seesCame(card) ? <span>· has been: {card.wentBy.join(", ") || "nobody yet"}</span> : null}
         {seesGoing(card) && card.going.length > 0 ? <span>· going: {card.going.join(", ")}</span> : null}
       </div>
+
+      {/* A steward marks who came here: no next date, no outcome, no write-up,
+          so the host's write-up never goes out under a steward's name (Design #126 H1). */}
+      {!isHost && takesRoll(card) && rollOn && card.next ? <StewardRollCall card={card} /> : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (

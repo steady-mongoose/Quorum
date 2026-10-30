@@ -17,7 +17,19 @@ export type CameViewer = {
   actor: BoardActor;
   /** Write-ups whose roll call names this account by id (dm_named_account). */
   namedIn?: ReadonlySet<string> & { resolved?: ReadonlySet<string> };
+  /**
+   * Gathering ids this account really hosts (public_gathering.host_user_id).
+   * For a gathering's write-up the host role comes from here, never from who
+   * filed the write-up (QA S1, Oct 30). Missing = hosts none (fail closed).
+   */
+  hosts?: ReadonlySet<string>;
 };
+
+/** The gatherings this account hosts, lowercased. */
+export async function hostedGatherings(db: Db, userId: string): Promise<Set<string>> {
+  const rows = await db.query<{ id: string }>(`select id from public_gathering where host_user_id = $1`, [userId]);
+  return new Set(rows.map((row) => row.id.toLowerCase()));
+}
 
 export async function cameViewer(db: Db, userId: string, actor: BoardActor): Promise<CameViewer> {
   const rows = await db.query<{ name: string | null; shared: boolean }>(
@@ -26,19 +38,35 @@ export async function cameViewer(db: Db, userId: string, actor: BoardActor): Pro
      from "user" u where u.id = $1`,
     [userId],
   );
-  return { userId, name: rows[0]?.name ?? "", nameOwn: rows[0]?.shared !== true, actor };
+  return {
+    userId,
+    name: rows[0]?.name ?? "",
+    nameOwn: rows[0]?.shared !== true,
+    actor,
+    hosts: await hostedGatherings(db, userId),
+  };
 }
 
-/** True when this viewer reads the whole roll call of a gathering hosted by hostId in roomId. */
+/**
+ * True when this viewer reads the whole roll call of a write-up in roomId.
+ * Only two real roles grant it: a steward seat in that room, or hosting the
+ * gathering (public_gathering.host_user_id, via viewer.hosts). For a
+ * gathering's write-up, having filed it is never enough (QA S1). For an older
+ * device card (not a gathering id), the card's host is whoever claimed it
+ * (dm_card_host), which is the write-up's author, so hostId is used there.
+ */
 export function seesWhoCame(
   viewer: CameViewer,
   roomId: string,
   hostId: string | null | undefined,
+  cardId?: string | null,
 ): boolean {
   // Not stewardsRoom(): that counts every admin as a steward, which is right
   // for moderation, not for who came.
   if (!roleCounts(viewer.actor.admin)) return false;
-  return viewer.actor.stewardRooms.includes(roomId) || (Boolean(hostId) && hostId === viewer.userId);
+  if (viewer.actor.stewardRooms.includes(roomId)) return true;
+  if (cardId && isGatheringId(cardId)) return viewer.hosts?.has(cardId.toLowerCase()) ?? false;
+  return Boolean(hostId) && hostId === viewer.userId;
 }
 
 /**
@@ -59,7 +87,7 @@ export function cameFor(
   // name never stands in for one.
   const byNameOk = !resolved && !isGatheringId(post.cardId ?? "");
   const youCame = byId || (byNameOk && viewer.nameOwn !== false && viewer.name !== "" && came.includes(viewer.name));
-  if (seesWhoCame(viewer, post.roomId, post.hostId)) return { came, youCame };
+  if (seesWhoCame(viewer, post.roomId, post.hostId, post.cardId)) return { came, youCame };
   return { came: [], youCame };
 }
 

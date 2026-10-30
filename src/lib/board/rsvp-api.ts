@@ -27,6 +27,12 @@ export function whoCameSavedLine(names: readonly string[]): string {
     : `Who came is already saved: ${names.join(", ")}. Send the write-up again.`;
 }
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
+/** A steward's (or host's) "Save who came", which does not close the date (Design #126 H1). */
+export const WHO_CAME_NOT_SAVED = "Who came was not saved. Try again in a moment.";
+export const MARK_NOT_ALLOWED = "Only the host or a steward of this room can mark who came.";
+export function savedWhoCameLine(names: readonly string[]): string {
+  return names.length === 0 ? "Saved: nobody marked." : `Saved: ${names.join(", ")}.`;
+}
 
 export type ServerRsvp = {
   gatheringId: string;
@@ -362,8 +368,8 @@ export type RsvpSummary = {
   rooms: Array<
     RsvpSummaryCells & {
       roomId: string;
-      gatherings: Array<RsvpSummaryCells & { gatheringId: string; title: string }>;
-      weeks: Array<{ week: string; came: SummaryCount; writeUps: SummaryCount }>;
+      gatherings: Array<RsvpSummaryCells & { gatheringId: string; date: string }>;
+      weeks: Array<{ week: string; writeUps: SummaryCount }>;
     }
   >;
 };
@@ -382,9 +388,9 @@ export function isRsvpSummary(value: unknown): value is RsvpSummary {
     typeof room.roomId === "string" &&
     isCells(room as unknown) &&
     Array.isArray(room.gatherings) &&
-    room.gatherings.every((g: Record<string, unknown>) => typeof g.gatheringId === "string" && typeof g.title === "string" && isCells(g)) &&
+    room.gatherings.every((g: Record<string, unknown>) => typeof g.gatheringId === "string" && typeof g.date === "string" && isCells(g)) &&
     Array.isArray(room.weeks) &&
-    room.weeks.every((w: Record<string, unknown>) => typeof w.week === "string" && isCount(w.came) && isCount(w.writeUps)),
+    room.weeks.every((w: Record<string, unknown>) => typeof w.week === "string" && isCount(w.writeUps)),
   );
 }
 

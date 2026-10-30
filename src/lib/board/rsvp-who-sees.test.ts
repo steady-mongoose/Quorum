@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 /**
- * Who sees RSVPs (Josh, Oct 29, 9:04 PM ET; replaces #91's admin-only rule):
- * admins see everything, a host sees their own gatherings, a steward sees who
- * is going in the rooms they steward, and a member sees only their own
- * "You're going". Only the host or an admin marks who came.
+ * Who sees RSVPs (Josh, Oct 29, 9:04 PM ET; admins dropped Oct 30): a host
+ * sees their own gatherings, a steward sees who is going and who came in the
+ * rooms they steward, an admin as an admin gets counts only (the admin
+ * summary), and a member sees only their own
+ * "You're going". Only the host or the room's steward can mark who came.
  */
 
 const read = (name: string) => readFileSync(new URL(`../../components/board/${name}`, import.meta.url), "utf8");

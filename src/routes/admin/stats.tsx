@@ -115,7 +115,10 @@ function AdminStatsPage() {
           csvError={csvError}
         />
       ) : null}
-      {load.kind === "ready" ? <RsvpSummaryPanel /> : null}
+      {/* Its own 403, 503 and error states: shown even when the main stats fail (Design #126 L2). */}
+      {load.kind === "message" && (load.text === "Sign in first." || load.text === "This page is for an admin.") ? null : (
+        <RsvpSummaryPanel />
+      )}
     </main>
   );
 }

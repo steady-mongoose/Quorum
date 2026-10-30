@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
 import { actorRole, stewardsRoom } from "./access.ts";
-import { cameViewer, seesWhoCame } from "./came-sight.ts";
+import { cameViewer, hostedGatherings, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
 
@@ -9,9 +9,11 @@ import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
  * every other member's name, when they joined, when they last posted. The list is
  * in name order, never by activity, and carries no count or score. Upcoming RSVPs
- * are not here. Who came is private (Josh, Oct 29, 10:06 PM ET): a member's
- * "attended" is sent only to the room's stewards and admins (every gathering),
- * to a host (the gatherings they hosted), and to the member themselves.
+ * are not here. Who came is private (Josh, Oct 29; admins dropped Oct 30): a
+ * member's "attended" is sent only to the room's stewards (every gathering),
+ * to the gathering's real host (public_gathering.host_user_id, never whoever
+ * filed the write-up; QA S1), and to the member themselves. An admin as an
+ * admin gets counts only (rsvp-summary.ts).
  */
 export type RoomMember = {
   id: string;
@@ -97,9 +99,10 @@ export async function listRoomMembers(
     host_name: string;
     on_date: string;
     created_at: Date | string;
+    card_id: string | null;
     user_id: string | null;
   }>(
-    `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name,
+    `select p.id as post_id, p.author_user_id as host_id, p.author_name as host_name, p.card_id,
             p.on_date, p.created_at, n.user_id
      from board_post p
      left join dm_named_account n on n.post_id = p.id
@@ -112,12 +115,12 @@ export async function listRoomMembers(
   const selfActor = standings.actors.get(userId);
   const viewer =
     self && selfActor
-      ? { userId, name: self.name, actor: selfActor }
+      ? { userId, name: self.name, actor: selfActor, hosts: await hostedGatherings(db, userId) }
       : await cameViewer(db, userId, await actorRole(db, userId));
   const attended = new Map<string, Map<string, { on: string; host: string; hosted: boolean }>>();
   const note = (personId: string | null, row: (typeof roll)[number], hosted: boolean) => {
     if (!personId) return;
-    if (personId !== userId && !seesWhoCame(viewer, roomId, row.host_id)) return;
+    if (personId !== userId && !seesWhoCame(viewer, roomId, row.host_id, row.card_id)) return;
     const mine = attended.get(personId) ?? new Map();
     if (!mine.has(row.post_id)) {
       mine.set(row.post_id, {

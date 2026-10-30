@@ -22,6 +22,8 @@ import {
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
 import { ADMIN_ROLE_SEES_NAMES } from "./rsvp-rules.ts";
+import { readFileSync } from "node:fs";
+import { savedWhoCameLine } from "./rsvp-api.ts";
 import { closeSavedFor, forgetSavedClose, savedClose, savedCloseNames, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
@@ -531,7 +533,7 @@ test("\"I went\" is saved first: the card changes only on success or rsvp-not-re
     return new Response(null, { status: 404 });
   }) as typeof fetch;
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-  // The host of the card: the only kind of non-admin who marks who came.
+  // The host of the card: one of the two roles (host, room steward) that mark who came.
   const hosted = () => card(G1, { host: "Me", unverified: true });
   try {
     setBoardClient(stubClient());
@@ -1014,4 +1016,71 @@ test("Design #126 L1: the composer's retry drops a named person the saved close 
   );
   assert.equal(closes, 1);
   assert.deepEqual(drafts.at(-1), { claim: "Good.", came: ["Ben"], named: "", cameIds: ["h_ben"] });
+});
+
+test("a steward marks who came WITHOUT closing the date (Design #126 H1)", async () => {
+  const sent: { path: string; body: unknown }[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (init?.method === "POST") sent.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+    if (url.pathname === `/api/gatherings/${G1}/attendance`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  try {
+    setBoardClient(stubClient());
+    const open = card(G1, { host: "Dale", room: "shop", next: "2026-10-31", going: ["Tom", "Ann"] });
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Sam",
+      stewardRooms: ["shop"],
+      rsvpHosts: [],
+      rollCall: { [G1]: [{ userId: "h_tom", name: "Tom" }, { userId: "h_ann", name: "Ann" }] },
+      cards: [open],
+    });
+    const result = await useBoard.getState().markWhoCame(G1, { userIds: ["h_tom"], names: ["Tom"] });
+    assert.deepEqual(result, { ok: true });
+    const attendance = sent.filter((s) => s.path.endsWith("/attendance"));
+    assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["h_tom"], close: false } }]);
+    // The date stays open: same next date, nobody's going reset, no write-up posted.
+    const after = useBoard.getState().cards[0]!;
+    assert.equal(after.next, "2026-10-31");
+    assert.deepEqual(after.going, ["Tom", "Ann"]);
+    assert.ok(after.wentBy.includes("Tom"));
+    assert.equal(sent.some((s) => !s.path.endsWith("/attendance") && s.path.includes("post")), false);
+
+    // A member who is not host or steward cannot.
+    useBoard.setState({ me: "Maria", stewardRooms: [], cards: [open] });
+    sent.length = 0;
+    const refused = await useBoard.getState().markWhoCame(G1, { userIds: ["h_tom"], names: ["Tom"] });
+    assert.equal(refused.ok, false);
+    assert.deepEqual(sent, []);
+    // Nor an admin as an admin.
+    useBoard.setState({ me: "Josh", admin: true, stewardRooms: [], cards: [open] });
+    assert.equal((await useBoard.getState().markWhoCame(G1, { userIds: ["h_tom"], names: ["Tom"] })).ok, false);
+    assert.deepEqual(sent, []);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+    useBoard.setState({ admin: false, stewardRooms: [] });
+  }
+});
+
+test("the steward's 'Mark who came' form has no next date, no outcome buttons and no write-up", () => {
+  const src = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  const start = src.indexOf("export function StewardRollCall");
+  const end = src.indexOf("\n}\n", start);
+  const form = src.slice(start, end);
+  assert.ok(start > 0);
+  assert.match(form, /Save who came/);
+  assert.match(form, /aria-disabled=\{sending \|\| undefined\}/);
+  assert.match(form, /markWhoCame\(/);
+  assert.match(form, /Reload the list/);
+  assert.match(form, /role="status"/);
+  for (const banned of [/Next date/, /It happened/, /It did not/, /closeCard/, /How it went/, /close: true/]) {
+    assert.doesNotMatch(form, banned);
+  }
+  assert.match(src, /!isHost && takesRoll\(card\) && rollOn && card\.next \? <StewardRollCall card=\{card\} \/> : null/);
+  assert.equal(savedWhoCameLine(["Ann", "Ben"]), "Saved: Ann, Ben.");
 });

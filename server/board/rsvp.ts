@@ -54,7 +54,7 @@ export type RsvpRow = {
 };
 
 /** The one refusal for anyone who is not the host or a steward of the room. */
-export const MARK_REFUSED = "Only the host or a steward of this room marks who came.";
+export const MARK_REFUSED = "Only the host or a steward of this room can mark who came.";
 
 /** Before 0049 is applied. The client keeps the RSVP on the device for this code only. */
 export const RSVP_NOT_READY = "rsvp-not-ready";

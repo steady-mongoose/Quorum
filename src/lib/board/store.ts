@@ -84,6 +84,8 @@ import { isGatheringId } from "./public-gathering.ts";
 import {
   applyServerRsvps,
   CAME_NOT_SAVED,
+  MARK_NOT_ALLOWED,
+  WHO_CAME_NOT_SAVED,
   ROLL_CALL_STALE,
   cameIdsFor,
   deviceRsvpMoves,
@@ -299,9 +301,17 @@ type BoardState = {
   ) => Promise<Check>;
   /** Read the RSVPs and roll calls again (the Reload next to a stale roll call). */
   reloadRsvps: () => Promise<void>;
+  /**
+   * Host or the room's steward: mark who came WITHOUT closing the date (no
+   * next date, no write-up), for a steward's "Mark who came" (Design #126 H1).
+   */
+  markWhoCame: (
+    id: string,
+    picked: { userIds: string[]; names: string[] },
+  ) => Promise<{ ok: true } | { ok: false; stops: string[] }>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
-  /** "I've been": only the card's host or an admin. Anyone else's tap does nothing. */
+  /** "I've been": only the card's host or the room's steward (not an admin as an admin). Anyone else's tap does nothing. */
   visited: (id: string) => void;
   removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Cancel a removal that has not been sent yet and put the card back. */
@@ -1487,6 +1497,35 @@ export const useBoard = create<BoardState>()(
           return check;
         },
         reloadRsvps: () => refreshRsvps(),
+        markWhoCame: async (id, picked) => {
+          const card = get().cards.find((item) => item.id === id);
+          if (!card || !marksCame(card)) return { ok: false, stops: [MARK_NOT_ALLOWED] };
+          const mark = () =>
+            patchCard(id, (item) => ({
+              ...item,
+              wentBy: picked.names.reduce((names, name) => addName(names, name), item.wentBy),
+            }));
+          if (!get().remote || !isGatheringId(id)) {
+            mark();
+            return { ok: true };
+          }
+          try {
+            // close: false keeps the date open and every "going" as it is.
+            const result = await saveAttendance(card.id, { userIds: picked.userIds, close: false });
+            if (result.ok) {
+              mark();
+              await refreshRsvps();
+              return { ok: true };
+            }
+            if (result.code === ROLL_CALL_STALE) {
+              await refreshRsvps();
+              return { ok: false, stops: [ROLL_CALL_STALE] };
+            }
+            return { ok: false, stops: [result.error || WHO_CAME_NOT_SAVED] };
+          } catch {
+            return { ok: false, stops: [WHO_CAME_NOT_SAVED] };
+          }
+        },
         rsvp: (id) => {
           const card = get().cards.find((item) => item.id === id);
           if (!card) return;
@@ -1545,7 +1584,8 @@ export const useBoard = create<BoardState>()(
         },
         visited: (id) => {
           const card = get().cards.find((item) => item.id === id);
-          // Only the host or an admin marks who came (Josh, Oct 29).
+          // Only the host or the room's steward marks who came; an admin as an
+          // admin does not (Oct 30). See marksCame above.
           if (!card || !marksCame(card)) return;
           const mark = () =>
             patchCard(id, (item) => ({

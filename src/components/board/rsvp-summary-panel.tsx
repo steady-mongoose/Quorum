@@ -1,13 +1,22 @@
 import { useEffect, useState } from "react";
 import { fetchRsvpSummary, type RsvpSummary, type SummaryCount } from "@/lib/board/rsvp-api";
+import { HIDDEN_CELL_LABEL, RSVP_SUMMARY_MIN_COUNT, privacyNote } from "@/lib/board/rsvp-rules";
+import { gatheringLabel, sortSummaryRooms, sortWeeks, weekLabel } from "@/lib/board/rsvp-summary-view";
 
 /**
- * Admin RSVP counts (Oct 30): going, came and write-ups, per room, per
+ * Admin RSVP counts (Oct 30): going, have come and write-ups, per room, per
  * gathering and per week. Counts only: no one is named or listed, nothing is
- * ranked. Members never see this page.
+ * ranked, no gathering titles. Members never see this page. Every line about
+ * hiding is derived from RSVP_SUMMARY_MIN_COUNT (rsvp-rules.ts).
  */
+export const RSVP_SUMMARY_INTRO =
+  "Counts only. No one is named or listed. \u201cGoing\u201d is who said they'd come to the next date. \u201cHave come\u201d is how many members a host or steward has ever marked as having come. \u201cBy week\u201d counts the write-ups filed each week. Barred members are counted too.";
+export const RSVP_WEEK_CAPTION = "By week, from write-ups: write-ups filed.";
+
+type State = { kind: "loading" } | { kind: "ready"; summary: RsvpSummary } | { kind: "message"; text: string };
+
 export function RsvpSummaryPanel() {
-  const [state, setState] = useState<{ kind: "loading" } | { kind: "ready"; summary: RsvpSummary } | { kind: "message"; text: string }>({ kind: "loading" });
+  const [state, setState] = useState<State>({ kind: "loading" });
   useEffect(() => {
     let cancel = false;
     void fetchRsvpSummary()
@@ -25,93 +34,103 @@ export function RsvpSummaryPanel() {
       cancel = true;
     };
   }, []);
+  const n = state.kind === "ready" ? state.summary.minCount : RSVP_SUMMARY_MIN_COUNT;
+  const statusText = state.kind === "loading" ? "Loading RSVP counts." : state.kind === "message" ? state.text : "";
   return (
-    <section className="col-span-12 flex flex-col gap-3" aria-labelledby="rsvp-summary-title">
+    <section
+      className="col-span-12 flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-6"
+      aria-labelledby="rsvp-summary-title"
+    >
       <h2 id="rsvp-summary-title" className="text-2xl text-fg">
-        RSVPs
+        RSVP counts
       </h2>
-      <p className="max-w-prose text-sm text-muted">
-        Counts only. No one is named or listed. &ldquo;Going&rdquo; is who said they would come to the next
-        date. &ldquo;Came&rdquo; is who a host or steward has marked as having come. &ldquo;Write-ups&rdquo; is
-        how many times a date was written up. Members who are barred are counted too.
-        {state.kind === "ready" && state.summary.minCount > 1
-          ? ` A count under ${state.summary.minCount} is shown as hidden, with a neighbour hidden too.`
-          : ""}
+      <p className="max-w-prose text-sm text-muted">{RSVP_SUMMARY_INTRO}</p>
+      <p className="max-w-prose text-sm text-muted">{privacyNote(n)}</p>
+      {/* One always-mounted live line for loading and every message (Design #126 L1). */}
+      <p role="status" className={statusText ? "text-sm text-muted" : "sr-only"}>
+        {statusText}
       </p>
-      {state.kind === "loading" ? <p className="text-sm text-muted">Loading RSVP counts.</p> : null}
-      {state.kind === "message" ? (
-        <p className="text-fg" role="status">
-          {state.text}
-        </p>
-      ) : null}
       {state.kind === "ready" ? <Tables summary={state.summary} /> : null}
     </section>
   );
 }
 
-function shown(count: SummaryCount): string {
-  return count === null ? "hidden" : String(count);
+/** A count, or "Hidden" that a screen reader hears as "hidden to protect privacy". */
+export function Shown({ count }: { count: SummaryCount }) {
+  return count === null ? (
+    <>
+      <span aria-hidden="true">Hidden</span>
+      <span className="sr-only">{HIDDEN_CELL_LABEL}</span>
+    </>
+  ) : (
+    <>{count}</>
+  );
 }
 
-function Tables({ summary }: { summary: RsvpSummary }) {
+const th = "px-2 py-2 font-semibold text-muted";
+const num = "px-2 py-2 text-right tabular-nums text-fg";
+
+export function Tables({ summary }: { summary: RsvpSummary }) {
   if (summary.rooms.length === 0) return <p className="text-sm text-muted">No gatherings yet.</p>;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-fg">
-        All rooms: going {shown(summary.totals.going)}, came {shown(summary.totals.came)}, write-ups{" "}
-        {shown(summary.totals.writeUps)}.
+        All rooms: going <Shown count={summary.totals.going} />, have come <Shown count={summary.totals.came} />,
+        write-ups <Shown count={summary.totals.writeUps} />.
       </p>
-      {summary.rooms.map((room) => (
+      {sortSummaryRooms(summary.rooms).map((room) => (
         <details key={room.roomId || "none"} className="flex flex-col gap-2">
-          <summary className="min-h-[44px] cursor-pointer text-fg">
-            {room.roomId || "No room"}: going {shown(room.going)}, came {shown(room.came)}, write-ups{" "}
-            {shown(room.writeUps)}
+          <summary className="min-h-[44px] cursor-pointer py-2 text-fg">
+            {room.name}: going <Shown count={room.going} />, have come <Shown count={room.came} />, write-ups{" "}
+            <Shown count={room.writeUps} />
           </summary>
-          <table className="w-full text-left text-sm">
-            <caption className="sr-only">Gatherings in {room.roomId || "no room"}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Gathering</th>
-                <th scope="col">Going</th>
-                <th scope="col">Came</th>
-                <th scope="col">Write-ups</th>
-              </tr>
-            </thead>
-            <tbody>
-              {room.gatherings.map((g) => (
-                <tr key={g.gatheringId}>
-                  <th scope="row" className="font-normal">
-                    {g.title}
-                  </th>
-                  <td>{shown(g.going)}</td>
-                  <td>{shown(g.came)}</td>
-                  <td>{shown(g.writeUps)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {room.weeks.length > 0 ? (
-            <table className="w-full text-left text-sm">
-              <caption className="text-left text-muted">By week, from write-ups: how many came, and how many write-ups.</caption>
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Gatherings in ${room.name}`}>
+            <table className="w-full min-w-[22rem] text-left text-sm">
+              <caption className="sr-only">Gatherings in {room.name}</caption>
               <thead>
                 <tr>
-                  <th scope="col">Week of</th>
-                  <th scope="col">Came</th>
-                  <th scope="col">Write-ups</th>
+                  <th scope="col" className={th}>Gathering</th>
+                  <th scope="col" className={`${th} text-right`}>Going</th>
+                  <th scope="col" className={`${th} text-right`}>Have come</th>
+                  <th scope="col" className={`${th} text-right`}>Write-ups</th>
                 </tr>
               </thead>
               <tbody>
-                {room.weeks.map((w) => (
-                  <tr key={w.week}>
-                    <th scope="row" className="font-normal">
-                      {w.week}
+                {room.gatherings.map((g) => (
+                  <tr key={g.gatheringId} className="border-t border-line">
+                    <th scope="row" className="px-2 py-2 font-normal text-fg">
+                      {gatheringLabel(g.date)}
                     </th>
-                    <td>{shown(w.came)}</td>
-                    <td>{shown(w.writeUps)}</td>
+                    <td className={num}><Shown count={g.going} /></td>
+                    <td className={num}><Shown count={g.came} /></td>
+                    <td className={num}><Shown count={g.writeUps} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          {room.weeks.length > 0 ? (
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Weeks in ${room.name}`}>
+              <table className="w-full min-w-[16rem] text-left text-sm">
+                <caption className="px-2 py-2 text-left text-muted">{RSVP_WEEK_CAPTION}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className={th}>Week of</th>
+                    <th scope="col" className={`${th} text-right`}>Write-ups</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortWeeks(room.weeks).map((w) => (
+                    <tr key={w.week} className="border-t border-line">
+                      <th scope="row" className="px-2 py-2 font-normal text-fg">
+                        {weekLabel(w.week)}
+                      </th>
+                      <td className={num}><Shown count={w.writeUps} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </details>
       ))}

@@ -17,7 +17,8 @@ import {
   ROLL_CALL_STALE,
   rsvpCutoff,
 } from "./rsvp.ts";
-import { RSVP_SUMMARY_MIN_COUNT, suppressGroup, type RsvpSummary } from "./rsvp-summary.ts";
+import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
+import { WRITE_UP_HOST_ONLY } from "./store.ts";
 import { ADMIN_ROLE_SEES_NAMES } from "../../src/lib/board/rsvp-rules.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
@@ -1302,14 +1303,23 @@ test("GET /api/rsvps/summary: counts for an admin, 403 for everyone else", async
     const res = await call(t.handler, t.josh, "GET", "/api/rsvps/summary");
     assert.equal(res.status, 200);
     const body = (await res.json()) as RsvpSummary;
+    // At the provisional N (5), these small numbers are all hidden.
+    assert.equal(body.minCount, RSVP_SUMMARY_MIN_COUNT);
+    assert.equal(body.totals.going, null);
+    assert.equal(body.totals.came, null);
+    // The same counts with no hiding (n = 1).
     // scene: G has Tom (going, came) and Maria (going); M has Tom and Dale going.
-    assert.equal(body.totals.going, 4);
-    assert.equal(body.totals.came, 1);
-    const shop = body.rooms.find((r) => r.roomId === "shop")!;
-    const g = shop.gatherings.find((x) => x.gatheringId === GATHERING)!;
+    const open = await rsvpSummary(t.db, new Date(), 1);
+    assert.equal(open.totals.going, 4);
+    assert.equal(open.totals.came, 1);
+    const g = open.rooms.flatMap((r) => r.gatherings).find((x) => x.gatheringId === GATHERING)!;
     assert.deepEqual([g.going, g.came], [2, 1]);
-    const m = body.rooms.flatMap((r) => r.gatherings).find((x) => x.gatheringId === MARIAS)!;
+    const m = open.rooms.flatMap((r) => r.gatherings).find((x) => x.gatheringId === MARIAS)!;
     assert.deepEqual([m.going, m.came], [2, 0]);
+    // No free-text titles (QA S4): a gathering carries its id and date only.
+    for (const x of open.rooms.flatMap((r) => r.gatherings)) {
+      assert.deepEqual(Object.keys(x).sort(), ["came", "date", "gatheringId", "going", "writeUps"]);
+    }
     // No identities anywhere: no account ids, handles, names or emails.
     const text = JSON.stringify(body);
     for (const id of [t.tom.id, t.maria.id, t.dale.id, t.josh.id, t.sam.id]) assert.equal(text.includes(id), false);
@@ -1333,7 +1343,7 @@ test("the summary counts barred members (no hideBanned)", async () => {
        values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
       [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
     );
-    const body = (await (await call(t.handler, t.josh, "GET", "/api/rsvps/summary")).json()) as RsvpSummary;
+    const body = await rsvpSummary(t.db, new Date(), 1);
     assert.equal(body.totals.going, 4);
     assert.equal(body.totals.came, 1);
     const src = readFileSync(new URL("./rsvp-summary.ts", import.meta.url), "utf8");
@@ -1359,7 +1369,8 @@ test("suppressGroup hides cells under N, and enough others that none can be work
       if (v > 0 && v < 3) assert.equal(out[i], null);
     });
   }
-  assert.equal(RSVP_SUMMARY_MIN_COUNT, 1);
+  // Provisional, privacy-safe default until Josh sets N (TODO in rsvp-rules.ts).
+  assert.equal(RSVP_SUMMARY_MIN_COUNT, 5);
 });
 
 test("an admin who hosts, or stewards the room, follows ADMIN_ROLE_SEES_NAMES", async () => {
@@ -1388,5 +1399,129 @@ test("an admin who hosts, or stewards the room, follows ADMIN_ROLE_SEES_NAMES", 
     } finally {
       await t.close();
     }
+  }
+});
+
+// ---- QA S2: hiding holds across levels ----
+
+const g = (id: string, going: number, came = 0, writeUps = 0) => ({ gatheringId: id, date: "2026-10-26", going, came, writeUps });
+
+test("QA's example (N=2): room A has one gathering of 1, room B has 2 and 3; B's parts never give A away", () => {
+  const out = suppressSummary(
+    [
+      { roomId: "a", members: 0, gatherings: [g("a1", 1)], weeks: [] },
+      { roomId: "b", members: 0, gatherings: [g("b1", 2), g("b2", 3)], weeks: [] },
+    ],
+    2,
+  );
+  assert.equal(out.totals.going, 6);
+  const [a, b] = out.rooms;
+  assert.equal(a!.going, null);
+  // B is hidden as A's complement, so its parts are hidden too: 6 - (2 + 3) cannot be done.
+  assert.equal(b!.going, null);
+  assert.deepEqual(b!.gatherings.map((x) => x.going), [null, null]);
+  assert.deepEqual(a!.gatherings.map((x) => x.going), [null]);
+});
+
+test("a room's own total is safe, but one part under N is hidden with a neighbour", () => {
+  const out = suppressSummary([{ roomId: "b", members: 0, gatherings: [g("b1", 1), g("b2", 9), g("b3", 6)], weeks: [] }], 2);
+  const b = out.rooms[0]!;
+  assert.equal(b.going, 16);
+  const parts = b.gatherings.map((x) => x.going);
+  assert.equal(parts[0], null);
+  assert.equal(parts.filter((v) => v === null).length, 2, "a total minus one shown part never gives the 1 back");
+});
+
+test("a grand total under N hides every room and every part", () => {
+  const out = suppressSummary(
+    [
+      { roomId: "a", members: 0, gatherings: [g("a1", 1)], weeks: [] },
+      { roomId: "b", members: 0, gatherings: [g("b1", 2)], weeks: [{ week: "2026-10-26", writeUps: 0 }] },
+    ],
+    5,
+  );
+  assert.equal(out.totals.going, null);
+  for (const room of out.rooms) {
+    assert.equal(room.going, null);
+    for (const x of room.gatherings) assert.equal(x.going, null);
+  }
+});
+
+test("a count at or above (members - N) is hidden: it would all but name everyone", () => {
+  assert.equal(nearEveryone(8, 10, 2), true);
+  assert.equal(nearEveryone(7, 10, 2), false);
+  assert.equal(nearEveryone(8, 0, 2), false, "unknown member count: the rule does not apply");
+  const out = suppressSummary([{ roomId: "shop", members: 12, gatherings: [g("s1", 11), g("s2", 4), g("s3", 3)], weeks: [] }], 2);
+  const parts = out.rooms[0]!.gatherings.map((x) => x.going);
+  assert.equal(parts[0], null, "11 of 12 going is hidden");
+  assert.equal(parts.filter((v) => v === null).length >= 2, true);
+});
+
+test("came is the attended flag at every level, and weeks carry write-ups only (QA S3)", () => {
+  const src = readFileSync(new URL("./rsvp-summary.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /cardinality\(p\.came\)/);
+  const out = suppressSummary([{ roomId: "a", members: 0, gatherings: [g("a1", 3, 2), g("a2", 4, 3)], weeks: [{ week: "2026-10-26", writeUps: 2 }] }], 1);
+  assert.equal(out.rooms[0]!.came, 5);
+  assert.equal(out.totals.came, 5);
+  assert.deepEqual(Object.keys(out.rooms[0]!.weeks[0]!).sort(), ["week", "writeUps"]);
+});
+
+// ---- QA S1: no write-up, and no roll call, by stand-in ----
+
+test("an admin-only account cannot file a write-up on someone else's gathering (403), and gains no names", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    for (const id of [t.dale.id, t.josh.id, t.sam.id, t.tom.id]) {
+      await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [id, new Date("2026-10-01T00:00:00Z")]);
+    }
+    const direct = await createPost(t.db, {
+      userId: t.josh.id,
+      name: "Josh",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lathe night went well and the next one is set.", on: "2026-10-29", cardId: GATHERING, came: ["Tom"], cameIds: [rsvpHandle(GATHERING, t.tom.id)], happened: true },
+      now: new Date(),
+    } as Parameters<typeof createPost>[1]);
+    assert.equal(direct.ok, false);
+    if (!direct.ok) assert.deepEqual([direct.status, direct.error], [403, WRITE_UP_HOST_ONLY]);
+    const filed = await t.db.query(`select 1 from board_post where card_id = $1 and type = 'hosted'`, [GATHERING]);
+    assert.equal(filed.length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+test("seeing who came needs a real host or steward role, never one gained by filing", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    for (const id of [t.dale.id, t.josh.id, t.sam.id, t.tom.id]) {
+      await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [id, new Date("2026-10-01T00:00:00Z")]);
+    }
+    // Dale (the real host) files the write-up, then hands the gathering to Josh
+    // in the table directly: Josh never filed, Dale no longer hosts.
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lathe night went well and the next one is set.", on: "2026-10-29", cardId: GATHERING, came: ["Tom"], cameIds: [rsvpHandle(GATHERING, t.tom.id)], happened: true },
+      now: new Date(),
+    } as Parameters<typeof createPost>[1]);
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    const cameFor = async (id: string) => {
+      const board = await listBoard(t.db, id, new Date(), { room: "shop" });
+      assert.equal(board.ok, true);
+      return board.ok ? (board.value.posts.find((p) => p.type === "hosted")?.came ?? []) : [];
+    };
+    assert.deepEqual(await cameFor(t.dale.id), ["Tom"], "the real host sees it");
+    assert.deepEqual(await cameFor(t.sam.id), ["Tom"], "the room's steward sees it");
+    assert.deepEqual(await cameFor(t.josh.id), [], "an admin as an admin does not");
+    await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
+    // Dale filed it but no longer hosts: filing grants nothing.
+    assert.deepEqual(await cameFor(t.dale.id), [], "the filer who is not the host sees nothing");
+    // Josh now really hosts it: the flag decides.
+    assert.deepEqual(await cameFor(t.josh.id), ADMIN_ROLE_SEES_NAMES ? ["Tom"] : []);
+  } finally {
+    await t.close();
   }
 });

@@ -407,6 +407,9 @@ type PostRow = {
   created_at: Date | string;
 };
 
+/** A gathering's write-up is its real host's (QA S1). */
+export const WRITE_UP_HOST_ONLY = "Only this gathering's host can write it up.";
+
 function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewer): BoardPost {
   const mark = isMarkValue(row.mark) ? row.mark : null;
   return {
@@ -1171,6 +1174,18 @@ export async function createPost(
         await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
           `hosted-card:${cardId}`,
         ]);
+        // A server gathering's write-up is filed by its real host only. No one,
+        // an admin included, files it as a stand-in, so no one gains the host's
+        // roll call by filing (QA S1, Oct 30).
+        if (isGatheringId(cardId)) {
+          const gathering = await tx.query<{ host_user_id: string }>(
+            `select host_user_id from public_gathering where id = $1`,
+            [cardId.toLowerCase()],
+          );
+          if (gathering[0] && gathering[0].host_user_id !== input.userId) {
+            throw new Stop(403, WRITE_UP_HOST_ONLY);
+          }
+        }
         const owners = await tx.query<{ author_user_id: string | null }>(
           `select author_user_id from board_post where card_id = $1 and type = 'hosted' for update`,
           [cardId],
@@ -1226,7 +1241,7 @@ export async function createPost(
         // A gathering's write-up links only who the host marked in this close;
         // any other card keeps the unique-name link.
         if (isGatheringId(cardId)) {
-          await rememberRollCall(tx, { postId: saved.id, gatheringId: cardId, authorId: input.userId, admin: actor.admin, sent: cameIds });
+          await rememberRollCall(tx, { postId: saved.id, gatheringId: cardId, authorId: input.userId, sent: cameIds });
         } else {
           await rememberNamedAccounts(tx, saved.id);
         }
@@ -1249,14 +1264,15 @@ export async function createPost(
  * with nobody, so a name alone cannot say who came (QA S3/S4). The write-up
  * carries the roll call the host sent with this close (cameIds). Each entry
  * links an account only when it maps to a row of THIS gathering that is
- * marked attended, the author hosts the gathering (or is an admin), and the
+ * marked attended, the author really hosts the gathering (no admin stand-in,
+ * QA S1), and the
  * name is on the write-up. No time window: a late write-up links the same
  * people, and last week's attendees are not linked unless picked again.
  * Queries only; no schema change.
  */
 async function rememberRollCall(
   db: Db,
-  input: { postId: string; gatheringId: string; authorId: string; admin: boolean; sent: string[] },
+  input: { postId: string; gatheringId: string; authorId: string; sent: string[] },
 ): Promise<void> {
   if (input.sent.length === 0) return;
   const ready = await db.query<{ named: string | null; rsvp: string | null }>(
@@ -1271,15 +1287,15 @@ async function rememberRollCall(
      join public_gathering g on g.id = r.gathering_id
      join board_post p on p.id = $3
      join "user" u on u.id = r.user_id and u.name = any(p.came)
-     where r.gathering_id = $1 and r.attended and (g.host_user_id = $2 or $4)`,
-    [gatheringId, input.authorId, input.postId, input.admin],
+     where r.gathering_id = $1 and r.attended and g.host_user_id = $2`,
+    [gatheringId, input.authorId, input.postId],
   );
   const sent = new Set(input.sent);
   const ids = rows
     .map((row) => row.user_id)
     .filter(
       (id) =>
-        sent.has(rsvpHandle(gatheringId, id)) || ((input.admin || id === input.authorId) && sent.has(id)),
+        sent.has(rsvpHandle(gatheringId, id)) || (id === input.authorId && sent.has(id)),
     );
   if (ids.length === 0) return;
   await db.query(
