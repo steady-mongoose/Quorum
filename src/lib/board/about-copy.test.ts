@@ -36,3 +36,10 @@ test("the door and About describe messaging the way the server enforces it", () 
   assert.match(dmCopy, /You can block anyone, and they are not told\./);
   assert.match(dmCopy, /Only people from the same meeting can see your profile\./);
 });
+
+test("the door and About keep rooms and interest groups apart", () => {
+  assert.equal(door.includes("One group each"), false);
+  assert.ok(door.includes(`term: "One place each"`));
+  assert.ok(door.includes(`term: "Interest groups"`));
+  assert.ok(about.includes(`title: "Interest groups"`));
+});

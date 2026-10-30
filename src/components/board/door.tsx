@@ -35,7 +35,7 @@ const HOW = [
 /** How rooms work. */
 const ROOMS = [
   {
-    term: "One group each",
+    term: "One place each",
     what: "A room is one church, shop, club, or county. Its posts are shown only to the room's members, its steward, and the admins. A host can choose to share a gathering by link.",
   },
   {
@@ -45,6 +45,10 @@ const ROOMS = [
   {
     term: "A steward",
     what: "Every room has a steward who keeps it on track and removes posts that break the rules.",
+  },
+  {
+    term: "Interest groups",
+    what: "Groups sit beside the rooms, for interests like carpentry, gardening, and brewing. A member asks from a room, a steward of that room approves it, and you join by invite.",
   },
 ];
 
