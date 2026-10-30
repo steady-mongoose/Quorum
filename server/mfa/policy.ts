@@ -67,6 +67,11 @@ const MEMBER_ROUTES: Array<[string, RegExp]> = [
   ["GET", /^\/api\/dm(\/.*)?$/],
   ["GET", /^\/api\/profiles?(\/.*)?$/],
   ["POST", /^\/api\/(place|gender|invites|gatherings|room-requests|claims)$/],
+  // The one-time 18+ step comes before everything else in the app, including
+  // the authenticator setup on You. It only writes the member's own
+  // confirmation, so an admin or steward with no authenticator yet must be
+  // able to send it, or they can never reach the setup.
+  ["POST", /^\/api\/age\/confirm$/],
   ["POST", new RegExp(`^/api/rooms/${ROOM}/(posts|join|leave|chat)$`)],
   ["POST", new RegExp(`^/api/posts/${ID}/(replies|revise|close|appeal)$`)],
   ["POST", new RegExp(`^/api/group-posts/${ID}/appeal$`)],
