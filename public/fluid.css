@@ -17,7 +17,7 @@ html{-webkit-text-size-adjust:100%}
 :root{--mast-h:70px}
 /* Shared tokens: the chip row height and the page gutter the chip row bleeds through (Design lows on #121). */
 :root{--chips-h:3.75rem;--gutter-l:max(clamp(16px,2vw,28px),env(safe-area-inset-left));--gutter-r:max(clamp(16px,2vw,28px),env(safe-area-inset-right))}
-@media (min-width:768px){:root{--mast-h:84px}}
+@media (min-width:48em){:root{--mast-h:84px}}
 /* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
 /* A call card showing (--call-card-h, set by call-rings.tsx) is reserved at the bottom on every screen, so a
@@ -25,7 +25,7 @@ html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
 html{scroll-padding-bottom:var(--call-card-h,0px)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
    clears the sticky chip row too (--chips-h, 3.75rem: 44px chips plus py-2). */
-@media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem + var(--call-card-h,0px))}}
+@media (max-width:47.99em){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem + var(--call-card-h,0px))}}
 @media (max-width:1023px){html:has(.room-chips){scroll-padding-top:calc(var(--mast-h) + var(--chips-h) + .5rem)}}
 /* The header's and the sticky chip row's own controls are never "obscured by the header": cancel the scroll padding on them, or focusing a
    header control (Tab, the desktop More dialog returning focus) scrolls the page (QA B1 on #121, 1200 to 745 at 1280). */
@@ -55,9 +55,9 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   padding-bottom:var(--space-4);
 }
 .shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px))}
-/* From 768px the card sits 1.5rem up (md:bottom-6), which --call-card-h does not count. min(var,...) is 0 with no
+/* From 48em (768px at the usual default, with Tailwind md) the card sits 1.5rem up (md:bottom-6), which --call-card-h does not count. min(var,...) is 0 with no
    card, so nothing changes then. */
-@media (min-width:768px){
+@media (min-width:48em){
   html{scroll-padding-bottom:calc(var(--call-card-h,0px) + min(var(--call-card-h,0px),2rem))}
   .shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px) + min(var(--call-card-h,0px),1.5rem))}
 }
@@ -195,9 +195,9 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 #your-rooms{scroll-margin-top:4.5rem}
 @media (min-width:1024px){#your-rooms{scroll-margin-top:0}}
 
-/* Phone: five slots in one row. The rest sit in the More sheet. */
+/* Phone: five slots in one row. The rest sit in the More sheet. In em, so it switches with Tailwind's md (48rem). */
 .tabbar{display:none}
-@media (max-width:767px){
+@media (max-width:47.99em){
   /* The tab bar: a 56px row plus its 1px top line. Things that must clear it read this. */
   :root{--tabbar-h:57px}
   .topnav{display:none}
@@ -236,7 +236,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
     border-top:2px solid transparent;
     background:transparent;
     color:var(--muted);
-    font-size:12px;
+    font-size:min(.75rem,15px);
     font-weight:500;
     line-height:1.15;
     text-align:center;
@@ -313,13 +313,14 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   min-width:0;
   padding-block:0.75rem;
   padding-inline:var(--gutter-l) var(--gutter-r);
+  flex-wrap:wrap;
 }
 .mast-brand{
   display:flex;
   align-items:center;
   gap:10px;
-  flex:1 1 0%;
-  min-width:0;
+  flex:1 1 auto;
+  min-width:min-content;
 }
 .mast-titles{min-width:0}
 .mast-name{
@@ -345,7 +346,9 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   gap:12px;
   margin-left:auto;
   min-width:0;
+  max-width:100%;
 }
+.topnav{max-width:100%;overflow-x:auto}
 .mast-door{
   display:inline-flex;
   align-items:center;

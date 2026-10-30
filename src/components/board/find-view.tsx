@@ -85,7 +85,7 @@ export function FindView() {
   }, [scrollCardId, cards]);
 
   return (
-    <div className="grid gap-8 pb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+9rem)] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-8 pb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+9rem)] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] lg:gap-12">
       <RemovalToast removal={removal} />
       <div className="flex flex-col gap-8">
         <section className="plate pc-head flex flex-col gap-3">
@@ -246,7 +246,7 @@ function RemovalToast({ removal }: { removal: ReturnType<typeof useUndoCardRemov
 
 function Tags({ card, children }: { card: MeetingCard; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[13px]">
+    <div className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
       <span className="rounded-sm bg-raised px-2 py-1 font-semibold text-fg">
         {roomById(card.room).name}
       </span>
@@ -275,7 +275,7 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
     );
   }
   return card.firstTimer ? (
-    <span className="self-center text-[13px] text-muted">
+    <span className="self-center text-[0.8125rem] text-muted">
       After you have been once, you can message the host.
     </span>
   ) : null;
@@ -378,7 +378,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             : "No next date yet."}
       </p>
       <div
-        className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-muted"
+        className="mt-2 flex flex-wrap items-center gap-2 text-[0.8125rem] text-muted"
         aria-label="Last four meetings"
       >
         <span>Last four meetings:</span>
@@ -467,7 +467,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     value={pages}
                     onChange={(event) => setPages(event.target.value)}
                   />
-                  <p id={pagesHintId} className="text-[13px] text-muted">
+                  <p id={pagesHintId} className="text-[0.8125rem] text-muted">
                     {FIELD_HINT.pages}
                   </p>
                 </div>
@@ -617,7 +617,7 @@ function AddCard({ me }: { me: string }) {
           onChange={(event) => set({ [key]: event.target.value })}
         />
         {options.hint ? (
-          <p id={hintId} className="text-[13px] text-muted">
+          <p id={hintId} className="text-[0.8125rem] text-muted">
             {options.hint}
           </p>
         ) : null}
@@ -704,7 +704,7 @@ function AddCard({ me }: { me: string }) {
                 value={fields.pages}
                 onChange={(event) => set({ pages: event.target.value })}
               />
-              <p id={`${formId}-pages-hint`} className="text-[13px] text-muted">
+              <p id={`${formId}-pages-hint`} className="text-[0.8125rem] text-muted">
                 {FIELD_HINT.pages}
               </p>
             </div>

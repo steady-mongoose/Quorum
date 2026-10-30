@@ -72,8 +72,8 @@ test("the 20-minute line sits on top of the tab bar, sharing #119's --tabbar-h:5
   // #119's declaration, inside the phone tab bar block, is the one copy (QA M1 on #121).
   const phone = fluid.indexOf("/* Phone: five slots in one row.");
   assert.ok(phone >= 0);
-  assert.match(fluid.slice(phone, phone + 300), /@media \(max-width:767px\)\{[^}]*:root\{--tabbar-h:57px\}/);
-  assert.doesNotMatch(fluid, /@media \(max-width:767px\)\{:root\{--tabbar-h:57px\}\}/);
+  assert.match(fluid.slice(phone, phone + 300), /@media \(max-width:47.99em\)\{[^}]*:root\{--tabbar-h:57px\}/);
+  assert.doesNotMatch(fluid, /@media \(max-width:47.99em\)\{:root\{--tabbar-h:57px\}\}/);
   assert.match(line, /bottom-\[calc\(var\(--tabbar-h,57px\)\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(line, /bottom-\[calc\(56px/);
 });
@@ -133,7 +133,7 @@ test("the chip row runs to the screen edge so the next chip peeks in; no fade ov
 test("focused controls clear the tab bar on phones and the chip row on Rooms below 1024px", () => {
   assert.match(
     fluid,
-    /@media \(max-width:767px\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}\}/,
+    /@media \(max-width:47.99em\)\{html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}\}/,
   );
   assert.match(
     fluid,
@@ -167,7 +167,7 @@ test("desktop reserves a showing call card too, and the phone rules come after a
   const desktopMain = /^\.shell-body > main\{padding-bottom:calc\(var\(--space-4\) \+ var\(--call-card-h,0px\)\)\}$/m;
   assert.match(fluid, desktopPad, "top level, not inside a media query");
   assert.match(fluid, desktopMain, "top level, not inside a media query");
-  const phonePad = fluid.indexOf("@media (max-width:767px){html{scroll-padding-bottom:");
+  const phonePad = fluid.indexOf("@media (max-width:47.99em){html{scroll-padding-bottom:");
   const phoneMain = fluid.indexOf(".shell-body > main{padding-bottom:calc(var(--tabbar-h,56px)");
   assert.ok(phonePad > 0 && phoneMain > 0);
   assert.ok(fluid.search(desktopPad) < phonePad, "the phone scroll padding comes later");
@@ -175,7 +175,7 @@ test("desktop reserves a showing call card too, and the phone rules come after a
 });
 
 test("from 768px a showing card's 1.5rem lift is reserved too, and nothing changes with no card (Design L1 on #128)", () => {
-  const block = fluid.match(/@media \(min-width:768px\)\{\n([^@]*?)\n\}/)?.[1] ?? "";
+  const block = fluid.match(/@media \(min-width:48em\)\{\n([^@]*?)\n\}/)?.[1] ?? "";
   assert.match(block, /html\{scroll-padding-bottom:calc\(var\(--call-card-h,0px\) \+ min\(var\(--call-card-h,0px\),2rem\)\)\}/);
   assert.match(
     block,
@@ -188,7 +188,7 @@ test("from 768px a showing card's 1.5rem lift is reserved too, and nothing chang
 });
 
 test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {
-  assert.match(fluid, /@media \(min-width:768px\)\{:root\{--mast-h:84px\}\}/);
+  assert.match(fluid, /@media \(min-width:48em\)\{:root\{--mast-h:84px\}\}/);
   assert.doesNotMatch(fluid, /--mast-h:97px/);
 });
 

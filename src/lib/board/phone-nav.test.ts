@@ -131,7 +131,7 @@ test("tab slots and More rows stay at or above the 44px floor", () => {
   assert.match(fluid, /flex:1/);
   assert.match(fluid, /min-height:max\(44px,56px\)/);
   assert.match(fluid, /min-width:44px/);
-  assert.match(fluid, /font-size:12px/);
+  assert.match(fluid, /font-size:min\(\.75rem,15px\)/);
   assert.match(fluid, /font-weight:500/);
   assert.match(fluid, /width:24px;height:24px/);
   assert.match(fluid, /border-top:2px solid var\(--gold\)/);
