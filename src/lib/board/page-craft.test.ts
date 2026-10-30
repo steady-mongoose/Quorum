@@ -232,3 +232,10 @@ test("no scores, counts or likes in the credit map", () => {
   const engraved = read("src/lib/board/engraved.ts");
   assert.equal(/\blikes?\b|\breshares?\b|\bscore\b|\bfeed\b|\btrending\b/i.test(engraved), false);
 });
+
+test("the gilt rule under a heading has room below it (Design: margin-block .25rem .75rem)", () => {
+  const rule = craft.match(/\.pc-rule\{([^}]*)\}/);
+  assert.ok(rule, ".pc-rule is in page-craft.css");
+  assert.match(rule[1], /margin-block:\.25rem \.75rem/);
+  assert.doesNotMatch(rule[1], /(^|;)margin:/, "no shorthand margin to undo it");
+});

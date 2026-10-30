@@ -73,7 +73,7 @@
 [data-entered] .kicker{display:flex;align-items:center;gap:.75rem;color:var(--pc-gilt);font-size:1rem;font-weight:600;letter-spacing:.14em}
 [data-entered] .kicker::after{content:"";flex:1;max-width:12rem;height:1px;background:linear-gradient(90deg,color-mix(in srgb,var(--pc-gilt) 45%,transparent),transparent)}
 .pc-head h1{letter-spacing:-.015em;line-height:1.05}
-.pc-rule{position:relative;width:min(15rem,70%);height:1px;margin:.25rem 0 .25rem 4px;background:linear-gradient(90deg,var(--pc-gilt),transparent)}
+.pc-rule{position:relative;width:min(15rem,70%);height:1px;margin-block:.25rem .75rem;margin-inline:4px 0;background:linear-gradient(90deg,var(--pc-gilt),transparent)}
 .pc-rule::before{content:"";position:absolute;left:-4px;top:-3px;width:7px;height:7px;background:var(--pc-gilt);transform:rotate(45deg)}
 .pc-lede{max-width:40rem;font-family:var(--font-display);font-size:1.2rem;line-height:1.5;color:var(--pc-ink)}
 [data-entered] .illum::first-letter{color:var(--pc-rubric)}
