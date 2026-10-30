@@ -22,6 +22,7 @@ import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, remainderGivesAwa
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
 import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, startMinutes, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
 import { recordAttendance, sharesMeeting } from "../dm/store.ts";
+import { writeUpWithin } from "./rsvp-retention.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -2204,6 +2205,93 @@ test("QA N4: with OLD_WRITE_UPS_DROP_DM_LINKS off, the purge keeps that DM eligi
     assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "the links stay, so they are still peers");
     const post = await t.db.query<{ came: string[] }>(`select came from board_post where type = 'hosted' and card_id = $1`, [GATHERING]);
     assert.deepEqual(post[0]?.came, [], "the came list is cleared either way");
+  } finally {
+    await t.close();
+  }
+});
+
+// ---- QA review 5715189883 (Oct 30): N8 share write, N9 one retention predicate ----
+
+const shareWrite = (t: Awaited<ReturnType<typeof setup>>, who: As, shared: boolean) =>
+  call(t.handler, who, "POST", `/api/e/${GATHERING}`, { shared });
+const isShared = async (t: Awaited<ReturnType<typeof setup>>) =>
+  (await t.db.query<{ shared: boolean }>(`select shared from public_gathering where id = $1`, [GATHERING]))[0]!.shared;
+
+for (const seesNames of [true, false]) test(`QA N8: a plain admin's share write is refused like the read; the host and a real steward still write (ADMIN_ROLE_SEES_NAMES=${seesNames})`, () => withAdminRoleSeesNames(seesNames, async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    await t.db.query(`update public_gathering set shared = true where id = $1`, [GATHERING]);
+    // Josh: admin grant only, neither host nor steward of shop. The read is 404 (QA F1)...
+    assert.equal((await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}`)).status, 404);
+    // ...and the write is refused too, both ways, with no names and no change.
+    for (const shared of [false, true]) {
+      const res = await shareWrite(t, t.josh, shared);
+      assert.ok(res.status === 403 || res.status === 404, `admin shared=${shared}: ${res.status}`);
+      await leaksNoNames(t, res);
+      assert.equal(await isShared(t), true, `admin shared=${shared} changed nothing`);
+    }
+    // A steward of another room is refused the same way.
+    assert.equal((await shareWrite(t, t.cara, false)).status, 403);
+    assert.equal(await isShared(t), true);
+    // A real steward of the room reads it and may turn sharing off.
+    assert.equal((await call(t.handler, t.sam, "GET", `/api/gatherings/${GATHERING}`)).status, 200);
+    assert.equal((await shareWrite(t, t.sam, false)).status, 200);
+    assert.equal(await isShared(t), false);
+    // A steward still cannot turn it on; the host can write it.
+    assert.equal((await shareWrite(t, t.sam, true)).status, 403);
+    assert.equal((await call(t.handler, t.dale, "GET", `/api/gatherings/${GATHERING}`)).status, 200);
+    await t.db.query(`update public_gathering set shared = true where id = $1`, [GATHERING]);
+    assert.equal((await shareWrite(t, t.dale, false)).status, 200);
+    assert.equal(await isShared(t), false);
+    // Once the admin really stewards the room, that real role may turn it off.
+    await t.db.query(`update public_gathering set shared = true where id = $1`, [GATHERING]);
+    await stewardOf(t.db, t.josh.id, "Josh", "shop");
+    assert.equal((await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}`)).status, 200);
+    assert.equal((await shareWrite(t, t.josh, false)).status, 200);
+    assert.equal(await isShared(t), false);
+  } finally {
+    await t.close();
+  }
+}));
+
+test("QA N9: the write-up purge strips exactly what writeUpWithin no longer keeps, at the shared cutoff", async () => {
+  const t = await setup();
+  const now = new Date("2026-11-01T12:00:00Z");
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const cutoff = rsvpCutoff(now);
+    const cutoffDay = cutoff.toISOString().slice(0, 10);
+    const dayBefore = new Date(cutoff.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const tom = [rsvpHandle(GATHERING, t.tom.id)];
+    const posts = {
+      onCutoff: await writeUp(t, ["Tom"], tom, "2026-10-29"),
+      dayBefore: await writeUp(t, ["Tom"], tom, "2026-10-29"),
+      undatedOld: await writeUp(t, ["Tom"], tom, "2026-10-29"),
+      undatedNew: await writeUp(t, ["Tom"], tom, "2026-10-29"),
+    };
+    await t.db.query(`update board_post set on_date = $2 where id = $1`, [posts.onCutoff, cutoffDay]);
+    await t.db.query(`update board_post set on_date = $2 where id = $1`, [posts.dayBefore, dayBefore]);
+    await t.db.query(`update board_post set on_date = '', created_at = $2 where id = $1`, [posts.undatedOld, new Date(cutoff.getTime() - 1000)]);
+    await t.db.query(`update board_post set on_date = '', created_at = $2 where id = $1`, [posts.undatedNew, new Date(cutoff.getTime() + 1000)]);
+    // What the readers keep (members.ts, came-sight.ts), before the purge.
+    const kept = async (id: string) =>
+      (await t.db.query<{ kept: boolean }>(`select ${writeUpWithin("$1", "$2")} as kept from board_post p where p.id = $3`, [cutoffDay, cutoff, id]))[0]!.kept;
+    const want = { onCutoff: true, dayBefore: false, undatedOld: false, undatedNew: true };
+    for (const [key, id] of Object.entries(posts)) assert.equal(await kept(id), want[key as keyof typeof want], key);
+    await purgeOldRsvps(t.db, now);
+    for (const [key, id] of Object.entries(posts)) {
+      const came = (await t.db.query<{ came: string[] }>(`select came from board_post where id = $1`, [id]))[0]!.came;
+      assert.equal(came.length > 0, want[key as keyof typeof want], `${key}: the purge agrees with writeUpWithin`);
+    }
+    // One predicate in the source: the purge builds its condition from writeUpWithin, with no cutoff of its own.
+    const source = readFileSync(new URL("./rsvp.ts", import.meta.url), "utf8");
+    const purge = source.slice(source.indexOf("async function purgeOldWriteUpNames"), source.indexOf("export function startRsvpRetention"));
+    assert.match(purge, /not \$\{writeUpWithin\("\$1", "\$2"\)\}/);
+    assert.doesNotMatch(purge, /on_date\s*</);
+    assert.doesNotMatch(purge, /created_at\s*</);
+    assert.doesNotMatch(purge, /setUTCMonth|RSVP_RETENTION_MONTHS/);
   } finally {
     await t.close();
   }

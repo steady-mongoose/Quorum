@@ -65,6 +65,22 @@ function forPublic(gathering: PublicGathering): PublicGathering {
   return { ...gathering, time: publicClock(gathering.time) };
 }
 
+/**
+ * Who may read and change a gathering's share switch: its host, or a real
+ * steward of its room. The admin grant is deliberately not an input: the
+ * server reads (readGatheringFor) and writes (setGatheringShared) with the
+ * same rule, so a plain admin never asks and never gets a 404 (QA N8).
+ */
+export function shareAccess(input: {
+  host: boolean;
+  stewardRooms: readonly string[];
+  room: string;
+  shared: boolean;
+}): { mayRead: boolean; allowed: boolean } {
+  const steward = input.room !== "" && input.stewardRooms.includes(input.room);
+  return { mayRead: input.host || steward, allowed: input.host || (steward && input.shared) };
+}
+
 export function isGatheringId(id: string): boolean {
   return GATHERING_ID.test(id);
 }

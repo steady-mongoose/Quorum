@@ -253,8 +253,9 @@ export async function saveGathering(
 }
 
 /**
- * The host turns sharing on or off. A steward of that room can only turn it
- * off. Everyone else is refused.
+ * The host turns sharing on or off. A real steward of that room can only turn
+ * it off. Everyone else is refused, an admin without a real role included:
+ * the same rule as readGatheringFor (QA N8, review 5715189883).
  */
 export async function setGatheringShared(
   db: Db,
@@ -270,7 +271,7 @@ export async function setGatheringShared(
   const listedRoom = await readRoomListing(db, row.room_id);
   if (!listedRoom || !canReadRoom(listedRoom.status, actor)) return fail(404, "Not found.");
   const host = row.host_user_id === input.userId;
-  const steward = stewardsRoom(actor, row.room_id);
+  const steward = realStewardOf(actor, row.room_id);
   if (input.shared) {
     if (!host) return fail(403, "Only the organizer can share this gathering.");
     if (!(await publicRoom(db, row.room_id))) {

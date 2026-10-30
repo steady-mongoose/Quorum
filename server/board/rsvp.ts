@@ -1,4 +1,4 @@
-import { rsvpCutoff } from "./rsvp-retention.ts";
+import { rsvpCutoff, writeUpWithin } from "./rsvp-retention.ts";
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
 import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { rsvpSummary } from "./rsvp-summary.ts";
@@ -477,8 +477,9 @@ export const OLD_WRITE_UPS_DROP_DM_LINKS = true;
  */
 async function purgeOldWriteUpNames(db: Db, cutoff: Date, dropDmLinks: boolean): Promise<number> {
   const cutoffDay = cutoff.toISOString().slice(0, 10);
-  const old = `p.type = 'hosted'
-       and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date < $1 else p.created_at < $2 end)`;
+  // The exact inverse of what the readers keep (members.ts, came-sight.ts):
+  // one predicate, so the purge and the readers cannot drift (QA N9).
+  const old = `p.type = 'hosted' and not ${writeUpWithin("$1", "$2")}`;
   const named = await db.query<{ ready: string | null }>(`select to_regclass('public.dm_named_account')::text as ready`);
   if (dropDmLinks && named[0]?.ready) {
     await db.query(
