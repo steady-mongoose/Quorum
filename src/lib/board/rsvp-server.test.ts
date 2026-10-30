@@ -10,7 +10,7 @@ import {
   ROLL_CALL_STALE,
   droppedLine,
   nextDropped,
-  WHO_CAME_SAVED,
+  whoCameSavedLine,
   resetRollPicks,
   cameIdsFor,
   deviceRsvpMoves,
@@ -20,7 +20,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { closeSavedFor, forgetSavedClose, useBoard } from "./store.ts";
+import { closeSavedFor, forgetSavedClose, savedCloseNames, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const G2 = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -682,7 +682,7 @@ test("QA S3 #2: the close saves but the write-up fails; the retry reuses the clo
     assert.equal(first.ok, false);
     // Design #126 L1: the form locks its chips and says who came is saved.
     assert.equal(closeSavedFor(G3), true);
-    assert.equal(WHO_CAME_SAVED, "Who came is already saved. Send the write-up again.");
+    assert.deepEqual(savedCloseNames(G3, "2026-10-31"), ["Tom"]);
     // The close saved, so Tom left the list: the form now has no picks to send.
     useBoard.setState({ rollCall: { [G3]: [] } });
     postFails = false;
@@ -767,6 +767,68 @@ test("QA S3 #1: a saved close is for one date; Cancel, a new week, or sign-out c
     assert.equal(closeSavedFor(G4), true);
     useBoard.getState().disconnectRemote();
     assert.equal(closeSavedFor(G4), false, "sign-out forgets it");
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("Design #126 M1: the saved-close line names who came, or says the close is saved", () => {
+  assert.equal(whoCameSavedLine(["Ann", "Ben"]), "Who came is already saved: Ann, Ben. Send the write-up again.");
+  assert.equal(whoCameSavedLine([]), "This close is already saved. Send the write-up again.");
+});
+
+test("Design #126 L2: two different people named Ann both show in the dropped line", () => {
+  const ann1 = { userId: "h_ann1", name: "Ann" };
+  const ann2 = { userId: "h_ann2", name: "Ann" };
+  const shown = nextDropped([], [ann1, ann2], [], ["h_ann1", "h_ann2"]);
+  assert.equal(droppedLine(shown.map((p) => p.name)), "No longer on this list, so not marked: Ann, Ann.");
+});
+
+test("Design #126 M1: after a saved close, an empty re-read roll and a reopened form, the retry's There: line keeps the names", async () => {
+  const G5 = "0f5d6e7a-8b9c-4eaf-9fb1-3c4d5e6f7a81";
+  const drafts: { came: string[]; cameIds?: string[] }[] = [];
+  let postFails = true;
+  let closes = 0;
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G5}/attendance`) {
+      closes += 1;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const base = stubClient();
+  const createPost: BoardClient["createPost"] = async (draft) => {
+    drafts.push({ came: draft.came, ...(draft.cameIds ? { cameIds: draft.cameIds } : {}) });
+    return postFails ? { ok: false, error: "Not saved." } : base.createPost(draft);
+  };
+  try {
+    setBoardClient(new Proxy(base, { get: (t, key) => (key === "createPost" ? createPost : Reflect.get(t, key)) }));
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G5],
+      rollCall: { [G5]: [{ userId: "h_ann", name: "Ann" }, { userId: "h_ben", name: "Ben" }] },
+      cards: [card(G5, { host: "Dale", next: "2026-10-31", going: ["Ann", "Ben"] })],
+    });
+    const first = await useBoard.getState().closeCard(G5, true, "", "Good.", ["Ann", "Ben"], "", ["h_ann", "h_ben"]);
+    assert.equal(first.ok, false);
+    // The re-read roll is empty; a remounted or reopened form still reads the saved close.
+    useBoard.setState({ rollCall: { [G5]: [] } });
+    assert.deepEqual(savedCloseNames(G5, "2026-10-31"), ["Ann", "Ben"]);
+    assert.equal(whoCameSavedLine(savedCloseNames(G5, "2026-10-31") ?? []), "Who came is already saved: Ann, Ben. Send the write-up again.");
+    // The reopened form has no picks: came [] and cameIds []. The write-up still names Ann and Ben.
+    postFails = false;
+    const retry = await useBoard.getState().closeCard(G5, true, "", "Good.", [], "", []);
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(closes, 1);
+    assert.deepEqual(drafts.at(-1), { came: ["Ann", "Ben"], cameIds: ["h_ann", "h_ben"] });
+    assert.equal(savedCloseNames(G5, "2026-10-31"), null, "cleared once filed");
   } finally {
     globalThis.fetch = priorFetch;
     setBoardClient(null);

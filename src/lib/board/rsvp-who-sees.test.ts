@@ -226,12 +226,14 @@ test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #1
   assert.match(css, /transition-duration:0s!important;transition-delay:0s!important/);
 });
 
-test("Design #126 L1: after a saved close, the chips lock and a status line says who came is saved", () => {
+test("Design #126 M1: a saved close locks the form from the store, so a remount or reopen stays locked", () => {
   const src = read("find-view.tsx");
-  assert.match(src, /setWhoSaved\(closeSavedFor\(card\.id, card\.next \|\| todayIso\(\)\)\)/);
-  assert.match(src, /disabled=\{whoSaved\}\s*aria-disabled=\{whoSaved \|\| undefined\}/);
-  assert.match(src, /if \(whoSaved\) return;/);
-  assert.match(src, /<p role="status" className=\{cn\("text-sm text-fg", !whoSaved && "sr-only"\)\}>\s*\{whoSaved \? WHO_CAME_SAVED : ""\}/);
-  // Cleared once the write-up is filed.
-  assert.match(src, /setWhoSaved\(false\);\s*setClosing\(false\)/);
+  // Derived each render from the saved close, never a local flag that starts false.
+  assert.match(src, /const savedNames = savedCloseNames\(card\.id, card\.next \|\| todayIso\(\)\);\s*const whoSaved = savedNames !== null;/);
+  assert.doesNotMatch(src, /useState\(false\);\s*\n[^\n]*whoSaved|\[whoSaved, setWhoSaved\]/);
+  // Locked: no chips to toggle; the line names who that close marked.
+  assert.match(src, /roll\.length > 0 && !whoSaved \? \(/);
+  assert.match(src, /\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
+  // L2: dropped names are not collapsed by name.
+  assert.match(src, /const dropped = droppedLine\(droppedPeople\.map\(\(person\) => person\.name\)\);/);
 });

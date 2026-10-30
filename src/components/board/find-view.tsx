@@ -46,12 +46,12 @@ import {
   rollCallFor,
   rollKey,
   toggleRoll,
-  WHO_CAME_SAVED,
+  whoCameSavedLine,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
-import { closeSavedFor, forgetSavedClose, useBoard } from "@/lib/board/store";
+import { forgetSavedClose, savedCloseNames, useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -389,10 +389,14 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
    * (QA S3).
    */
   const [droppedPeople, setDroppedPeople] = useState<RollPerson[]>([]);
-  const dropped = droppedLine([...new Set(droppedPeople.map((person) => person.name))]);
+  // Already one entry per person (by rollKey): two Anns both show (Design #126 L2).
+  const dropped = droppedLine(droppedPeople.map((person) => person.name));
   // A close saved while its write-up did not: the retry sends that roll call,
   // so the chips are locked until the write-up is filed (Design #126 L1).
-  const [whoSaved, setWhoSaved] = useState(false);
+  // Read from the saved close each render, so a remounted or reopened form
+  // stays locked, with the names that close marked (Design #126 M1).
+  const savedNames = savedCloseNames(card.id, card.next || todayIso());
+  const whoSaved = savedNames !== null;
   const resetPicks = () => {
     const fresh = rollCallFor(card, useBoard.getState().rollCall);
     const next = resetRollPicks(roll, fresh, cameKeys);
@@ -524,12 +528,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 ).then(
                   (check) => {
                     if (!check.ok) {
-                      setWhoSaved(closeSavedFor(card.id, card.next || todayIso()));
                       setRefused(check.stops);
                       if (check.stops.includes(ROLL_CALL_STALE)) resetPicks();
                       return;
                     }
-                    setWhoSaved(false);
                     setClosing(false);
                     // A gathering that drops off the list takes its button with
                     // it: focus goes to the list heading instead.
@@ -601,7 +603,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {takesRoll(card) && rollOn && roll.length > 0 ? (
+              {takesRoll(card) && rollOn && roll.length > 0 && !whoSaved ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {roll.map((person, index) => (
@@ -610,7 +612,6 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                       className={cn(
                         "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3 has-[[data-focus-ring]:focus]:outline has-[[data-focus-ring]:focus]:outline-2 has-[[data-focus-ring]:focus]:outline-offset-2",
                         cameKeys.includes(rollKey(person)) && "bg-signal text-signal-ink",
-                        whoSaved && "cursor-not-allowed opacity-70",
                       )}
                     >
                       <input
@@ -618,10 +619,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                         type="checkbox"
                         className="sr-only"
                         checked={cameKeys.includes(rollKey(person))}
-                        disabled={whoSaved}
-                        aria-disabled={whoSaved || undefined}
                         onChange={() => {
-                          if (whoSaved) return;
                           const next = toggleRoll(roll, cameKeys, person);
                           setCameKeys(next.keys);
                           setCame(next.came);
@@ -637,7 +635,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 {dropped}
               </p>
               <p role="status" className={cn("text-sm text-fg", !whoSaved && "sr-only")}>
-                {whoSaved ? WHO_CAME_SAVED : ""}
+                {savedNames ? whoCameSavedLine(savedNames) : ""}
               </p>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex basis-full flex-col gap-2 text-sm text-muted">
@@ -661,7 +659,6 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   onClick={() => {
                     // A saved close is for this open form only (QA S3 #1).
                     forgetSavedClose(card.id);
-                    setWhoSaved(false);
                     setClosing(false);
                     setRefocus(true);
                   }}

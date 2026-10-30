@@ -25,7 +25,16 @@ import { removalFailedCopy } from "./errors.ts";
  * cleared on Cancel, sign-out, or another account (QA S3 #1).
  */
 let rsvpViewer: string | null = null;
-const closedUnfiled = new Map<string, { date: string; sent: string[] }>();
+const closedUnfiled = new Map<string, { date: string; sent: string[]; names: string[] }>();
+/**
+ * The names a saved close marked, for this card and date, or null when none
+ * is saved. The form locks to these, and the retry's write-up names them,
+ * even after a remount or an empty re-read list (Design #126 M1).
+ */
+export function savedCloseNames(cardId: string, date: string): string[] | null {
+  const kept = closedUnfiled.get(cardId);
+  return kept && kept.date === date ? [...kept.names] : null;
+}
 /** True while this card's close for `date` saved and its write-up is not filed yet. */
 export function closeSavedFor(cardId: string, date?: string): boolean {
   const kept = closedUnfiled.get(cardId);
@@ -41,12 +50,13 @@ async function closeOnce(
   close: () => Promise<{ stop: string | null; sent: string[] }>,
   cardId: string,
   date: string,
+  names: string[],
 ): Promise<{ stop: string | null; sent: string[] }> {
   const kept = closedUnfiled.get(cardId);
   if (kept && kept.date === date) return { stop: null, sent: kept.sent };
   closedUnfiled.delete(cardId);
   const closed = await close();
-  if (!closed.stop) closedUnfiled.set(cardId, { date, sent: closed.sent });
+  if (!closed.stop) closedUnfiled.set(cardId, { date, sent: closed.sent, names: [...names] });
   return closed;
 }
 
@@ -992,7 +1002,9 @@ export const useBoard = create<BoardState>()(
               if (draft.type === "hosted") {
                 const closing = cards.find((item) => item.id === draft.cardId);
                 if (closing) {
-                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id, closing.next || todayIso());
+                  const kept = savedCloseNames(closing.id, closing.next || todayIso());
+                  if (kept) draft = { ...draft, came: kept };
+                  const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id, closing.next || todayIso(), draft.came);
                   if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
                   if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
                 }
@@ -1387,6 +1399,8 @@ export const useBoard = create<BoardState>()(
           const card = cards.find((item) => item.id === id);
           if (!card) return { ok: false, stops: ["That card is gone."], notes: [] };
           const claim = line.trim() || (happened ? "It happened." : "It did not happen.");
+          // A saved close's names win: the retry names who that close marked (Design #126 M1).
+          came = savedCloseNames(card.id, card.next || todayIso()) ?? came;
           const draft: Draft = {
             ...blankDraft(card.room),
             type: "hosted",
@@ -1400,7 +1414,7 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on);
+            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on, came);
             if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
             const saved = await (await getBoardClient()).createPost(
               closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,

@@ -17,8 +17,12 @@ export const RSVP_NOT_READY = "rsvp-not-ready";
 export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
 /** A roll call named someone the server no longer lists (a stale or unknown handle). */
 export const ROLL_CALL_STALE = "That list is out of date.";
-/** After a close saved but its write-up did not (Design #126 L1). */
-export const WHO_CAME_SAVED = "Who came is already saved. Send the write-up again.";
+/** After a close saved but its write-up did not (Design #126 M1). */
+export function whoCameSavedLine(names: readonly string[]): string {
+  return names.length === 0
+    ? "This close is already saved. Send the write-up again."
+    : `Who came is already saved: ${names.join(", ")}. Send the write-up again.`;
+}
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 
 export type ServerRsvp = {
