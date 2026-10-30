@@ -1174,6 +1174,93 @@ test("Design M1: when the last member on the list joins, focus goes to the call 
   pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
 });
 
+const saying = (host, text) =>
+  [...host.querySelectorAll('p[role="status"]')].find((p) => p.textContent === text) ?? null;
+
+const DEE = { id: "dee", name: "Dee", generation: 1 };
+
+test('Design Low after #128: "Ben joined the call." goes once Ben leaves the call again', async () => {
+  // Dee is already in the call, so it goes on when Ben leaves.
+  pollReplies = [{ record: false, peers: [DEE], signals: [], cursor: 1 }];
+  const { host } = await ringFrom(
+    [
+      { id: "ben", name: "Ben" },
+      { id: "cy", name: "Cy" },
+      { id: "dee", name: "Dee" },
+    ],
+    { id: "ben", name: "Ben" },
+  );
+  pollReplies = [
+    {
+      record: false,
+      peers: [DEE, { id: "ben", name: "Ben", generation: 1 }],
+      signals: [],
+      cursor: 2,
+    },
+  ];
+  await waitFor(() => saying(host, "Ben joined the call."), 6000);
+  assert.ok(saying(host, "Ben joined the call."), "the line says Ben joined");
+  // Ben leaves: the next poll has only Dee.
+  pollReplies = [{ record: false, peers: [DEE], signals: [], cursor: 3 }];
+  await waitFor(() => !/Ben joined the call\./.test(host.textContent), 6000);
+  assert.doesNotMatch(host.textContent, /Ben joined the call\./, "the line is cleared");
+  const names = [...host.querySelector("select").options].map((o) => o.textContent);
+  assert.deepEqual(names, ["Choose a member", "Ben", "Cy"], "Ben is offered again");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("Design Low after #128: a line about someone else is left alone when Ben leaves", async () => {
+  // Dee is already in the call, so it goes on when Ben leaves.
+  pollReplies = [{ record: false, peers: [DEE], signals: [], cursor: 1 }];
+  const { host } = await ringFrom(
+    [
+      { id: "ben", name: "Ben" },
+      { id: "cy", name: "Cy" },
+      { id: "dee", name: "Dee" },
+    ],
+    { id: "ben", name: "Ben" },
+  );
+  pollReplies = [
+    {
+      record: false,
+      peers: [DEE, { id: "ben", name: "Ben", generation: 1 }],
+      signals: [],
+      cursor: 2,
+    },
+  ];
+  await waitFor(() => saying(host, "Ben joined the call."), 6000);
+  const select = host.querySelector("select");
+  await act(async () => {
+    select.value = "cy";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const call = [...host.querySelectorAll("button")].find((b) => b.textContent === "Call Cy");
+  await act(async () => call.click());
+  await flush();
+  assert.ok(saying(host, "Calling Cy. It rings for up to a minute."), "now calling Cy");
+  pollReplies = [{ record: false, peers: [DEE], signals: [], cursor: 3 }];
+  await waitFor(() => host.querySelector("select")?.options.length === 3, 6000);
+  await flush();
+  assert.ok(saying(host, "Calling Cy. It rings for up to a minute."), "Cy's line stays");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("QA S4 after #128: when the last member joins, the same live region says so", async () => {
+  const { host } = await ringFrom([{ id: "ben", name: "Ben" }], { id: "ben", name: "Ben" });
+  const region = saying(host, "Calling Ben. It rings for up to a minute.");
+  assert.ok(region, "the Calling line is in a status region");
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !host.querySelector("select") && saying(host, "Ben joined the call."), 6000);
+  assert.equal(host.querySelector("select"), null, "the picker is gone");
+  const now = saying(host, "Ben joined the call.");
+  assert.ok(now, "the line says Ben joined");
+  assert.ok(now === region, "it is the region that was already there, not a new one");
+  assert.ok(region.isConnected, "the region stayed mounted");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
 test("QA S3: a card that shows while typing scrolls the field clear of it", async () => {
   const box = document.createElement("div");
   const field = document.createElement("textarea");
