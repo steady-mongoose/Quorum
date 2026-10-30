@@ -37,7 +37,9 @@ test("the door and About describe messaging the way the server enforces it", () 
   assert.match(dmCopy, /Only people from the same meeting can see your profile\./);
 });
 
-test("the About rule list lowercases only the first letter, so God and Christ keep their capitals", () => {
-  assert.equal(about.includes("RULE_LABEL[rule].toLowerCase()"), false);
-  assert.match(about, /return label\.charAt\(0\)\.toLowerCase\(\) \+ label\.slice\(1\);/);
+test("the door and About keep rooms and interest groups apart", () => {
+  assert.equal(door.includes("One group each"), false);
+  assert.ok(door.includes(`term: "One place each"`));
+  assert.ok(door.includes(`term: "Interest groups"`));
+  assert.ok(about.includes(`title: "Interest groups"`));
 });

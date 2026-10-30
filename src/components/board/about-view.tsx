@@ -28,10 +28,8 @@ import {
   APP_NAME,
   POST_TYPES,
   RULE_LABEL,
-  RULE_SENTENCE,
   authorName,
   type CsamReport,
-  type HardRule,
 } from "@/lib/board/model";
 import {
   boardExportDocument,
@@ -40,8 +38,6 @@ import {
   localBoardOwner,
   useBoard,
 } from "@/lib/board/store";
-
-const RULES = Object.keys(RULE_LABEL) as HardRule[];
 
 function downloadBoardExport(json: string) {
   const blob = new Blob([json], { type: "application/json" });
@@ -93,6 +89,10 @@ const HOW = [
     text: "Every room has a steward who keeps it on track. A room cannot lose its last steward. The last one can step down only by naming someone in the room to take over.",
   },
   {
+    title: "Interest groups",
+    text: "A room is one place. A group is one interest, such as carpentry, gardening, or brewing, and it sits beside the rooms. A member asks for a group from a room they have joined, and a steward of that room approves it. You join a group only by an invite from one of its admins or stewards. A group has its own posts and its own admins. Someone barred from the room a group came from cannot read or post in the group.",
+  },
+  {
     title: "Debates",
     text: "Debate Night is a monthly debate at a brewery or a hall: one question, two sides, a host, anyone welcome. The card shows this month's question and where. Afterwards the host writes up how it went and sets next month's question.",
   },
@@ -106,7 +106,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. Doxxing means publishing a private person's home address, phone number, or other contact so strangers can find them. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -239,20 +239,6 @@ export function AboutView({
             </div>
           ))}
         </dl>
-        <p className="max-w-prose text-sm text-muted">
-          Removed for:{" "}
-          {RULES.map((rule) => {
-            // Lowercase only the first letter, so God and Christ keep their capitals.
-            const label = RULE_LABEL[rule];
-            return label.charAt(0).toLowerCase() + label.slice(1);
-          }).join(", ")}. A second
-          removal closes the account. Child sexual abuse material closes it the first time.
-        </p>
-        <ul className="flex max-w-prose flex-col gap-1 text-sm text-muted">
-          {RULES.map((rule) => (
-            <li key={rule}>{RULE_SENTENCE[rule]}</li>
-          ))}
-        </ul>
       </section>
 
       {!publicView && remote ? <RoleTools changeAccess={changeAccess} admin={admin} /> : null}
