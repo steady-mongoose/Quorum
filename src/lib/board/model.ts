@@ -195,7 +195,13 @@ export type Invite = {
   redeemedBy: string;
 };
 
-export type Profile = { household: string; parish: string; trade: string };
+export type Profile = {
+  household: string;
+  parish: string;
+  trade: string;
+  /** Set when the church was picked from OpenStreetMap. Absent or null when typed. */
+  parishPlace?: { ref: string; address: string } | null;
+};
 
 export type MarkRow = {
   id: string;

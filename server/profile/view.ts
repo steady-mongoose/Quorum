@@ -58,6 +58,8 @@ export type ProfileBody = {
   birthdateSet?: boolean;
   location?: StoredLocation | null;
   church?: string;
+  /** Present when the church was picked from OpenStreetMap. */
+  churchPlace?: { ref: string; address: string; verified: true };
   interests?: { id: string; label: string }[];
   links?: ProfileLink[];
   photo?: ProfilePhoto | null;
@@ -85,6 +87,8 @@ type SubjectRow = {
   location_town: string | null;
   location_county: string | null;
   church: string | null;
+  church_osm_ref: string | null;
+  church_address: string | null;
   interests: string[] | null;
   onboarded_at: Date | string | null;
   profile_anonymous: boolean | null;
@@ -92,6 +96,11 @@ type SubjectRow = {
   photo_status: string | null;
   photo_deleted: Date | string | null;
 };
+
+// to_jsonb reads the 0048 columns without failing on a database that does not have them yet.
+function churchPlaceOf(row: SubjectRow): { ref: string; address: string; verified: true } {
+  return { ref: row.church_osm_ref ?? "", address: row.church_address ?? "", verified: true };
+}
 
 const LEVELS = new Set<VisibilityLevel>(["members", "shared", "private", "admins"]);
 
@@ -217,6 +226,8 @@ export async function profileView(
             m.location_town,
             m.location_county,
             m.church,
+            to_jsonb(m) ->> 'church_osm_ref' as church_osm_ref,
+            to_jsonb(m) ->> 'church_address' as church_address,
             m.interests,
             m.onboarded_at,
             m.profile_anonymous,
@@ -278,6 +289,7 @@ export async function profileView(
     profile.birthdateSet = Boolean(birthdate);
     profile.location = location;
     profile.church = row.church ?? "";
+    if (row.church && row.church_osm_ref) profile.churchPlace = churchPlaceOf(row);
     profile.interests = interestsOf(row.interests);
     profile.links = linkRows;
     profile.photo = photo;
@@ -298,7 +310,10 @@ export async function profileView(
   if (show("gender") && gender) profile.gender = gender;
   if (show("age") && age !== null && age >= 0) profile.age = age;
   if (show("location") && location) profile.location = location;
-  if (show("church") && row.church) profile.church = row.church;
+  if (show("church") && row.church) {
+    profile.church = row.church;
+    if (row.church_osm_ref) profile.churchPlace = churchPlaceOf(row);
+  }
   if (show("interests") && (row.interests?.length ?? 0) > 0)
     profile.interests = interestsOf(row.interests);
   if (show("links") && linkRows.length > 0) profile.links = linkRows;

@@ -9,6 +9,7 @@ import { parseInterests, type InterestId } from "./interests.ts";
 import { parseLinks, type ProfileLink } from "./links.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER, adminsOnlyVisibilityEnabled } from "./permissions.ts";
 import { parseLocation } from "./towns.ts";
+import { OSM_REF_PATTERN } from "../places/lookup.ts";
 import {
   PROFILE_FIELDS,
   parseVisibilityLevel,
@@ -25,6 +26,8 @@ type Parsed = {
   birthdate?: string;
   location?: { county: string; town: string };
   church?: string;
+  /** Null clears a picked place, so the church reads as typed. */
+  churchPlace?: { ref: string; address: string } | null;
   interests?: InterestId[];
   links?: ProfileLink[];
   visibility?: Partial<Record<ProfileField, VisibilityLevel>>;
@@ -51,6 +54,23 @@ function shortText(
     return refusal(400, `Write the ${noun} on one line.`);
   }
   return { ok: true, text };
+}
+
+/** A picked OpenStreetMap place: { ref: "node/123", address }. Null clears it. */
+export function parseChurchPlace(
+  raw: unknown,
+): { ok: true; value: { ref: string; address: string } | null } | Refusal {
+  if (raw === null) return { ok: true, value: null };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return refusal(400, "Choose a place from the list, or type the church in.");
+  }
+  const { ref, address } = raw as Record<string, unknown>;
+  if (typeof ref !== "string" || !OSM_REF_PATTERN.test(ref)) {
+    return refusal(400, "Choose a place from the list, or type the church in.");
+  }
+  const line = typeof address === "string" ? address.replace(/\s+/g, " ").trim() : "";
+  if (line.length > 200) return refusal(400, "That address is too long.");
+  return { ok: true, value: { ref, address: line } };
 }
 
 export function parseProfilePatch(
@@ -98,6 +118,15 @@ export function parseProfilePatch(
     const parsed = shortText(body.church, "church", 120, "allow");
     if (!parsed.ok) return parsed;
     value.church = parsed.text;
+  }
+  if ("churchPlace" in body) {
+    const place = parseChurchPlace(body.churchPlace);
+    if (!place.ok) return place;
+    if (place.value && !value.church) return refusal(400, "Enter the church name with the place.");
+    value.churchPlace = place.value;
+  } else if ("church" in body) {
+    // A new church name without a picked place is a typed entry.
+    value.churchPlace = null;
   }
   if ("interests" in body) {
     const interests = parseInterests(body.interests);
@@ -294,6 +323,23 @@ export async function saveProfile(
       }
       if (next.church !== undefined) {
         await tx.query(`update members set church = $2 where user_id = $1`, [userId, next.church]);
+      }
+      if (next.churchPlace !== undefined) {
+        // The columns come from 0048. Until it is applied, a typed church
+        // saves as before and a picked place is refused with a plain line.
+        const ready = await tx.query<{ ok: number }>(
+          `select 1 as ok from information_schema.columns
+           where table_schema = current_schema() and table_name = 'members'
+             and column_name = 'church_osm_ref'`,
+        );
+        if (ready[0]) {
+          await tx.query(
+            `update members set church_osm_ref = $2, church_address = $3 where user_id = $1`,
+            [userId, next.churchPlace?.ref ?? null, next.churchPlace?.address ?? ""],
+          );
+        } else if (next.churchPlace) {
+          throw new Rollback(503, "Saving a picked place is not on yet. Type the church in for now.");
+        }
       }
       if (next.interests) {
         await tx.query(`update members set interests = $2::text[] where user_id = $1`, [

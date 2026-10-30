@@ -11,6 +11,8 @@ import { handlePublicGathering } from "./board/public-gathering.ts";
 import { noteAuthenticatedRequest } from "./stats/activity.ts";
 import { handleStats } from "./stats/routes.ts";
 import { handleProfile } from "./profile/routes.ts";
+import { handlePlaces } from "./places/routes.ts";
+import type { PlaceLookup } from "./places/lookup.ts";
 import { handleRoomChat } from "./chat/routes.ts";
 import { createPost, openBan } from "./board/store.ts";
 import { handleDm } from "./dm/routes.ts";
@@ -42,6 +44,8 @@ export type AppDeps = {
   media?: MediaRuntime;
   /** Omitted in tests that do not exercise room calls. Calls stay off. */
   calls?: CallsRuntime;
+  /** Church and local-group lookup. Omitted in tests that do not use it; search answers 503. */
+  places?: PlaceLookup;
 };
 
 class HttpError extends Error {
@@ -444,6 +448,9 @@ async function route(
     }
     return json(201, minted.value);
   }
+
+  const places = await handlePlaces(deps, request, url);
+  if (places) return places;
 
   const profile = await handleProfile(deps, request, url);
   if (profile) return profile;

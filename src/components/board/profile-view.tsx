@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { MfaSettings } from "@/components/board/mfa-ui";
+import { PlaceSearch } from "@/components/board/place-search";
 import { useServerSession } from "@/lib/server-session-state";
 
 /**
@@ -25,6 +26,7 @@ export function ProfileView() {
   const [knownAs, setKnownAs] = useState(rawMe);
   const [household, setHousehold] = useState(profile.household);
   const [parish, setParish] = useState(profile.parish);
+  const [parishPlace, setParishPlace] = useState(profile.parishPlace ?? null);
   const [trade, setTrade] = useState(profile.trade);
   const [saved, setSaved] = useState(false);
   const skipSave = useRef(true);
@@ -36,7 +38,7 @@ export function ProfileView() {
     }
     setSaved(false);
     const save = window.setTimeout(() => {
-      setProfile({ household, parish, trade });
+      setProfile({ household, parish, parishPlace, trade });
       const next = knownAs.trim();
       if (next) {
         const current = useBoard.getState();
@@ -52,7 +54,7 @@ export function ProfileView() {
       window.clearTimeout(save);
       window.clearTimeout(hide);
     };
-  }, [household, parish, trade, knownAs, setProfile, setMe]);
+  }, [household, parish, parishPlace, trade, knownAs, setProfile, setMe]);
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
@@ -105,15 +107,19 @@ export function ProfileView() {
                 onChange={(event) => setHousehold(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Church
-              <input
-                className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Epiphany of Our Lord"
-                value={parish}
-                onChange={(event) => setParish(event.target.value)}
-              />
-            </label>
+            <PlaceSearch
+              label="Church"
+              kind="church"
+              value={{
+                name: parish,
+                ref: parishPlace?.ref ?? null,
+                address: parishPlace?.address ?? "",
+              }}
+              onChange={(next) => {
+                setParish(next.name);
+                setParishPlace(next.ref ? { ref: next.ref, address: next.address } : null);
+              }}
+            />
             <label className="flex flex-col gap-2 text-sm text-muted">
               Trade
               <input
