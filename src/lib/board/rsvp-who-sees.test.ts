@@ -175,7 +175,9 @@ test("the RSVP button is aria-busy while saving, says when it failed, and only a
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.rule\{transition:/);
   assert.match(css, /\.btn-rsvp\[data-tapped\] \+ \.rsvp-mark \.laurel\{transition:/);
   assert.doesNotMatch(css, /^\.rsvp-mark \.(rule|laurel)\{[^}]*transition/m);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\{\.rsvp-mark \.rule,\.rsvp-mark \.laurel\{transition:none!important\}\}/);
+  // The sheet-wide reduced-motion rule (every transition at 0s) covers the mark;
+  // a rule of its own would push the sheet past its 3 KB budget.
+  assert.match(css, /prefers-reduced-motion:reduce\)\{[^@]*\*,\*::before,\*::after\{animation:none!important;transition-duration:0s!important\}/);
 });
 
 test("Find's close form: a stale roll call resets the picks and offers Reload; focus survives a card leaving (#126)", () => {
