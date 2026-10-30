@@ -300,7 +300,7 @@ test("waiting alone is not an ended call; a decline is", async () => {
   await session.pollOnce();
   assert.deepEqual(ended, [], "still ringing");
   await session.pollOnce();
-  assert.deepEqual(ended, ["Ben declined the call."]);
+  assert.deepEqual(ended, ["Ben isn't available right now."]);
   assert.ok(posted.includes("/api/calls/dm/t/leave"));
 });
 
@@ -362,7 +362,7 @@ test("in a room call with others still there, a leave or decline is a note, not 
   ]);
   await session.pollOnce();
   assert.deepEqual(ended, []);
-  assert.deepEqual(notes, ["Bob left the call.", "Dan declined the call."]);
+  assert.deepEqual(notes, ["Bob left the call.", "Dan isn't available right now."]);
   session.close();
 });
 
@@ -405,7 +405,7 @@ test("S2: a room call alone stays open through a decline while another ring is o
   });
   await session.pollOnce();
   assert.deepEqual(ended, [], "Eve is still being rung, so the call stays open");
-  assert.deepEqual(notes, ["Ben declined the call."]);
+  assert.deepEqual(notes, ["Ben isn't available right now."]);
   assert.equal(
     posted.includes("/api/calls/rooms/shop/leave"),
     false,
@@ -463,5 +463,5 @@ test("a DM call alone ends on a decline even if the server says a ring is out", 
     createConnection: () => new FakeConnection(),
   });
   await session.pollOnce();
-  assert.deepEqual(ended, ["Ben declined the call."]);
+  assert.deepEqual(ended, ["Ben isn't available right now."]);
 });

@@ -329,11 +329,11 @@ test("the caller sees Calling…, then a Decline ends the call with plain words"
   assert.equal(join?.body, JSON.stringify({ ring: true }), "starting the call rings Ben");
   assert.match(host.textContent, /Calling Ben\. It rings for up to a minute\./);
   await waitFor(() => ended.length > 0);
-  assert.deepEqual(ended, ["Ben declined the call."]);
+  assert.deepEqual(ended, ["Ben isn't available right now."]);
   assert.ok(button("Join the call"), "back to Join; the live call is closed");
   assert.equal(button("Leave call"), undefined);
   const status = host.querySelector('[aria-live="polite"]');
-  assert.equal(status.textContent, "Ben declined the call.");
+  assert.equal(status.textContent, "Ben isn't available right now.");
   assert.equal(host.querySelector('[role="alert"]'), null, "not shown as an error");
   assert.ok(
     posts.some((p) => p.url.endsWith("/leave")),
@@ -532,4 +532,95 @@ test("S2: the prompt stays position: fixed under the shell's position: relative 
   ringsReply = [];
   await act(async () => root.unmount());
   shell.remove();
+});
+
+test("a ring focuses the card, not Join, so a stray Enter or Space does not join", async () => {
+  posts.length = 0;
+  document.body.focus();
+  ringsReply = [{ id: "r40", kind: "dm", threadId: thread, fromName: "Ann" }];
+  let went = 0;
+  const { host, root } = await mountRings(ringtoneSpy().fn, () => went++);
+  const card = host.querySelector('section[role="region"]');
+  assert.ok(card);
+  assert.equal(document.activeElement, card, "the card region has focus");
+  assert.equal(card.getAttribute("tabindex"), "-1", "focusable by script, not a Tab stop");
+  assert.match(
+    card.className,
+    /focus:outline-2 focus:outline-offset-2 focus:outline-\[var\(--color-fg\)\]/,
+  );
+  const join = [...card.querySelectorAll("button")].find((b) => b.textContent === "Join");
+  assert.notEqual(document.activeElement, join, "Join is not focused");
+  assert.equal(document.activeElement.tagName, "SECTION");
+  for (const key of ["Enter", " "]) {
+    await act(async () => {
+      const target = document.activeElement;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      target.dispatchEvent(new KeyboardEvent("keypress", { key, bubbles: true, cancelable: true }));
+      target.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true, cancelable: true }));
+    });
+    await flush();
+  }
+  assert.ok(host.querySelector('section[role="region"]'), "the ring still shows");
+  assert.equal(went, 0);
+  assert.equal(posts.length, 0, "no answer, dismiss or join was sent");
+  assert.equal(
+    [...host.querySelectorAll("button")].some((b) => /Leave call|Mute/.test(b.textContent)),
+    false,
+    "no call opened, so no mic",
+  );
+  ringsReply = [];
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await flush();
+  assert.equal(host.querySelector('section[role="region"]'), null, "Escape still declines");
+  await act(async () => root.unmount());
+});
+
+test("a ring does not take focus from someone typing; the live line still announces it", async () => {
+  for (const make of [
+    () => document.createElement("input"),
+    () => document.createElement("textarea"),
+    () => {
+      const el = document.createElement("div");
+      el.setAttribute("contenteditable", "true");
+      el.tabIndex = 0;
+      return el;
+    },
+  ]) {
+    const field = make();
+    document.body.append(field);
+    field.focus();
+    assert.equal(document.activeElement, field);
+    ringsReply = [{ id: "r41", kind: "room", roomId: "shop", fromName: "Josh" }];
+    const { host, root } = await mountRings(ringtoneSpy().fn);
+    assert.ok(host.querySelector('section[role="region"]'));
+    assert.equal(document.activeElement, field, `${field.tagName} keeps focus`);
+    assert.equal(
+      host.querySelector('p[role="status"]').textContent,
+      "Josh is calling you into a room call.",
+    );
+    ringsReply = [];
+    await act(async () => root.unmount());
+    field.remove();
+  }
+});
+
+test("a ring does not take focus while a dialog is open", async () => {
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  const inside = document.createElement("button");
+  inside.textContent = "Keep";
+  dialog.append(inside);
+  document.body.append(dialog);
+  inside.focus();
+  ringsReply = [{ id: "r42", kind: "dm", threadId: thread, fromName: "Ann" }];
+  const { host, root } = await mountRings(ringtoneSpy().fn);
+  assert.ok(host.querySelector('section[role="region"]'));
+  assert.equal(document.activeElement, inside, "focus stays in the dialog");
+  assert.equal(host.querySelector('p[role="status"]').textContent, "Ann is calling you.");
+  ringsReply = [];
+  await act(async () => root.unmount());
+  dialog.remove();
 });

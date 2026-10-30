@@ -105,7 +105,7 @@ function RingMembers({ roomId }: { roomId: string }) {
 
   useEffect(
     () =>
-      // The call's own line now says "Ann declined the call." or "Ann didn't answer."
+      // The call's own line now says "Ann isn't available right now." or "Ann didn't answer."
       onRingOutcome((outcome) =>
         setStatus((line) => (line.startsWith(`Calling ${outcome.name}.`) ? "" : line)),
       ),

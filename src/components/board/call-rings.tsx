@@ -163,15 +163,18 @@ export function CallRings({
     }).catch(() => undefined);
   };
 
-  // A new ring takes focus (Join), unless the person is typing or in a dialog.
+  // A new ring moves focus to the card itself, never to Join or Decline: a
+  // stray Enter or Space must not join the call and open the mic. While the
+  // person is typing or a dialog is open, focus stays put and only the live
+  // line announces the ring.
   useEffect(() => {
     if (!ringId) return;
     const active = document.activeElement;
     if (escapeBelongsElsewhere(active)) return;
-    const join = cardRef.current?.querySelector<HTMLButtonElement>("button");
-    if (!join) return;
+    const card = cardRef.current;
+    if (!card) return;
     if (active instanceof HTMLElement && active !== document.body) returnTo.current = active;
-    join.focus();
+    card.focus();
   }, [ringId]);
 
   // Escape declines from anywhere while a ring shows, except while typing or
@@ -281,13 +284,14 @@ export function CallRings({
         }}
         role="region"
         aria-labelledby={lineId}
+        tabIndex={-1}
         onFocus={(event) => {
           const from = event.relatedTarget;
           if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
             returnTo.current = from;
           }
         }}
-        className={CARD}
+        className={cn(CARD, FOCUS_RING)}
       >
         <p
           id={lineId}
@@ -333,6 +337,9 @@ export function CallRings({
  * one level down, so it stays position: fixed and on screen when scrolled.
  */
 export const WRAPPER = "call-rings contents";
+
+/** The script-focus ring on the call card (same as the call panel's). */
+export const FOCUS_RING = "focus:outline-2 focus:outline-offset-2 focus:outline-[var(--color-fg)]";
 
 export const ESCAPE_HINT = "Press Escape to decline.";
 const NO_NOTICE = { text: "", missed: [] as string[] };

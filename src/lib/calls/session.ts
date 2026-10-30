@@ -16,7 +16,7 @@ import {
 export const CALL_LINES = {
   ended: (name: string) => `${name} left. The call ended.`,
   peerLeft: (name: string) => `${name} left the call.`,
-  declined: (name: string) => `${name} declined the call.`,
+  declined: (name: string) => `${name} isn't available right now.`,
   missed: (name: string) => `${name} didn't answer.`,
 };
 

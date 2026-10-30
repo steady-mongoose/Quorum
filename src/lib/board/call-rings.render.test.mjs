@@ -63,7 +63,7 @@ const flush = async () => {
   for (let i = 0; i < 20; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
 };
 
-test("incoming call prompt: live line, Join and Decline, Join takes focus, Escape declines", async () => {
+test("incoming call prompt: live line, Join and Decline, the card takes focus, Escape declines", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -104,11 +104,9 @@ test("incoming call prompt: live line, Join and Decline, Join takes focus, Escap
     /bottom-\[calc\(var\(--tabbar-h,64px\)\+env\(safe-area-inset-bottom\)\+0\.75rem\)\]/,
   );
   assert.match(banner.className, /md:bottom-6/);
-  assert.equal(
-    document.activeElement?.textContent,
-    "Join",
-    "nothing else had focus, so Join takes it",
-  );
+  assert.equal(document.activeElement, banner, "nothing else had focus, so the card takes it");
+  assert.equal(banner.getAttribute("tabindex"), "-1");
+  assert.match(banner.className, /focus:outline-2 focus:outline-offset-2/);
   const buttons = [...banner.querySelectorAll("button")];
   assert.deepEqual(
     buttons.map((b) => b.textContent),
