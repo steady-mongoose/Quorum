@@ -34,6 +34,7 @@ export async function signUpWithInvite(input: {
   email: string;
   password: string;
   inviteCode: string;
+  adult: boolean;
 }): Promise<AccountResult> {
   const response = await postJson("/api/signup", input);
   return parseAccountResult(response.status, response.json);
@@ -53,12 +54,21 @@ export async function readServerSession(): Promise<AccountUser | null> {
   return parseSessionBody(response.status, body);
 }
 
+/** The member's own 18+ confirmation, for an account made before the check. */
+export async function confirmAgeServer(adult: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  const response = await postJson("/api/age/confirm", { adult });
+  if (response.status >= 200 && response.status < 300) return { ok: true };
+  const result = parseAccountResult(response.status, response.json);
+  return { ok: false, message: result.ok ? "The server did not accept that." : result.message };
+}
+
 export async function signOutServer(): Promise<void> {
   await apiFetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
 }
 
 export async function createServerInvite(input: {
   maxUses?: number;
+  attestAdult: boolean;
 }): Promise<{ ok: true; code: string } | { ok: false; message: string }> {
   const response = await postJson("/api/invites", input);
   if (response.status === 429)

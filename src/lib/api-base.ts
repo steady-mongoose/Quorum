@@ -90,9 +90,42 @@ export function noteUnauthorized(response: Response): void {
   }
 }
 
+const ageRequiredHandlers = new Set<() => void>();
+
+/**
+ * Runs when an API call returns 403 age_required: the member has not confirmed
+ * they are 18 or older. The session shows the age step.
+ */
+export function addAgeRequiredHandler(handler: () => void): () => void {
+  ageRequiredHandlers.add(handler);
+  return () => {
+    ageRequiredHandlers.delete(handler);
+  };
+}
+
+/** Tell age listeners when a response is 403 age_required. Other responses do nothing. */
+export async function noteAgeRequired(response: Response): Promise<void> {
+  if (response.status !== 403 || ageRequiredHandlers.size === 0) return;
+  let error: unknown;
+  try {
+    error = ((await response.clone().json()) as { error?: unknown } | null)?.error;
+  } catch {
+    return;
+  }
+  if (error !== "age_required") return;
+  for (const handler of ageRequiredHandlers) {
+    try {
+      handler();
+    } catch {
+      // One listener cannot block the response or the other listeners.
+    }
+  }
+}
+
 /** Fetch `path` against the configured API base. */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const response = await softenFetch(apiUrl(path), init);
   noteUnauthorized(response);
+  await noteAgeRequired(response);
   return response;
 }

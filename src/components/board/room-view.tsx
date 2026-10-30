@@ -28,6 +28,7 @@ import {
   useNow,
   When,
 } from "@/components/quorum/bits";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import {
   MARK_LABEL,
@@ -375,14 +376,15 @@ export function RoomView() {
                 Older posts
               </button>
             ) : (
-              <p className="py-6 text-sm text-muted" role="status">
-                {/* A non-member's empty room already shows the invite line above. */}
-                {feed.length === 0
-                  ? canPost
-                    ? "Nothing posted here yet."
-                    : ""
-                  : "That is everything."}
-              </p>
+              /* A non-member's empty room already shows the invite line above, so
+                 a member who cannot post gets no empty status line here. */
+              feed.length === 0 && !canPost ? null : (
+                <p className="py-6 text-sm text-muted" role="status">
+                  {feed.length === 0
+                    ? "Nothing posted here yet. Write the first post above."
+                    : "That is everything."}
+                </p>
+              )
             )}
           </section>
         </div>
@@ -414,8 +416,13 @@ function FieldError({ id, messages }: { id: string; messages: string[] }) {
   );
 }
 
-function describedBy(field: ComposerField, messages: string[]): string | undefined {
-  return messages.length > 0 ? composerErrorId(field) : undefined;
+function describedBy(
+  field: ComposerField,
+  messages: string[],
+  ...hintIds: string[]
+): string | undefined {
+  const ids = [...hintIds, ...(messages.length > 0 ? [composerErrorId(field)] : [])];
+  return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
 function CardSelect({
@@ -458,6 +465,8 @@ function CardSelect({
 }
 
 function Composer({ me, steward }: { me: string; steward: boolean }) {
+  const pagesId = useId();
+  const pagesHintId = useId();
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
   const boardCards = useBoard((state) => state.cards);
@@ -831,18 +840,21 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                   <FieldError id={composerErrorId("next")} messages={nextErrors} />
                 </label>
                 {closing?.book ? (
-                  <label className="flex flex-col gap-2 text-sm text-muted">
-                    What to have read by then ({closing.book})
+                  <div className="flex flex-col gap-2 text-sm text-muted">
+                    <label htmlFor={pagesId}>What to have read by then ({closing.book})</label>
                     <input
+                      id={pagesId}
                       className={fieldClass}
-                      placeholder="chapters 5 and 6"
                       value={current.pages}
                       aria-invalid={pageErrors.length > 0 ? true : undefined}
-                      aria-describedby={describedBy("pages", pageErrors)}
+                      aria-describedby={describedBy("pages", pageErrors, pagesHintId)}
                       onChange={(event) => patch({ pages: event.target.value })}
                     />
+                    <p id={pagesHintId} className="text-xs text-muted">
+                      {FIELD_HINT.pages}
+                    </p>
                     <FieldError id={composerErrorId("pages")} messages={pageErrors} />
-                  </label>
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -975,12 +987,14 @@ const PostCard = memo(function PostCard({
     error: string;
   } | null>(null);
   const [removeError, setRemoveError] = useState("");
+  const markId = useId();
   const [confirmRule, setConfirmRule] = useState<HardRule | null>(null);
   const [appealDraft, setAppealDraft] = useState("");
   const [appealError, setAppealError] = useState("");
   const [appealing, setAppealing] = useState(false);
   const [appealSent, setAppealSent] = useState(false);
   const appealId = useId();
+  const appealHintId = useId();
   const appealInput = useRef<HTMLInputElement | null>(null);
   const appealOpener = useRef<HTMLButtonElement | null>(null);
   const appealDone = useRef<HTMLSpanElement | null>(null);
@@ -1235,16 +1249,20 @@ const PostCard = memo(function PostCard({
             )}
           </div>
           {markDraft ? (
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              One sentence, why
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={markId}>One sentence, why</label>
               <input
+                id={markId}
                 className={fieldClass}
                 value={markDraft.reason}
-                placeholder="The notice does not say where that came from."
+                aria-describedby={`${markId}-hint`}
                 onChange={(event) =>
                   setMarkDraft({ ...markDraft, reason: event.target.value, error: "" })
                 }
               />
+              <p id={`${markId}-hint`} className="text-xs text-muted">
+                {FIELD_HINT.markReason}
+              </p>
               {markDraft.error ? (
                 <span className="text-danger" role="alert">
                   {markDraft.error}
@@ -1271,7 +1289,7 @@ const PostCard = memo(function PostCard({
                   Cancel
                 </button>
               </span>
-            </label>
+            </div>
           ) : null}
           {removeError ? (
             <p className="text-sm text-danger" role="alert">
@@ -1310,12 +1328,15 @@ const PostCard = memo(function PostCard({
             ref={appealInput}
             className={cn(fieldClass, "min-h-[44px]")}
             value={appealDraft}
-            placeholder="For example: I was quoting the rule, not breaking it."
+            aria-describedby={appealHintId}
             onChange={(event) => {
               setAppealDraft(event.target.value);
               setAppealError("");
             }}
           />
+          <p id={appealHintId} className="text-xs text-muted">
+            {FIELD_HINT.appeal}
+          </p>
           {appealError ? (
             <p className="text-danger" role="alert">
               {appealError}

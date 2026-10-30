@@ -98,6 +98,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0043_room_messages.sql",
       "0044_room_options.sql",
       "0045_group_invites.sql",
+      "0047_age_attestation.sql",
       "0049_gathering_rsvp.sql",
     ],
   );
@@ -122,6 +123,18 @@ test("migration 0043 adds room messaging guards, is owner-approved, and replaces
   assert.ok(sql.includes("add column if not exists opened_via"));
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/drop table|delete from/i.test(sql), false);
+});
+
+test("migration 0047 adds the age times, marks old codes once, and invents no confirmation", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0047_age_attestation.sql"), "utf8");
+  assert.match(sql, /Numbered 0047/);
+  assert.match(sql, /owner must approve/i);
+  assert.ok(sql.includes("add column if not exists age_attested_at timestamptz"));
+  assert.ok(sql.includes("add column if not exists age_confirmed_at timestamptz"));
+  assert.ok(sql.includes("set minted_before_age_check = true"));
+  assert.equal(/set\s+age_attested_at|set\s+age_confirmed_at/i.test(sql), false);
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|drop column|delete from/i.test(sql), false);
 });
 
 test("migration 0044 adds room options with roll call off, is owner-approved, and replaces no function", () => {
