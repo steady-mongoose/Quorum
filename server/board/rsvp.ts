@@ -1,5 +1,5 @@
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
-import { roleCounts } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { rsvpSummary } from "./rsvp-summary.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
@@ -22,8 +22,8 @@ import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
  *   - A gathering's host, and the stewards of its room, see who is going to,
  *     and who came to, that gathering, and mark who came. Barred members are
  *     hidden from them; other members' ids go out as handles.
- *   - An admin who also hosts or stewards gets that role's view while
- *     ADMIN_ROLE_SEES_NAMES is true (TODO for Josh in rsvp-rules.ts).
+ *   - An admin who really hosts or stewards gets that role's view and marks
+ *     (Josh, Oct 30 7:54/7:55; ADMIN_ROLE_SEES_NAMES in rsvp-rules.ts).
  *   - Anyone else sees only their own "You're going". Never a name, never a number.
  *   - A member cannot mark themselves.
  * The same rule runs in SQL here and in forViewer (src/lib/board/model.ts).
@@ -206,7 +206,7 @@ export type RsvpReader = { userId: string; admin: boolean; stewardRooms: readonl
  *   - the host of a gathering gets every row for it, going and came;
  *   - a steward of the gathering's room gets every row for it, going and came;
  *   - an admin gets nothing more as an admin (counts are in rsvpSummary);
- *     as a host or steward, only while ADMIN_ROLE_SEES_NAMES.
+ *     as a real host or steward, that role's view (ADMIN_ROLE_SEES_NAMES).
  */
 export async function readRsvps(
   db: Db,
@@ -622,7 +622,7 @@ export async function handleRsvp(
       // A member cannot mark themselves as having come. The host and the
       // room's stewards can; an admin as an admin cannot.
       if (body.attended === true && !marksCame(reader, gate.gathering)) {
-        return json(403, { error: MARK_REFUSED });
+        return json(403, { error: !roleCounts(reader.admin) ? ADMIN_NO_NAMES : MARK_REFUSED });
       }
       if (body.attended === true && (await rollOff())) {
         return json(409, { error: ROOM_OPTION_OFF.roll_call });
@@ -638,7 +638,7 @@ export async function handleRsvp(
 
     // attendance
     if (!marksCame(reader, gate.gathering)) {
-      return json(403, { error: MARK_REFUSED });
+      return json(403, { error: !roleCounts(reader.admin) ? ADMIN_NO_NAMES : MARK_REFUSED });
     }
     if ("close" in body && typeof body.close !== "boolean") {
       return json(400, { error: "Say whether this closes the date: true or false." });

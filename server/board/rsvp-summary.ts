@@ -74,7 +74,10 @@ export function suppressGroup(
  * count is known (room_join), never for "No room".
  */
 export function nearEveryone(value: number, members: number, n: number): boolean {
-  return n > 1 && members > 0 && value > 0 && value >= members - n;
+  if (members <= 0 || value <= 0) return false;
+  // The whole membership is always hidden, at any N: it says what every member did.
+  if (value >= members) return true;
+  return n > 1 && value >= members - n;
 }
 
 type People = "going" | "came";

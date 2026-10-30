@@ -19,7 +19,7 @@ import {
 } from "./rsvp.ts";
 import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
-import { ADMIN_ROLE_SEES_NAMES } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -1373,34 +1373,75 @@ test("suppressGroup hides cells under N, and enough others that none can be work
   assert.equal(RSVP_SUMMARY_MIN_COUNT, 5);
 });
 
-test("an admin who hosts, or stewards the room, follows ADMIN_ROLE_SEES_NAMES", async () => {
-  for (const role of ["host", "steward"] as const) {
-    const t = await setup();
-    try {
-      await scene(t);
-      if (role === "host") {
-        await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
-      } else {
-        await stewardOf(t.db, t.josh.id, "Josh", "shop");
+for (const seesNames of [true, false]) {
+  test(`an admin who hosts or stewards, ADMIN_ROLE_SEES_NAMES=${seesNames}: names, ids and marking follow the setting`, async () => {
+    await withAdminRoleSeesNames(seesNames, async () => {
+      for (const role of ["host", "steward", "neither"] as const) {
+        const t = await setup();
+        try {
+          await scene(t);
+          if (role === "host") {
+            await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
+          } else if (role === "steward") {
+            await stewardOf(t.db, t.josh.id, "Josh", "shop");
+          }
+          const oneRes = await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`);
+          const listRes = await call(t.handler, t.josh, "GET", `/api/rsvps`);
+          const one = (await oneRes.json()) as { people?: { name: string }[]; mine: unknown };
+          const listText = JSON.stringify(await listRes.json());
+          const mark = await call(t.handler, t.josh, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+            userIds: [rsvpHandle(GATHERING, t.maria.id)],
+          });
+          const self = await call(t.handler, t.josh, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+          assert.equal(self.status, 200, `${role}: an admin still sets and sees their own RSVP`);
+          if (seesNames && role !== "neither") {
+            assert.deepEqual(one.people?.map((p) => p.name), ["Maria", "Tom"], role);
+            assert.equal(mark.status, 200, role);
+          } else {
+            assert.equal(one.people, undefined, role);
+            assert.ok(one.mine, role);
+            for (const leak of ["Maria", "Tom", t.maria.id, t.tom.id, rsvpHandle(GATHERING, t.maria.id)]) {
+              assert.equal(listText.includes(leak), false, `${role}: /api/rsvps carries ${leak}`);
+            }
+            assert.equal(mark.status, 403, role);
+            const err = ((await mark.json()) as { error: string }).error;
+            assert.equal(err, seesNames ? MARK_REFUSED : ADMIN_NO_NAMES, role);
+          }
+        } finally {
+          await t.close();
+        }
       }
-      const one = (await (await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json()) as {
-        people?: { name: string }[];
-      };
-      const mark = await call(t.handler, t.josh, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-        userIds: [rsvpHandle(GATHERING, t.maria.id)],
-      });
-      if (ADMIN_ROLE_SEES_NAMES) {
-        assert.deepEqual(one.people?.map((p) => p.name), ["Maria", "Tom"], role);
-        assert.equal(mark.status, 200, role);
-      } else {
-        assert.equal(one.people, undefined, role);
-        assert.equal(mark.status, 403, role);
-      }
-    } finally {
-      await t.close();
+    });
+  });
+}
+
+for (const seesNames of [true, false]) test(`an admin who hosts files a write-up: with names only when ADMIN_ROLE_SEES_NAMES (=${seesNames}), with none always`, () => withAdminRoleSeesNames(seesNames, async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    await t.db.query(`update public_gathering set host_user_id = $1 where id = $2`, [t.josh.id, GATHERING]);
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [t.josh.id, new Date("2026-10-01T00:00:00Z")]);
+    const post = (body: Record<string, unknown>) =>
+      createPost(t.db, {
+        userId: t.josh.id,
+        name: "Josh",
+        roomId: "shop",
+        body: { type: "hosted", claim: "The lathe night went well and the next one is set.", on: "2026-10-29", cardId: GATHERING, happened: true, ...body },
+        now: new Date(),
+      } as Parameters<typeof createPost>[1]);
+    const plain = await post({});
+    assert.equal(plain.ok, true, JSON.stringify(plain));
+    await t.db.query(`delete from board_post where card_id = $1`, [GATHERING]);
+    const named = await post({ came: ["Tom"], cameIds: [rsvpHandle(GATHERING, t.tom.id)] });
+    if (seesNames) assert.equal(named.ok, true, JSON.stringify(named));
+    else {
+      assert.equal(named.ok, false);
+      if (!named.ok) assert.deepEqual([named.status, named.error], [403, ADMIN_NO_NAMES]);
     }
+  } finally {
+    await t.close();
   }
-});
+}));
 
 // ---- QA S2: hiding holds across levels ----
 
@@ -1447,10 +1488,21 @@ test("a grand total under N hides every room and every part", () => {
   }
 });
 
+test("a count equal to the room's whole membership is hidden, with a neighbour", () => {
+  // At the live N (5): 20 of 20 going is hidden, and so is a neighbour.
+  const out = suppressSummary([{ roomId: "shop", members: 20, gatherings: [g("s1", 20), g("s2", 9), g("s3", 8)], weeks: [] }]);
+  const parts = out.rooms[0]!.gatherings.map((x) => x.going);
+  assert.equal(parts[0], null, "20 of 20 going is hidden");
+  assert.equal(parts.filter((v) => v === null).length >= 2, true, "and a neighbour, so the total cannot give it back");
+});
+
 test("a count at or above (members - N) is hidden: it would all but name everyone", () => {
   assert.equal(nearEveryone(8, 10, 2), true);
   assert.equal(nearEveryone(7, 10, 2), false);
   assert.equal(nearEveryone(8, 0, 2), false, "unknown member count: the rule does not apply");
+  // The whole membership is hidden at any N, even N = 1.
+  assert.equal(nearEveryone(10, 10, 1), true);
+  assert.equal(nearEveryone(9, 10, 1), false);
   const out = suppressSummary([{ roomId: "shop", members: 12, gatherings: [g("s1", 11), g("s2", 4), g("s3", 3)], weeks: [] }], 2);
   const parts = out.rooms[0]!.gatherings.map((x) => x.going);
   assert.equal(parts[0], null, "11 of 12 going is hidden");
@@ -1491,7 +1543,7 @@ test("an admin-only account cannot file a write-up on someone else's gathering (
   }
 });
 
-test("seeing who came needs a real host or steward role, never one gained by filing", async () => {
+for (const seesNames of [true, false]) test(`seeing who came needs a real host or steward role, never one gained by filing (ADMIN_ROLE_SEES_NAMES=${seesNames})`, () => withAdminRoleSeesNames(seesNames, async () => {
   const t = await setup();
   try {
     await scene(t);
@@ -1520,8 +1572,8 @@ test("seeing who came needs a real host or steward role, never one gained by fil
     // Dale filed it but no longer hosts: filing grants nothing.
     assert.deepEqual(await cameFor(t.dale.id), [], "the filer who is not the host sees nothing");
     // Josh now really hosts it: the flag decides.
-    assert.deepEqual(await cameFor(t.josh.id), ADMIN_ROLE_SEES_NAMES ? ["Tom"] : []);
+    assert.deepEqual(await cameFor(t.josh.id), seesNames ? ["Tom"] : []);
   } finally {
     await t.close();
   }
-});
+}));

@@ -19,7 +19,8 @@ test("the privacy copy is derived from N, never typed", () => {
   assert.match(panel, /state\.summary\.minCount : RSVP_SUMMARY_MIN_COUNT/);
   assert.doesNotMatch(panel, /under \d|<5|&lt;5/);
   const rules = readFileSync(new URL("./rsvp-rules.ts", import.meta.url), "utf8");
-  assert.match(rules, /TODO\(Josh\)[\s\S]*RSVP_SUMMARY_MIN_COUNT = 5/);
+  assert.match(rules, /decided by Josh, Oct 30[\s\S]*RSVP_SUMMARY_MIN_COUNT = 5/);
+  assert.doesNotMatch(rules, /TODO\(Josh\)/);
 });
 
 test("a hidden cell reads 'Hidden' and a screen reader hears 'hidden to protect privacy'", () => {
@@ -56,4 +57,21 @@ test("the panel is a card, 'RSVP counts', with scrolling tables, right-aligned n
   assert.match(panel, /"Loading RSVP counts\."/);
   // Not hidden when the main stats fail.
   assert.doesNotMatch(page, /load\.kind === "ready" \? <RsvpSummaryPanel \/>/);
+});
+
+test("the mark-who-came form shows for an admin only as a real host or steward (live setting), never as an admin alone", async () => {
+  const { forViewer, takesRoll } = await import("./model.ts");
+  const { ADMIN_ROLE_SEES_NAMES, withAdminRoleSeesNames } = await import("./rsvp-rules.ts");
+  assert.equal(ADMIN_ROLE_SEES_NAMES, true);
+  const card = { id: "0123456789abcdef01234567", room: "shop", host: "Dale", going: ["Ann"], wentBy: [] } as unknown as Parameters<typeof forViewer>[0];
+  const steward = { admin: true, name: "Josh", stewardRooms: ["shop"] };
+  const host = { admin: true, name: "Josh", hosts: [card.id] };
+  const alone = { admin: true, name: "Josh" };
+  assert.equal(takesRoll(forViewer(card, steward)), true);
+  assert.equal(takesRoll(forViewer(card, host)), true);
+  assert.equal(takesRoll(forViewer(card, alone)), false);
+  assert.deepEqual(forViewer(card, alone).going, []);
+  await withAdminRoleSeesNames(false, () => {
+    for (const viewer of [steward, host, alone]) assert.equal(takesRoll(forViewer(card, viewer)), false);
+  });
 });

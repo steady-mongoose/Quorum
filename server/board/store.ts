@@ -1,3 +1,4 @@
+import { ADMIN_NO_NAMES, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { randomUUID } from "node:crypto";
 import { autoCloseReports } from "./report-close.ts";
 import { setImmediate } from "node:timers";
@@ -1115,6 +1116,11 @@ export async function createPost(
   }
   if (type === "hosted" && input.body.happened === false && (came.length > 0 || cameIds.length > 0 || named)) {
     return fail(400, DID_NOT_NAMES);
+  }
+  // An admin never names who came, even on their own gathering's write-up
+  // while ADMIN_ROLE_SEES_NAMES is false. A write-up with no names is fine.
+  if (type === "hosted" && !roleCounts(actor.admin) && (came.length > 0 || cameIds.length > 0 || named)) {
+    return fail(403, ADMIN_NO_NAMES);
   }
   const tradeId = field(input.body, "tradeId").trim();
   const campaignId = field(input.body, "campaignId").trim().slice(0, 80);

@@ -157,7 +157,7 @@ test("RSVPs are filtered on the server in SQL by role, and forViewer stays as a 
   assert.match(server, /\[input\.gatheringIds, roleCounts\(input\.admin\), input\.userId/);
   assert.doesNotMatch(server, /if \(reader\.admin\) return rows;/);
   assert.match(server, /seesPeople\(reader, gate\.gathering\) \? \{ people: withHandles\(rows, reader\) \} : \{\}/);
-  assert.match(server, /if \(!marksCame\(reader, gate\.gathering\)\) \{\s*return json\(403, \{ error: MARK_REFUSED \}\);/);
+  assert.match(server, /if \(!marksCame\(reader, gate\.gathering\)\) \{\s*return json\(403, \{ error: !roleCounts\(reader\.admin\) \? ADMIN_NO_NAMES : MARK_REFUSED \}\);/);
   assert.doesNotMatch(server, /gate\.actor\.admin\) \{\s*return json\(403/);
   const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(store, /await syncRsvps\(/);
