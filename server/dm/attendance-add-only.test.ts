@@ -32,13 +32,19 @@ async function hosted(db: Db, room: string, hostId: string, came: string[], card
   await rememberNamedAccounts(db, postId);
 }
 
-async function rows(db: Db, userId: string): Promise<{ meeting_id: string; recorded_at: string }[]> {
+async function rows(
+  db: Db,
+  userId: string,
+): Promise<{ meeting_id: string; recorded_at: string }[]> {
   return (
     await db.query<{ meeting_id: string; recorded_at: Date | string }>(
       `select meeting_id, recorded_at from dm_attendance where user_id = $1 order by meeting_id`,
       [userId],
     )
-  ).map((row) => ({ meeting_id: row.meeting_id, recorded_at: new Date(row.recorded_at).toISOString() }));
+  ).map((row) => ({
+    meeting_id: row.meeting_id,
+    recorded_at: new Date(row.recorded_at).toISOString(),
+  }));
 }
 
 async function setup() {
@@ -59,7 +65,10 @@ test("an empty list changes nothing", async () => {
   try {
     assert.equal((await recordAttendance(db, guest, now, ["s-one", "s-two"])).ok, true);
     const before = await rows(db, guest);
-    assert.deepEqual(before.map((row) => row.meeting_id), ["s-one", "s-two"]);
+    assert.deepEqual(
+      before.map((row) => row.meeting_id),
+      ["s-one", "s-two"],
+    );
     assert.deepEqual(await recordAttendance(db, guest, new Date(now.getTime() + 60_000), []), {
       ok: true,
       value: null,
@@ -79,7 +88,10 @@ test("a smaller list keeps the earlier rows and adds the new one", async () => {
   try {
     assert.equal((await recordAttendance(db, guest, now, ["s-one", "s-two"])).ok, true);
     const first = await rows(db, guest);
-    assert.equal((await recordAttendance(db, guest, new Date(now.getTime() + 60_000), ["s-two"])).ok, true);
+    assert.equal(
+      (await recordAttendance(db, guest, new Date(now.getTime() + 60_000), ["s-two"])).ok,
+      true,
+    );
     assert.deepEqual(await rows(db, guest), first);
     assert.equal((await recordAttendance(db, guest, now, ["s-three"])).ok, true);
     assert.deepEqual(
@@ -97,7 +109,9 @@ test("duplicates in one list or across calls make one row, and the first time st
     assert.equal((await recordAttendance(db, guest, now, ["s-one", "s-one", " s-one "])).ok, true);
     const later = new Date(now.getTime() + 3_600_000);
     assert.equal((await recordAttendance(db, guest, later, ["s-one"])).ok, true);
-    assert.deepEqual(await rows(db, guest), [{ meeting_id: "s-one", recorded_at: now.toISOString() }]);
+    assert.deepEqual(await rows(db, guest), [
+      { meeting_id: "s-one", recorded_at: now.toISOString() },
+    ]);
   } finally {
     await close();
   }
@@ -109,13 +123,19 @@ test("the gates still refuse: a card you were not named on, and a room whose aud
     assert.equal((await recordAttendance(db, guest, now, ["s-one"])).ok, true);
     // Not named on that write-up: accepted, but nothing is stored for it.
     assert.equal((await recordAttendance(db, guest, now, ["s-not-guest", "s-made-up"])).ok, true);
-    assert.deepEqual((await rows(db, guest)).map((row) => row.meeting_id), ["s-one"]);
+    assert.deepEqual(
+      (await rows(db, guest)).map((row) => row.meeting_id),
+      ["s-one"],
+    );
     // The co-op becomes men-only and Guest has stated no gender: the room's
     // audience rule refuses the whole request and nothing changes.
     await db.query(`update room set audience = 'men' where id = 'coop'`);
     const refused = await recordAttendance(db, guest, now, ["s-two", "s-three"]);
     assert.equal(refused.ok, false);
-    assert.deepEqual((await rows(db, guest)).map((row) => row.meeting_id), ["s-one"]);
+    assert.deepEqual(
+      (await rows(db, guest)).map((row) => row.meeting_id),
+      ["s-one"],
+    );
   } finally {
     await close();
   }
@@ -154,7 +174,11 @@ test("the route keeps its response shape", async () => {
       const response = await handler(
         new Request("http://127.0.0.1:8787/api/dm/attendance", {
           method: "POST",
-          headers: { origin: "http://localhost:8080", "x-user-id": guest, "content-type": "application/json" },
+          headers: {
+            origin: "http://localhost:8080",
+            "x-user-id": guest,
+            "content-type": "application/json",
+          },
           body: JSON.stringify({ cardIds }),
         }),
       );
@@ -162,7 +186,38 @@ test("the route keeps its response shape", async () => {
     };
     assert.deepEqual(await post(["s-one"]), { status: 200, body: { ok: true } });
     assert.deepEqual(await post([]), { status: 200, body: { ok: true } });
-    assert.deepEqual((await rows(db, guest)).map((row) => row.meeting_id), ["s-one"]);
+    assert.deepEqual(
+      (await rows(db, guest)).map((row) => row.meeting_id),
+      ["s-one"],
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a meeting older than the 12-month retention window cannot be confirmed, or re-sent after the purge", async () => {
+  const { db, close, guest } = await setup();
+  try {
+    // s-one's write-up is dated 13 months back; s-two was filed (no date) 13 months back.
+    await db.query(`update board_post set on_date = '2025-09-29' where card_id = 's-one'`);
+    await db.query(
+      `update board_post set on_date = '', created_at = '2025-09-29T12:00:00Z' where card_id = 's-two'`,
+    );
+    assert.deepEqual(await recordAttendance(db, guest, now, ["s-one", "s-two", "s-three"]), {
+      ok: true,
+      value: null,
+    });
+    assert.deepEqual(
+      (await rows(db, guest)).map((row) => row.meeting_id),
+      ["s-three"],
+    );
+    // Just inside the window still counts.
+    await db.query(`update board_post set on_date = '2025-10-30' where card_id = 's-one'`);
+    assert.equal((await recordAttendance(db, guest, now, ["s-one"])).ok, true);
+    assert.deepEqual(
+      (await rows(db, guest)).map((row) => row.meeting_id),
+      ["s-one", "s-three"],
+    );
   } finally {
     await close();
   }
