@@ -13,7 +13,7 @@ export function AppErrorComponent({ error }: ErrorComponentProps) {
   return (
     <main
       className={
-        "flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center " +
+        "flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center " +
         "bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50"
       }
     >

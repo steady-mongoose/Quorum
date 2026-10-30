@@ -152,7 +152,9 @@ test("browse, the week, and room create follow the category layout", () => {
   const backgrounds = source("../../../public/backgrounds.css");
   const app = source("../../components/board/app.tsx");
   const card = browse.slice(browse.indexOf("function RoomCard"));
-  assert.match(browse, /sticky top-32/);
+  // The phone chip row sticks at the measured header height (.room-chips in fluid.css), not a fixed 8rem.
+  assert.match(browse, /room-chips sticky z-10/);
+  assert.doesNotMatch(browse, /sticky top-32/);
   assert.match(browse, /w-\[14rem\]/);
   assert.match(browse, /room-grid/);
   assert.match(browse, /Your rooms/);
