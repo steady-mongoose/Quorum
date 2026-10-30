@@ -619,16 +619,17 @@ async function meetingStandings(
   const ids = [...new Set(userIds.filter(Boolean))];
   const rooms = [...new Set(roomIds.filter(Boolean))];
   const standing = new Set<string>();
-  // No room is not a shortcut: metPeople asks with no rooms when there was no
-  // meeting, and runs the same lookups as a gated refusal (QA F1 S4 on #134).
+  // No room is not a shortcut: sharesMeeting asks with no rooms when there was
+  // no meeting, and runs the same lookups as a gated refusal (QA F1 S4 on #134).
   if (ids.length === 0) return standing;
 
   const actors = await actorRoles(db, ids);
   const ready = await listingColumnsReady(db);
-  const listings = await db.query<{ id: string; name: string; status?: string }>(
+  // One read for the room's name, status and audience.
+  const listings = await db.query<{ id: string; name: string; status?: string; audience: string }>(
     ready
-      ? `select id, name, status from room where id = any ($1::text[])`
-      : `select id, name from room where id = any ($1::text[])`,
+      ? `select id, name, status, audience from room where id = any ($1::text[])`
+      : `select id, name, audience from room where id = any ($1::text[])`,
     [rooms],
   );
   const listed = new Map(
@@ -657,12 +658,8 @@ async function meetingStandings(
     if (open) barred.add(standingKey(row.user_id, row.room_id));
   }
 
-  const audiences = await db.query<{ id: string; audience: string }>(
-    `select id, audience from room where id = any ($1::text[])`,
-    [rooms],
-  );
   const audienceOf = new Map(
-    audiences.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
+    listings.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
   );
   const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
   // Read whatever the audiences are, so an audience room is not told apart by timing.
@@ -717,6 +714,7 @@ async function metPeople(
   callerId: string,
   now: Date,
   others: string[] | null = null,
+  sameSteps = false,
 ): Promise<Set<string>> {
   const met = new Set<string>();
   if (!callerId || (others !== null && others.length === 0)) return met;
@@ -730,9 +728,10 @@ async function metPeople(
     [callerId, others],
   );
   if (rows.length === 0) {
-    // Never met: the same standing lookups as a met pair that a gate refuses,
-    // so a refusal's timing does not say which it was.
-    await meetingStandings(db, [callerId, ...(others ?? [])], [], now);
+    // One pair's answer (sharesMeeting, behind every refusal): never met runs
+    // the same standing lookups as a met pair that a gate refuses, so the
+    // refusal's timing does not say which it was. Lists skip this fixed cost.
+    if (sameSteps) await meetingStandings(db, [callerId, ...(others ?? [])], [], now);
     return met;
   }
   const standing = await meetingStandings(
@@ -783,7 +782,7 @@ export async function sharesMeeting(
 ): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
-  return (await metPeople(db, callerId, now, [otherUserId])).has(otherUserId);
+  return (await metPeople(db, callerId, now, [otherUserId], true)).has(otherUserId);
 }
 
 /** A member who joined a room this recently cannot start a conversation through it. */

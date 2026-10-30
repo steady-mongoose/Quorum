@@ -53,6 +53,19 @@ async function setup() {
   const host = await member(db, "Host");
   const guest = await member(db, "Guest");
   const other = await member(db, "Other");
+  // Board members, so the meeting gates let a met pair message.
+  for (const [id, name] of [
+    [host, "Host"],
+    [guest, "Guest"],
+    [other, "Other"],
+  ]) {
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'For the test.', $4)`,
+      [randomUUID(), id, name, new Date("2026-09-01T00:00:00Z")],
+    );
+  }
   await hosted(db, "shop", host, ["Host", "Guest"], "s-one");
   await hosted(db, "shop", host, ["Host", "Guest"], "s-two");
   await hosted(db, "coop", host, ["Host", "Guest"], "s-three");
