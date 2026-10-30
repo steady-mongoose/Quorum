@@ -67,7 +67,6 @@ import {
   type Section,
   type SharedMedia,
 } from "./model.ts";
-import { SEED_CARDS } from "./seed-cards.ts";
 import { SENTENCE_ERROR, oneSentence } from "./text.ts";
 
 type BoardState = {
@@ -393,7 +392,7 @@ function addName(list: string[], name: string): string[] {
 function emptyLocalBoard(remote: boolean, rooms: Room[]) {
   return {
     posts: [] as Post[],
-    cards: SEED_CARDS,
+    cards: [] as MeetingCard[],
     invites: [] as Invite[],
     markLog: [] as MarkRow[],
     bans: [] as BanRow[],
@@ -721,7 +720,7 @@ export const useBoard = create<BoardState>()(
         scrollCardId: null,
         rooms: ROOMS,
         posts: [],
-        cards: SEED_CARDS,
+        cards: [],
         invites: [],
         removals: [],
         bans: [],

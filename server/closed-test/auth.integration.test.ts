@@ -71,7 +71,7 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
       new Request(`${baseURL}/api/invites`, {
         method: "POST",
         headers: { origin, cookie: joshCookie, "content-type": "application/json" },
-        body: JSON.stringify({ maxUses: 1 }),
+        body: JSON.stringify({ maxUses: 1, attestAdult: true }),
       }),
     );
     assert.equal(minted.status, 201, await minted.clone().text());
@@ -85,6 +85,7 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
           email: "maria@example.com",
           password: "correct-horse",
           inviteCode: mintedBody.code,
+          adult: true,
         }),
       }),
     );
@@ -104,6 +105,7 @@ test("Better Auth refuses open signup, seats Josh once, and redeems one invite",
           email: "luis@example.com",
           password: "correct-horse",
           inviteCode: mintedBody.code,
+          adult: true,
         }),
       }),
     );

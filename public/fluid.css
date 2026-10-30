@@ -195,6 +195,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 /* Phone: five slots in one row. The rest sit in the More sheet. */
 .tabbar{display:none}
 @media (max-width:767px){
+  /* The tab bar: a 56px row plus its 1px top line. Things that must clear it read this. */
+  :root{--tabbar-h:57px}
   .topnav{display:none}
   .tabbar{
     display:flex;
