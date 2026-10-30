@@ -57,3 +57,9 @@
   [data-section="about"] .outer-art{background-image:var(--art-about-side);--focal:50% 55%}
   [data-section="civic"] .outer-art{background-image:var(--art-civic-side);--focal:50% 40%}
 }
+
+/* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
+   navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because the per-section
+   band and margin rules above (0,2,0 and up) outrank the plain reduced-data rule in fluid.css. */
+[data-save-data] .shell .hero-band,[data-save-data] .shell .outer-art,[data-save-data] .shell .side-art{background-image:none!important}
+@media (prefers-reduced-data:reduce){.shell .hero-band,.shell .outer-art,.shell .side-art{background-image:none!important}}

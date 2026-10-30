@@ -77,7 +77,7 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
           dismiss(ring.id);
         }
       }}
-      className="fixed inset-x-4 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg md:bottom-6"
+      className="call-rings fixed inset-x-4 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg md:bottom-6"
     >
       <p className="flex items-center gap-2 font-semibold text-fg">
         <PhoneCall className="size-4" aria-hidden="true" />

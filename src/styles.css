@@ -155,6 +155,23 @@ input[type="range"]::-moz-range-thumb {
   color: var(--color-muted);
 }
 
+/*
+ * A heading that script moves focus to (tabIndex -1), such as #authenticator after
+ * "Turn it on under You" or "Set it up", or a section heading after Try again; and any
+ * element focused with focusWithRing(), which marks it [data-focus-ring] until blur
+ * (the Decide summary, say, so a plain mouse click on Decide still draws no ring).
+ * Programmatic focus does not always match :focus-visible, so the ring is on :focus.
+ * The ring is the element's own text colour (text-fg), so it reads on whatever ground
+ * the element sits on, dark plate, parchment or a dark card on parchment. 2px offset.
+ * Unlayered so it outranks the plate's own :focus-visible rule in backgrounds.css.
+ */
+.focus-target:focus,
+[data-focus-ring]:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* The 18+ checkboxes (door and invite). Ink & Bone gilt, not the browser default.
  * Border 3.9:1, gilt fill 7.0:1, and ink check on gilt 7.4:1 against the card. No transition.
  * Ring: #f0e7d3 with a 2px offset (#114's currentColor ring is not on the-board yet). */

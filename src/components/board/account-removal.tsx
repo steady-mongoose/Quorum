@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { btnGhost, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import {
@@ -9,6 +9,8 @@ import {
   requestAccountDeletion,
   type DeletionRequest,
 } from "@/lib/board/account-api";
+import { DELETION_REQUESTS_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 export function AccountRemovalPanel({
   deactivated,
@@ -142,36 +144,44 @@ export function AccountRemoval({ live }: { live: boolean }) {
   );
 }
 
-export function DeletionRequestQueue() {
+export function DeletionRequestQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [requests, setRequests] = useState<DeletionRequest[] | null>(null);
-  const [error, setError] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
 
   useEffect(() => {
     let cancel = false;
     void loadDeletionRequests().then((result) => {
       if (cancel) return;
+      // A failed load is said inside this panel, never as a page alert.
       if (!result.ok) {
-        setError(result.error);
+        failed(result);
         return;
       }
       setRequests(result.requests);
+      loaded();
     });
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [tick]);
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Account deletion requests</h2>
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
+        Account deletion requests
+      </h2>
       <p className="max-w-prose text-sm text-muted">
         A member asked for the account to be deleted. This list does not delete it.
       </p>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
+      <PanelNote
+        failure={failure}
+        gateText={DELETION_REQUESTS_WAIT}
+        onRetry={retry}
+        onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
+      />
       {requests && requests.length === 0 ? (
         <p className="text-sm text-muted">No open deletion requests.</p>
       ) : null}

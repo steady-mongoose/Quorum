@@ -72,7 +72,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 }
 [data-palette="parchment"] [data-section="landing"] .scrim,[data-palette="parchment"] [data-section="signin"] .scrim{background:var(--scrim)}
 @media (max-width:640px){
-  [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34vh,var(--bg) 66vh)}
+  [data-section="landing"] .scrim,[data-section="signin"] .scrim{background:linear-gradient(180deg,transparent 34lvh,var(--bg) 66lvh)}
 }
 
 /* 4. The door settles in. The hero (its h1 is the LCP) and the sign-in form are never animated or hidden;
