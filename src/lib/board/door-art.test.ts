@@ -325,21 +325,28 @@ test("QA #130: at 320 the edge tabs keep their whole focus ring", () => {
   assert.ok(fluid.includes(".tabbar button:focus-visible{outline-offset:-3px}"));
 });
 
-test("at 640px and up the engravings sit in a strip beside the words, not under them", () => {
-  const strip =
-    '@media (min-width:640px){\n  .door-week,.door-rooms{padding-inline-end:calc(clamp(6.5rem,24%,10rem) + 1.5rem)}\n  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:clamp(6.5rem,24%,10rem);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}\n}';
-  const at = door.indexOf(strip);
-  assert.ok(at >= 0, "strip block");
-  // It follows the 640px art block, so its inset and mask win over the full-card ones.
-  assert.ok(at > door.indexOf("mask-image:linear-gradient(90deg,transparent 18%,#000 62%)"));
-  // Text padding reserves the strip's width plus a gutter, so no text runs over the art.
-  const pad = strip.match(/padding-inline-end:calc\((clamp\([^)]*\)) \+ 1\.5rem\)/);
-  const width = strip.match(/width:(clamp\([^)]*\))/);
-  assert.ok(pad && width && pad[1] === width[1], "padding reserves the strip width");
-  // Nothing later re-widens the art or puts its mask back under the text.
-  const after = door.slice(at + strip.length);
-  assert.doesNotMatch(after, /\.door-(week|rooms)::after\{[^}]*(inset:0[;}]|mask-image)/);
-  // Phones keep no ghosted art.
+test("at 640px and up the engravings sit in a strip beside the words, sized by the card's own ems", () => {
+  const strip = "clamp(6.5rem,calc(24cqi + .72rem),10rem)";
+  assert.match(door, /\n\.door-week,\.door-rooms\{container-type:inline-size\}\n/);
+  const at = door.indexOf(
+    `@media (min-width:640px){\n  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:${strip};-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}\n  @container (min-width:23.5em){.door-week>*,.door-rooms>*{padding-inline-end:${strip}}}\n}`,
+  );
+  assert.ok(at >= 0, "strip block: the words reserve exactly the strip's width");
+  assert.ok(at > door.indexOf("mask-image:linear-gradient(90deg,transparent 18%,#000 62%)"), "after the old 640px block");
+  // Narrow cards (or large text, from either the browser default or a root font-size) drop the strip.
+  const off = door.indexOf("@container (max-width:23.49em){.door-week::after,.door-rooms::after{display:none}}");
+  assert.ok(off > at, "no strip on narrow cards");
+  // Rows stack on both cards unless the card has 34em.
+  assert.ok(
+    door.indexOf(
+      "@container (max-width:33.99em){.door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}}",
+    ) > at,
+    "stacked rows",
+  );
+  // Container queries use ems, never px, so text size moves the breakpoints.
+  for (const q of door.matchAll(/@container \(([^)]*)\)/g)) assert.match(q[1], /^(min|max)-width:[\d.]+em$/);
+  // Nothing later re-widens the art or puts a mask back under the words.
+  assert.doesNotMatch(door.slice(off), /\.door-(week|rooms)::after\{[^}]*(inset:0[;}]|mask-image)/);
   assert.doesNotMatch(door, /@media \(max-width:6[34]\dpx\)\{[^@]*\.door-(week|rooms)::after\{[^}]*content/);
 });
 
