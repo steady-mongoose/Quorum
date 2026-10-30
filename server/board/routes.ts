@@ -514,7 +514,7 @@ export async function handleBoard(
         now,
       });
       if (!saved.ok) return json(saved.status, { error: saved.error });
-      return json(200, { gathering: saved.gathering });
+      return json(200, { gathering: saved.gathering, ...(saved.notice ? { notice: saved.notice } : {}) });
     }
 
     if (url.pathname === "/api/rooms") {

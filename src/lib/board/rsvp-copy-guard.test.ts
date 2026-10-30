@@ -65,13 +65,17 @@ test("no member-facing string says admins see the lists or record who came, or t
   assert.deepEqual(bad, []);
 });
 
-test("the copy says what Josh's 7:55 rule says", () => {
+test("the copy says what Josh's 7:55 rule says, for special events (Design 5716107154 M2)", () => {
   const door = readFileSync(join(root, "components/board/door.tsx"), "utf8");
-  assert.ok(door.includes("Say you're going to a gathering. You see only your own answer. The host and the room's stewards see who is going."));
-  assert.ok(door.includes("In a room that takes roll, the host or a steward records who came. Only they see the list. You see your own."));
+  assert.ok(door.includes("At a special event, say you're going. You see only your own answer. The host and the room's stewards see who is going."));
+  assert.ok(door.includes("At a special event in a room that takes roll, the host or a steward records who came. Only they see the list. You see your own."));
   const about = readFileSync(join(root, "components/board/about-view.tsx"), "utf8");
-  assert.ok(about.includes("The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room. An admin who isn\\'t the host or a steward sees only totals, with small counts hidden. Press \"I\\'ll be there\""));
+  assert.ok(about.includes("The host sees who is coming to their own gathering, and a room\\'s stewards see who is coming and who came in that room. An admin who isn\\'t the host or a steward sees only totals, with small counts hidden. Press \"I\\'ll be there\" on the special events you will attend."));
+  assert.ok(about.includes("At a special event in a room that takes roll, the host or a steward records who came, and the host can name one person"));
+  assert.ok(about.includes("lets you say you will be there for special events,"));
+  const find = readFileSync(join(root, "components/board/find-view.tsx"), "utf8");
+  assert.ok(find.includes("on a special event. The host"));
   assert.ok(about.includes("Who is going and who came stay with the host and the room's stewards."));
   const options = readFileSync(join(root, "lib/board/room-options.ts"), "utf8");
-  assert.ok(options.includes("After a gathering, the host or a steward records who came. Only they see it. You see your own."));
+  assert.ok(options.includes("After a special event, the host or a steward records who came. Only they see it. You see your own."));
 });

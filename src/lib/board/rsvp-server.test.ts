@@ -1282,3 +1282,105 @@ test("Josh 5 (app): a steward's new date is saved with the gathering", async () 
     useBoard.setState({ stewardRooms: [] });
   }
 });
+
+// ---- Design review 5716107154 (Oct 30): L3, L4, M1 in the store ----
+
+function saveAnswers(answer: (body: Record<string, unknown>) => Response) {
+  const saves: Record<string, unknown>[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === "/api/gatherings" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      saves.push(body);
+      return answer(body);
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  return { saves, restore: () => (globalThis.fetch = priorFetch) };
+}
+const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+
+test("Design L3: a refused tick (or untick) goes back to what it was and says why on the card, not in the banner", async () => {
+  const net = saveAnswers(() => json(403, { error: "Only the host can say whether this is a special event." }));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Dale", rsvpHosts: [G1], boardError: "", specialRefused: {}, cards: [card(G1, { special: false })] });
+    useBoard.getState().updateCard(G1, { special: true });
+    assert.equal(useBoard.getState().cards[0]?.special, true, "optimistic");
+    await settle();
+    assert.equal(useBoard.getState().cards[0]?.special, false, "reverted");
+    assert.equal(useBoard.getState().specialRefused[G1], "Only the host can say whether this is a special event.");
+    assert.equal(useBoard.getState().boardError, "");
+    // A later save that works clears the line.
+    net.restore();
+    const ok = saveAnswers(() => json(200, { gathering: { special: true } }));
+    try {
+      useBoard.getState().updateCard(G1, { special: true });
+      await settle();
+      assert.equal(useBoard.getState().cards[0]?.special, true);
+      assert.equal(useBoard.getState().specialRefused[G1], undefined);
+    } finally {
+      ok.restore();
+    }
+    // Untick refused: back to ticked.
+    const no = saveAnswers(() => json(503, { error: "api-unavailable" }));
+    try {
+      useBoard.getState().updateCard(G1, { special: false });
+      await settle();
+      assert.equal(useBoard.getState().cards[0]?.special, true);
+      assert.ok(useBoard.getState().specialRefused[G1]);
+    } finally {
+      no.restore();
+    }
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ specialRefused: {} });
+  }
+});
+
+test("Design L4: before 0050 a gathering added with the box ticked is kept, shown as not special, with the not-ready line", async () => {
+  const net = saveAnswers((body) =>
+    json(200, { gathering: { id: body.id, special: false }, notice: "Special events are not ready yet. Try again later." }),
+  );
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Dale", rsvpHosts: [], boardError: "", specialRefused: {}, cards: [] });
+    useBoard.getState().addCard({ room: "shop", kind: "meeting", name: "Lifts", place: "Garage", time: "7", host: "Dale", next: "2026-11-07", special: true });
+    await settle();
+    const added = useBoard.getState().cards[0]!;
+    assert.equal(net.saves.length, 1);
+    assert.equal(net.saves[0]?.special, true);
+    assert.equal(added.name, "Lifts", "the gathering is kept");
+    assert.equal(added.special, false);
+    assert.equal(useBoard.getState().specialRefused[added.id], "Special events are not ready yet. Try again later.");
+    assert.equal(useBoard.getState().boardError, "");
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ specialRefused: {} });
+  }
+});
+
+test("Design M1: changeDate waits for the server; a refusal puts the old date back and returns the error, no banner", async () => {
+  let refuse = false;
+  const net = saveAnswers(() => (refuse ? json(403, { error: "You can't change this gathering." }) : json(200, { gathering: {} })));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Sam", stewardRooms: ["shop"], rsvpHosts: [], boardError: "", cards: [card(G1, { next: "2026-10-31" })] });
+    assert.deepEqual(await useBoard.getState().changeDate(G1, "2026-11-07"), { ok: true });
+    assert.equal(net.saves.at(-1)?.date, "2026-11-07");
+    assert.equal(useBoard.getState().cards[0]?.next, "2026-11-07");
+    refuse = true;
+    const result = await useBoard.getState().changeDate(G1, "2026-11-14");
+    assert.equal(result.ok, false);
+    assert.equal(result.ok ? "" : result.error, "You can't change this gathering.");
+    assert.equal(useBoard.getState().cards[0]?.next, "2026-11-07", "the old date is back");
+    assert.equal(useBoard.getState().boardError, "");
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ stewardRooms: [] });
+  }
+});

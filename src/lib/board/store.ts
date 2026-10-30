@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { readDemoFlag } from "../api-mode.ts";
-import { MARK_TOO_EARLY, isSpecial, markOpen, roleCounts } from "./rsvp-rules.ts";
+import { DATE_NOT_SAVED, MARK_TOO_EARLY, SPECIAL_NOT_READY_LINE, isSpecial, markOpen, roleCounts } from "./rsvp-rules.ts";
 import {
   getBoardClient,
   type AccessInput,
@@ -225,6 +225,12 @@ type BoardState = {
   rsvpPending: string[];
   /** Cards whose last RSVP save failed. A "Not saved" line shows under the button. */
   rsvpFailed: string[];
+  /**
+   * Why a card's "This is a special event" tick did not hold, by card id: the
+   * server refused it, or 0050 is not applied yet (Design 5716107154 L3, L4).
+   * Shown on the card as role=alert; the box is reverted.
+   */
+  specialRefused: Record<string, string>;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
@@ -292,6 +298,12 @@ type BoardState = {
   disconnectRemote: () => void;
   addCard: (card: Parameters<typeof newCard>[0]) => void;
   updateCard: (id: string, patch: Partial<MeetingCard>) => void;
+  /**
+   * A steward (or the host) changes the date and waits for the server: on a
+   * refusal the card keeps its old date and the error comes back for an
+   * inline alert (Design 5716107154 M1).
+   */
+  changeDate: (id: string, next: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** The host closes a date without the composer. Runs the same check. "It did not happen" is a Hosted that says so. */
   closeCard: (
     id: string,
@@ -682,22 +694,47 @@ export const useBoard = create<BoardState>()(
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
-      const rememberGathering = (card: MeetingCard) => {
+      /** The card's "special" as it was before an optimistic tick, to revert to (L3). */
+      const setSpecialRefused = (id: string, error: string) => {
+        const next = { ...get().specialRefused };
+        if (error) next[id] = error;
+        else delete next[id];
+        set({ specialRefused: next });
+      };
+      const rememberGathering = (
+        card: MeetingCard,
+        options: { specialBefore?: boolean; quiet?: boolean } = {},
+      ) => {
         // Only the host says whether it is a special event; a steward's edit
         // leaves it as the server has it (Josh via CoS, Oct 30 12:47 PM ET).
         const hosting = card.host === me() || get().rsvpHosts.includes(card.id.toLowerCase());
-        void saveGathering({
+        const sentSpecial = hosting ? card.special === true : undefined;
+        if (sentSpecial !== undefined) setSpecialRefused(card.id, "");
+        return saveGathering({
           id: card.id,
           roomId: card.room,
           title: card.name,
           date: card.next,
           time: card.time,
           place: card.place,
-          ...(hosting ? { special: card.special === true } : {}),
+          ...(sentSpecial === undefined ? {} : { special: sentSpecial }),
         }).then((result) => {
           if (!result.ok) {
-            set({ boardError: result.error });
-            return;
+            // A refused tick or untick goes back to what it was, and says why
+            // on the card (Design 5716107154 L3).
+            if (options.specialBefore !== undefined && options.specialBefore !== sentSpecial) {
+              patchCard(card.id, (item) => ({ ...item, special: options.specialBefore }));
+              setSpecialRefused(card.id, result.error);
+            } else if (!options.quiet) {
+              set({ boardError: result.error });
+            }
+            return result;
+          }
+          // Saved, but the tick was not (0050 not applied yet): the card shows
+          // what the server has, and says why (Design 5716107154 L4).
+          if (sentSpecial === true && result.special === false) {
+            patchCard(card.id, (item) => ({ ...item, special: false }));
+            setSpecialRefused(card.id, result.notice || SPECIAL_NOT_READY_LINE);
           }
           // The server now knows me as this gathering's host, by id.
           const gid = card.id.toLowerCase();
@@ -705,11 +742,12 @@ export const useBoard = create<BoardState>()(
             set({ rsvpHosts: [...get().rsvpHosts, gid] });
           }
           // The lister (the host) has been, as on the device. Only my own name is sent.
-          if (card.wentBy.includes(me()) && marksCame(card)) {
+          if (card.wentBy.includes(me()) && marksCame(get().cards.find((item) => item.id === card.id) ?? card)) {
             void saveMyRsvp(card.id, { attended: true }).then((saved) =>
               savedOrLocal(saved, RSVP_NOT_SAVED),
             );
           }
+          return result;
         });
       };
       const mergeGatherings = (rows: StoredGathering[]) => {
@@ -993,6 +1031,7 @@ export const useBoard = create<BoardState>()(
         rollCall: {},
         rsvpPending: [],
         rsvpFailed: [],
+        specialRefused: {},
         undoClear: null,
         localEntry: false,
         setSection: (section) => {
@@ -1445,9 +1484,27 @@ export const useBoard = create<BoardState>()(
             wentBy: fields.kind === "meeting" || fields.kind === "candidate" ? [me()] : [],
           });
           set({ cards: [card, ...get().cards] });
-          if (get().remote) rememberGathering(card);
+          if (get().remote) void rememberGathering(card);
+        },
+        changeDate: async (id, next) => {
+          const before = get().cards.find((item) => item.id === id);
+          if (!before) return { ok: false, error: "That card is gone." };
+          patchCard(id, (card) => ({ ...card, next }));
+          if (!get().remote) return { ok: true };
+          const card = get().cards.find((item) => item.id === id);
+          if (!card) return { ok: false, error: "That card is gone." };
+          try {
+            const result = await rememberGathering(card, { quiet: true });
+            if (result.ok) return { ok: true };
+            patchCard(id, (item) => ({ ...item, next: before.next }));
+            return { ok: false, error: result.error };
+          } catch {
+            patchCard(id, (item) => ({ ...item, next: before.next }));
+            return { ok: false, error: DATE_NOT_SAVED };
+          }
         },
         updateCard: (id, patch) => {
+          const specialBefore = get().cards.find((item) => item.id === id)?.special === true;
           patchCard(id, (card) => ({ ...card, ...patch, id }));
           if (!get().remote) return;
           if (!(
@@ -1461,7 +1518,7 @@ export const useBoard = create<BoardState>()(
             return;
           }
           const card = get().cards.find((item) => item.id === id);
-          if (card) rememberGathering(card);
+          if (card) void rememberGathering(card, "special" in patch ? { specialBefore } : {});
         },
         closeCard: async (id, happened, next, line, came, pages = "", cameIds) => {
           const { cards } = get();
@@ -2049,6 +2106,7 @@ export const useBoard = create<BoardState>()(
             rollCall: {},
             rsvpPending: [],
             rsvpFailed: [],
+            specialRefused: {},
             undoClear: null,
             localEntry: false,
           });

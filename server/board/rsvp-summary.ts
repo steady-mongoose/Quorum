@@ -1,4 +1,5 @@
 import type { Db } from "../db.ts";
+import { GATHERING_IS_SPECIAL } from "./gathering-record.ts";
 
 /**
  * Admin RSVP metrics (Josh via CoS, Oct 30, 7:01–7:04 AM ET): counts only,
@@ -210,6 +211,8 @@ export function suppressSummary(
 
 export async function rsvpSummary(db: Db, now: Date, n: number = RSVP_SUMMARY_MIN_COUNT): Promise<RsvpSummary> {
   // Barred members are counted: no hideBanned here (Josh, Oct 30).
+  // Only special events take RSVPs, so only they are counted (QA S3 at 85f06d1);
+  // existing gatherings stay not special after 0050 (no backfill).
   const gatherings = await db.query<{ id: string; room_id: string; gather_on: string; going: unknown; came: unknown; write_ups: unknown }>(
     `select g.id, g.room_id, g.gather_on,
             (select count(*) from gathering_rsvp r where r.gathering_id = g.id and r.going)::int as going,
@@ -218,6 +221,7 @@ export async function rsvpSummary(db: Db, now: Date, n: number = RSVP_SUMMARY_MI
               where p.type = 'hosted' and p.removed = false and p.card_id = g.id)::int as write_ups
      from public_gathering g
      where g.removed = false
+       and ${GATHERING_IS_SPECIAL}
      order by g.room_id, g.gather_on, g.id`,
   );
   // Membership is the distinct people across room_join and room_member, the

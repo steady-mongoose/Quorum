@@ -18,6 +18,8 @@ import {
   rsvpCutoff,
   OLD_WRITE_UPS_DROP_DM_LINKS,
 } from "./rsvp.ts";
+import { untickWhoCame } from "./gathering-record.ts";
+import { UNTICK_SPECIAL } from "../../src/lib/board/rsvp-rules.ts";
 import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, remainderGivesAway, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
 import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, startMinutes, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
@@ -2337,14 +2339,29 @@ test("Josh 1: 'This is a special event' is the host's checkbox, stored by 0050 (
   }
 });
 
-test("Josh 1: before 0050 is applied the API still reads, nothing is special, and ticking it says not ready", async () => {
+test("Josh 1 / Design L4: before 0050 a ticked gathering is still saved, as not special, and the answer says not ready", async () => {
   const t = await setup();
   try {
     await t.db.query(`alter table public_gathering drop column special, drop column moved_from`);
     assert.equal((await call(t.handler, t.dale, "GET", "/api/rsvps")).status, 200);
+    // A new gathering added with the box ticked: saved, not lost (L4).
+    const NEW = "4b9d0a1b-2c3d-4e4f-9a5b-6c7d8e9f0a1b";
+    const added = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(NEW, "shop", { special: true, title: "New lifts" }));
+    assert.equal(added.status, 200);
+    const addedBody = (await added.json()) as { gathering: { id: string; special: boolean; title: string }; notice?: string };
+    assert.equal(addedBody.gathering.special, false);
+    assert.equal(addedBody.gathering.title, "New lifts");
+    assert.equal(addedBody.notice, "Special events are not ready yet. Try again later.");
+    assert.equal((await t.db.query(`select 1 from public_gathering where id = $1`, [NEW])).length, 1);
+    // An edit that ticks it: the rest of the edit is saved, the tick is not.
     assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: undefined }))).status, 200);
-    const tick = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: true }));
-    assert.equal(tick.status, 503);
+    const tick = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: true, title: "Renamed" }));
+    assert.equal(tick.status, 200);
+    const tickBody = (await tick.json()) as { gathering: { special: boolean; title: string }; notice?: string };
+    assert.deepEqual([tickBody.gathering.special, tickBody.gathering.title, tickBody.notice], [false, "Renamed", "Special events are not ready yet. Try again later."]);
+    // A plain save carries no notice.
+    const plainSave = (await (await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(PLAIN, "shop", { special: undefined }))).json()) as { notice?: string };
+    assert.equal(plainSave.notice, undefined);
     const rsvp = await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     assert.equal(rsvp.status, 409);
   } finally {
@@ -2463,4 +2480,145 @@ test("Josh 6: the purge deletes write-up DM links older than 12 months (decided,
   assert.equal(OLD_WRITE_UPS_DROP_DM_LINKS, true);
   const code = readFileSync(new URL("./rsvp.ts", import.meta.url), "utf8");
   assert.match(code, /QA N3, decided: "the purge also deletes write-up DM links older than 12\s*\n\s*\* months" \(Josh via CoS, Oct 30 12:47 PM ET\)/);
+});
+
+// ---- QA early findings at 85f06d1 (Oct 30) ----
+
+test("QA S3 summary: admin totals count only special events; barred members still counted, never named; no backfill", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    // Tom is barred from the shop room: his RSVPs still count (Josh's rule), with no name.
+    await t.db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
+      [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
+    );
+    const before = await rsvpSummary(t.db, new Date(), 1);
+    assert.deepEqual([before.totals.going, before.totals.came], [4, 1]);
+    // M stops being special by hand (its rows stay): it drops out of the totals.
+    await t.db.query(`update public_gathering set special = false where id = $1`, [MARIAS]);
+    const after = await rsvpSummary(t.db, new Date(), 1);
+    assert.deepEqual([after.totals.going, after.totals.came], [2, 1], "G only: Tom (barred) and Maria going, Tom came");
+    const ids = after.rooms.flatMap((room) => room.gatherings.map((g) => g.gatheringId));
+    assert.equal(ids.includes(MARIAS), false);
+    assert.equal(ids.includes(GATHERING), true);
+    const text = JSON.stringify(after);
+    assert.equal(text.includes(t.tom.id), false);
+    assert.equal(text.includes('"Tom"'), false);
+    // Existing gatherings stay not special after 0050: no backfill, no auto-marking.
+    const sql = readFileSync(new URL("../../migrations/0050_gathering_special.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(sql, /\bupdate\b|\binsert\b/i);
+    assert.match(sql, /special boolean not null default false/);
+    const src = readFileSync(new URL("./rsvp-summary.ts", import.meta.url), "utf8");
+    assert.match(src, /and \$\{GATHERING_IS_SPECIAL\}/);
+  } finally {
+    await t.close();
+  }
+});
+
+/** Dale's write-up of G naming Tom (came list + id link), and a hand-made one on OTHER that must survive. */
+async function writeUps(t: Awaited<ReturnType<typeof setup>>) {
+  await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+  await scene(t);
+  const posted = await createPost(t.db, {
+    userId: t.dale.id,
+    name: "Dale",
+    roomId: "shop",
+    body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id)] },
+    now: new Date("2026-11-01T12:00:00Z"),
+  });
+  assert.equal(posted.ok, true, JSON.stringify(posted));
+  const postId = posted.ok ? posted.value.id : "";
+  const other = randomUUID();
+  await t.db.query(
+    `insert into board_post (id, room_id, type, claim, reason, on_date, author_user_id, author_name, came, card_id, created_at)
+     select $1, room_id, type, claim, reason, on_date, author_user_id, author_name, array['Tom'], $2, now()
+     from board_post where id = $3`,
+    [other, OTHER, postId],
+  );
+  await t.db.query(`insert into dm_named_account (post_id, user_id) values ($1, $2)`, [other, t.tom.id]);
+  const came = async (id: string) => (await t.db.query<{ came: string[] }>(`select came from board_post where id = $1`, [id]))[0]!.came;
+  const links = async (id: string) => (await t.db.query(`select 1 from dm_named_account where post_id = $1`, [id])).length;
+  const rsvps = async () => (await t.db.query(`select 1 from gathering_rsvp where gathering_id = $1`, [GATHERING])).length;
+  const tomSees = async () => {
+    const board = await listBoard(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), { room: "shop" });
+    assert.equal(board.ok, true);
+    return board.ok ? board.value.posts.find((post) => post.id === postId)?.youCame : undefined;
+  };
+  return { postId, other, came, links, rsvps, tomSees };
+}
+
+test("QA S3 untick, delete mode (the default): RSVPs, the write-up's came list, its DM links and youCame all go", async () => {
+  assert.equal(UNTICK_SPECIAL, "delete", "the default matches the current behaviour");
+  const t = await setup();
+  try {
+    const w = await writeUps(t);
+    assert.ok((await w.rsvps()) > 0);
+    assert.deepEqual(await w.came(w.postId), ["Tom"]);
+    assert.equal(await w.links(w.postId), 1);
+    assert.equal(await w.tomSees(), true);
+    const res = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: false }));
+    assert.equal(res.status, 200);
+    assert.equal(await specialOf(t), false);
+    assert.equal(await w.rsvps(), 0);
+    assert.deepEqual(await w.came(w.postId), []);
+    assert.equal(await w.links(w.postId), 0);
+    assert.equal(await w.tomSees(), false, "no 'You came' on a gathering that is not special");
+    // Another gathering's write-up is untouched.
+    assert.deepEqual(await w.came(w.other), ["Tom"]);
+    assert.equal(await w.links(w.other), 1);
+    // The write-up itself stays.
+    assert.equal((await t.db.query(`select 1 from board_post where id = $1 and removed = false`, [w.postId])).length, 1);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA S3 untick: the special change and the clean-up are one transaction; if the clean-up fails, nothing changes", async () => {
+  const t = await setup();
+  try {
+    const w = await writeUps(t);
+    await t.db.query(`create function qa_s3_fail() returns trigger language plpgsql as $$ begin raise exception 'qa s3'; end $$`);
+    await t.db.query(`create trigger qa_s3_fail before delete on dm_named_account for each row execute function qa_s3_fail()`);
+    let status = 0;
+    try {
+      status = (await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: false, title: "Renamed" }))).status;
+    } catch {
+      status = 500;
+    }
+    assert.ok(status >= 500, String(status));
+    assert.equal(await specialOf(t), true, "still special");
+    assert.equal((await t.db.query<{ title: string }>(`select title from public_gathering where id = $1`, [GATHERING]))[0]?.title, "Saturday lifts");
+    assert.ok((await w.rsvps()) > 0, "RSVPs not deleted");
+    assert.deepEqual(await w.came(w.postId), ["Tom"]);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA S3 untick, hide mode: nothing is deleted, nothing is read while not special, and a tick brings it back", async () => {
+  const t = await setup();
+  try {
+    const w = await writeUps(t);
+    const rows = await w.rsvps();
+    const visible = (await seen(t, t.dale)).rows.filter((row) => row.startsWith("G:"));
+    assert.ok(visible.length > 0);
+    // The same transaction saveGathering runs, with the hide switch.
+    await t.db.transaction(async (tx) => {
+      await tx.query(`update public_gathering set special = false where id = $1`, [GATHERING]);
+      await untickWhoCame(tx, GATHERING, "hide");
+    });
+    assert.equal(await w.rsvps(), rows, "rows kept");
+    assert.deepEqual(await w.came(w.postId), ["Tom"]);
+    assert.equal(await w.links(w.postId), 1);
+    assert.deepEqual((await seen(t, t.dale)).rows.filter((row) => row.startsWith("G:")), [], "hidden while not special");
+    assert.equal((await rsvpSummary(t.db, new Date(), 1)).rooms.flatMap((r) => r.gatherings).some((g) => g.gatheringId === GATHERING), false);
+    assert.equal((await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true })).status, 409);
+    // Ticked again: back.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: true }))).status, 200);
+    assert.deepEqual((await seen(t, t.dale)).rows.filter((row) => row.startsWith("G:")), visible);
+  } finally {
+    await t.close();
+  }
 });

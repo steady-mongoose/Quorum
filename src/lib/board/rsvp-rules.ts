@@ -71,6 +71,37 @@ export const ONLY_GOING_CAN_SAY_WENT = "Only members who said they were going ca
  * special event (the host's checkbox, 0050). Any other gathering takes none.
  */
 export const RSVP_SPECIAL_ONLY = "RSVPs and who came are only for special events.";
+/** Shown on a card when a "special event" tick could not be saved yet (before 0050). */
+export const SPECIAL_NOT_READY_LINE = "Special events are not ready yet. Try again later.";
+/** A steward's or host's new date was not saved (no answer from the server). */
+export const DATE_NOT_SAVED = "The date was not saved. Try again.";
+/** The add form's and the card's hint under "This is a special event" (Design 5716107154 L1, L2). */
+export const SPECIAL_HINT =
+  "Members can say they're going, and you or a steward can mark who came. Other gatherings don't take RSVPs.";
+
+/**
+ * What unticking "This is a special event" does to its RSVPs and who came.
+ * Josh is deciding (Design 5716107154 H1). "delete" matches the server today
+ * (saveGathering drops them); "hide" needs that drop removed on the server.
+ * Switching is this one line.
+ */
+export const UNTICK_SPECIAL: UntickSpecial = "delete";
+export type UntickSpecial = "delete" | "hide";
+export const UNTICK_SPECIAL_COPY: Record<UntickSpecial, { confirm: string; done: string }> = {
+  delete: {
+    confirm:
+      "Turn off special event? This removes who said they're going and who came for this gathering. It can't be undone.",
+    done: "This is no longer a special event. Its RSVPs and who came were removed.",
+  },
+  hide: {
+    confirm:
+      "Turn off special event? This hides who said they're going and who came. Tick it again to bring them back.",
+    done: "This is no longer a special event. Who said they're going and who came are hidden until you tick it again.",
+  },
+};
+export const SPECIAL_ON_LINE = "This is now a special event. Members can say they're going.";
+export const SPECIAL_OFF_LINE = "This is no longer a special event.";
+
 /** The app shows RSVP and attendance controls only where this is true. */
 export function isSpecial(card: { special?: boolean }): boolean {
   return card.special === true;

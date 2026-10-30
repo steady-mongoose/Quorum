@@ -16,11 +16,11 @@ const HOW = [
   },
   {
     term: "Going",
-    what: "Say you're going to a gathering. You see only your own answer. The host and the room's stewards see who is going.",
+    what: "At a special event, say you're going. You see only your own answer. The host and the room's stewards see who is going.",
   },
   {
     term: "Roll call",
-    what: "In a room that takes roll, the host or a steward records who came. Only they see the list. You see your own.",
+    what: "At a special event in a room that takes roll, the host or a steward records who came. Only they see the list. You see your own.",
   },
   {
     term: "Messages",

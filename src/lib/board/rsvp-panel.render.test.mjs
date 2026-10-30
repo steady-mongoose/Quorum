@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 await register(new URL("../../../scripts/tsx-loader.mjs", import.meta.url));
 
@@ -336,37 +337,218 @@ test("Josh 1 (app): the host has a 'This is a special event' checkbox on the car
   }
 });
 
-test("Josh 5 (app): a steward of the card's room can change its date; a member cannot", async () => {
-  const patches = [];
-  const updateCard = useBoard.getState().updateCard;
-  useBoard.setState({ rollCall: {}, stewardRooms: ["shop"], updateCard: (id, patch) => patches.push([id, patch]) });
+const { formatDate } = await import("./model.ts");
+const rules = await import("./rsvp-rules.ts");
+const { SpecialEventToggle, StewardDateControl } = await import("../../components/board/find-view.tsx");
+const typeDate = async (input, value) => {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, value);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+};
+const buttonNamed = (host, text) => [...host.querySelectorAll("button")].find((b) => b.textContent === text);
+
+test("Design M1: the steward date control: label, aria-disabled guard, 'Save new date', status on success", async () => {
+  const calls = [];
+  const changeDate = useBoard.getState().changeDate;
+  useBoard.setState({ rollCall: {}, stewardRooms: ["shop"], changeDate: async (id, next) => (calls.push([id, next]), { ok: true }) });
   try {
     const row = await mount(createElement(MeetingRow, { card: card({ special: false }), shown: true, ...rowProps }));
     try {
-      const input = label(row.host, "Change the date")?.querySelector("input");
-      assert.ok(input);
+      const label = [...row.host.querySelectorAll("label")].find((l) => l.textContent?.startsWith("Change the date"));
+      assert.ok(label, "Change the date");
+      assert.match(label.className, /flex-col/);
+      assert.match(label.className, /text-fg/);
+      const input = label.querySelector("input");
       assert.equal(input.type, "date");
-      await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-        setter.call(input, "2026-11-07");
-        input.dispatchEvent(new window.Event("input", { bubbles: true }));
-        input.dispatchEvent(new window.Event("change", { bubbles: true }));
-      });
-      const save = [...row.host.querySelectorAll("button")].find((b) => b.textContent === "Save the date");
+      assert.match(input.className, /min-h-\[44px\]/);
+      assert.match(input.className, /sm:max-w-xs/);
+      const save = buttonNamed(row.host, "Save new date");
       assert.ok(save);
+      assert.equal(save.hasAttribute("disabled"), false, "never native disabled");
+      assert.equal(save.getAttribute("aria-disabled"), "true");
+      assert.match(save.className, /min-h-\[44px\]/);
       await act(async () => save.click());
-      assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { next: "2026-11-07" }]);
+      assert.deepEqual(calls, [], "the guard holds while unchanged");
+      await typeDate(input, "2026-11-07");
+      assert.equal(save.getAttribute("aria-disabled"), null);
+      await act(async () => save.click());
+      assert.deepEqual(calls, [["0123456789abcdef01234567", "2026-11-07"]]);
+      const status = row.host.querySelector('form [role="status"]');
+      assert.equal(status?.textContent, `Date changed to ${formatDate("2026-11-07")}. The host will see it on the card.`);
+      assert.equal(row.host.querySelector('form [role="alert"]'), null);
     } finally {
       await row.unmount();
     }
+    // No date yet: "Set a date".
+    const none = await mount(createElement(MeetingRow, { card: card({ special: false, next: "" }), shown: true, ...rowProps }));
+    try {
+      assert.ok([...none.host.querySelectorAll("label")].some((l) => l.textContent?.startsWith("Set a date")));
+    } finally {
+      await none.unmount();
+    }
+    // Not a steward of this room: no control.
     useBoard.setState({ stewardRooms: ["county"] });
     const other = await mount(createElement(MeetingRow, { card: card({}), shown: true, ...rowProps, steward: false, me: "Tom" }));
     try {
-      assert.equal(label(other.host, "Change the date"), undefined);
+      assert.equal(buttonNamed(other.host, "Save new date"), undefined);
     } finally {
       await other.unmount();
     }
   } finally {
-    useBoard.setState({ updateCard, stewardRooms: [] });
+    useBoard.setState({ changeDate, stewardRooms: [] });
+  }
+});
+
+test("Design M1: a refused date shows inline as role=alert and the field goes back to the card's date", async () => {
+  const changeDate = useBoard.getState().changeDate;
+  useBoard.setState({ changeDate: async () => ({ ok: false, error: "You can't change this gathering." }) });
+  try {
+    const view = await mount(createElement(StewardDateControl, { card: card({ next: "2026-10-31" }) }));
+    try {
+      const input = view.host.querySelector('input[type="date"]');
+      await typeDate(input, "2026-11-07");
+      await act(async () => buttonNamed(view.host, "Save new date").click());
+      assert.equal(view.host.querySelector('[role="alert"]')?.textContent, "You can't change this gathering.");
+      assert.match(view.host.querySelector('[role="alert"]')?.className ?? "", /text-danger/);
+      assert.equal(input.value, "2026-10-31");
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, "");
+    } finally {
+      await view.unmount();
+    }
+  } finally {
+    useBoard.setState({ changeDate });
+  }
+});
+
+const hostCard = (over) => card({ host: "Dale", seeing: "host", ...over });
+
+test("Design H1: unticking with anyone going asks first on a solid card; Keep it special keeps it and returns focus", async () => {
+  assert.equal(rules.UNTICK_SPECIAL, "delete", "defaults to the delete copy, which matches the server");
+  const patches = [];
+  const updateCard = useBoard.getState().updateCard;
+  useBoard.setState({ specialRefused: {}, updateCard: (id, patch) => patches.push([id, patch]) });
+  try {
+    const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: ["Ann"], wentBy: ["Dale"] }) }));
+    try {
+      const box = view.host.querySelector('input[type="checkbox"]');
+      await act(async () => box.click());
+      assert.deepEqual(patches, [], "nothing is sent before the host confirms");
+      const group = view.host.querySelector('[role="group"]');
+      assert.ok(group);
+      assert.match(group.className, /bg-surface/);
+      assert.doesNotMatch(group.className, /blur/);
+      const labelled = view.host.ownerDocument.getElementById(group.getAttribute("aria-labelledby"));
+      assert.equal(labelled?.textContent, rules.UNTICK_SPECIAL_COPY.delete.confirm);
+      assert.equal(
+        rules.UNTICK_SPECIAL_COPY.delete.confirm,
+        "Turn off special event? This removes who said they're going and who came for this gathering. It can't be undone.",
+      );
+      const keep = buttonNamed(view.host, "Keep it special");
+      assert.equal(view.host.ownerDocument.activeElement, keep, "focus on Keep it special");
+      for (const b of [keep, buttonNamed(view.host, "Turn it off")]) assert.match(b.className, /min-h-\[44px\]/);
+      await act(async () => keep.click());
+      assert.equal(view.host.querySelector('[role="group"]'), null);
+      assert.equal(view.host.ownerDocument.activeElement, box, "focus back on the box");
+      assert.deepEqual(patches, []);
+      // Turn it off: sent, and the status line says what happened.
+      await act(async () => box.click());
+      await act(async () => buttonNamed(view.host, "Turn it off").click());
+      assert.deepEqual(patches, [["0123456789abcdef01234567", { special: false }]]);
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, rules.UNTICK_SPECIAL_COPY.delete.done);
+      assert.equal(rules.UNTICK_SPECIAL_COPY.delete.done, "This is no longer a special event. Its RSVPs and who came were removed.");
+    } finally {
+      await view.unmount();
+    }
+    // Someone marked as came (not the host's own lister mark) also asks first.
+    patches.length = 0;
+    const marked = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: [], wentBy: ["Dale", "Ann"] }) }));
+    try {
+      await act(async () => marked.host.querySelector('input[type="checkbox"]').click());
+      assert.ok(marked.host.querySelector('[role="group"]'));
+      assert.deepEqual(patches, []);
+    } finally {
+      await marked.unmount();
+    }
+  } finally {
+    useBoard.setState({ updateCard });
+  }
+});
+
+test("Design H1: with nobody going or marked, untick and tick go straight through, each with a role=status line", async () => {
+  const patches = [];
+  const updateCard = useBoard.getState().updateCard;
+  useBoard.setState({ specialRefused: {}, updateCard: (id, patch) => patches.push([id, patch]) });
+  try {
+    const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ going: [], wentBy: ["Dale"] }) }));
+    try {
+      await act(async () => view.host.querySelector('input[type="checkbox"]').click());
+      assert.equal(view.host.querySelector('[role="group"]'), null);
+      assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { special: false }]);
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, "This is no longer a special event.");
+    } finally {
+      await view.unmount();
+    }
+    const off = await mount(createElement(SpecialEventToggle, { card: hostCard({ special: false, going: [] }) }));
+    try {
+      await act(async () => off.host.querySelector('input[type="checkbox"]').click());
+      assert.deepEqual(patches.at(-1), ["0123456789abcdef01234567", { special: true }]);
+      assert.equal(off.host.querySelector('[role="status"]')?.textContent, "This is now a special event. Members can say they're going.");
+    } finally {
+      await off.unmount();
+    }
+  } finally {
+    useBoard.setState({ updateCard });
+  }
+});
+
+test("Design H1: the hide copy is ready behind the one constant", () => {
+  assert.equal(
+    rules.UNTICK_SPECIAL_COPY.hide.confirm,
+    "Turn off special event? This hides who said they're going and who came. Tick it again to bring them back.",
+  );
+  assert.ok(rules.UNTICK_SPECIAL_COPY.hide.done.length > 0);
+  // One line to switch: the constant is declared once.
+  const source = readFileSync(new URL("./rsvp-rules.ts", import.meta.url), "utf8");
+  assert.equal(source.match(/export const UNTICK_SPECIAL: UntickSpecial = "(delete|hide)";/g)?.length, 1);
+});
+
+test("Design L1, L2: the special-event box in the add form and on the card is 44px and described by its hint", async () => {
+  const HINT = "Members can say they're going, and you or a steward can mark who came. Other gatherings don't take RSVPs.";
+  assert.equal(rules.SPECIAL_HINT, HINT);
+  const form = await mount(createElement(AddCard, { me: "Dale" }));
+  try {
+    const special = label(form.host, "This is a special event");
+    assert.equal(special.textContent?.trim(), "This is a special event");
+    assert.match(special.className, /min-h-\[44px\]/);
+    const input = special.querySelector("input");
+    assert.equal(form.host.ownerDocument.getElementById(input.getAttribute("aria-describedby"))?.textContent, HINT);
+    assert.match(label(form.host, "New people welcome").className, /min-h-\[44px\]/);
+  } finally {
+    await form.unmount();
+  }
+  useBoard.setState({ specialRefused: {} });
+  const view = await mount(createElement(SpecialEventToggle, { card: hostCard({}) }));
+  try {
+    const input = view.host.querySelector('input[type="checkbox"]');
+    assert.match(input.closest("label").className, /min-h-\[44px\]/);
+    assert.equal(view.host.ownerDocument.getElementById(input.getAttribute("aria-describedby"))?.textContent, HINT);
+    assert.equal([...view.host.querySelectorAll("p")].filter((p) => p.textContent === HINT).length, 1, "rendered once");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("Design L3, L4: a refused or not-ready tick shows role=alert on the card, and the status line stays quiet", async () => {
+  useBoard.setState({ specialRefused: { "0123456789abcdef01234567": "Special events are not ready yet. Try again later." } });
+  const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ special: false }) }));
+  try {
+    assert.equal(view.host.querySelector('[role="alert"]')?.textContent, "Special events are not ready yet. Try again later.");
+    assert.equal(view.host.querySelector('input[type="checkbox"]').checked, false);
+  } finally {
+    await view.unmount();
+    useBoard.setState({ specialRefused: {} });
   }
 });

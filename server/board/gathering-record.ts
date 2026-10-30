@@ -3,6 +3,7 @@ import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibil
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
+import { UNTICK_SPECIAL, type UntickSpecial } from "../../src/lib/board/rsvp-rules.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   acceptPublicGathering,
@@ -205,8 +206,10 @@ export async function saveGathering(
     special?: unknown;
     now: Date;
   },
-): Promise<{ ok: true; gathering: GatheringRecord } | Fail> {
+): Promise<{ ok: true; gathering: GatheringRecord; notice?: string } | Fail> {
   if (!isGatheringId(input.id)) return fail(404, "Not found.");
+  /** Saved, but the "special" tick was not (0050 not applied yet). */
+  let notice = "";
   if (input.special !== undefined && typeof input.special !== "boolean") {
     return fail(400, "Say whether this is a special event: true or false.");
   }
@@ -258,44 +261,51 @@ export async function saveGathering(
     const changesSpecial = special !== undefined && special !== existing.special;
     if (changesSpecial && !host) return fail(403, SPECIAL_HOST_ONLY);
     const ready = await specialReady(db);
-    if (changesSpecial && !ready) return fail(503, SPECIAL_NOT_READY);
-    const values = [
-      id,
-      fields.gathering.title,
-      fields.gathering.date,
-      fields.gathering.time,
-      fields.gathering.town,
-      fields.place,
-      roomId,
-    ];
-    if (ready) {
-      // A move remembers the room it left, so a member barred there stays
-      // hidden from this gathering's lists in the new room (Josh, Oct 30 12:47 PM ET).
-      await db.query(
-        `update public_gathering
-         set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7,
-             special = coalesce($8::boolean, special),
-             moved_from = case
-               when room_id <> $7 and room_id <> '' and not (room_id = any (moved_from))
-               then array_append(moved_from, room_id)
-               else moved_from
-             end,
-             updated_at = now()
-         where id = $1 and removed = false`,
-        [...values, special ?? null],
-      );
-    } else {
-      await db.query(
-        `update public_gathering
-         set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7, updated_at = now()
-         where id = $1 and removed = false`,
-        values,
-      );
-    }
-    // No longer a special event: it keeps no RSVPs or attendance, as a removed one.
-    if (changesSpecial && special === false) await dropGatheringRsvps(db, id);
-  } else if (special === true) {
-    if (!(await specialReady(db))) return fail(503, SPECIAL_NOT_READY);
+    // Before 0050 the rest of the edit is saved; only the tick is dropped,
+    // and the answer says so (Design 5716107154 L4).
+    if (changesSpecial && !ready) notice = SPECIAL_NOT_READY;
+    // The special change and what happens to who came commit together, or
+    // neither does (QA, Oct 30): no window where the gathering is plain but
+    // its RSVPs or roll call still name people.
+    const write = async (q: Db) => {
+      const values = [
+        id,
+        fields.gathering.title,
+        fields.gathering.date,
+        fields.gathering.time,
+        fields.gathering.town,
+        fields.place,
+        roomId,
+      ];
+      if (ready) {
+        // A move remembers the room it left, so a member barred there stays
+        // hidden from this gathering's lists in the new room (Josh, Oct 30 12:47 PM ET).
+        await q.query(
+          `update public_gathering
+           set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7,
+               special = coalesce($8::boolean, special),
+               moved_from = case
+                 when room_id <> $7 and room_id <> '' and not (room_id = any (moved_from))
+                 then array_append(moved_from, room_id)
+                 else moved_from
+               end,
+               updated_at = now()
+           where id = $1 and removed = false`,
+          [...values, special ?? null],
+        );
+      } else {
+        await q.query(
+          `update public_gathering
+           set title = $2, gather_on = $3, gather_time = $4, town = $5, place = $6, room_id = $7, updated_at = now()
+           where id = $1 and removed = false`,
+          values,
+        );
+      }
+      if (changesSpecial && ready && special === false) await untickWhoCame(q, id, UNTICK_SPECIAL);
+    };
+    if (changesSpecial && ready) await db.transaction(write);
+    else await write(db);
+  } else if (special === true && (await specialReady(db))) {
     await db.query(
       `insert into public_gathering
        (id, title, gather_on, gather_time, town, place, room_id, shared, removed, host_user_id, special)
@@ -312,6 +322,9 @@ export async function saveGathering(
       ],
     );
   } else {
+    // Ticked before 0050 is applied: the gathering is still saved, as not
+    // special, and the answer says special events are not ready (Design 5716107154 L4).
+    if (special === true) notice = SPECIAL_NOT_READY;
     await db.query(
       `insert into public_gathering
        (id, title, gather_on, gather_time, town, place, room_id, shared, removed, host_user_id)
@@ -330,7 +343,7 @@ export async function saveGathering(
   }
   const saved = await loadRow(db, id);
   if (!saved) return fail(404, "Not found.");
-  return { ok: true, gathering: toRecord(saved, input.userId) };
+  return { ok: true, gathering: toRecord(saved, input.userId), ...(notice ? { notice } : {}) };
 }
 
 /**
@@ -392,6 +405,40 @@ export async function removeGathering(
   );
   await dropGatheringRsvps(db, row.id);
   return { ok: true };
+}
+
+/**
+ * Unticking "special" (Design 5716107154 H1, QA S3, Oct 30). Josh is choosing
+ * between the two modes; UNTICK_SPECIAL (src/lib/board/rsvp-rules.ts) is the
+ * one switch for this and the confirm copy.
+ * "delete": the RSVP rows go, and so does the write-up's roll call for this
+ * gathering (its came list and its dm_named_account links), so a gathering
+ * that is not special never names who came and no one reads "You came" on
+ * it. Dropping the links also ends DM "met at a meeting" eligibility that
+ * came from that write-up.
+ * "hide": nothing is deleted. RSVP rows are read only while the gathering is
+ * special (GATHERING_IS_SPECIAL), so they come back on a tick.
+ * Runs inside the caller's transaction: table checks use to_regclass, not a
+ * caught error, which would abort it.
+ */
+export async function untickWhoCame(db: Db, id: string, mode: UntickSpecial): Promise<void> {
+  if (mode === "hide") return;
+  const ready = await db.query<{ rsvp: string | null; named: string | null }>(
+    `select to_regclass('public.gathering_rsvp')::text as rsvp,
+            to_regclass('public.dm_named_account')::text as named`,
+  );
+  if (ready[0]?.rsvp) await db.query(`delete from gathering_rsvp where gathering_id = $1`, [id]);
+  if (ready[0]?.named) {
+    await db.query(
+      `delete from dm_named_account n using board_post p
+       where n.post_id = p.id and p.type = 'hosted' and lower(p.card_id) = lower($1)`,
+      [id],
+    );
+  }
+  await db.query(
+    `update board_post set came = '{}' where type = 'hosted' and lower(card_id) = lower($1) and cardinality(came) > 0`,
+    [id],
+  );
 }
 
 /**

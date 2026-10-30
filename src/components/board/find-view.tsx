@@ -51,7 +51,16 @@ import {
   DID_NOT_SAVED_LINE,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
-import { isSpecial, markOpen, ONLY_GOING_CAN_SAY_WENT } from "@/lib/board/rsvp-rules";
+import {
+  isSpecial,
+  markOpen,
+  ONLY_GOING_CAN_SAY_WENT,
+  SPECIAL_HINT,
+  SPECIAL_OFF_LINE,
+  SPECIAL_ON_LINE,
+  UNTICK_SPECIAL,
+  UNTICK_SPECIAL_COPY,
+} from "@/lib/board/rsvp-rules";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
@@ -127,7 +136,7 @@ export function FindView() {
           </h1>
           <p className="max-w-prose text-base text-muted">
             Every meeting, church service, vouched-for business, and family that needs meals. Press{" "}
-            <strong className="font-semibold text-fg">I'll be there</strong> for next time. The host
+            <strong className="font-semibold text-fg">I'll be there</strong> on a special event. The host
             or a steward records who came. A meeting drops off after it is missed twice. If you host something,
             this is where you write it up afterwards. Invite codes are made under More, on About.
           </p>
@@ -566,8 +575,6 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
   const stewardsHere = useBoard((state) => state.stewardRooms.includes(card.room));
-  const [newDate, setNewDate] = useState(card.next);
-  useEffect(() => setNewDate(card.next), [card.next]);
   const closeCard = useBoard((state) => state.closeCard);
   const reloadRsvps = useBoard((state) => state.reloadRsvps);
   const [closing, setClosing] = useState(false);
@@ -740,40 +747,9 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
         <GatheringShareControl card={card} />
         {/* The host's checkbox: only a special event takes RSVPs and a "who came"
             (Josh via CoS, Oct 30 12:47 PM ET). */}
-        {isHost && card.kind === "meeting" ? (
-          <label className="flex min-h-[44px] items-center gap-3 text-sm text-muted">
-            <input
-              type="checkbox"
-              className="size-5"
-              checked={card.special === true}
-              onChange={(event) => updateCard(card.id, { special: event.target.checked })}
-            />
-            This is a special event
-          </label>
-        ) : null}
+        {isHost && card.kind === "meeting" ? <SpecialEventToggle card={card} /> : null}
         {/* A steward of this room may change the date (Josh via CoS, Oct 30 12:47 PM ET). */}
-        {!isHost && stewardsHere && card.kind === "meeting" ? (
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (newDate && newDate !== card.next) updateCard(card.id, { next: newDate });
-            }}
-          >
-            <label className="flex items-center gap-2 text-sm text-muted">
-              Change the date
-              <input
-                type="date"
-                className="min-h-[44px] rounded-md border border-line bg-transparent px-2 text-fg"
-                value={newDate}
-                onChange={(event) => setNewDate(event.target.value)}
-              />
-            </label>
-            <button type="submit" className={btnQuiet} disabled={!newDate || newDate === card.next}>
-              Save the date
-            </button>
-          </form>
-        ) : null}
+        {!isHost && stewardsHere && card.kind === "meeting" ? <StewardDateControl card={card} /> : null}
         {isHost ? (
           <button
             type="button"
@@ -989,6 +965,181 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   );
 }
 
+/**
+ * The host's "This is a special event" box on the card, with its hint (L2).
+ * Unticking when anyone is going or has been marked asks first, on a solid
+ * card, in the words of UNTICK_SPECIAL (Design 5716107154 H1). Every toggle
+ * ends in a role=status line; a refusal reverts the box and shows role=alert (L3, L4).
+ * Exported for render tests.
+ */
+export function SpecialEventToggle({
+  card,
+  initialConfirm = false,
+}: {
+  card: MeetingCard;
+  /** Opens with the untick confirm showing (screenshots), as StewardRollCall's initialOpen. */
+  initialConfirm?: boolean;
+}) {
+  const updateCard = useBoard((state) => state.updateCard);
+  const refused = useBoard((state) => state.specialRefused[card.id] ?? "");
+  const [confirmPlain, setConfirmPlain] = useState(initialConfirm);
+  const [note, setNote] = useState("");
+  const hintId = useId();
+  const plainId = useId();
+  const box = useRef<HTMLInputElement>(null);
+  const keep = useRef<HTMLButtonElement>(null);
+  const opened = useRef(false);
+  // Focus goes to "Keep it special" when the confirm opens, and back to the box when it closes.
+  useEffect(() => {
+    if (confirmPlain) {
+      opened.current = true;
+      keep.current?.focus();
+    } else if (opened.current) {
+      opened.current = false;
+      box.current?.focus();
+    }
+  }, [confirmPlain]);
+  // The host's own "has been" (the lister) is not someone else's record.
+  // Only the host sees this box, and the host sees both lists.
+  const hasMarks =
+    (seesGoing(card) && card.going.length > 0) || (seesCame(card) && card.wentBy.some((name) => name !== card.host));
+  const copy = UNTICK_SPECIAL_COPY[UNTICK_SPECIAL];
+  return (
+    <div className="flex w-full flex-col gap-1">
+      <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
+        <input
+          ref={box}
+          type="checkbox"
+          className="size-5"
+          checked={card.special === true}
+          aria-describedby={hintId}
+          onChange={(event) => {
+            if (!event.target.checked && hasMarks) {
+              setNote("");
+              setConfirmPlain(true);
+              return;
+            }
+            setConfirmPlain(false);
+            updateCard(card.id, { special: event.target.checked });
+            setNote(event.target.checked ? SPECIAL_ON_LINE : SPECIAL_OFF_LINE);
+          }}
+        />
+        This is a special event
+      </label>
+      <p id={hintId} className="text-[13px] text-muted">
+        {SPECIAL_HINT}
+      </p>
+      {confirmPlain ? (
+        <div
+          role="group"
+          aria-labelledby={plainId}
+          className="flex w-full flex-col gap-2 rounded-md border border-line bg-surface p-3"
+        >
+          <p id={plainId} className="text-sm text-fg">
+            {copy.confirm}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px]")}
+              onClick={() => {
+                updateCard(card.id, { special: false });
+                setConfirmPlain(false);
+                setNote(copy.done);
+              }}
+            >
+              Turn it off
+            </button>
+            <button
+              type="button"
+              ref={keep}
+              className={cn(btnQuiet, "min-h-[44px]")}
+              onClick={() => setConfirmPlain(false)}
+            >
+              Keep it special
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <p role="status" className={cn("w-full text-sm text-fg", (!note || refused) && "sr-only")}>
+        {refused ? "" : note}
+      </p>
+      {refused ? (
+        <p role="alert" className="w-full text-sm text-danger">
+          {refused}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A steward of the card's room changes its date (Josh via CoS, Oct 30 12:47
+ * PM ET), laid out like the write-up's "Next date". aria-disabled with a
+ * guard, never native disabled; role=status on success, role=alert and the
+ * old date back on a refusal (Design 5716107154 M1). Exported for render tests.
+ */
+export function StewardDateControl({ card }: { card: MeetingCard }) {
+  const changeDate = useBoard((state) => state.changeDate);
+  const [value, setValue] = useState(card.next);
+  useEffect(() => setValue(card.next), [card.next]);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const blocked = saving || !value || value === card.next;
+  return (
+    <form
+      className="flex w-full flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (blocked) return;
+        const before = card.next;
+        const next = value;
+        setStatus("");
+        setError("");
+        setSaving(true);
+        void changeDate(card.id, next).then((result) => {
+          setSaving(false);
+          if (result.ok) {
+            setStatus(`Date changed to ${formatDate(next)}. The host will see it on the card.`);
+          } else {
+            setValue(before);
+            setError(result.error);
+          }
+        });
+      }}
+    >
+      <label className="flex flex-col gap-1 text-sm text-fg">
+        {card.next ? "Change the date" : "Set a date"}
+        <input
+          type="date"
+          className={cn(fieldClass, "min-h-[44px] sm:max-w-xs")}
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setError("");
+          }}
+        />
+      </label>
+      <button
+        type="submit"
+        className={cn(btnQuiet, "min-h-[44px] self-start aria-disabled:opacity-70")}
+        aria-disabled={blocked || undefined}
+      >
+        Save new date
+      </button>
+      <p role="status" className={cn("w-full text-sm text-fg", !status && "sr-only")}>
+        {status}
+      </p>
+      {error ? (
+        <p role="alert" className="w-full text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 /** The add form. Exported for render tests. */
 export function AddCard({ me }: { me: string }) {
   const addCard = useBoard((state) => state.addCard);
@@ -1010,6 +1161,7 @@ export function AddCard({ me }: { me: string }) {
   const reading = room === "shelf" && kind === "meeting";
   const kinds = roomById(room).cardKinds;
   const formId = useId();
+  const specialHintId = useId();
   const labels = CARD_LABELS[kind === "trade" ? "trade" : kind === "need" ? "need" : "meeting"];
   const set = (patch: Partial<typeof fields>) => setFields({ ...fields, ...patch });
 
@@ -1193,7 +1345,7 @@ export function AddCard({ me }: { me: string }) {
               />
             </label>
             {kind === "meeting" ? (
-              <label className="flex items-center gap-3 self-end text-sm text-muted">
+              <label className="flex min-h-[44px] items-center gap-3 self-end text-sm text-muted">
                 <input
                   type="checkbox"
                   className="size-5"
@@ -1204,15 +1356,21 @@ export function AddCard({ me }: { me: string }) {
               </label>
             ) : null}
             {kind === "meeting" ? (
-              <label className="flex items-center gap-3 self-end text-sm text-muted">
-                <input
-                  type="checkbox"
-                  className="size-5"
-                  checked={fields.special}
-                  onChange={(event) => set({ special: event.target.checked })}
-                />
-                This is a special event. Members can say they're going, and you mark who came.
-              </label>
+              <div className="flex flex-col gap-1 self-end">
+                <label className="flex min-h-[44px] items-center gap-3 text-sm text-muted">
+                  <input
+                    type="checkbox"
+                    className="size-5"
+                    checked={fields.special}
+                    aria-describedby={specialHintId}
+                    onChange={(event) => set({ special: event.target.checked })}
+                  />
+                  This is a special event
+                </label>
+                <p id={specialHintId} className="text-[13px] text-muted">
+                  {SPECIAL_HINT}
+                </p>
+              </div>
             ) : null}
           </>
         ) : null}

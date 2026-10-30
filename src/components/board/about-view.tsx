@@ -62,11 +62,11 @@ const HOW = [
   },
   {
     title: "The week",
-    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, and a room\'s stewards see who is coming and who came in that room. An admin who isn\'t the host or a steward sees only totals, with small counts hidden. Press "I\'ll be there" on the ones you will attend.',
+    text: 'The front page is the next seven days: which meetings are on and where. Who\'s coming stays private. The host sees who is coming to their own gathering, and a room\'s stewards see who is coming and who came in that room. An admin who isn\'t the host or a steward sees only totals, with small counts hidden. Press "I\'ll be there" on the special events you will attend.',
   },
   {
     title: "After a meeting",
-    text: "The host writes it up: how it went and the next date. In a room that takes roll, the host or a steward records who came, and the host can name one person who did something worth mentioning. There is no headcount and no score.",
+    text: "The host writes it up: how it went and the next date. At a special event in a room that takes roll, the host or a steward records who came, and the host can name one person who did something worth mentioning. There is no headcount and no score.",
   },
   {
     title: "What a room includes",
@@ -187,8 +187,8 @@ export function AboutView({
           A private app for the people you see at church, at the shop, and at the county.
         </h1>
         <p className="max-w-prose text-base text-muted">
-          {APP_NAME} shows you the week's meetings, lets you say you will be there, and, in
-          rooms that take roll, lets the host or a steward record who came. You get in by invitation to a real meeting. There is no feed to
+          {APP_NAME} shows you the week's meetings, lets you say you will be there for special events,
+          and, in rooms that take roll, lets the host or a steward record who came. You get in by invitation to a real meeting. There is no feed to
           scroll and nothing to like. Open it, see where to be, go.
         </p>
       </section>

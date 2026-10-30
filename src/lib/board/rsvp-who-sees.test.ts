@@ -64,7 +64,7 @@ test("about members copy: who is going and who came stay with the host and the s
 test("door roll call copy: the host or a steward records who came, and only they see it", () => {
   assert.match(
     read("door.tsx"),
-    /In a room that takes roll, the host or a steward records who came\. Only they see the list\. You see your own\./,
+    /At a special event in a room that takes roll, the host or a steward records who came\. Only they see the list\. You see your own\./,
   );
 });
 
@@ -109,7 +109,7 @@ test("door copy: you see your own answer; the host and stewards see who is going
   assert.doesNotMatch(source, /Only the room's admins see the full list/);
   assert.match(
     source,
-    /Say you're going to a gathering\. You see only your own answer\. The host and the room's stewards see who is going\./,
+    /At a special event, say you're going\. You see only your own answer\. The host and the room's stewards see who is going\./,
   );
 });
 
@@ -215,7 +215,7 @@ test("the roll call option copy (Design #126)", async () => {
   const { ROOM_OPTION_WHAT } = await import("./room-options.ts");
   assert.equal(
     ROOM_OPTION_WHAT.roll_call,
-    "After a gathering, the host or a steward records who came. Only they see it. You see your own.",
+    "After a special event, the host or a steward records who came. Only they see it. You see your own.",
   );
 });
 
