@@ -239,3 +239,10 @@ test("the gilt rule under a heading has room below it (Design: margin-block .25r
   assert.match(rule[1], /margin-block:\.25rem \.75rem/);
   assert.doesNotMatch(rule[1], /(^|;)margin:/, "no shorthand margin to undo it");
 });
+
+test("on phones the desk plate sits at 80% so Solomon's fingertips stay on screen (Design r155 L2)", () => {
+  const phone = craft.match(/@media \(max-width:640px\)\{([\s\S]*?)\n\}/);
+  assert.ok(phone, "the phone block is in page-craft.css");
+  // (0,3,0) outranks the plate rule's background shorthand (0,2,0), wherever it sits.
+  assert.ok(phone[1].includes('[data-section="civic"] [data-entered]>.plate-ground{background-position:80% 35%}'));
+});

@@ -49,7 +49,7 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Albrecht Dürer", work: "Erasmus of Rotterdam", box: [0.202, -0.075, 0.823, 0.6] },
   },
   "plate-you-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.14, -0.199, 1.608, 1.246] },
+    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.156, -0.28, 1.456, 1.0] },
     right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [-0.026, -0.037, 0.688, 0.689] },
   },
   "plate-desk-A-2400.webp": {
@@ -173,7 +173,7 @@ const HEADER_PX = 115; // the sticky header's height, measured in the real app a
 const HEADS: Record<string, { who: string; box: [number, number, number, number]; from: number }[]> = {
   "plate-messages-A-2400.webp": [{ who: "Erasmus", box: [2020, 210, 2150, 570], from: 1600 }],
   "plate-you-A-2400.webp": [
-    { who: "the boy at thirteen", box: [20, 260, 330, 580], from: 1600 },
+    { who: "the boy at thirteen", box: [8, 435, 380, 735], from: 1600 },
     { who: "Dürer at twenty-eight", box: [2020, 400, 2320, 880], from: 1600 },
   ],
   "plate-groups-A-2400.webp": [
@@ -184,7 +184,7 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "the woman in the turban", box: [130, 400, 230, 560], from: 1600 },
     { who: "the mother", box: [2050, 330, 2240, 520], from: 1600 },
   ],
-  "plate-week-A-2400.webp": [{ who: "Jacob", box: [400, 420, 520, 520], from: 1920 }],
+  "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1920 }],
 };
 
 const rootPx = (vw: number) => {

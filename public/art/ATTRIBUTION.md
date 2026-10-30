@@ -7,13 +7,13 @@ Martin's *Creation of Light* appears on the landing page, the sign-in form, the 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
 and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to the
 text colour. Most are not upscaled past the source scan; a few 2400 panels are, by up to
-about 1.5× (Find left 1.38× and right 1.52×, the room's right 1.35×, the desk's right 1.25×),
+about 1.5× (Find left 1.38× and right 1.52×, the room's right 1.35×, the desk's right 1.25×, the You 1600 plate 1.10×),
 softened by the plates' light blur. CSS lives in
 `public/backgrounds.css` and is loaded as its own stylesheet.
 
 `dore-band-A.webp` and `dore-band-B.webp` are those same colour duotones, resized to
 1600×677 and re-encoded to about 160KB for the desktop week band. They are not
-grayscale. The 900px mobile bands and the margin plates are the original files.
+grayscale. The 900px mobile bands are the original files.
 `dore-og.jpg` is a 1200×630 JPEG of that crop, about 150KB or less, for the
 public gathering link preview. `dore-og.webp` is the same crop. No gathering
 text is drawn on either.
@@ -33,8 +33,8 @@ Light* (`martin-hero-A.webp` / `-B`, right half), the door's file; no new file.
 ## Signed-in plates (inner pages spec v3)
 
 Every signed-in page now has one full-bleed plate behind the whole viewport, under a scrim, the door's
-technique. The files are `plate-<key>-A.webp` (1600×1000, the You plate 1365×853 because its source is
-small) and `plate-<key>-A-900.webp` (900×1600, for phones up to 640px). Each was turned grey, mapped
+technique. The files are `plate-<key>-A.webp` (1600×1000; the You plate is upscaled 1.10× from the
+1453px scan) and `plate-<key>-A-900.webp` (900×1600, for phones up to 640px). Each was turned grey, mapped
 through a warm sepia LUT from `#100c09` to `#968466` with gamma 1.25, and lightly blurred, so they read
 as one family. Printed captions and borders are trimmed off the Doré pages. CSS lives in
 `public/page-craft.css`. Save-Data and reduced data drop the plate.
