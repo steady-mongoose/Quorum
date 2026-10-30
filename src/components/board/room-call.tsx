@@ -75,16 +75,35 @@ function RingMembers({ roomId }: { roomId: string }) {
   const [choice, setChoice] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The list failed to load for someone allowed to ring: say so and offer Try again. */
+  const [failed, setFailed] = useState(false);
+  const [loadLine, setLoadLine] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const retried = useRef(false);
   const fieldId = useId();
+  const fieldRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch(`/api/calls/rooms/${roomId}/ring`, { credentials: "include", cache: "no-store" })
-      .then(async (response) => (response.ok ? ((await response.json()) as unknown) : null))
-      .then((body) => {
+      .then(async (response) => ({
+        status: response.status,
+        body: (await response.json().catch(() => null)) as unknown,
+      }))
+      .then(({ status, body }) => {
         if (cancelled) return;
-        const row = body as { canRing?: unknown; members?: unknown } | null;
-        if (!row || row.canRing !== true || !Array.isArray(row.members)) {
+        const row = body as { canRing?: unknown; members?: unknown; error?: unknown } | null;
+        // Only the server's own picker failure counts: it is sent after the
+        // host check passed. Anything else (not a host, signed out) hides it.
+        if (status === 503 && row?.error === PICKER_LOAD_FAILED) {
+          setMembers(null);
+          setFailed(true);
+          setLoadLine(PICKER_LOAD_FAILED);
+          return;
+        }
+        setFailed(false);
+        setLoadLine("");
+        if (status !== 200 || !row || row.canRing !== true || !Array.isArray(row.members)) {
           setMembers(null);
           return;
         }
@@ -96,12 +115,26 @@ function RingMembers({ roomId }: { roomId: string }) {
         );
       })
       .catch(() => {
-        if (!cancelled) setMembers(null);
+        if (cancelled) return;
+        if (retried.current) {
+          // Already showing the failure; say it again rather than vanish.
+          setLoadLine(PICKER_LOAD_FAILED);
+        } else {
+          setMembers(null);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [roomId]);
+  }, [roomId, attempt]);
+
+  // After a Try again that worked, the button is gone: put focus on the list.
+  useEffect(() => {
+    if (retried.current && !failed && members && members.length > 0) {
+      retried.current = false;
+      fieldRef.current?.focus();
+    }
+  }, [failed, members]);
 
   useEffect(
     () =>
@@ -111,6 +144,30 @@ function RingMembers({ roomId }: { roomId: string }) {
       ),
     [],
   );
+
+  if (failed) {
+    return (
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
+        <p className={cn("text-sm text-fg", WRAP)} role="status">
+          {loadLine}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px]")}
+            onClick={() => {
+              retried.current = true;
+              // Empty the line first, so the same sentence is read again if it fails again.
+              setLoadLine("");
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!members || members.length === 0) return null;
   const chosen = members.find((m) => m.id === choice);
@@ -148,6 +205,7 @@ function RingMembers({ roomId }: { roomId: string }) {
       </label>
       <div className="flex flex-wrap gap-2">
         <select
+          ref={fieldRef}
           id={fieldId}
           className={cn(fieldClass, "min-h-[44px] max-w-xs")}
           value={choice}
@@ -176,6 +234,9 @@ function RingMembers({ roomId }: { roomId: string }) {
     </div>
   );
 }
+
+/** Same words as the server's PICKER_FAILED (server/calls/routes.ts). */
+const PICKER_LOAD_FAILED = "We couldn't load who you can call. Try again in a moment.";
 
 function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
   if (!node || !stream || node.srcObject === stream) return;

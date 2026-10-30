@@ -91,9 +91,10 @@ test("incoming call prompt: live line, Join and Decline, the card takes focus, E
   assert.equal(banner.getAttribute("aria-live"), null);
   const line = banner.querySelector("p");
   assert.equal(line.textContent, "Josh is calling you into a room call.");
-  assert.equal(banner.getAttribute("aria-labelledby"), line.id, "named by its line");
+  assert.equal(banner.getAttribute("aria-labelledby"), null, "not named by the sentence");
+  assert.equal(banner.getAttribute("aria-label"), "Incoming call", "a short name of its own");
   const spoken = host.querySelector('p[role="status"]');
-  assert.equal(spoken.getAttribute("aria-live"), "polite");
+  assert.equal(spoken.getAttribute("aria-live"), "assertive", "an incoming ring");
   assert.equal(spoken.getAttribute("aria-atomic"), "true");
   assert.equal(spoken.className, "sr-only");
   assert.equal(spoken.textContent, "Josh is calling you into a room call.");

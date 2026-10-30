@@ -51,7 +51,7 @@ export const DM_CALL_REFUSED = "This member isn't taking messages right now.";
 /** Same words for a block or for someone who can't join this room's call. */
 export const ROOM_RING_REFUSED = "That member can't join this room's call.";
 /** Answering a ring that went away (a block, or you left the room) since it showed. */
-export const RING_GONE = "That call isn't available any more.";
+export const RING_GONE = "That call isn't available anymore.";
 /** Any check that failed for a reason the person can't act on. Never a raw error. */
 export const CALLS_TRY_AGAIN = "Calls aren't working right now. Try again in a moment.";
 /** The picker's member list could not be checked. */

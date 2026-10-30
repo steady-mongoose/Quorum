@@ -147,7 +147,7 @@ const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
 const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
-const { CallPanel } = await import("../../components/board/room-call.tsx");
+const { CallPanel, RoomCall } = await import("../../components/board/room-call.tsx");
 
 const flush = async (n = 20) => {
   for (let i = 0; i < n; i++) await act(async () => new Promise((r) => setTimeout(r, 5)));
@@ -410,9 +410,11 @@ test("a long name is cut on screen, kept in full for screen readers, and wraps a
   ringsReply = [{ id: "r21", kind: "dm", threadId: thread, fromName: name }];
   const { host, root } = await mountRings(ringtoneSpy().fn);
   const line = host.querySelector('section[role="region"] p');
-  assert.ok(line.textContent.endsWith("… is calling you."), line.textContent);
-  assert.ok([...line.textContent.split(" is calling")[0]].length <= 40, "name clamped to 40");
-  assert.equal(line.getAttribute("aria-label"), `${name} is calling you.`);
+  const seen = line.querySelector('span[aria-hidden="true"]');
+  assert.ok(seen.textContent.endsWith("… is calling you."), seen.textContent);
+  assert.ok([...seen.textContent.split(" is calling")[0]].length <= 40, "name clamped to 40");
+  assert.equal(line.querySelector("span.sr-only").textContent, `${name} is calling you.`);
+  assert.equal(line.getAttribute("aria-label"), null, "no aria-label on the line or the card");
   assert.equal(host.querySelector('p[role="status"]').textContent, `${name} is calling you.`);
   assert.match(line.className, /min-w-0/);
   assert.match(line.className, /\[overflow-wrap:anywhere\]/);
@@ -650,7 +652,7 @@ test("S3: Join on a ring that went away (a block, say) opens nothing and says so
   overrides = {
     "/api/calls/rings/r50/dismiss": [
       409,
-      { error: "That call isn't available any more.", record: false },
+      { error: "That call isn't available anymore.", record: false },
     ],
   };
   let went = 0;
@@ -665,7 +667,7 @@ test("S3: Join on a ring that went away (a block, say) opens nothing and says so
     "no join was sent, so no mic",
   );
   assert.equal(went, 0);
-  assert.match(host.textContent, /That call isn't available any more\./);
+  assert.match(host.textContent, /That call isn't available anymore\./);
   assert.equal(
     [...host.querySelectorAll("button")].some((b) => /Leave call|Mute/.test(b.textContent)),
     false,
@@ -674,7 +676,7 @@ test("S3: Join on a ring that went away (a block, say) opens nothing and says so
   await act(async () => root.unmount());
 });
 
-test("S3: a Join refused with a raw or missing error still shows plain words", async () => {
+test("S3: a Join refused with a missing error says calls aren't working, in our words", async () => {
   ringsReply = [{ id: "r51", kind: "room", roomId: "shop", fromName: "Josh" }];
   overrides = { "/api/calls/rings/r51/dismiss": [503, null] };
   let went = 0;
@@ -683,18 +685,178 @@ test("S3: a Join refused with a raw or missing error still shows plain words", a
   await act(async () => button("Join").click());
   await flush();
   assert.equal(went, 0, "the room is not opened");
-  assert.match(host.textContent, /That call isn't available any more\./);
+  assert.match(host.textContent, /Calls aren't working right now\. Try again in a moment\./);
   overrides = {};
   await act(async () => root.unmount());
 });
 
-test("the live line is polite, so a focused ring is not announced twice", async () => {
+test("S3: a refused Join never shows the server's own text, only known sentences", async () => {
+  const raw = 'relation "dm_block" does not exist';
+  for (const [id, status, expected] of [
+    ["r53", 409, "That call isn't available anymore."],
+    ["r54", 503, "Calls aren't working right now. Try again in a moment."],
+    ["r55", 500, "Calls aren't working right now. Try again in a moment."],
+    ["r56", 403, "Calls aren't working right now. Try again in a moment."],
+  ]) {
+    ringsReply = [{ id, kind: "dm", threadId: thread, fromName: "Ann" }];
+    overrides = { [`/api/calls/rings/${id}/dismiss`]: [status, { error: raw, record: false }] };
+    const { host, root, button } = await mountRings(ringtoneSpy().fn);
+    ringsReply = [];
+    await act(async () => button("Join").click());
+    await flush();
+    assert.equal(host.textContent.includes("dm_block"), false, `${status}: raw text hidden`);
+    assert.ok(host.textContent.includes(expected), `${status}: ${host.textContent}`);
+    overrides = {};
+    await act(async () => root.unmount());
+  }
+});
+
+test("M1: the live line is assertive for a ring, polite for missed and ended notices", async () => {
   ringsReply = [{ id: "r52", kind: "dm", threadId: thread, fromName: "Ann" }];
+  settledReply = [{ id: "r52", how: "missed" }];
   const { host, root } = await mountRings(ringtoneSpy().fn);
   const spoken = host.querySelector('p[role="status"]');
-  assert.equal(spoken.getAttribute("aria-live"), "polite");
+  assert.equal(spoken.getAttribute("aria-live"), "assertive", "an incoming ring");
   assert.equal(spoken.getAttribute("aria-atomic"), "true");
-  assert.equal(host.querySelectorAll('[aria-live="assertive"]').length, 0);
+  assert.equal(spoken.textContent, "Ann is calling you.");
+  assert.equal(host.querySelectorAll("[aria-live]").length, 1, "one live region only");
+  // The focused card does not say the sentence again: no live region, no
+  // aria-label or labelledby pointing at the same words.
+  const card = host.querySelector('section[role="region"]');
+  assert.equal(card.contains(spoken), false);
+  assert.equal(card.getAttribute("aria-live"), null);
+  assert.equal(card.getAttribute("aria-labelledby"), null);
+  assert.equal(card.getAttribute("aria-label"), "Incoming call");
+  assert.equal(
+    card.querySelectorAll("[aria-live], [role=status], [role=alert], [aria-label]").length,
+    0,
+  );
+  // The ring goes away unanswered: the missed-call notice is polite.
   ringsReply = [];
+  await waitFor(() => /Missed call from Ann\./.test(spoken.textContent), 7000);
+  assert.match(spoken.textContent, /Ann/);
+  assert.equal(spoken.getAttribute("aria-live"), "polite", "a missed-call notice");
+  assert.equal(host.querySelectorAll("[aria-live]").length, 1);
+  settledReply = [];
   await act(async () => root.unmount());
+});
+
+test("M1: a call-ended notice is polite", async () => {
+  ringsReply = [{ id: "r57", kind: "dm", threadId: thread, fromName: "Ann" }];
+  joinReply = {
+    record: false,
+    selfId: "ada",
+    cursor: 0,
+    ringing: false,
+    peers: [{ id: "ann", name: "Ann", generation: 1 }],
+    iceServers: [],
+  };
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+  const { host, root, button } = await mountRings(ringtoneSpy().fn);
+  const spoken = host.querySelector('p[role="status"]');
+  assert.equal(spoken.getAttribute("aria-live"), "assertive");
+  ringsReply = [];
+  await act(async () => button("Join").click());
+  await waitFor(() => spoken.textContent === "Ann left. The call ended.");
+  assert.equal(spoken.isConnected, true, "the same live line, always mounted");
+  assert.equal(spoken.textContent, "Ann left. The call ended.");
+  assert.equal(spoken.getAttribute("aria-live"), "polite");
+  await act(async () => root.unmount());
+});
+
+test("low 4: the call card drops into the tab bar's space while typing hides the tab bar", () => {
+  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.match(css, /html\[data-keyboard="open"\] \.call-rings\{--tabbar-h:0px\}/);
+  assert.match(css, /:focus\) \.call-rings\{--tabbar-h:0px\}/);
+});
+
+/** The member picker shows once you are in the room call. */
+async function joinRoomCall(host) {
+  joinReply = { record: false, selfId: "ada", cursor: 0, peers: [], iceServers: [] };
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+  await flush();
+  const join = [...host.querySelectorAll("button")].find(
+    (b) => b.textContent.trim() === "Join the call",
+  );
+  assert.ok(join, "the room call's Join shows");
+  await act(async () => join.click());
+  await waitFor(() =>
+    [...host.querySelectorAll("button")].some((b) => b.textContent.trim() === "Leave call"),
+  );
+  await flush();
+}
+
+test("low 3: a picker that fails to load says so with Try again, and Try again reloads it", async () => {
+  const picker = "/api/calls/rooms/shop/ring";
+  const failed = "We couldn't load who you can call. Try again in a moment.";
+  overrides = { [picker]: [503, { canRing: false, members: [], error: failed, record: false }] };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      createElement(
+        SessionContext.Provider,
+        { value: live },
+        createElement(RoomCall, { roomId: "shop" }),
+      ),
+    );
+  });
+  await joinRoomCall(host);
+  const button = (text) =>
+    [...host.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+  const line = [...host.querySelectorAll('p[role="status"]')].find((p) => p.textContent === failed);
+  assert.ok(line, "the failure is a status line");
+  const retry = button("Try again");
+  assert.ok(retry, "Try again shows");
+  assert.match(retry.className, /min-h-\[44px\]/);
+  // Still failing: the picker stays, and the line is set again.
+  await act(async () => retry.click());
+  await flush();
+  assert.ok(button("Try again"), "still there after a second failure");
+  assert.ok(host.textContent.includes(failed));
+  // Now it loads: the list replaces the note and takes focus.
+  overrides = {
+    [picker]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }], record: false }],
+  };
+  await act(async () => button("Try again").click());
+  await flush();
+  assert.equal(button("Try again"), undefined);
+  assert.equal(host.textContent.includes(failed), false);
+  const select = host.querySelector("select");
+  assert.ok(select, "the member list shows");
+  assert.ok([...select.options].some((o) => o.textContent === "Ben"));
+  assert.equal(document.activeElement, select, "focus lands on the list");
+  overrides = {};
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("low 3: someone who can't ring sees no picker, and raw server text never shows", async () => {
+  const picker = "/api/calls/rooms/shop/ring";
+  for (const reply of [
+    [200, { canRing: false, members: [], record: false }],
+    [503, { error: 'relation "dm_block" does not exist', record: false }],
+  ]) {
+    overrides = { [picker]: reply };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        createElement(
+          SessionContext.Provider,
+          { value: live },
+          createElement(RoomCall, { roomId: "shop" }),
+        ),
+      );
+    });
+    await joinRoomCall(host);
+    assert.equal(host.querySelector("select"), null);
+    assert.equal(host.textContent.includes("Try again"), false);
+    assert.equal(host.textContent.includes("dm_block"), false);
+    overrides = {};
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

@@ -450,7 +450,7 @@ test("S3: a block either way mid-ring cancels the ring, and Join from the prompt
   const join = await send(r, "max", `/api/calls/rings/${maxId}/dismiss`, "POST", {});
   assert.equal(join.status, 409, "Join from the prompt is refused");
   assert.equal(join.body.error, RING_GONE);
-  assert.equal(RING_GONE, "That call isn't available any more.");
+  assert.equal(RING_GONE, "That call isn't available anymore.");
   assert.deepEqual((await send(r, "max", "/api/calls/rings")).body.rings, []);
 });
 

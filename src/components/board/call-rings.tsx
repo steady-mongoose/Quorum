@@ -172,13 +172,8 @@ export function CallRings({
     if (!res || !res.ok) {
       returnTo.current = back;
       restoreFocus();
-      const body = res ? await res.json().catch(() => null) : null;
-      const said = (body as { error?: unknown } | null)?.error;
-      setNotice({
-        text:
-          typeof said === "string" && said.length > 0 && said.length <= 200 ? said : JOIN_FAILED,
-        missed: [],
-      });
+      // Known sentences only; server text is never shown as-is.
+      setNotice({ text: joinRefusal(res?.status), missed: [] });
       return;
     }
     if (item.kind === "dm") setInCall({ threadId: item.threadId, fromName: item.fromName });
@@ -216,10 +211,18 @@ export function CallRings({
     return () => document.removeEventListener("keydown", onKey);
   }, [ring]);
 
-  // Always mounted, so screen readers hear text that changes in it.
+  // Always mounted, so screen readers hear text that changes in it. An
+  // incoming ring is assertive; missed-call and ended notices stay polite.
+  // The ring card is named "Incoming call", not by this sentence, so focus
+  // moving to it does not read the sentence a second time.
   const spoken = ring ? ringLine(ring, Infinity) : inCall ? "" : notice.text;
   const live = (
-    <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+    <p
+      role="status"
+      aria-live={ring ? "assertive" : "polite"}
+      aria-atomic="true"
+      className="sr-only"
+    >
       {spoken}
     </p>
   );
@@ -305,7 +308,7 @@ export function CallRings({
           cardRef.current = node;
         }}
         role="region"
-        aria-labelledby={lineId}
+        aria-label={RING_CARD_NAME}
         tabIndex={-1}
         onFocus={(event) => {
           const from = event.relatedTarget;
@@ -315,13 +318,16 @@ export function CallRings({
         }}
         className={cn(CARD, FOCUS_RING)}
       >
-        <p
-          id={lineId}
-          aria-label={shown === full ? undefined : full}
-          className={cn("flex items-center gap-2 font-semibold text-fg", WRAP)}
-        >
+        <p className={cn("flex items-center gap-2 font-semibold text-fg", WRAP)}>
           <PhoneCall className="size-4 shrink-0" aria-hidden="true" />
-          {shown}
+          {shown === full ? (
+            shown
+          ) : (
+            <>
+              <span aria-hidden="true">{shown}</span>
+              <span className="sr-only">{full}</span>
+            </>
+          )}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -357,7 +363,15 @@ export const WRAPPER = "call-rings contents";
 /** The team's script-focus ring (styles.css `.focus-target:focus`), as on the call panel. */
 export const FOCUS_RING = "focus-target";
 
-export const JOIN_FAILED = "That call isn't available any more.";
+export const JOIN_FAILED = "That call isn't available anymore.";
+export const CALLS_TRY_AGAIN = "Calls aren't working right now. Try again in a moment.";
+/** The ring card's own name: short, and not the sentence the live line says. */
+export const RING_CARD_NAME = "Incoming call";
+
+/** A refused Join, in our words: 409 means the ring went away; anything else is a fault. */
+export function joinRefusal(status: number | undefined): string {
+  return status === 409 ? JOIN_FAILED : CALLS_TRY_AGAIN;
+}
 
 export const ESCAPE_HINT = "Press Escape to decline.";
 const NO_NOTICE = { text: "", missed: [] as string[] };
