@@ -111,7 +111,12 @@ test("Save-Data clears the plate's background-image and hides the credit", () =>
     assert.equal(page.credit.display, "none", section);
   }
   assert.equal(render({ section: "groups", view: "group", saveData: true }).ground.backgroundImage, "none");
-  assert.match(block(craft, "(prefers-reduced-data:reduce)"), /\.plate-ground\{background-image:none;animation:none\}/);
+  // Design r145: the reduced-data rule must outrank [data-entered]>.plate-ground (0,2,0), so it carries the same selector.
+  const reduced = block(craft, "(prefers-reduced-data:reduce)");
+  assert.match(reduced, /\[data-entered\]>\.plate-ground\{background-image:none;animation:none\}/);
+  assert.match(reduced, /\.pc-credit\{display:none\}/);
+  const entered = craft.indexOf("[data-entered]>.plate-ground{background:");
+  assert.ok(entered >= 0 && entered < craft.indexOf("@media (prefers-reduced-data:reduce)"), "reduced-data comes after the plate rule");
 });
 
 test("Groups and a group sit under v3's scrim and Groups ink weights", () => {

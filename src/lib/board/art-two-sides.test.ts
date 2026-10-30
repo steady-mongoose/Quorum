@@ -20,7 +20,7 @@ type Panel = { artist: string; work: string; box: [number, number, number, numbe
 /** What each edge of each wide plate shows: source work and crop box (x0, y0, x1, y1, as fractions of the scan). */
 const PLATES: Record<string, { left: Panel; right: Panel }> = {
   "plate-week-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0, 0.45, 0.441, 0.95] },
+    left: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0.109, 0.5, 0.55, 1.0] },
     right: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0.422, 0.055, 0.819, 0.505] },
   },
   "plate-rooms-A-2400.webp": {
@@ -32,8 +32,8 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
   "plate-groups-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0.09, 0.32, 0.451, 0.92] },
-    right: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0.599, 0.28, 0.96, 0.88] },
+    left: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0, 0.29, 0.361, 0.89] },
+    right: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0.639, 0.24, 1.0, 0.84] },
   },
   "plate-group-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "Ruth and Boaz", box: [0, 0.225, 0.492, 0.775] },
@@ -52,8 +52,8 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [0.179, 0.115, 0.621, 0.565] },
   },
   "plate-desk-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0.258, 0, 0.652, 0.45] },
-    right: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0, 0.3, 0.263, 0.6] },
+    left: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0.338, 0, 0.732, 0.45] },
+    right: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0, 0.265, 0.325, 0.636] },
   },
   // The door's plate, already 2400 wide: its left and its right half.
   "martin-hero-A.webp": {

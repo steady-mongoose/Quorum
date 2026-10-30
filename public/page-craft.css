@@ -97,7 +97,7 @@
 @keyframes pc-settle{from{transform:scale(1.06)}to{transform:none}}
 @keyframes pc-fade{from{opacity:.001}}
 /* Save-Data and reduced data: no plate, solid ground, no credit for a picture that is not shown */
-@media (prefers-reduced-data:reduce){.plate-ground{background-image:none;animation:none}.pc-credit{display:none}}
+@media (prefers-reduced-data:reduce){[data-entered]>.plate-ground{background-image:none;animation:none}.pc-credit{display:none}}
 [data-save-data] .plate-ground{background-image:none;animation:none}
 [data-save-data] .pc-card::before{content:none}
 [data-save-data] .pc-credit{display:none}

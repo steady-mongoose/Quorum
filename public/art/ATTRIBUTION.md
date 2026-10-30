@@ -6,7 +6,9 @@ Martin's *Creation of Light* appears on the landing page, the sign-in form, the 
 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
 and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to the
-text colour. They are not upscaled past the source scan. CSS lives in
+text colour. Most are not upscaled past the source scan; a few 2400 panels are, by up to
+about 1.5× (Find left 1.38× and right 1.52×, the room's right 1.35×, the desk's right 1.25×),
+softened by the plates' light blur. CSS lives in
 `public/backgrounds.css` and is loaded as its own stylesheet.
 
 `dore-band-A.webp` and `dore-band-B.webp` are those same colour duotones, resized to
@@ -75,8 +77,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.
 
-Mobile (max-width 640px) uses the 900px-wide band files. Margin plates are desktop only
-(min-width 1024px). `prefers-reduced-data` drops every plate. The section attribute is
+Mobile (max-width 640px) uses the 900px-wide band files. `prefers-reduced-data` drops every plate. The section attribute is
 set after the first paint, so the images are not part of the largest contentful paint.
 The hero band has a fixed height, so the image does not move the layout when it arrives.
 
