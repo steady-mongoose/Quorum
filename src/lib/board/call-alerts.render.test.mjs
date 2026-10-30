@@ -492,8 +492,9 @@ test("the board toast moves up while a call card shows", async () => {
 
 test("the call alert comes first in the Tab order, and the DM note names Avouch Social", () => {
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
-  const shell = app.indexOf('<div className="shell ');
+  const shell = app.search(/<div\s+className="shell /);
   assert.ok(shell > -1);
+  assert.ok(app.indexOf("<CallRings", shell) > -1);
   assert.ok(app.indexOf("<CallRings", shell) < app.indexOf("Skip to content", shell));
   const dm = readFileSync(new URL("../../components/board/dm-call.tsx", import.meta.url), "utf8");
   assert.match(dm, /if they have Avouch Social open\./);
