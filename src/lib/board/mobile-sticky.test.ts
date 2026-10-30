@@ -118,9 +118,9 @@ test("the chip row's top sits at or above the header's bottom", () => {
 
 test("the chip row runs to the screen edge so the next chip peeks in; no fade over chip text", () => {
   const chips = rule(fluid, ".room-chips");
-  assert.match(chips, /margin-inline:-1rem/);
-  assert.match(chips, /padding-inline:1rem/);
-  assert.match(chips, /scroll-padding-inline:1rem/);
+  assert.match(chips, /margin-inline:calc\(-1 \* var\(--gutter-l\)\) calc\(-1 \* var\(--gutter-r\)\)/);
+  assert.match(chips, /padding-inline:var\(--gutter-l\) var\(--gutter-r\)/);
+  assert.match(chips, /scroll-padding-inline:var\(--gutter-l\) var\(--gutter-r\)/);
   assert.match(chips, /scroll-snap-type:x proximity/);
   assert.match(fluid, /\.room-chips>\*\{scroll-snap-align:start;flex:none\}/);
   assert.doesNotMatch(fluid, /\.room-chips[^{]*\{[^}]*(mask|gradient)/);
@@ -134,7 +134,7 @@ test("focused controls clear the tab bar on phones and the chip row on Rooms bel
   );
   assert.match(
     fluid,
-    /@media \(max-width:1023px\)\{html:has\(\.room-chips\)\{scroll-padding-top:calc\(var\(--mast-h\) \+ 3\.75rem \+ \.5rem\)\}\}/,
+    /@media \(max-width:1023px\)\{html:has\(\.room-chips\)\{scroll-padding-top:calc\(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\}\}/,
   );
 });
 
@@ -144,13 +144,18 @@ test("header controls cancel the scroll padding, so focusing them never scrolls 
   assert.match(fluid, /\.mast-bar,\.mast-bar \*\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ \.5rem\)\)\}/);
   assert.match(
     fluid,
-    /@media \(max-width:1023px\)\{html:has\(\.room-chips\) :is\(\.mast-bar,\.mast-bar \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ 3\.75rem \+ \.5rem\)\)\}\}/,
+    /@media \(max-width:1023px\)\{html:has\(\.room-chips\) :is\(\.mast-bar,\.mast-bar \*,\.room-chips,\.room-chips \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\)\}\}/,
   );
   // Every scroll-padding-top on html has a matching cancel on the header.
   const pads = [...fluid.matchAll(/scroll-padding-top:calc\(([^;}]+)\)[;}]/g)].map((m) => m[1]);
   const cancels = [...fluid.matchAll(/scroll-margin-top:calc\(-1 \* \(([^;}]+)\)\)[;}]/g)].map((m) => m[1]);
   assert.ok(pads.length >= 2);
-  assert.deepEqual([...cancels].sort(), [...pads].sort());
+  assert.deepEqual([...new Set(cancels)].sort(), [...new Set(pads)].sort());
+  // The chip-row pad also needs its cancel on the chips themselves, or focusing a chip below 1024px scrolls the
+  // page 1200 to 840 at 390 (QA S2 on #121).
+  assert.match(fluid, /html:has\(\.room-chips\) :is\([^)]*\.room-chips,\.room-chips \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ var\(--chips-h\) \+ \.5rem\)\)\}/);
+  assert.doesNotMatch(fluid, /3\.75rem \+/);
+  assert.match(fluid, /--chips-h:3\.75rem/);
 });
 
 test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {

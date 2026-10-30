@@ -15,17 +15,19 @@ html{-webkit-text-size-adjust:100%}
    are only the first-paint guess. --tabbar-h (the phone tab bar without the home-indicator inset) is declared once,
    in the phone tab bar block below (#119); it is unset on wider screens, where each use keeps its own fallback. */
 :root{--mast-h:70px}
+/* Shared tokens: the chip row height and the page gutter the chip row bleeds through (Design lows on #121). */
+:root{--chips-h:3.75rem;--gutter-l:max(clamp(16px,2vw,28px),env(safe-area-inset-left));--gutter-r:max(clamp(16px,2vw,28px),env(safe-area-inset-right))}
 @media (min-width:768px){:root{--mast-h:84px}}
 /* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
-   clears the sticky chip row too (3.75rem: 44px chips plus py-2). */
+   clears the sticky chip row too (--chips-h, 3.75rem: 44px chips plus py-2). */
 @media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem)}}
-@media (max-width:1023px){html:has(.room-chips){scroll-padding-top:calc(var(--mast-h) + 3.75rem + .5rem)}}
-/* The header's own controls are never "obscured by the header": cancel the scroll padding on them, or focusing a
+@media (max-width:1023px){html:has(.room-chips){scroll-padding-top:calc(var(--mast-h) + var(--chips-h) + .5rem)}}
+/* The header's and the sticky chip row's own controls are never "obscured by the header": cancel the scroll padding on them, or focusing a
    header control (Tab, the desktop More dialog returning focus) scrolls the page (QA B1 on #121, 1200 to 745 at 1280). */
 .mast-bar,.mast-bar *{scroll-margin-top:calc(-1 * (var(--mast-h) + .5rem))}
-@media (max-width:1023px){html:has(.room-chips) :is(.mast-bar,.mast-bar *){scroll-margin-top:calc(-1 * (var(--mast-h) + 3.75rem + .5rem))}}
+@media (max-width:1023px){html:has(.room-chips) :is(.mast-bar,.mast-bar *,.room-chips,.room-chips *){scroll-margin-top:calc(-1 * (var(--mast-h) + var(--chips-h) + .5rem))}}
 /* An open modal dialog or sheet holds the page still behind it. The gutter keeps the page from shifting sideways. */
 html:has(dialog:modal){overflow:hidden;scrollbar-gutter:stable}
 dialog{overscroll-behavior:contain}
@@ -46,7 +48,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   min-width:0;
   width:100%;
   padding:var(--space-3);
-  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
+  padding-inline:var(--gutter-l) var(--gutter-r);
   padding-bottom:var(--space-4);
 }
 .outer-art,.side-art{display:none}
@@ -186,7 +188,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
    sub-pixel sliver where scrolled text showed through (Design, #121). The header paints above at z 40.
    The row runs to the screen edge so the next chip is always cut off, a sign that it scrolls. No fade over
    chip text: text sits only on solid grounds. */
-.room-chips{top:calc(var(--mast-h) - 1px);overscroll-behavior-x:contain;margin-inline:-1rem;padding-inline:1rem;scroll-padding-inline:1rem;scroll-snap-type:x proximity}
+.room-chips{top:calc(var(--mast-h) - 1px);overscroll-behavior-x:contain;margin-inline:calc(-1 * var(--gutter-l)) calc(-1 * var(--gutter-r));padding-inline:var(--gutter-l) var(--gutter-r);scroll-padding-inline:var(--gutter-l) var(--gutter-r);scroll-snap-type:x proximity}
 .room-chips>*{scroll-snap-align:start;flex:none}
 #your-rooms{scroll-margin-top:4.5rem}
 @media (min-width:1024px){#your-rooms{scroll-margin-top:0}}
@@ -302,7 +304,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   margin-inline:auto;
   min-width:0;
   padding-block:0.75rem;
-  padding-inline:max(clamp(16px,2vw,28px),env(safe-area-inset-left)) max(clamp(16px,2vw,28px),env(safe-area-inset-right));
+  padding-inline:var(--gutter-l) var(--gutter-r);
 }
 .mast-brand{
   display:flex;
