@@ -88,7 +88,7 @@ test("EB Garamond is a Latin WOFF2 pair of about 100 KB, and only the roman is p
   assert.match(root, /EBGaramond-latin\.woff2/);
   assert.equal(root.includes("EBGaramond-italic-latin.woff2"), false);
   const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-  assert.match(styles, /font-size:\s*clamp\(16px,\s*0\.95rem \+ 0\.25vw,\s*18px\)/);
+  assert.match(styles, /font-size:\s*clamp\(1rem,\s*0\.95rem \+ 0\.25vw,\s*1\.125rem\)/);
 });
 
 test("reduced data and the first paint skip the art URL", () => {
@@ -200,4 +200,12 @@ test("the public pages' band labels still name the plate", () => {
   assert.equal(heroLabel("landing"), null);
   assert.match(css, /hero-band/);
   assert.match(css, /margin-art/);
+});
+
+test("the root size follows the reader's default, and the door still fits a phone at large defaults", () => {
+  const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles, /html\s*\{[^}]*font-size:[^;]*\dpx/);
+  const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8");
+  assert.match(door, /\n\.door-columns>\*\{min-width:0\}\n/);
+  assert.match(door, /\n\.door-room\{max-width:100%;white-space:normal;overflow-wrap:anywhere\}\n/);
 });

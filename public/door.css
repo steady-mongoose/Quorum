@@ -360,6 +360,9 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 [data-save-data] .plate-ground.door-ground{background-image:none;animation:none}
 @media (prefers-reduced-data:reduce){.plate-ground.door-ground{background-image:none;animation:none}}
 
+/* Large default text: grid items keep min-width:auto, so a long display word widened the phone column past the screen. */
+.door-columns>*{min-width:0}
+.door-room{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 /* Reduced motion: nothing on the door moves. backgrounds.css stops animations on every element and
    pseudo-element; this names the door's own layers too, and pins their transforms flat. */
 @media (prefers-reduced-motion:reduce){

@@ -32,7 +32,7 @@ body{margin:0}
 .gathering-page .plate-ground.door-ground::after { --door-light: 50% 14%; }
 .gathering-page .plate--hero { margin-top: clamp(1.5rem, 8vh, 5rem); }
 /* One card width for the app and the server page, so the plate shows at the sides of both. In px: the app
-   root is 18px and the server page 16px, so 68rem was 1224px in the app and 1088px on the server. */
+   root is up to 1.125x the reader's default (18px at the usual 16px) and the server page 1x (16px), so 68rem was 1224px in the app and 1088px on the server. */
 .gathering-page .shell-body > main { width: min(1088px, 100%); margin-inline: auto; }
 .gathering-plate {
   display: flex;
