@@ -99,7 +99,7 @@ test("outsiders, banned members, and strangers are refused", async () => {
   assert.equal((await send(rt, null, `/api/calls/dm/${thread}/join`, "POST", {})).status, 401);
   const out = await send(rt, "out", `/api/calls/dm/${thread}/join`, "POST", {});
   assert.equal(out.status, 403);
-  assert.match(String(out.body.error), /meeting/);
+  assert.match(String(out.body.error), /^This member isn't taking messages right now\.$/);
   assert.equal((await send(rt, "gone", `/api/calls/dm/${thread}/join`, "POST", {})).status, 404);
   assert.equal((await send(rt, "out", `/api/calls/dm/not-a-thread/join`, "POST", {})).status, 404);
 });

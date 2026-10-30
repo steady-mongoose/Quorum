@@ -33,8 +33,9 @@ export function DmCall({ threadId, otherName }: { threadId: string; otherName: s
       basePath={`/api/calls/dm/${threadId}`}
       selfId={selfId}
       label={`Call with ${otherName}`}
-      note={`Only you and ${otherName} can be in this call. It is not recorded. ${otherName} joins by opening this conversation and choosing Join the call.`}
+      note={`Only you and ${otherName} can be in this call. It is not recorded. When you join, ${otherName} sees an incoming call if they have Avouch Social open.`}
       joinLabel="Join the call"
+      calleeName={otherName}
       onClose={() => setOpen(false)}
     />
   );

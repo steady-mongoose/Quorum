@@ -214,8 +214,11 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
      float over the composer and jump as the page scrolls. They step aside while the visual viewport says the
      keyboard is open (useMastHeight sets data-keyboard), and, as a fallback, while a text field has focus. */
   html[data-keyboard="open"] :is(.tabbar,.session-line){display:none}
+  /* With the tab bar gone, the call card drops into its space instead of floating a tab bar's height up. */
+  html[data-keyboard="open"] .call-rings{--tabbar-h:0px}
   @media (pointer:coarse){
     body:has(:is(textarea,select,[contenteditable="true"],input:not([type="checkbox"],[type="radio"],[type="button"],[type="submit"],[type="reset"],[type="range"],[type="file"],[type="color"],[type="image"])):focus) :is(.tabbar,.session-line){display:none}
+    body:has(:is(textarea,select,[contenteditable="true"],input:not([type="checkbox"],[type="radio"],[type="button"],[type="submit"],[type="reset"],[type="range"],[type="file"],[type="color"],[type="image"])):focus) .call-rings{--tabbar-h:0px}
   }
   .tabbar button{
     flex:1;

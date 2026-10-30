@@ -56,7 +56,10 @@ test("the shell rule leaves the skip link, call rings, 20-minute line and dialog
     assert.ok(rule[1].includes(`:not(${keep})`), `shell rule excludes ${keep}`);
   }
   assert.match(app, /className="skip-link sr-only/);
-  assert.match(rings, /className="call-rings fixed/);
+  // #127: the ring card sits in a box-less `call-rings` wrapper (the shell's direct child),
+  // and the card inside it is position: fixed.
+  assert.match(rings, /WRAPPER = "call-rings contents"/);
+  assert.match(rings, /const CARD =\s*"fixed /);
   assert.match(line, /className="session-line fixed/);
 });
 

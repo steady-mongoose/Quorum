@@ -234,3 +234,234 @@ test("the call page and the relay do not record or use a vendor STUN server", ()
     }
   }
 });
+
+function scripted(polls: unknown[], posted: string[]): CallRequest {
+  return async (path) => {
+    if (!path.includes("?")) {
+      posted.push(path);
+      return { status: 200, body: { ok: true, record: false } };
+    }
+    return {
+      status: 200,
+      body: polls.shift() ?? { peers: [], signals: [], cursor: 0, record: false },
+    };
+  };
+}
+
+test("the other person hanging up ends the call on this side too", async () => {
+  const posted: string[] = [];
+  const ended: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "dm:t",
+    basePath: "/api/calls/dm/t",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    request: scripted([{ peers: [], signals: [], cursor: 0, record: false }], posted),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.syncPeers([{ id: "ben", name: "Ben", generation: 1 }]);
+  await session.pollOnce();
+  assert.deepEqual(ended, ["Ben left. The call ended."]);
+  assert.ok(posted.includes("/api/calls/dm/t/leave"), "this side leaves cleanly");
+  await session.pollOnce();
+  assert.equal(ended.length, 1, "told once");
+});
+
+test("waiting alone is not an ended call; a decline is", async () => {
+  const posted: string[] = [];
+  const ended: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "dm:t",
+    basePath: "/api/calls/dm/t",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    request: scripted(
+      [
+        { peers: [], signals: [], cursor: 0, record: false },
+        {
+          peers: [],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "declined", to: "ben", name: "Ben" }],
+          record: false,
+        },
+      ],
+      posted,
+    ),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.syncPeers([]);
+  await session.pollOnce();
+  assert.deepEqual(ended, [], "still ringing");
+  await session.pollOnce();
+  assert.deepEqual(ended, ["Ben isn't available right now."]);
+  assert.ok(posted.includes("/api/calls/dm/t/leave"));
+});
+
+test("a room ring nobody answers ends the call once no ring is left out", async () => {
+  const ended: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "shop",
+    selfId: "host",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    request: scripted(
+      [
+        {
+          peers: [],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "missed", name: "Ada" }],
+          record: false,
+        },
+      ],
+      [],
+    ),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.pollOnce();
+  assert.deepEqual(ended, ["Ada didn't answer."]);
+});
+
+test("in a room call with others still there, a leave or decline is a note, not the end", async () => {
+  const ended: string[] = [];
+  const notes: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "shop",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    onNote: (message) => notes.push(message),
+    request: scripted(
+      [
+        {
+          peers: [{ id: "cara", name: "Cara", generation: 1 }],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "declined", name: "Dan" }],
+          record: false,
+        },
+      ],
+      [],
+    ),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.syncPeers([
+    { id: "bob", name: "Bob", generation: 1 },
+    { id: "cara", name: "Cara", generation: 1 },
+  ]);
+  await session.pollOnce();
+  assert.deepEqual(ended, []);
+  assert.deepEqual(notes, ["Bob left the call.", "Dan isn't available right now."]);
+  session.close();
+});
+
+test("S2: a room call alone stays open through a decline while another ring is out", async () => {
+  const posted: string[] = [];
+  const ended: string[] = [];
+  const notes: string[] = [];
+  const seen: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "shop",
+    selfId: "host",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    onNote: (message) => notes.push(message),
+    onOutcome: (o) => seen.push(`${o.kind}:${o.name}`),
+    request: scripted(
+      [
+        {
+          peers: [],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "declined", name: "Ben" }],
+          ringsOut: true,
+          record: false,
+        },
+        {
+          peers: [],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "missed", name: "Eve" }],
+          ringsOut: false,
+          record: false,
+        },
+      ],
+      posted,
+    ),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.pollOnce();
+  assert.deepEqual(ended, [], "Eve is still being rung, so the call stays open");
+  assert.deepEqual(notes, ["Ben isn't available right now."]);
+  assert.equal(
+    posted.includes("/api/calls/rooms/shop/leave"),
+    false,
+    "no leave, so Eve's ring stays",
+  );
+  await session.pollOnce();
+  assert.deepEqual(ended, ["Eve didn't answer."], "every ring resolved, nobody else here");
+  assert.deepEqual(seen, ["declined:Ben", "missed:Eve"]);
+});
+
+test("S2: a room call where the last person leaves stays open while a ring is out", async () => {
+  const ended: string[] = [];
+  const notes: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "shop",
+    selfId: "host",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    onNote: (message) => notes.push(message),
+    request: scripted([{ peers: [], signals: [], cursor: 0, ringsOut: true, record: false }], []),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.syncPeers([{ id: "ben", name: "Ben", generation: 1 }]);
+  await session.pollOnce();
+  assert.deepEqual(ended, []);
+  assert.deepEqual(notes, ["Ben left the call."]);
+  session.close();
+});
+
+test("a DM call alone ends on a decline even if the server says a ring is out", async () => {
+  const ended: string[] = [];
+  const session = new RoomCallSession({
+    roomId: "dm:t",
+    basePath: "/api/calls/dm/t",
+    selfId: "ada",
+    cursor: 0,
+    iceServers: [],
+    localStream,
+    onEnded: (message) => ended.push(message),
+    request: scripted(
+      [
+        {
+          peers: [],
+          signals: [],
+          cursor: 0,
+          rings: [{ kind: "declined", name: "Ben" }],
+          ringsOut: true,
+          record: false,
+        },
+      ],
+      [],
+    ),
+    createConnection: () => new FakeConnection(),
+  });
+  await session.pollOnce();
+  assert.deepEqual(ended, ["Ben isn't available right now."]);
+});

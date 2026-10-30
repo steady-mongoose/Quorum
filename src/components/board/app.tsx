@@ -274,6 +274,20 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
       style={themeVars(theme)}
       data-entered={entered ? "true" : undefined}
     >
+      {/* First in the Tab order, so an incoming call is one Tab away. */}
+      {entered ? (
+        <CallRings
+          onGo={(roomId) => {
+            setSection("rooms");
+            setRoom(roomId as Parameters<typeof setRoom>[0]);
+            void navigate({ to: "/rooms" }).then(() =>
+              requestAnimationFrame(() =>
+                focusRoomCall(1000, Date.now(), document.activeElement, true),
+              ),
+            );
+          }}
+        />
+      ) : null}
       <a
         href="#main"
         className="skip-link sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-md focus:bg-signal focus:px-4 focus:text-sm focus:font-semibold focus:text-signal-ink"
@@ -281,17 +295,6 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
         Skip to content
       </a>
       <PrimaryHaptic />
-      {entered ? (
-        <CallRings
-          onGo={(roomId) => {
-            setSection("rooms");
-            setRoom(roomId as Parameters<typeof setRoom>[0]);
-            void navigate({ to: "/rooms" }).then(() =>
-              requestAnimationFrame(() => focusRoomCall()),
-            );
-          }}
-        />
-      ) : null}
       <div className="plate-ground" aria-hidden="true" />
       <div className="scrim" aria-hidden="true" />
       <header className="top mast-bar">

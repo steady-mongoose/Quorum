@@ -1,15 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import {
-  CAMERA_DENIED,
-  MIC_DENIED,
-  liveLine,
-  openMedia,
-} from "@/lib/calls/media";
+import { CAMERA_DENIED, MIC_DENIED, liveLine, openMedia } from "@/lib/calls/media";
 import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
 import { userFacingError } from "@/lib/user-facing-error";
 import { callsAreAvailable, parseCallJoin } from "@/lib/calls/status";
 import { RoomCallSession, type RemotePeer } from "@/lib/calls/session";
+import { emitRingOutcome, onRingOutcome } from "@/lib/calls/rings";
 import { useServerSession } from "@/lib/server-session-state";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -79,16 +75,35 @@ function RingMembers({ roomId }: { roomId: string }) {
   const [choice, setChoice] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The list failed to load for someone allowed to ring: say so and offer Try again. */
+  const [failed, setFailed] = useState(false);
+  const [loadLine, setLoadLine] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const retried = useRef(false);
   const fieldId = useId();
+  const fieldRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch(`/api/calls/rooms/${roomId}/ring`, { credentials: "include", cache: "no-store" })
-      .then(async (response) => (response.ok ? ((await response.json()) as unknown) : null))
-      .then((body) => {
+      .then(async (response) => ({
+        status: response.status,
+        body: (await response.json().catch(() => null)) as unknown,
+      }))
+      .then(({ status, body }) => {
         if (cancelled) return;
-        const row = body as { canRing?: unknown; members?: unknown } | null;
-        if (!row || row.canRing !== true || !Array.isArray(row.members)) {
+        const row = body as { canRing?: unknown; members?: unknown; error?: unknown } | null;
+        // Only the server's own picker failure counts: it is sent after the
+        // host check passed. Anything else (not a host, signed out) hides it.
+        if (status === 503 && row?.error === PICKER_LOAD_FAILED) {
+          setMembers(null);
+          setFailed(true);
+          setLoadLine(PICKER_LOAD_FAILED);
+          return;
+        }
+        setFailed(false);
+        setLoadLine("");
+        if (status !== 200 || !row || row.canRing !== true || !Array.isArray(row.members)) {
           setMembers(null);
           return;
         }
@@ -100,12 +115,59 @@ function RingMembers({ roomId }: { roomId: string }) {
         );
       })
       .catch(() => {
-        if (!cancelled) setMembers(null);
+        if (cancelled) return;
+        if (retried.current) {
+          // Already showing the failure; say it again rather than vanish.
+          setLoadLine(PICKER_LOAD_FAILED);
+        } else {
+          setMembers(null);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [roomId]);
+  }, [roomId, attempt]);
+
+  // After a Try again that worked, the button is gone: put focus on the list.
+  useEffect(() => {
+    if (retried.current && !failed && members && members.length > 0) {
+      retried.current = false;
+      fieldRef.current?.focus();
+    }
+  }, [failed, members]);
+
+  useEffect(
+    () =>
+      // The call's own line now says "Ann isn't available right now." or "Ann didn't answer."
+      onRingOutcome((outcome) =>
+        setStatus((line) => (line.startsWith(`Calling ${outcome.name}.`) ? "" : line)),
+      ),
+    [],
+  );
+
+  if (failed) {
+    return (
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
+        <p className={cn("text-sm text-fg", WRAP)} role="status">
+          {loadLine}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px]")}
+            onClick={() => {
+              retried.current = true;
+              // Empty the line first, so the same sentence is read again if it fails again.
+              setLoadLine("");
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!members || members.length === 0) return null;
   const chosen = members.find((m) => m.id === choice);
@@ -125,7 +187,7 @@ function RingMembers({ roomId }: { roomId: string }) {
       const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
       setStatus(
         response.ok
-          ? `Calling ${chosen.name}. They'll see it for one minute.`
+          ? `Calling ${chosen.name}. It rings for up to a minute.`
           : userFacingError(
               typeof body?.error === "string" ? body.error : "",
               "The call didn't go through.",
@@ -143,6 +205,7 @@ function RingMembers({ roomId }: { roomId: string }) {
       </label>
       <div className="flex flex-wrap gap-2">
         <select
+          ref={fieldRef}
           id={fieldId}
           className={cn(fieldClass, "min-h-[44px] max-w-xs")}
           value={choice}
@@ -172,6 +235,9 @@ function RingMembers({ roomId }: { roomId: string }) {
   );
 }
 
+/** Same words as the server's PICKER_FAILED (server/calls/routes.ts). */
+const PICKER_LOAD_FAILED = "We couldn't load who you can call. Try again in a moment.";
+
 function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
   if (!node || !stream || node.srcObject === stream) return;
   node.srcObject = stream;
@@ -189,7 +255,20 @@ export type CallPanelProps = {
   onClose?: () => void;
   /** DOM id for the Join button, so a ring can send focus to it. */
   joinId?: string;
+  /** Join as soon as the panel opens (Join on an incoming-call alert). */
+  autoJoin?: boolean;
+  /** DM calls: starting the call rings this person. */
+  calleeName?: string;
+  /** The call ended without this person choosing Leave (they hear why). */
+  onEnded?: (message: string) => void;
+  /** This person chose Leave call. */
+  onLeave?: () => void;
 };
+
+/** Long names wrap instead of pushing the card wider than a 390px screen. */
+export const WRAP = "min-w-0 [overflow-wrap:anywhere]";
+
+export const YOU_LEFT = "You left the call.";
 
 export function CallPanel({
   callKey,
@@ -201,6 +280,10 @@ export function CallPanel({
   extra,
   onClose,
   joinId,
+  autoJoin,
+  calleeName,
+  onEnded,
+  onLeave,
 }: CallPanelProps) {
   const [phase, setPhase] = useState<"idle" | "joining" | "live">("idle");
   const [error, setError] = useState("");
@@ -208,6 +291,12 @@ export function CallPanel({
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [notice, setNotice] = useState("");
+  /** How the last call ended, shown once the panel is back to Join. */
+  const [ended, setEnded] = useState("");
+  /** "Calling Ann." or "Ben left the call." while the call goes on. */
+  const [callNote, setCallNote] = useState("");
+  const autoJoined = useRef(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const soundOnlyId = useId();
   const muteRef = useRef<HTMLButtonElement | null>(null);
   const joinRef = useRef<HTMLButtonElement | null>(null);
@@ -254,11 +343,16 @@ export function CallPanel({
     setCameraOn(true);
     setCameraDenied(false);
     setNotice("");
+    setCallNote("");
+    setEnded(YOU_LEFT);
+    onLeave?.();
   };
 
   const join = async () => {
     setError("");
     setNotice("");
+    setEnded("");
+    setCallNote("");
     setPhase("joining");
     const opened = await openMedia((c) => navigator.mediaDevices.getUserMedia(c));
     if (!opened) {
@@ -280,7 +374,7 @@ export function CallPanel({
       credentials: "include",
       cache: "no-store",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: calleeName ? JSON.stringify({ ring: true }) : "{}",
     });
     const body = (await response.json().catch(() => null)) as unknown;
     if (!alive.current) {
@@ -307,7 +401,27 @@ export function CallPanel({
       cursor: joined.cursor,
       iceServers: joined.iceServers,
       localStream: stream,
-      onPeers: (peers) => setRemotes(peers),
+      onPeers: (peers) => {
+        setRemotes(peers);
+        if (peers.length > 0) setCallNote((line) => (line.startsWith("Calling ") ? "" : line));
+      },
+      onNote: (message) => setCallNote(message),
+      onOutcome: (outcome) => emitRingOutcome(outcome),
+      onEnded: (message) => {
+        focusJoin.current = true;
+        stream.getTracks().forEach((track) => track.stop());
+        remember(null);
+        sessionRef.current = null;
+        setRemotes([]);
+        setPhase("idle");
+        setMicOn(true);
+        setCameraOn(true);
+        setCameraDenied(false);
+        setNotice("");
+        setCallNote("");
+        setEnded(message);
+        onEnded?.(message);
+      },
       onStopped: (message) => {
         focusJoin.current = true;
         stream.getTracks().forEach((track) => track.stop());
@@ -327,6 +441,12 @@ export function CallPanel({
       }
       session.start();
       setPhase("live");
+      if (calleeName && joined.ringing && joined.peers.length === 0) {
+        setCallNote(`Calling ${calleeName}. It rings for up to a minute.`);
+      } else if (calleeName && joined.ringError) {
+        // The call is open, but the ring was not sent. Say so plainly.
+        setCallNote(`${calleeName} wasn't rung. ${joined.ringError}`);
+      }
     } catch {
       session.close();
       sessionRef.current = null;
@@ -336,6 +456,17 @@ export function CallPanel({
       setError("The call did not start.");
     }
   };
+
+  useEffect(() => {
+    if (!autoJoin || autoJoined.current) return;
+    autoJoined.current = true;
+    // The alert that opened this panel is gone; hold focus here (not <body>)
+    // until Mute takes it once the call is live.
+    panelRef.current?.focus({ preventScroll: true });
+    void join();
+    // Once, when the panel opens from an incoming-call alert.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoJoin]);
 
   const toggle = (kind: "audio" | "video") => {
     const tracks = localStream?.getTracks().filter((track) => track.kind === kind) ?? [];
@@ -348,19 +479,29 @@ export function CallPanel({
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+      ref={panelRef}
+      tabIndex={autoJoin ? -1 : undefined}
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 focus-target"
       aria-label={label}
     >
-      <p className="text-sm text-muted">{note}</p>
-      <p className="text-sm text-muted" role="status" aria-live="polite">
+      <p className={cn("text-sm text-muted", WRAP)}>{note}</p>
+      <p className={cn("text-sm text-muted", WRAP)} role="status" aria-live="polite">
         {phase === "live"
           ? liveLine(micOn, cameraOn)
           : phase === "joining"
             ? "Joining the call."
-            : ""}
+            : ended}
       </p>
+      {phase === "live" && callNote ? (
+        <p className={cn("text-sm text-fg", WRAP)} role="status">
+          {callNote}
+        </p>
+      ) : null}
       {notice ? (
-        <p id={notice === CAMERA_DENIED ? soundOnlyId : undefined} className="text-sm text-fg">
+        <p
+          id={notice === CAMERA_DENIED ? soundOnlyId : undefined}
+          className={cn("text-sm text-fg", WRAP)}
+        >
           {notice}
         </p>
       ) : null}

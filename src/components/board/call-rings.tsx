@@ -1,23 +1,56 @@
-import { useEffect, useRef, useState } from "react";
-import { PhoneCall } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { PhoneCall, PhoneOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
-import { btnGhost } from "@/components/quorum/bits";
+import { btnGhost, btnSignal } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
-import { useCallsEnabled } from "@/components/board/room-call";
-import { parseRings, type IncomingRing } from "@/lib/calls/rings";
+import { CallPanel, WRAP, useCallsEnabled } from "@/components/board/room-call";
+import {
+  addMissed,
+  missedLine,
+  parseRings,
+  parseSettled,
+  RING_CHANNEL,
+  ringLine,
+  type IncomingRing,
+} from "@/lib/calls/rings";
+import { startRinging } from "@/lib/calls/ringtone";
+
+const CARD =
+  "fixed inset-x-4 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg md:bottom-6";
 
 /**
- * Shows "X is calling you to a room" when a host or steward rings you.
- * Polls every 5 s only while calls are on. Rings vanish after a minute.
+ * The incoming-call prompt: "Ann is calling you." with Join and Decline,
+ * plus a beep and a buzz where the browser allows. A host or steward ringing
+ * you into a room call, or someone starting a call in your conversation,
+ * both land here. Polls every 5 s only while calls are on. Rings vanish
+ * after a minute; one that vanishes unanswered shows as a missed call.
+ * Joining a DM call opens the call right here, over the page.
  */
-export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
-  const { enabled } = useCallsEnabled();
+export function CallRings({
+  onGo,
+  ringtone = startRinging,
+}: {
+  onGo: (roomId: string) => void;
+  /** Tests pass a stub. Returns the function that stops the sound. */
+  ringtone?: () => () => void;
+}) {
+  const { enabled, selfId } = useCallsEnabled();
   const [rings, setRings] = useState<IncomingRing[]>([]);
+  const [inCall, setInCall] = useState<{ threadId: string; fromName: string } | null>(null);
+  /** The call-ended line, or the missed callers (names only, no counts). */
+  const [notice, setNotice] = useState<{ text: string; missed: string[] }>(NO_NOTICE);
+  const handled = useRef(new Set<string>());
+  /** Rings whose Join is in flight: hidden, but not used up yet. */
+  const joining = useRef(new Set<string>());
+  const seen = useRef(new Map<string, IncomingRing>());
   const returnTo = useRef<HTMLElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const lineId = useId();
 
   useEffect(() => {
     if (!enabled) {
       setRings([]);
+      seen.current.clear();
       return;
     }
     let cancelled = false;
@@ -28,7 +61,31 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
           credentials: "include",
           cache: "no-store",
         });
-        if (!cancelled && response.ok) setRings(parseRings(await response.json()));
+        if (!cancelled && response.ok) {
+          const body = (await response.json()) as unknown;
+          const next = parseRings(body).filter(
+            (ring) => !handled.current.has(ring.id) && !joining.current.has(ring.id),
+          );
+          const settled = parseSettled(body);
+          const ids = new Set(next.map((ring) => ring.id));
+          for (const [id, old] of seen.current) {
+            // Only a real miss: not answered or declined in another tab or
+            // device, and not dropped because they left the room.
+            if (
+              !ids.has(id) &&
+              !handled.current.has(id) &&
+              !joining.current.has(id) &&
+              settled.get(id) === "missed"
+            ) {
+              setNotice((now) => {
+                const missed = addMissed(now.missed, old.fromName);
+                return { text: missedLine(missed, Infinity), missed };
+              });
+            }
+          }
+          seen.current = new Map(next.map((ring) => [ring.id, ring]));
+          setRings(next);
+        }
       } catch {
         // Try again on the next poll.
       }
@@ -41,76 +98,345 @@ export function CallRings({ onGo }: { onGo: (roomId: string) => void }) {
     };
   }, [enabled]);
 
-  const ring = rings[0];
-  if (!ring) return null;
+  const ring = inCall ? undefined : rings.find((item) => !handled.current.has(item.id));
+  const ringId = ring?.id;
+  const showing = Boolean(inCall || ring || notice.text);
 
-  const dismiss = (id: string, restore = true) => {
+  useEffect(() => {
+    if (!ringId) return;
+    return ringtone();
+    // One ringtone per ring; a new ring starts it again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ringId]);
+
+  // Lift the board toast (same bottom slot) above whatever card shows here.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const node = cardRef.current;
+    if (!showing || !node) {
+      root.style.removeProperty(CARD_HEIGHT_VAR);
+      return;
+    }
+    const measure = () =>
+      root.style.setProperty(CARD_HEIGHT_VAR, `${Math.ceil(node.offsetHeight) + 12}px`);
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(node);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty(CARD_HEIGHT_VAR);
+    };
+  }, [showing, ringId, inCall, notice.text]);
+
+  const restoreFocus = () => {
     const target = returnTo.current;
     returnTo.current = null;
-    if (restore)
-      requestAnimationFrame(() =>
-        (target?.isConnected ? target : document.getElementById("main"))?.focus(),
-      );
-    setRings((list) => list.filter((item) => item.id !== id));
-    void apiFetch(`/api/calls/rings/${id}/dismiss`, {
+    requestAnimationFrame(() =>
+      (target?.isConnected ? target : document.getElementById("main"))?.focus(),
+    );
+  };
+
+  // Answer or decline in one tab, and the other tabs stop ringing right away.
+  const channel = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    if (!enabled || typeof BroadcastChannel !== "function") return;
+    const ch = new BroadcastChannel(RING_CHANNEL);
+    ch.onmessage = (event: MessageEvent) => {
+      const id = (event.data as { handled?: unknown } | null)?.handled;
+      if (typeof id !== "string") return;
+      handled.current.add(id);
+      setRings((list) => list.filter((row) => row.id !== id));
+    };
+    channel.current = ch;
+    return () => {
+      ch.close();
+      channel.current = null;
+    };
+  }, [enabled]);
+
+  const markHandled = (id: string) => {
+    handled.current.add(id);
+    try {
+      channel.current?.postMessage({ handled: id });
+    } catch {
+      // The other tabs catch up on their next poll.
+    }
+  };
+
+  const settle = (item: IncomingRing, how: "decline", restore: boolean) => {
+    markHandled(item.id);
+    if (restore) restoreFocus();
+    else returnTo.current = null;
+    setRings((list) => list.filter((row) => row.id !== item.id));
+    return apiFetch(`/api/calls/rings/${item.id}/${how}`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
       body: "{}",
-    }).catch(() => undefined);
+    }).catch(() => null);
   };
 
-  return (
-    <section
+  // Join: the server checks the ring still stands (no block since, still in
+  // the room) before anything opens. A refusal shows in plain words instead.
+  // Only a yes or a 409 uses the ring up (here and in other tabs). A 503 or
+  // a network failure leaves it unhandled, so it shows again on the next
+  // good poll while the caller is still ringing.
+  const join = async (item: IncomingRing) => {
+    setNotice(NO_NOTICE);
+    const back = returnTo.current;
+    returnTo.current = null;
+    joining.current.add(item.id);
+    setRings((list) => list.filter((row) => row.id !== item.id));
+    const res = await apiFetch(`/api/calls/rings/${item.id}/dismiss`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }).catch(() => null);
+    joining.current.delete(item.id);
+    if (res && (res.ok || res.status === 409)) markHandled(item.id);
+    if (!res || !res.ok) {
+      returnTo.current = back;
+      restoreFocus();
+      // Known sentences only; server text is never shown as-is.
+      setNotice({ text: joinRefusal(res?.status), missed: [] });
+      return;
+    }
+    if (item.kind === "dm") setInCall({ threadId: item.threadId, fromName: item.fromName });
+    else onGo(item.roomId);
+  };
+
+  // A new ring moves focus to the card itself, never to Join or Decline: a
+  // stray Enter or Space must not join the call and open the mic. While the
+  // person is typing or a dialog is open, focus stays put and only the live
+  // line announces the ring.
+  useEffect(() => {
+    if (!ringId) return;
+    const active = document.activeElement;
+    if (escapeBelongsElsewhere(active)) return;
+    const card = cardRef.current;
+    if (!card) return;
+    if (active instanceof HTMLElement && active !== document.body) returnTo.current = active;
+    card.focus({ preventScroll: true });
+  }, [ringId]);
+
+  // Escape declines from anywhere while a ring shows, except while typing or
+  // inside an open dialog (Escape belongs to those).
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+  useEffect(() => {
+    if (!ring) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (escapeBelongsElsewhere(event.target)) return;
+      event.preventDefault();
+      const inside = cardRef.current?.contains(document.activeElement) ?? false;
+      void settleRef.current(ring, "decline", inside);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [ring]);
+
+  // Always mounted, so screen readers hear text that changes in it. An
+  // incoming ring is assertive; missed-call and ended notices stay polite.
+  // The ring card is named "Incoming call", not by this sentence, so focus
+  // moving to it does not read the sentence a second time.
+  const spoken = ring ? ringLine(ring, Infinity) : inCall ? "" : notice.text;
+  const live = (
+    <p
       role="status"
-      aria-live="polite"
-      aria-label="Incoming call"
-      onFocus={(event) => {
-        const from = event.relatedTarget;
-        if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
-          returnTo.current = from;
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          dismiss(ring.id);
-        }
-      }}
-      className="call-rings fixed inset-x-4 bottom-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+0.75rem)] z-50 mx-auto flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg md:bottom-6"
+      aria-live={ring ? "assertive" : "polite"}
+      aria-atomic="true"
+      className="sr-only"
     >
-      <p className="flex items-center gap-2 font-semibold text-fg">
-        <PhoneCall className="size-4" aria-hidden="true" />
-        {ring.fromName} is calling you to a room call.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
-          onClick={() => {
-            dismiss(ring.id, false);
-            onGo(ring.roomId);
-          }}
-        >
-          Go to the call
-        </button>
-        <button
-          type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
-          onClick={() => dismiss(ring.id)}
-        >
-          Not now
-        </button>
-      </div>
-    </section>
+      {spoken}
+    </p>
   );
+
+  if (inCall && selfId) {
+    const close = () => {
+      setInCall(null);
+      restoreFocus();
+    };
+    return (
+      <div className={WRAPPER}>
+        {live}
+        <div
+          ref={(node) => {
+            cardRef.current = node;
+          }}
+          className={cn(CARD, "max-h-[75dvh] overflow-y-auto p-0")}
+        >
+          <CallPanel
+            key={inCall.threadId}
+            callKey={`dm:${inCall.threadId}`}
+            basePath={`/api/calls/dm/${inCall.threadId}`}
+            selfId={selfId}
+            label={`Call with ${inCall.fromName}`}
+            note={`Only you and ${inCall.fromName} are in this call. It is not recorded.`}
+            joinLabel="Join the call"
+            autoJoin
+            onEnded={(message) => {
+              setNotice({ text: message, missed: [] });
+              close();
+            }}
+            onLeave={close}
+            onClose={close}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (!ring) {
+    if (!notice.text) return <div className={WRAPPER}>{live}</div>;
+    const shown = notice.missed.length ? missedLine(notice.missed) : notice.text;
+    return (
+      <div className={WRAPPER}>
+        {live}
+        <section
+          ref={(node) => {
+            cardRef.current = node;
+          }}
+          role="region"
+          aria-labelledby={lineId}
+          className={CARD}
+        >
+          <p
+            id={lineId}
+            aria-label={shown === notice.text ? undefined : notice.text}
+            className={cn("flex items-center gap-2 font-semibold text-fg", WRAP)}
+          >
+            <PhoneOff className="size-4 shrink-0" aria-hidden="true" />
+            {shown}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px]")}
+              onClick={() => setNotice(NO_NOTICE)}
+            >
+              Close
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const shown = ringLine(ring);
+  const full = ringLine(ring, Infinity);
+  return (
+    <div className={WRAPPER}>
+      {live}
+      <section
+        ref={(node) => {
+          cardRef.current = node;
+        }}
+        role="region"
+        aria-label={RING_CARD_NAME}
+        tabIndex={-1}
+        onFocus={(event) => {
+          const from = event.relatedTarget;
+          if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
+            returnTo.current = from;
+          }
+        }}
+        className={cn(CARD, FOCUS_RING)}
+      >
+        <p className={cn("flex items-center gap-2 font-semibold text-fg", WRAP)}>
+          <PhoneCall className="size-4 shrink-0" aria-hidden="true" />
+          {shown === full ? (
+            shown
+          ) : (
+            <>
+              <span aria-hidden="true">{shown}</span>
+              <span className="sr-only">{full}</span>
+            </>
+          )}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={cn(btnSignal, "min-h-[44px]")}
+            onClick={() => void join(ring)}
+          >
+            <PhoneCall className="size-4" aria-hidden="true" />
+            Join
+          </button>
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px]")}
+            onClick={() => void settle(ring, "decline", true)}
+          >
+            <PhoneOff className="size-4" aria-hidden="true" />
+            Decline
+          </button>
+        </div>
+        <p className="text-sm text-fg">{ESCAPE_HINT}</p>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * A box-less wrapper (display: contents). public/backgrounds.css sets
+ * `.shell>*{position:relative}` on the shell's direct children; the card sits
+ * one level down, so it stays position: fixed and on screen when scrolled.
+ */
+export const WRAPPER = "call-rings contents";
+
+/** The team's script-focus ring (styles.css `.focus-target:focus`), as on the call panel. */
+export const FOCUS_RING = "focus-target";
+
+export const JOIN_FAILED = "That call isn't available anymore.";
+export const CALLS_TRY_AGAIN = "Calls aren't working right now. Try again in a moment.";
+/** The ring card's own name: short, and not the sentence the live line says. */
+export const RING_CARD_NAME = "Incoming call";
+
+/** A refused Join, in our words: 409 means the ring went away; anything else is a fault. */
+export function joinRefusal(status: number | undefined): string {
+  return status === 409 ? JOIN_FAILED : CALLS_TRY_AGAIN;
+}
+
+export const ESCAPE_HINT = "Press Escape to decline.";
+const NO_NOTICE = { text: "", missed: [] as string[] };
+/** Height of the call card plus a gap; the board toast adds it to its bottom offset. */
+export const CARD_HEIGHT_VAR = "--call-card-h";
+
+/** Escape inside a text field, an editable area or an open dialog is theirs, not the ring's. */
+export function escapeBelongsElsewhere(target: EventTarget | null): boolean {
+  if (target instanceof HTMLElement) {
+    if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"))
+      return true;
+    if (target.isContentEditable) return true;
+  }
+  return dialogIsOpen();
+}
+
+/**
+ * True only for a dialog that is actually showing: an open <dialog>, or an
+ * aria-modal element that is not hidden or display: none. Closed dialogs
+ * that stay mounted (Sign out, say) do not count.
+ */
+export function dialogIsOpen(): boolean {
+  const found = document.querySelectorAll<HTMLElement>("dialog[open], [aria-modal='true']");
+  for (const el of found) {
+    if (el.tagName === "DIALOG" && !(el as HTMLDialogElement).open) continue;
+    if (el.closest("[hidden], [inert]")) continue;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") continue;
+    return true;
+  }
+  return false;
 }
 
 export const ROOM_CALL_STATUS_ID = "room-call-status";
 export const CALL_STARTING_TEXT = "The call is starting. Join will appear here.";
 
 /**
- * After "Go to the call" lands on /rooms: focus the call's Join button.
+ * After Join on a room ring lands on /rooms: focus the call's Join button,
+ * and press it when `press` is set (the person already chose Join).
  * The button appears once /api/calls/status answers, so check every 50 ms
  * (setTimeout, so the deadline holds in a background tab) for up to about a
  * second, then fall back to the room heading and say why. If the user has
@@ -120,12 +446,14 @@ export function focusRoomCall(
   waitMs = 1000,
   startedAt = Date.now(),
   from: Element | null = document.activeElement,
+  press = false,
 ): void {
   const now = document.activeElement;
   if (now !== from && now !== document.body) return;
   const join = document.getElementById("room-call-join");
   if (join) {
     join.focus();
+    if (press && join instanceof HTMLButtonElement && !join.disabled) join.click();
     return;
   }
   if (Date.now() - startedAt >= waitMs) {
@@ -134,5 +462,5 @@ export function focusRoomCall(
     document.getElementById("room-heading")?.focus();
     return;
   }
-  setTimeout(() => focusRoomCall(waitMs, startedAt, from), 50);
+  setTimeout(() => focusRoomCall(waitMs, startedAt, from, press), 50);
 }

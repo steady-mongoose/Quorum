@@ -827,7 +827,7 @@ test("the removal error is one alert with a dismiss control, and the card can be
   assert.match(app, /userFacingError/);
   assert.match(app, /shown !== "find"/);
   assert.equal(find.includes("{boardError ? ("), false);
-  assert.match(find, /lg:bottom-6/);
+  assert.match(find, /md:bottom-\[calc\(1\.5rem\+var\(--call-card-h,0px\)\)\]/);
   assert.match(find, /env\(safe-area-inset-bottom\)/);
   assert.match(find, /border-danger text-danger/);
   assert.match(find, /role="status"/);
