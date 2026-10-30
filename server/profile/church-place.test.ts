@@ -1,0 +1,423 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import test from "node:test";
+import { PGlite } from "@electric-sql/pglite";
+import { isSkipEmbedded, pendingMigrations } from "../../scripts/migration-plan.mjs";
+import { openTestDb } from "../closed-test/test-db.ts";
+import { createApp, type AppDeps } from "../http.ts";
+import type { Db } from "../db.ts";
+import { trustAuthenticator } from "../mfa/test-trust.ts";
+import type { PickedPlace, PlaceLookup } from "../places/lookup.ts";
+import { parseChurchPlace } from "./store.ts";
+
+const MIGRATION = "0048_church_place.sql";
+const now = new Date("2026-10-29T23:00:00Z");
+const dir = new URL("../../migrations/", import.meta.url);
+
+async function freshPg(skip: string[] = []): Promise<PGlite> {
+  const pg = new PGlite();
+  await pg.waitReady;
+  const names = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
+  for (const name of names) {
+    if (skip.includes(name)) continue;
+    const sql = await readFile(new URL(name, dir), "utf8");
+    if (isSkipEmbedded(sql)) continue;
+    await pg.exec(sql);
+  }
+  // As in openTestDb (#119): these members count as 18+ confirmed, so the age
+  // gate does not answer 403 age_required. Production has no such default.
+  if (!skip.includes("0047_age_attestation.sql")) {
+    await pg.exec(`alter table "user" alter column age_confirmed_at set default now()`);
+  }
+  return pg;
+}
+
+function asDb(pg: PGlite): Db {
+  const adapter = (queryable: {
+    query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+    transaction?: PGlite["transaction"];
+  }): Db => ({
+    async query<T>(text: string, params: unknown[] = []) {
+      return (await queryable.query(text, params)).rows as T[];
+    },
+    async transaction<T>(fn: (tx: Db) => Promise<T>) {
+      if (!queryable.transaction) throw new Error("no transaction");
+      return queryable.transaction(async (tx) => fn(adapter(tx)));
+    },
+    async session<T>(fn: (db: Db) => Promise<T>) {
+      return fn(adapter(queryable));
+    },
+  });
+  return adapter(pg);
+}
+
+/** Places "returned by" each member's own search, as the server saw them. */
+const SEEN: Record<string, PickedPlace[]> = {
+  ann: [
+    { ref: "node/358757062", name: "Epiphany of Our Lord", address: "Jackson Road, Florida 33592" },
+    { ref: "node/1", name: "Epiphany of Our Lord", address: "1 Main Street" },
+  ],
+};
+
+function fakePlaces(seen: Record<string, PickedPlace[]> = SEEN): PlaceLookup {
+  return {
+    search: async () => ({ ok: true, places: [] }),
+    picked: (memberId, ref) => seen[memberId]?.find((place) => place.ref === ref) ?? null,
+    inspect: () => ({ cacheKeys: [], limiterKeys: [], pickKeys: [] }),
+  };
+}
+
+function app(db: Db, places: PlaceLookup | null = fakePlaces()) {
+  const sessions = new Map<string, Promise<string>>();
+  return createApp({
+    db,
+    origins: ["http://localhost:8080"],
+    now: () => now,
+    createAccount: async () => ({ id: "unused" }),
+    signIn: async () => ({ ok: false, status: 500, message: "unused" }),
+    readSession: async (headers) => {
+      const id = headers.get("x-user-id");
+      if (!id) return null;
+      let session = sessions.get(id);
+      if (!session) {
+        session = trustAuthenticator(db, id);
+        sessions.set(id, session);
+      }
+      return { id, name: "Ann", email: "ann@example.com", sessionId: await session };
+    },
+    forwardAuth: async () => new Response(null, { status: 500 }),
+    ...(places ? { places } : {}),
+  } satisfies AppDeps);
+}
+
+async function member(db: Db, id: string) {
+  await db.query(
+    `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+     values ($1, 'Ann Vale', $2, true, $3, $3)`,
+    [id, `${id}@example.com`, now],
+  );
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, 'Ann Vale', 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $3)`,
+    [randomUUID(), id, now],
+  );
+  await db.query(
+    `insert into members (user_id, display_name, gender) values ($1, 'Ann Vale', 'woman')`,
+    [id],
+  );
+}
+
+function patch(handler: (request: Request) => Promise<Response>, id: string, body: unknown) {
+  return handler(
+    new Request("http://127.0.0.1:8787/api/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-user-id": id },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("0048 is the last pending migration and applies twice", async () => {
+  const names = (await readdir(dir)).filter((name) => name.endsWith(".sql"));
+  const plan = pendingMigrations(
+    names,
+    names.filter((name) => name !== MIGRATION),
+  );
+  assert.deepEqual(
+    plan.map((row) => row.name),
+    [MIGRATION],
+  );
+  const sql = await readFile(new URL(MIGRATION, dir), "utf8");
+  assert.match(sql, /must approve this file before it is applied/);
+  assert.match(sql, /Rollback/);
+  assert.match(sql, /drop column if exists church_osm_ref/);
+  assert.equal(isSkipEmbedded(sql), false);
+  const pg = await freshPg();
+  try {
+    await pg.exec(sql);
+    const columns = await pg.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_name = 'members' and column_name in ('church_osm_ref', 'church_address')
+       order by column_name`,
+    );
+    assert.deepEqual(
+      columns.rows.map((row) => row.column_name),
+      ["church_address", "church_osm_ref"],
+    );
+  } finally {
+    await pg.close();
+  }
+});
+
+test("0048's rollback drops its columns and its _migrations row, so it can be applied again (QA S3-3)", async () => {
+  const sql = await readFile(new URL(MIGRATION, dir), "utf8");
+  const lines = sql.split("\n");
+  const start = lines.findIndex((line) => /^--\s+begin;$/.test(line));
+  const end = lines.findIndex((line, i) => i > start && /^--\s+commit;$/.test(line));
+  assert.ok(start >= 0 && end > start, "the rollback block is in the header");
+  const rollback = lines.slice(start, end + 1).map((line) => line.replace(/^--\s+/, "")).join("\n");
+  assert.match(rollback, /delete from _migrations where name = '0048_church_place\.sql';/);
+  const pg = await freshPg();
+  try {
+    await pg.exec(
+      "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    );
+    await pg.query("insert into _migrations (name) values ($1)", [MIGRATION]);
+    await pg.exec(rollback);
+    const left = await pg.query(
+      `select column_name from information_schema.columns
+       where table_name = 'members' and column_name in ('church_osm_ref', 'church_address')`,
+    );
+    assert.equal(left.rows.length, 0);
+    assert.equal((await pg.query("select 1 from _migrations where name = $1", [MIGRATION])).rows.length, 0);
+    await pg.exec(sql);
+    const back = await pg.query(
+      `select column_name from information_schema.columns
+       where table_name = 'members' and column_name in ('church_osm_ref', 'church_address')`,
+    );
+    assert.equal(back.rows.length, 2);
+  } finally {
+    await pg.close();
+  }
+});
+
+test("0048 refuses a bad reference and an address with no reference", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    await db.query(
+      `update members set church = 'Grace', church_osm_ref = 'way/42', church_address = 'Brandon' where user_id = 'ann'`,
+    );
+    await assert.rejects(
+      db.query(`update members set church_osm_ref = 'node/abc' where user_id = 'ann'`),
+    );
+    await assert.rejects(
+      db.query(
+        `update members set church_osm_ref = null, church_address = 'Brandon' where user_id = 'ann'`,
+      ),
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a picked church saves its reference and reads back on the map; a typed one clears it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    const handler = app(db);
+    const picked = await patch(handler, "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+    });
+    const pickedText = await picked.text();
+    assert.equal(picked.status, 200, pickedText);
+    assert.deepEqual(JSON.parse(pickedText).profile.churchPlace, {
+      ref: "node/358757062",
+      address: "Jackson Road, Florida 33592",
+    });
+    const stored = await db.query<{ church_osm_ref: string | null; church_address: string }>(
+      `select church_osm_ref, church_address from members where user_id = 'ann'`,
+    );
+    assert.deepEqual(stored[0], {
+      church_osm_ref: "node/358757062",
+      church_address: "Jackson Road, Florida 33592",
+    });
+    const typed = await patch(handler, "ann", { church: "My home church" });
+    const typedBody = JSON.parse(await typed.text()) as {
+      profile: { church: string; churchPlace?: unknown };
+    };
+    assert.equal(typedBody.profile.church, "My home church");
+    assert.equal(typedBody.profile.churchPlace, undefined);
+    const bad = await patch(handler, "ann", { church: "X Church", churchPlace: { ref: "node/0" } });
+    assert.equal(bad.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+test("the server takes the church name and address from OpenStreetMap, not from the browser", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    await member(db, "eve");
+    const handler = app(db);
+    // A real reference with a made-up name and address: both are replaced.
+    const spoof = await patch(handler, "ann", {
+      church: "Somebody Else's Church",
+      churchPlace: { ref: "node/358757062", address: "1 Fake Street, Anywhere" },
+    });
+    const spoofText = await spoof.text();
+    assert.equal(spoof.status, 200, spoofText);
+    const spoofBody = JSON.parse(spoofText) as {
+      profile: { church: string; churchPlace?: { ref: string; address?: string } };
+      churchPlaceNote?: string;
+    };
+    assert.equal(spoofBody.profile.church, "Epiphany of Our Lord");
+    assert.deepEqual(spoofBody.profile.churchPlace, {
+      ref: "node/358757062",
+      address: "Jackson Road, Florida 33592",
+    });
+    assert.equal(spoofBody.churchPlaceNote, undefined);
+    const stored = await db.query<{ church: string; church_address: string }>(
+      `select church, church_address from members where user_id = 'ann'`,
+    );
+    assert.deepEqual(stored[0], {
+      church: "Epiphany of Our Lord",
+      church_address: "Jackson Road, Florida 33592",
+    });
+
+    // Eve never searched, so a reference she sends is not confirmed. The
+    // church saves as typed, with no reference and no address.
+    const unseen = await patch(handler, "eve", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+    });
+    const unseenText = await unseen.text();
+    assert.equal(unseen.status, 200, unseenText);
+    const unseenBody = JSON.parse(unseenText) as {
+      profile: { church: string; churchPlace?: unknown };
+      churchPlaceNote?: string;
+    };
+    assert.equal(unseenBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(unseenBody.profile.churchPlace, undefined);
+    assert.equal(unseenBody.churchPlaceNote, "not-confirmed");
+    const eve = await db.query<{ church_osm_ref: string | null; church_address: string }>(
+      `select church_osm_ref, church_address from members where user_id = 'eve'`,
+    );
+    assert.deepEqual(eve[0], { church_osm_ref: null, church_address: "" });
+  } finally {
+    await close();
+  }
+});
+
+test("with place search off, a sent reference is not kept", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    const off = await patch(app(db, null), "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+    });
+    const body = JSON.parse(await off.text()) as {
+      profile: { churchPlace?: unknown };
+      churchPlaceNote?: string;
+    };
+    assert.equal(off.status, 200);
+    assert.equal(body.profile.churchPlace, undefined);
+    assert.equal(body.churchPlaceNote, "not-confirmed");
+  } finally {
+    await close();
+  }
+});
+
+test("before 0048 is applied, profiles still read and typed churches still save", async () => {
+  const pg = await freshPg([MIGRATION]);
+  try {
+    const db = asDb(pg);
+    await member(db, "ann");
+    const handler = app(db);
+    const typed = await patch(handler, "ann", { church: "My home church" });
+    assert.equal(typed.status, 200, await typed.text());
+    // A picked place still saves the church name; the place is left out
+    // until 0048 is applied, and the save does not fail.
+    const picked = await patch(handler, "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/1", address: "1 Main Street" },
+    });
+    const pickedText = await picked.text();
+    assert.equal(picked.status, 200, pickedText);
+    const pickedBody = JSON.parse(pickedText) as {
+      profile: { church: string; churchPlace?: unknown };
+      churchPlaceNote?: string;
+    };
+    assert.equal(pickedBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(pickedBody.profile.churchPlace, undefined);
+    assert.equal(pickedBody.churchPlaceNote, "not-ready");
+    const read = await handler(
+      new Request("http://127.0.0.1:8787/api/profile", { headers: { "x-user-id": "ann" } }),
+    );
+    assert.equal(read.status, 200);
+    const readBody = (await read.json()) as { profile: { church: string; churchPlace?: unknown } };
+    assert.equal(readBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(readBody.profile.churchPlace, undefined);
+  } finally {
+    await pg.close();
+  }
+});
+
+test("others see the church address only where they may see Location", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    await db.query(`insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ('bob', 'Bob Reed', 'bob@example.com', true, $1, $1)`, [now]);
+    await db.query(
+      `insert into access_log
+       (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, 'bob', 'Bob Reed', 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', $2)`,
+      [randomUUID(), now],
+    );
+    await db.query(`insert into members (user_id, display_name, gender) values ('bob', 'Bob Reed', 'man')`);
+    const handler = app(db);
+    const saved = await patch(handler, "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+      location: { county: "hillsborough", town: "brandon" },
+      visibility: { church: "members", location: "private" },
+    });
+    assert.equal(saved.status, 200, await saved.text());
+    const view = async () => {
+      const response = await handler(
+        new Request("http://127.0.0.1:8787/api/profile/ann", { headers: { "x-user-id": "bob" } }),
+      );
+      const text = await response.text();
+      assert.equal(response.status, 200, text);
+      return (JSON.parse(text) as {
+        profile: { church?: string; churchPlace?: unknown; location?: unknown };
+      }).profile;
+    };
+    const raw = async () =>
+      (await handler(
+        new Request("http://127.0.0.1:8787/api/profile/ann", { headers: { "x-user-id": "bob" } }),
+      )).text();
+    const hidden = await view();
+    assert.equal(hidden.church, "Epiphany of Our Lord");
+    assert.equal(hidden.location, undefined);
+    // QA r5707306306 S3-1: with the address hidden, no OSM reference or link
+    // reaches another member, since the reference leads to the address.
+    assert.deepEqual(hidden.churchPlace, { onMap: true });
+    const hiddenText = await raw();
+    assert.doesNotMatch(hiddenText, /358757062/);
+    assert.doesNotMatch(hiddenText, /openstreetmap\.org/);
+    assert.doesNotMatch(hiddenText, /Jackson Road/);
+    // The member still sees their own reference.
+    const own = await handler(
+      new Request("http://127.0.0.1:8787/api/profile", { headers: { "x-user-id": "ann" } }),
+    );
+    assert.match(await own.text(), /node\/358757062/);
+    const opened = await patch(handler, "ann", { visibility: { location: "members" } });
+    assert.equal(opened.status, 200, await opened.text());
+    const shown = await view();
+    assert.deepEqual(shown.churchPlace, {
+      ref: "node/358757062",
+      address: "Jackson Road, Florida 33592",
+    });
+  } finally {
+    await close();
+  }
+});
+
+test("churchPlace parsing", () => {
+  assert.deepEqual(parseChurchPlace(null), { ok: true, value: null });
+  // Any address sent is dropped; the server fills it in from its own search.
+  assert.deepEqual(parseChurchPlace({ ref: "relation/7", address: "  a  b " }), {
+    ok: true,
+    value: { ref: "relation/7" },
+  });
+  assert.equal(parseChurchPlace({ ref: "node/01" }).ok, false);
+  assert.equal(parseChurchPlace({ ref: "shop/1" }).ok, false);
+  assert.equal(parseChurchPlace("node/1").ok, false);
+});

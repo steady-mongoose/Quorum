@@ -202,7 +202,7 @@ test("the hint copy is exactly what Design approved", () => {
     tradeWork: "The trade, and the kind of work they take.",
     needWhat: "What would help, and by when.",
     household: "Your family name, as neighbors would say it.",
-    church: "The full name of the church you attend.",
+    church: "Start typing the name, then choose your church from the list. If it is not there, choose Not listed.",
     trade: "Your work, in a word or two. Leave it blank if you like.",
     pages: "Chapters or pages, as you would say them aloud.",
     roomAddress: "Lowercase letters, numbers and hyphens. This becomes the room's web address.",
@@ -264,4 +264,28 @@ test("a new board starts empty, and each empty view says what to do next", () =>
   assert.ok(find.includes('"Nothing is listed yet. Add the first card under List a card."'));
   const room = readFileSync("src/components/board/room-view.tsx", "utf8");
   assert.ok(room.includes("Nothing coming up in this room inside two weeks."));
+});
+
+test("Church has its own profile row, its note claims no display, and the house ring is unlayered (Design r148)", () => {
+  const profile = readFileSync("src/components/board/profile-view.tsx", "utf8");
+  assert.match(
+    profile,
+    /CHURCH_ADDRESS_NOTE =\s*"Kept with your account\. When church shows on profiles, the address will show only where your location does\.";/,
+  );
+  assert.doesNotMatch(profile, /Others see the church/);
+  // Design low 1: a two-column grid; Name, Church and the status lines span it.
+  assert.match(profile, /<div className="mt-2 grid max-w-2xl gap-3 sm:grid-cols-2">/);
+  assert.match(profile, /<div className="sm:col-span-2">\s*<PlaceSearch\s+label="Church"/);
+  assert.doesNotMatch(profile, /sm:col-span-3|max-w-xl/);
+  assert.equal(profile.split('<p role="status" className="text-sm text-muted sm:col-span-2">').length - 1, 2);
+  const search = readFileSync("src/components/board/place-search.tsx", "utf8");
+  assert.match(search, /const describedBy = \[hintId, picked \? onMapId : ""\]/);
+  assert.match(search, /<p id=\{hintId\} className="text-xs text-muted">/);
+  assert.ok(search.indexOf("<input") < search.indexOf("<p id={hintId}"), "the Church hint sits below its input");
+  // One copy of the house ring: #117 put it, unlayered, in src/styles.css.
+  assert.doesNotMatch(readFileSync("public/fluid.css", "utf8"), /focus-target/);
+  assert.match(
+    readFileSync("src/styles.css", "utf8"),
+    /\.focus-target:focus,\s*\[data-focus-ring\]:focus \{\s*outline: 2px solid currentColor;\s*outline-offset: 2px;/,
+  );
 });

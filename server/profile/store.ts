@@ -9,6 +9,7 @@ import { parseInterests, type InterestId } from "./interests.ts";
 import { parseLinks, type ProfileLink } from "./links.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER, adminsOnlyVisibilityEnabled } from "./permissions.ts";
 import { parseLocation } from "./towns.ts";
+import { OSM_REF_PATTERN, type PickedPlace } from "../places/lookup.ts";
 import {
   PROFILE_FIELDS,
   parseVisibilityLevel,
@@ -25,6 +26,14 @@ type Parsed = {
   birthdate?: string;
   location?: { county: string; town: string };
   church?: string;
+  /**
+   * Null clears a picked place, so the church reads as typed. Only the
+   * reference comes from the browser; the name and address are filled in
+   * from the member's own search results before anything is written.
+   */
+  churchPlace?: { ref: string } | null;
+  /** Filled in by saveProfile from the confirmed place. Never parsed from the body. */
+  churchAddress?: string;
   interests?: InterestId[];
   links?: ProfileLink[];
   visibility?: Partial<Record<ProfileField, VisibilityLevel>>;
@@ -52,6 +61,47 @@ function shortText(
   }
   return { ok: true, text };
 }
+
+/** True once 0048 has added members.church_osm_ref and members.church_address. */
+export async function churchPlaceReady(db: Db): Promise<boolean> {
+  const rows = await db.query<{ present: number }>(
+    `select 1 as present from information_schema.columns
+     where table_schema = current_schema() and table_name = 'members'
+       and column_name in ('church_osm_ref', 'church_address')
+     having count(*) = 2`,
+  );
+  return Boolean(rows[0]);
+}
+
+/**
+ * A picked OpenStreetMap place: { ref: "node/123" }. Null clears it. Any
+ * address the browser sends is ignored; the server fills it in from the
+ * member's own search results (see resolveChurchPlace).
+ */
+export function parseChurchPlace(
+  raw: unknown,
+): { ok: true; value: { ref: string } | null } | Refusal {
+  if (raw === null) return { ok: true, value: null };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return refusal(400, "Choose a place from the list, or type the church in.");
+  }
+  const { ref } = raw as Record<string, unknown>;
+  if (typeof ref !== "string" || !OSM_REF_PATTERN.test(ref)) {
+    return refusal(400, "Choose a place from the list, or type the church in.");
+  }
+  return { ok: true, value: { ref } };
+}
+
+/** Looks up a reference among the places this member's own searches returned. */
+export type ResolvePlace = (ref: string) => PickedPlace | null;
+
+/**
+ * Why a picked place was not kept on a save that sent one:
+ * - "not-confirmed": the reference was not among this member's recent search
+ *   results (or place search is off), so the church is saved as typed.
+ * - "not-ready": 0048 is not applied, so only the name is saved.
+ */
+export type ChurchPlaceNote = "not-confirmed" | "not-ready";
 
 export function parseProfilePatch(
   body: Record<string, unknown>,
@@ -98,6 +148,15 @@ export function parseProfilePatch(
     const parsed = shortText(body.church, "church", 120, "allow");
     if (!parsed.ok) return parsed;
     value.church = parsed.text;
+  }
+  if ("churchPlace" in body) {
+    const place = parseChurchPlace(body.churchPlace);
+    if (!place.ok) return place;
+    if (place.value && !value.church) return refusal(400, "Enter the church name with the place.");
+    value.churchPlace = place.value;
+  } else if ("church" in body) {
+    // A new church name without a picked place is a typed entry.
+    value.churchPlace = null;
   }
   if ("interests" in body) {
     const interests = parseInterests(body.interests);
@@ -240,9 +299,27 @@ export async function saveProfile(
   body: Record<string, unknown>,
   now: Date,
   mode: "patch" | "onboard",
-): Promise<ProfileViewResult> {
+  resolvePlace?: ResolvePlace,
+): Promise<ProfileViewResult & { churchPlaceNote?: ChurchPlaceNote }> {
   const parsed = parseProfilePatch(body);
   if (!parsed.ok) return parsed;
+  let churchPlaceNote: ChurchPlaceNote | undefined;
+  const place = parsed.value.churchPlace;
+  if (place) {
+    // The name and address shown "on the map" come from OpenStreetMap via
+    // this member's own search, never from the browser. A reference the
+    // server cannot confirm is dropped and the church is kept as typed: a
+    // member cannot pin a name or an address of their own to a real place.
+    const found = resolvePlace?.(place.ref) ?? null;
+    if (found) {
+      parsed.value.church = found.name;
+      parsed.value.churchPlace = { ref: found.ref };
+      parsed.value.churchAddress = found.address;
+    } else {
+      parsed.value.churchPlace = null;
+      churchPlaceNote = "not-confirmed";
+    }
+  }
   const actor = await actorRole(db, userId);
   if (!actor.member) return refusal(403, "Only a member can do that.");
   const ban = await openBan(db, userId, now);
@@ -295,6 +372,20 @@ export async function saveProfile(
       if (next.church !== undefined) {
         await tx.query(`update members set church = $2 where user_id = $1`, [userId, next.church]);
       }
+      if (next.churchPlace !== undefined) {
+        // The columns come from 0048. Until it is applied, the church name
+        // still saves and the picked place is left out, so a profile save
+        // never fails on a missing column. The answer then has no churchPlace,
+        // and the browser keeps the pick on that device.
+        if (await churchPlaceReady(tx)) {
+          await tx.query(
+            `update members set church_osm_ref = $2, church_address = $3 where user_id = $1`,
+            [userId, next.churchPlace?.ref ?? null, next.churchPlace ? (next.churchAddress ?? "") : ""],
+          );
+        } else if (next.churchPlace) {
+          churchPlaceNote = "not-ready";
+        }
+      }
       if (next.interests) {
         await tx.query(`update members set interests = $2::text[] where user_id = $1`, [
           userId,
@@ -338,7 +429,8 @@ export async function saveProfile(
     if (error instanceof Rollback) return refusal(error.status, error.message);
     throw error;
   }
-  return profileView(db, { id: userId }, { id: userId }, now);
+  const view = await profileView(db, { id: userId }, { id: userId }, now);
+  return view.ok && churchPlaceNote ? { ...view, churchPlaceNote } : view;
 }
 
 export async function churchSuggestions(db: Db): Promise<string[]> {

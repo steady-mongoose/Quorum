@@ -16,6 +16,7 @@ import { warnMissingMfaKey } from "./mfa/secret.ts";
 import { warnInvalidClaimFrom } from "./board/claims.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 import { startNightlyStats } from "./stats/schedule.ts";
+import { createPlaceLookup, readPlaceLookupConfig } from "./places/lookup.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name];
@@ -121,6 +122,7 @@ export function startHost(): void {
     forwardAuth: (request) => auth.handler(request),
     media: { config: mediaConfig, store: mediaStore, now },
     calls: { config: callsConfig, store: callStore, now },
+    places: createPlaceLookup({ config: readPlaceLookupConfig(process.env), fetch: globalThis.fetch }),
   });
   const sweep = setInterval(
     () => {

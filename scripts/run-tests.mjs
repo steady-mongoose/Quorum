@@ -192,6 +192,10 @@ const appTests = [
   "server/chat/store.test.ts",
   "server/chat/join-chat.test.ts",
   "server/chat/http.test.ts",
+  "server/places/lookup.test.ts",
+  "server/places/http.test.ts",
+  "server/profile/church-place.test.ts",
+  "src/lib/places/place-search.render.test.mjs",
 ];
 
 const suites = [

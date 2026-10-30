@@ -7,7 +7,20 @@ import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { MfaSettings } from "@/components/board/mfa-ui";
+import { PlaceSearch } from "@/components/board/place-search";
 import { useServerSession } from "@/lib/server-session-state";
+import { loadAccountChurch, saveAccountChurch } from "@/lib/places/client";
+
+/**
+ * Shown under a picked church. Other members do not see church yet (Design
+ * r148 N1, option b), so this says only what is true today.
+ */
+export const CHURCH_ADDRESS_NOTE =
+  "Kept with your account. When church shows on profiles, the address will show only where your location does.";
+
+function churchKey(name: string, place: { ref: string; address: string } | null): string {
+  return JSON.stringify([name.trim(), place?.ref ?? "", place?.address ?? ""]);
+}
 
 /**
  * Household, church, trade, plus who you have met, what you host, and
@@ -26,6 +39,7 @@ export function ProfileView() {
   const [knownAs, setKnownAs] = useState(rawMe);
   const [household, setHousehold] = useState(profile.household);
   const [parish, setParish] = useState(profile.parish);
+  const [parishPlace, setParishPlace] = useState(profile.parishPlace ?? null);
   const [trade, setTrade] = useState(profile.trade);
   const fieldsId = useId();
   const [saved, setSaved] = useState(false);
@@ -38,7 +52,7 @@ export function ProfileView() {
     }
     setSaved(false);
     const save = window.setTimeout(() => {
-      setProfile({ household, parish, trade });
+      setProfile({ household, parish, parishPlace, trade });
       const next = knownAs.trim();
       if (next) {
         const current = useBoard.getState();
@@ -54,11 +68,83 @@ export function ProfileView() {
       window.clearTimeout(save);
       window.clearTimeout(hide);
     };
-  }, [household, parish, trade, knownAs, setProfile, setMe]);
+  }, [household, parish, parishPlace, trade, knownAs, setProfile, setMe]);
+  const server = useServerSession();
+  const live = server.mode === "live" && Boolean(server.user);
+  // The church also lives on the account (PATCH /api/profile), so a picked
+  // place follows the member to another device. Until migration 0048 is
+  // applied the server keeps the name only, and the pick stays on this device.
+  const [churchNote, setChurchNote] = useState("");
+  const syncedChurch = useRef<string | null>(null);
+  const [churchLoaded, setChurchLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!live) return;
+    let stop = false;
+    void loadAccountChurch()
+      .then((account) => {
+        if (stop || !account) return;
+        syncedChurch.current = churchKey(account.name, account.place);
+        setChurchLoaded(true);
+        // No church on the account yet: the one on this device is saved up.
+        if (!account.name) return;
+        setParish(account.name);
+        // A pick kept only on this device stays when the server has none for the same name.
+        setParishPlace((local) =>
+          account.place ?? (local && account.name === profile.parish ? local : null),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+    // Read once per sign-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, server.user?.id]);
+
+  useEffect(() => {
+    if (!live || !churchLoaded || syncedChurch.current === null) return;
+    const key = churchKey(parish, parishPlace);
+    if (key === syncedChurch.current) return;
+    setChurchNote("");
+    const timer = window.setTimeout(() => {
+      void saveAccountChurch(parish.trim(), parishPlace)
+        .then((answer) => {
+          if (!answer.ok) {
+            setChurchNote("That did not save.");
+            return;
+          }
+          syncedChurch.current = key;
+          if (answer.note === "not-confirmed") {
+            // The server could not match the pick to a recent search, so it
+            // kept the church as typed. Show it that way here too.
+            syncedChurch.current = churchKey(parish.trim(), null);
+            setParishPlace(null);
+            setChurchNote(
+              "Saved the church name as typed. To put it on the map, search and choose it again.",
+            );
+          } else if (parishPlace && !answer.church?.place) {
+            setChurchNote(
+              "Saved the church name. The map pick stays on this device until saving places is turned on.",
+            );
+          } else if (answer.church?.place) {
+            // The saved name and address are the server's, from OpenStreetMap.
+            const saved = answer.church;
+            syncedChurch.current = churchKey(saved.name, saved.place);
+            if (saved.name !== parish) setParish(saved.name);
+            if (saved.place && saved.place.address !== parishPlace?.address) {
+              setParishPlace(saved.place);
+            }
+          }
+        })
+        .catch(() => setChurchNote("That did not save."));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [live, churchLoaded, parish, parishPlace]);
+
   const cards = useBoard((state) => state.cards);
   const posts = useBoard((state) => state.posts);
   const openDm = useBoard((state) => state.openDm);
-  const server = useServerSession();
   const name = viewing?.trim() || me;
   const mine = name === me;
 
@@ -87,8 +173,8 @@ export function ProfileView() {
           <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
-          <div className="mt-2 grid gap-3 sm:grid-cols-3">
-            <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-3">
+          <div className="mt-2 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
               Name, as people know you
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
@@ -111,19 +197,6 @@ export function ProfileView() {
               </p>
             </div>
             <div className="flex flex-col gap-2 text-sm text-muted">
-              <label htmlFor={`${fieldsId}-church`}>Church</label>
-              <input
-                id={`${fieldsId}-church`}
-                className={cn(fieldClass, "min-h-[44px]")}
-                aria-describedby={`${fieldsId}-church-hint`}
-                value={parish}
-                onChange={(event) => setParish(event.target.value)}
-              />
-              <p id={`${fieldsId}-church-hint`} className="text-xs text-muted">
-                {FIELD_HINT.church}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 text-sm text-muted">
               <label htmlFor={`${fieldsId}-trade`}>Trade</label>
               <input
                 id={`${fieldsId}-trade`}
@@ -136,9 +209,33 @@ export function ProfileView() {
                 {FIELD_HINT.trade}
               </p>
             </div>
+            {/* Design r148 N2: Church gets its own row, so its search, notes and
+                button do not push Household and Trade out of line. */}
+            <div className="sm:col-span-2">
+              <PlaceSearch
+                label="Church"
+                kind="church"
+                hint={FIELD_HINT.church}
+                value={{
+                  name: parish,
+                  ref: parishPlace?.ref ?? null,
+                  address: parishPlace?.address ?? "",
+                }}
+                onChange={(next) => {
+                  setParish(next.name);
+                  setParishPlace(next.ref ? { ref: next.ref, address: next.address } : null);
+                }}
+                pickedNote={CHURCH_ADDRESS_NOTE}
+              />
+            </div>
             {saved ? (
-              <p role="status" className="text-sm text-muted sm:col-span-3">
+              <p role="status" className="text-sm text-muted sm:col-span-2">
                 Saved
+              </p>
+            ) : null}
+            {churchNote ? (
+              <p role="status" className="text-sm text-muted sm:col-span-2">
+                {churchNote}
               </p>
             ) : null}
           </div>
