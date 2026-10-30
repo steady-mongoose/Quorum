@@ -452,7 +452,9 @@ test("request (6): Request a new place is a real button that opens the form, foc
   act(() => form.requestSubmit());
   await flush();
   assert.equal(sent.length, 1);
-  const status = host.querySelector('[role="status"]');
+  const status = [...host.querySelectorAll('[role="status"]')].find((el) =>
+    /Request sent/.test(el.textContent ?? ""),
+  );
   assert.equal(status?.textContent, "Request sent. An admin will look at it.");
   assert.equal(document.activeElement, status?.querySelector("p"));
   done();
@@ -785,4 +787,371 @@ test("design #123: a page head rule clears the h1 descenders, within the page-cr
   assert.match(css, /\[data-entered\] \.pc-head h1\+\.pc-rule\{margin-top:\.5rem\}/);
   const { gzipSync } = await import("node:zlib");
   assert.ok(gzipSync(css, { level: 9 }).length < 3072);
+});
+
+// Josh (Oct 30, 7:57 AM ET): "some buttons" did nothing on Save. Save place kept his ZIP and
+// congregation on the server, but said nothing on success, so a Save with no town room looked dead.
+
+/** @param {Element} host @param {RegExp} name */
+const buttonNamed = (host, name) =>
+  /** @type {HTMLButtonElement} */ ([...host.querySelectorAll("button")].find((b) => name.test(b.textContent ?? "")));
+/** @param {Element} host @param {RegExp} text */
+const statusWith = (host, text) =>
+  [...host.querySelectorAll('[role="status"]')].find((el) => text.test(el.textContent ?? ""));
+/** @param {Element} host */
+const placeForm = (host) => /** @type {HTMLFormElement} */ (host.querySelector('form[aria-labelledby="place-h"]'));
+
+test("save feedback: Save place with no town room says Saved in a status, and posts once", async () => {
+  /** @type {any[]} */
+  const sent = [];
+  /** @type {(value: any) => void} */
+  let finish = () => {};
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        savePlace: (/** @type {any} */ body) => {
+          sent.push(body);
+          return new Promise((resolve) => (finish = resolve));
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  const form = placeForm(host);
+  const status = form.querySelector('[role="status"]');
+  assert.ok(status, "the place status is mounted before the first Save");
+  act(() => form.requestSubmit());
+  await flush();
+  const busy = buttonNamed(host, /Saving…/);
+  assert.equal(busy.getAttribute("aria-busy"), "true");
+  assert.equal(busy.getAttribute("aria-disabled"), "true", "busy Save stays in the tab order");
+  assert.equal(busy.disabled, false);
+  assert.match(busy.className, /aria-busy:opacity-75/);
+  assert.match(busy.className, /aria-disabled:not-aria-busy:opacity-70/);
+  act(() => form.requestSubmit());
+  await flush();
+  assert.equal(sent.length, 1, "a second tap while saving does not post again");
+  assert.deepEqual(sent[0], { zip: "33598", congregationId: "grace" });
+  await act(async () => finish({ ok: true }));
+  await flush();
+  assert.equal(
+    status?.textContent,
+    "Saved. ZIP 33598, Grace Bible Church of Brandon.",
+  );
+  assert.ok(buttonNamed(host, /^Save place$/), "the button is back to Save place");
+  await type(/** @type {HTMLInputElement} */ (host.querySelector("#place-zip")), "33511");
+  assert.equal(status?.textContent, "", "editing clears the old Saved");
+  done();
+});
+
+test("save feedback: a refused Save place shows the server's reason in the status", async () => {
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({ home, savePlace: async () => ({ ok: false, error: "Enter a five-digit ZIP." }) }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => placeForm(host).requestSubmit());
+  await flush();
+  assert.equal(placeForm(host).querySelector('[role="alert"]')?.textContent, "Enter a five-digit ZIP.");
+  assert.equal(placeForm(host).querySelector('[role="status"]')?.textContent, "", "the status is only for Saved");
+  done();
+});
+
+test("save feedback: a barred account and a dropped connection are said in words, not silence", async () => {
+  act(() => useBoard.setState(/** @type {any} */ ({ home, savePlace: async () => ({ ok: false, error: "banned" }) })));
+  let mounted = await mount(createElement(HomePanel));
+  act(() => placeForm(mounted.host).requestSubmit());
+  await flush();
+  assert.equal(
+    placeForm(mounted.host).querySelector('[role="alert"]')?.textContent,
+    "This account is barred from the board.",
+  );
+  mounted.done();
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        savePlace: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    ),
+  );
+  mounted = await mount(createElement(HomePanel));
+  act(() => placeForm(mounted.host).requestSubmit());
+  await flush();
+  assert.equal(
+    placeForm(mounted.host).querySelector('[role="alert"]')?.textContent,
+    "Your place was not saved. Check your connection and try again.",
+  );
+  assert.ok(buttonNamed(mounted.host, /^Save place$/), "Save place works again after a failure");
+  mounted.done();
+});
+
+test("save feedback: Request room that cannot reach the server says so", async () => {
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home,
+        requestRoom: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Request a new place$/).click());
+  await flush();
+  act(() => /** @type {HTMLFormElement} */ (host.querySelector("#request-place-form")).requestSubmit());
+  await flush();
+  assert.match(
+    host.querySelector('#request-place-form [role="alert"]')?.textContent ?? "",
+    /^Your request was not sent\. Check your connection and try again\.$/,
+  );
+  done();
+});
+
+test("save feedback: Leave says which room you left, after the row is gone", async () => {
+  const joinedHome = {
+    ...home,
+    sections: [{ tier: "joined", label: "Joined", rooms: [{ id: "grace-room", name: "Grace Bible Church of Brandon" }] }],
+  };
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home: joinedHome,
+        leaveRoom: async () => {
+          useBoard.setState(/** @type {any} */ ({ home: { ...joinedHome, sections: [] } }));
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Leave$/).click());
+  await flush();
+  assert.equal(host.querySelector("li.room-row"), null);
+  const left = statusWith(host, /^You left Grace Bible Church of Brandon\.$/);
+  assert.ok(left);
+  assert.equal(document.activeElement, left?.querySelector("p"), "focus moves to the note");
+  assert.equal(left?.querySelector("p")?.getAttribute("tabindex"), "-1");
+  act(() => placeForm(host).requestSubmit());
+  await flush();
+  assert.equal(statusWith(host, /You left/), undefined, "another action clears the note");
+  done();
+});
+
+test("save feedback: Approve says it was approved, since its buttons go away", async () => {
+  const request = { id: "r1", kind: "town", name: "Riverview", state: "FL", status: "open", by: "Ann", note: "" };
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        admin: true,
+        home: { ...home, requests: [request] },
+        decideRoom: async () => {
+          // The admin's reload lists only open requests and their own (QA #132 S2): this one drops out.
+          useBoard.setState(/** @type {any} */ ({ home: { ...home, requests: [] } }));
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Approve$/).click());
+  await flush();
+  assert.equal(buttonNamed(host, /^Approve$/), undefined);
+  assert.equal(host.querySelector("details"), null, "the whole Decide block is gone");
+  const approved = statusWith(host, /^Approved\.$/);
+  assert.ok(approved, "the outcome stays at Home level after the reload");
+  assert.equal(document.activeElement, approved?.querySelector("p"), "focus moves to it");
+  act(() => placeForm(host).requestSubmit());
+  await flush();
+  assert.equal(statusWith(host, /^Approved\.$/), undefined, "another action clears it");
+  act(() => useBoard.setState(/** @type {any} */ ({ admin: false })));
+  done();
+});
+
+test("save feedback: Saved copy for every ZIP and congregation mix (Design #132 M2)", async () => {
+  const { placeSavedText } = await import("../../components/board/home-view.tsx");
+  const church = "Grace Bible Church of Brandon";
+  assert.equal(placeSavedText({ zip: "33598", congregationName: church }), "Saved. ZIP 33598, Grace Bible Church of Brandon.");
+  assert.equal(placeSavedText({ zip: "33598", congregationName: "" }), "Saved. ZIP 33598, no congregation.");
+  assert.equal(placeSavedText({ zip: "", congregationName: church }), "Saved. No ZIP, Grace Bible Church of Brandon.");
+  assert.equal(placeSavedText({ zip: " ", congregationName: "" }), "Saved. You have no ZIP or congregation set.");
+});
+
+test("save feedback: Leave, Request room and Refuse show busy; only the pressed decision is busy", async () => {
+  const request = { id: "r2", kind: "town", name: "Riverview", state: "FL", status: "open", by: "Ann", note: "" };
+  /** @type {(value: any) => void} */
+  let finish = () => {};
+  let calls = 0;
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        admin: true,
+        home: { ...home, requests: [request] },
+        decideRoom: () => {
+          calls += 1;
+          return new Promise((resolve) => (finish = resolve));
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Refuse$/).click());
+  await flush();
+  const refuse = buttonNamed(host, /^Refusing…$/);
+  assert.ok(refuse, "the pressed button says Refusing…");
+  assert.equal(refuse.getAttribute("aria-disabled"), "true");
+  const approve = buttonNamed(host, /^Approve$/);
+  assert.equal(refuse.getAttribute("aria-busy"), "true");
+  assert.equal(approve.hasAttribute("aria-busy"), false, "Approve is not busy");
+  assert.equal(approve.getAttribute("aria-disabled"), "true", "Approve waits");
+  assert.match(approve.className, /aria-disabled:not-aria-busy:opacity-70/);
+  act(() => approve.click());
+  await flush();
+  assert.equal(calls, 1, "the waiting button does nothing");
+  await act(async () => finish({ ok: false, error: "Name the room's first steward." }));
+  await flush();
+  assert.equal(buttonNamed(host, /^Approve$/).hasAttribute("aria-disabled"), false);
+  assert.match(host.textContent ?? "", /Name the room's first steward\./);
+  act(() => useBoard.setState(/** @type {any} */ ({ admin: false })));
+  done();
+  const home2 = readFileSync(new URL("../../components/board/home-view.tsx", import.meta.url), "utf8");
+  for (const label of ["Saving…", "Sending…", "Leaving…"]) assert.ok(home2.includes(label));
+  assert.equal((home2.match(/busyLook/g) ?? []).length >= 6, true, "Save place, Request room, Leave, Approve, Refuse");
+});
+
+test("save feedback: Leave stays busy and posts once on a double tap", async () => {
+  const joinedHome = {
+    ...home,
+    sections: [{ tier: "joined", label: "Joined", rooms: [{ id: "g", name: "Grace" }] }],
+  };
+  /** @type {(value: any) => void} */
+  let finish = () => {};
+  let calls = 0;
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home: joinedHome,
+        leaveRoom: () => {
+          calls += 1;
+          return new Promise((resolve) => (finish = resolve));
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Leave$/).click());
+  await flush();
+  const leaving = buttonNamed(host, /^Leaving…$/);
+  assert.equal(leaving.getAttribute("aria-busy"), "true");
+  assert.equal(leaving.getAttribute("aria-disabled"), "true");
+  act(() => leaving.click());
+  await flush();
+  assert.equal(calls, 1);
+  await act(async () => finish({ ok: false, error: "You are this room's last steward." }));
+  await flush();
+  assert.match(host.querySelector("li.room-row [role=\"alert\"]")?.textContent ?? "", /last steward/);
+  done();
+});
+
+test("save feedback: a save the server kept but the reload missed says Saved, plus Reload", async () => {
+  act(() =>
+    useBoard.setState(/** @type {any} */ ({ home, savePlace: async () => ({ ok: true, reloadFailed: true }) })),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => placeForm(host).requestSubmit());
+  await flush();
+  assert.equal(
+    placeForm(host).querySelector('[role="status"]')?.textContent,
+    "Saved. ZIP 33598, Grace Bible Church of Brandon. Reload the page to see the change.",
+  );
+  assert.equal(placeForm(host).querySelector('[role="alert"]'), null, "not shown as a failure");
+  done();
+});
+
+test("save feedback: store placeCall keeps a save ok when the Home reload throws or fails", async () => {
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  // The reload is inside its own try, after the save result is known.
+  assert.match(
+    store,
+    /if \(!saved\.ok\) return \{ ok: false, error: saved\.error \};\s*\/\/[^\n]*\n[^\n]*\n\s*try \{[\s\S]*?if \(!\(await pullHome\(\)\)\) fresh = false;[\s\S]*?catch \{\s*return \{ ok: true, reloadFailed: true \};/,
+  );
+});
+
+test("save feedback: rejoining the room you left retires 'You left X.'", async () => {
+  const room = { id: "g", name: "Grace" };
+  const joined = { ...home, sections: [{ tier: "joined", label: "Joined", rooms: [room] }] };
+  act(() =>
+    useBoard.setState(
+      /** @type {any} */ ({
+        home: joined,
+        leaveRoom: async () => {
+          useBoard.setState(/** @type {any} */ ({ home: { ...joined, sections: [] } }));
+          return { ok: true };
+        },
+      }),
+    ),
+  );
+  const { host, done } = await mount(createElement(HomePanel));
+  act(() => buttonNamed(host, /^Leave$/).click());
+  await flush();
+  assert.ok(statusWith(host, /^You left Grace\.$/));
+  act(() => useBoard.setState(/** @type {any} */ ({ home: joined })));
+  await flush();
+  assert.equal(statusWith(host, /You left/), undefined);
+  done();
+});
+
+test("save feedback: a proxy 502 with no JSON gets the connection hint, worded per action", async () => {
+  const { apiBoardClient } = await import("./api.ts");
+  const real = globalThis.fetch;
+  globalThis.fetch = /** @type {any} */ (
+    async () => new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } })
+  );
+  try {
+    assert.deepEqual(await apiBoardClient.savePlace({ zip: "33598", congregationId: "" }), {
+      ok: false,
+      error: "Your place was not saved. Check your connection and try again.",
+    });
+    const sent = await apiBoardClient.requestRoom({ kind: "town", name: "Riverview", state: "FL" });
+    assert.equal(sent.ok, false);
+    assert.equal(!sent.ok && sent.error, "Your request was not sent. Check your connection and try again.");
+    const left = await apiBoardClient.leaveRoom("g");
+    assert.equal(!left.ok && left.error, "That room was not left. Check your connection and try again.");
+    const decided = await apiBoardClient.decideRoom("r1", { decision: "approved", note: "", stewardEmail: "", inviterEmail: "" });
+    assert.equal(!decided.ok && decided.error, "That decision was not saved. Check your connection and try again.");
+  } finally {
+    globalThis.fetch = real;
+  }
+  globalThis.fetch = /** @type {any} */ (
+    async () => new Response(JSON.stringify({ error: "Enter a five-digit ZIP." }), { status: 400 })
+  );
+  try {
+    const refused = await apiBoardClient.savePlace({ zip: "1", congregationId: "" });
+    assert.equal(!refused.ok && refused.error, "Enter a five-digit ZIP.", "a server reason is kept as is");
+  } finally {
+    globalThis.fetch = real;
+  }
+  globalThis.fetch = /** @type {any} */ (
+    async () => {
+      throw new TypeError("Failed to fetch");
+    }
+  );
+  try {
+    const dropped = await apiBoardClient.savePlace({ zip: "33598", congregationId: "" });
+    assert.equal(!dropped.ok && dropped.error, "Your place was not saved. Check your connection and try again.");
+  } finally {
+    globalThis.fetch = real;
+  }
+  const { settleSave } = await import("../../components/board/home-view.tsx");
+  assert.deepEqual(
+    await settleSave(async () => {
+      throw new TypeError("Failed to fetch");
+    }, "Your request was not sent."),
+    { ok: false, error: "Your request was not sent. Check your connection and try again." },
+  );
 });
