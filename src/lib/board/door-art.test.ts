@@ -172,3 +172,73 @@ test("parchment: the door scrim follows the palette, not fixed dark ink", () => 
   assert.ok(at > door.indexOf('[data-section="landing"] .scrim,[data-section="signin"] .scrim{\n'), "after the dark override");
   assert.ok(at < door.indexOf("@media (max-width:640px){\n  [data-section=\"landing\"] .scrim"), "phones keep var(--bg)");
 });
+
+/** Every rule body in a sheet whose selector names one of the given layers (inside @media too). */
+function rulesFor(css: string, layers: string[]): { selector: string; body: string }[] {
+  const out: { selector: string; body: string }[] = [];
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = m[1].trim();
+    if (layers.some((l) => selector.split(",").some((s) => s.trim().endsWith(l)))) out.push({ selector, body: m[2] });
+  }
+  return out;
+}
+
+test("Josh: the glow on every plate is constant — no animation, no transition, no fade or pulse", () => {
+  const outsideReduce = door.replace(lastReduceBlock(door), "");
+  const glow = rulesFor(outsideReduce, ["::before", "::after"]).filter((r) => /plate-ground/.test(r.selector));
+  assert.ok(glow.length >= 4, "found the light and mote rules");
+  for (const { selector, body } of glow) {
+    // Either it switches motion off outright or it sets none at all; it never names a keyframe or a timed transition.
+    assert.doesNotMatch(body, /animation:(?!none)/, `${selector} animates`);
+    assert.doesNotMatch(body, /animation-name|transition:(?!none)|transition-property/, `${selector} transitions`);
+  }
+  // The signed-in light and motes, at the softer strength, from first paint.
+  assert.match(
+    door,
+    /\[data-entered\]>\.plate-ground::after\{content:"";position:absolute;inset:-10%;pointer-events:none;background:radial-gradient\(46% 40% at var\(--door-light\),var\(--door-glow\) 0%,rgba\(201,164,92,\.55\) 34%,transparent 72%\);mix-blend-mode:screen;opacity:\.32;animation:none;transition:none\}/,
+  );
+  assert.match(door, /\[data-entered\]>\.plate-ground::before\{[^}]*background:var\(--door-motes\)[^}]*opacity:\.3;animation:none;transition:none\}/);
+  assert.match(door, /\[data-section="week"\] \[data-entered\]>\.plate-ground\{--door-light:50% 14%\}/);
+  // No keyframe in the sheet touches opacity except the cards' short rise: the light never fades in or out.
+  for (const m of door.matchAll(/@keyframes ([a-z-]+)\{((?:[^{}]*\{[^}]*\})*)[^}]*\}/g)) {
+    if (m[1] === "door-rise") continue;
+    assert.doesNotMatch(m[2], /opacity/, `${m[1]} fades`);
+  }
+  // Under reduced motion the light and motes stay: the reduce block stops them moving, never hides them.
+  const reduce = lastReduceBlock(door);
+  assert.doesNotMatch(reduce, /display:none|opacity:0|content:none/);
+});
+
+test("the signed-in light sits before the reduce block, and the plate keeps pc-settle, not door-drift", () => {
+  const at = door.indexOf("[data-entered]>.plate-ground::after{");
+  assert.ok(at > 0 && at < door.lastIndexOf("@media (prefers-reduced-motion:reduce){"));
+  assert.doesNotMatch(door, /\[data-entered\][^{]*\{[^}]*door-drift/);
+  assert.match(door, /\[data-entered\] \.pc-head h1\{text-shadow:0 1px 0 rgba\(0,0,0,\.35\),0 0 24px rgba\(201,164,92,\.12\)\}/);
+});
+
+test("public pages stand on the door's plate, and data savers still get none", () => {
+  assert.match(door, /\.plate-ground\.door-ground\{background:var\(--door-art,var\(--art-landing\)\) center 30%\/cover no-repeat;/);
+  for (const layer of ["::after", "::before"]) {
+    const list = door.match(new RegExp(`\\[data-section="landing"\\] \\.plate-ground${layer},\\[data-section="signin"\\] \\.plate-ground${layer},([^{]+)\\{\\n  content`));
+    assert.ok(list && list[1].includes(`.plate-ground.door-ground${layer}`), `door ${layer} names .door-ground`);
+  }
+  assert.match(door, /\[data-save-data\] \.plate-ground\.door-ground\{background-image:none;animation:none\}/);
+  assert.match(door, /@media \(prefers-reduced-data:reduce\)\{\.plate-ground\.door-ground\{background-image:none;animation:none\}\}/);
+  const save = door.indexOf("[data-save-data] .plate-ground.door-ground");
+  assert.ok(save > door.indexOf(".plate-ground.door-ground{background:"), "the data-saver rule comes after the plate");
+  const src = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  for (const [name, file] of [
+    ["PublicDocument", src("../../components/board/public-document.tsx")],
+    ["PublicGatheringFrame", src("../../components/board/public-gathering-view.tsx")],
+    ["NotFoundPage", src("../../components/not-found.tsx")],
+    ["/e server HTML", src("./public-gathering.ts")],
+  ] as const) {
+    assert.match(file, /(className|class)="plate-ground door-ground"/, `${name} renders the plate`);
+    assert.match(file, /(className|class)="scrim"/, `${name} renders the scrim`);
+    assert.doesNotMatch(file, /hero-band/, `${name} drops the band`);
+    assert.doesNotMatch(file, /backdrop-filter|backdrop-blur|blur\(/, `${name} has no blur`);
+  }
+  assert.match(src("../../components/not-found.tsx"), /<div className="shell /);
+  assert.match(src("../../components/board/public-document.tsx"), /<div className="card pc-card /);
+  assert.match(src("../../components/not-found.tsx"), /<div className="card pc-card /);
+});

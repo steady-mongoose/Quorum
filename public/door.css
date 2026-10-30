@@ -37,7 +37,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 }
 
 /* 2. The light in the picture: still, not breathing. A warm radial at the plate's source of light, screened over the engraving. */
-[data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{
+[data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after,.plate-ground.door-ground::after{
   content:"";
   position:absolute;
   inset:-10%;
@@ -50,11 +50,11 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   opacity:.5;
 }
 @media (max-width:640px){
-  [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after{--door-light:50% 34%}
+  [data-section="landing"] .plate-ground::after,[data-section="signin"] .plate-ground::after,.plate-ground.door-ground::after{--door-light:50% 34%}
 }
 
 /* 3. Motes hang in the light, faint and few. They are still: nothing on the door moves for more than 5s. */
-[data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before{
+[data-section="landing"] .plate-ground::before,[data-section="signin"] .plate-ground::before,.plate-ground.door-ground::before{
   content:"";
   position:absolute;
   inset:0;
@@ -298,6 +298,45 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 @media (prefers-reduced-motion:no-preference){
   html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"]){scroll-behavior:smooth}
 }
+
+/* 7. The door's light on every other plate: the same still radial and motes. Josh: the glow is constant and
+   always on, so these layers have no animation and no transition, are there from first paint, and stay under
+   reduced motion (it is light, not motion). The plate under them keeps its own one-pass settle (page-craft's
+   pc-settle on signed-in pages, which ends at scale 1 so the #116 crops hold; door-settle on .door-ground).
+   Signed-in plates sit under a darker scrim, so their light and motes are softer (.32/.3) than the door's. */
+[data-entered]>.plate-ground{overflow:hidden;--door-light:50% 24%}
+[data-entered]>.plate-ground::after{content:"";position:absolute;inset:-10%;pointer-events:none;background:radial-gradient(46% 40% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.55) 34%,transparent 72%);mix-blend-mode:screen;opacity:.32;animation:none;transition:none}
+[data-entered]>.plate-ground::before{content:"";position:absolute;inset:0;pointer-events:none;background:var(--door-motes) 0 0/320px 320px repeat,var(--door-motes) 160px 90px/480px 480px repeat;opacity:.3;animation:none;transition:none}
+/* Each plate's own source of light. */
+[data-section="week"] [data-entered]>.plate-ground{--door-light:50% 14%}
+[data-section="rooms"] [data-entered]>.plate-ground{--door-light:22% 22%}
+[data-section="rooms"][data-view="room"] [data-entered]>.plate-ground{--door-light:58% 24%}
+[data-section="groups"] [data-entered]>.plate-ground{--door-light:40% 24%}
+[data-section="groups"][data-view="group"] [data-entered]>.plate-ground{--door-light:70% 16%}
+[data-section="find"] [data-entered]>.plate-ground{--door-light:54% 58%}
+[data-section="messages"] [data-entered]>.plate-ground{--door-light:16% 22%}
+[data-section="civic"] [data-entered]>.plate-ground{--door-light:74% 24%}
+[data-section="about"] [data-entered]>.plate-ground{--door-light:14% 42%}
+@media (max-width:640px){
+  [data-section="rooms"] [data-entered]>.plate-ground{--door-light:40% 20%}
+  [data-section="messages"] [data-entered]>.plate-ground{--door-light:36% 22%}
+  [data-section="about"] [data-entered]>.plate-ground{--door-light:50% 34%}
+}
+/* The signed-in title carries the door title's gilt glow. */
+[data-entered] .pc-head h1{text-shadow:0 1px 0 rgba(0,0,0,.35),0 0 24px rgba(201,164,92,.12)}
+
+/* The public pages (About, Privacy, Terms, /e/:id, 404) get the door's whole plate, not a band: --door-art names
+   the picture (the door's Martin by default). Light and motes come from sections 2 and 3, always on. */
+.plate-ground.door-ground{background:var(--door-art,var(--art-landing)) center 30%/cover no-repeat;overflow:hidden;transform-origin:50% 40%}
+.plate-ground.door-ground::before,.plate-ground.door-ground::after{animation:none;transition:none}
+.door-ground+.scrim{position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(75% 95% at 50% 45%,rgba(20,16,12,.6),rgba(20,16,12,.25))}
+[data-palette="parchment"] .door-ground+.scrim{background:var(--scrim)}
+@media (prefers-reduced-motion:no-preference){
+  .plate-ground.door-ground{animation:door-settle 4.5s var(--door-ease) 1 both}
+}
+@keyframes door-settle{from{transform:scale(1.06)}to{transform:none}}
+[data-save-data] .plate-ground.door-ground{background-image:none;animation:none}
+@media (prefers-reduced-data:reduce){.plate-ground.door-ground{background-image:none;animation:none}}
 
 /* Reduced motion: nothing on the door moves. backgrounds.css stops animations on every element and
    pseudo-element; this names the door's own layers too, and pins their transforms flat. */

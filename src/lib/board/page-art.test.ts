@@ -64,10 +64,12 @@ test("the page art loads after fluid.css and stays small", () => {
   assert.ok(gzipSync(pageArt).length <= 2 * 1024);
 });
 
-test("About, Privacy, and Terms carry the About band", () => {
+test("About, Privacy, and Terms stand on the door's whole plate, not a band", () => {
   const doc = readFileSync(new URL("../../components/board/public-document.tsx", import.meta.url), "utf8");
   assert.match(doc, /useEngravedDocument\("about"\);/);
-  assert.match(doc, /<div className="hero-band full" role="img" aria-label=\{heroLabel\("about"\) \?\? undefined\} \/>/);
+  assert.match(doc, /<div className="plate-ground door-ground" role="img" aria-label=\{heroLabel\("about"\) \?\? undefined\} \/>/);
+  assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
+  assert.doesNotMatch(doc, /hero-band/);
 });
 
 test("ATTRIBUTION credits no off-list artist", () => {

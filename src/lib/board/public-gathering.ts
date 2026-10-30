@@ -209,11 +209,13 @@ ${metaTags(gathering, id)}
 <link rel="stylesheet" href="/backgrounds.css">
 <link rel="stylesheet" href="/fluid.css">
 <link rel="stylesheet" href="/gathering.css">
+<link rel="stylesheet" href="/door.css">
 <link rel="preload" href="/fonts/EBGaramond-latin.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
 <div class="shell gathering-page" data-section="week">
-<div class="hero-band" role="img" aria-label="${escapeHtml(HERO)}"></div>
+<div class="plate-ground door-ground" role="img" aria-label="${escapeHtml(HERO)}"></div>
+<div class="scrim" aria-hidden="true"></div>
 <div class="shell-body">
 <main>
 <article class="plate plate--hero gathering-plate">

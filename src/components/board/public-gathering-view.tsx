@@ -10,11 +10,12 @@ import { heroLabel } from "@/lib/board/engraved";
 
 const HERO = heroLabel("week") ?? "Gustave Doré, Jacob’s Dream, 1866";
 
-/** The engraved band and the plate. Loading, the page, and not-found all use it. */
+/** Doré's whole plate behind a solid card, with the door's constant light. Loading, the page, and not-found all use it. */
 export function PublicGatheringFrame({ children }: { children: ReactNode }) {
   return (
     <div className="shell gathering-page min-h-dvh overflow-x-clip text-fg" data-section="week">
-      <div className="hero-band" role="img" aria-label={HERO} />
+      <div className="plate-ground door-ground" role="img" aria-label={HERO} />
+      <div className="scrim" aria-hidden="true" />
       <div className="shell-body">
         <main>
           <article className="plate plate--hero gathering-plate">{children}</article>

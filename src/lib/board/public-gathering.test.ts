@@ -41,7 +41,9 @@ test("a shared page is the title, the date, the time, and the town, with noindex
   );
   assert.doesNotMatch(page.body, /invite-only/);
   assert.match(page.body, /the title, the date, the time, and the town/);
-  assert.match(page.body, /hero-band/);
+  assert.match(page.body, /class="plate-ground door-ground"/);
+  assert.match(page.body, /<link rel="stylesheet" href="\/door\.css">/);
+  assert.doesNotMatch(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
   assert.match(page.body, /data-section="week"/);
   assert.equal(page.body.includes("Dale"), false);
@@ -81,7 +83,9 @@ test("an unshared gathering is a 404 and still noindex", () => {
   assert.equal(page.status, 404);
   assert.match(page.body, /noindex/);
   assert.match(page.body, /not shared/);
-  assert.match(page.body, /hero-band/);
+  assert.match(page.body, /class="plate-ground door-ground"/);
+  assert.match(page.body, /<link rel="stylesheet" href="\/door\.css">/);
+  assert.doesNotMatch(page.body, /hero-band/);
   assert.match(page.body, /gathering-kicker/);
   assert.equal(page.body.includes("Saturday"), false);
   assert.equal(page.body.includes('property="og:title"'), false);
@@ -244,7 +248,8 @@ test("the public route is noindex and does not keep loading a missing id", () =>
   assert.equal(route.includes("useEffect"), false);
   assert.equal(route.includes("sharePublic"), false);
   assert.equal(/\bgoing\b|\.place\b|\bposts\b/.test(route), false);
-  assert.match(view, /hero-band/);
+  assert.match(view, /className="plate-ground door-ground"/);
+  assert.doesNotMatch(view, /hero-band/);
   assert.match(view, /gathering-kicker/);
   assert.match(view, /Loading\./);
   assert.match(client, /AbortSignal\.timeout/);

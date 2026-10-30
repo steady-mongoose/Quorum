@@ -1,4 +1,4 @@
-/* Public /e page. The band and plate live in backgrounds.css. This sheet is the type
+/* Public /e page. The plate lives in door.css, the card in backgrounds.css. This sheet is the type
    and the base reset, because the server page does not load the app sheet. */
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0}
@@ -24,7 +24,13 @@ body{margin:0}
   min-height: 100dvh;
   width: 100%;
 }
-.gathering-page .hero-band { width: 100%; margin: 0; }
+/* The page stands on Doré's whole plate (door.css section 7), not a band; the plate card no longer pulls up over one.
+   Two-sided at 1600 and wider, the 900px file on phones, the same files the signed-in Week page uses. */
+.gathering-page { --door-art: url(/art/plate-week-A.webp); overflow-x: clip; }
+@media (max-width:640px) { .gathering-page { --door-art: url(/art/plate-week-A-900.webp); } }
+@media (min-width:1600px) { .gathering-page { --door-art: url(/art/plate-week-A-2400.webp); } }
+.gathering-page .plate-ground.door-ground::after { --door-light: 50% 14%; }
+.gathering-page .plate--hero { margin-top: clamp(1.5rem, 8vh, 5rem); }
 .gathering-plate {
   display: flex;
   flex-direction: column;
