@@ -12,6 +12,8 @@ const appTests = [
   "server/board/group-invites.test.ts",
   "src/lib/board/rsvp-who-sees.test.ts",
   "src/lib/board/rsvp-server.test.ts",
+  "src/lib/board/rsvp-summary-view.test.ts",
+  "src/lib/board/rsvp-panel.render.test.mjs",
   "server/board/rsvp.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "server/board/steward-rule.test.ts",

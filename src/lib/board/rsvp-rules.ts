@@ -66,13 +66,47 @@ export const MARK_TOO_EARLY = "You can mark who came once the gathering has star
 export const MARK_NOT_GOING = "Only members who said they're going can be marked as came.";
 
 /**
- * Whether marks may be made yet (QA F4, Oct 30): not before a dated
- * gathering's date, nor before its start time when the time reads as HH:MM,
- * in the board's time zone. An undated gathering (a repeating one) has no
- * date to wait for here; its next date is checked by the client.
+ * The start time in minutes after midnight, read from the free-text time
+ * field (QA N2, Oct 30), or null when no time can be read. "7 pm", "7pm",
+ * "7:00 p.m.", "11:59 PM", "noon" and 24-hour "19:00" / "07:30" all read.
+ * The first time in the text counts ("Doors 6:30 pm, talk at 7" is 6:30 pm).
+ * A bare "9:30" with no am/pm and no leading zero could be morning or
+ * evening, so it reads as the later one (21:30): marking never opens early.
+ * A bare number with no colon and no am/pm ("Room 12") is not a time.
+ */
+export function startMinutes(time: string | undefined): number | null {
+  const text = (time ?? "").toLowerCase();
+  if (/\bnoon\b/.test(text)) return 12 * 60;
+  const token = /(?<![\d:])(\d{1,2})(?::([0-5]\d))?\s*(a\.?\s?m\b\.?|p\.?\s?m\b\.?)?/g;
+  for (const match of text.matchAll(token)) {
+    const [, h, m, meridiem] = match;
+    const hour = Number(h);
+    const minute = m === undefined ? 0 : Number(m);
+    if (meridiem) {
+      if (hour < 1 || hour > 12) continue;
+      const pm = meridiem.startsWith("p");
+      return ((hour % 12) + (pm ? 12 : 0)) * 60 + minute;
+    }
+    if (m === undefined || hour > 23) continue;
+    // "07:30", "0:30", "13:00"…"23:59": a 24-hour time.
+    if (hour === 0 || hour >= 13 || h!.length === 2 && h!.startsWith("0")) return hour * 60 + minute;
+    // "12:15" is past noon at the latest; "9:30" could be either, so the later reading.
+    return (hour === 12 ? 12 : hour + 12) * 60 + minute;
+  }
+  return null;
+}
+
+/**
+ * Whether marks may be made yet (QA F4, N2, Oct 30), in the board's time
+ * zone (New York), the same on the client and the server:
+ * - an undated gathering (no next date) is not open: there is no date it
+ *   has started on, and the steward form is not offered without one;
+ * - before the gathering's date, not open; after it, open;
+ * - on the date, open from its start time (startMinutes); when no time can
+ *   be read, only once that date has ended in New York.
  */
 export function markOpen(gathering: { date: string; time?: string }, now: Date): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(gathering.date)) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(gathering.date)) return false;
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: MARK_TIME_ZONE,
     year: "numeric",
@@ -85,8 +119,7 @@ export function markOpen(gathering: { date: string; time?: string }, now: Date):
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
   const today = `${get("year")}-${get("month")}-${get("day")}`;
   if (today !== gathering.date) return today > gathering.date;
-  const time = /^(\d{1,2}):(\d{2})$/.exec((gathering.time ?? "").trim());
-  if (!time) return true;
-  const start = `${time[1]!.padStart(2, "0")}:${time[2]}`;
-  return `${get("hour")}:${get("minute")}` >= start;
+  const start = startMinutes(gathering.time);
+  if (start === null) return false;
+  return Number(get("hour")) * 60 + Number(get("minute")) >= start;
 }

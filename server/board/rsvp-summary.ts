@@ -101,6 +101,30 @@ export function rebuildsHidden(values: readonly number[], shown: readonly Summar
 }
 
 /**
+ * The hidden rooms as one set (QA N1, Oct 30): total minus the shown rooms is
+ * their sum. That remainder gives them away when it is under n, or, for people
+ * counts, when it is the whole or near-whole distinct membership of those
+ * hidden rooms (A 6/6 and B 7/7 hidden, C 25/50 shown: 38 - 25 = 13 = 6 + 7).
+ * Any of those hides the grand total.
+ */
+export function remainderGivesAway(
+  values: readonly number[],
+  shown: readonly SummaryCount[],
+  raw: ReadonlyArray<{ roomId: string }>,
+  n: number,
+  people: boolean,
+  distinctMembers: (roomIds: string[]) => number,
+): boolean {
+  const hidden = values.map((value, i) => value > 0 && shown[i] === null);
+  if (!hidden.some(Boolean)) return false;
+  const remainder = values.reduce((total, value, i) => total + (hidden[i] ? value : 0), 0);
+  if (n > 1 && remainder < n) return true;
+  if (!people) return false;
+  const ids = raw.filter((_, i) => hidden[i]).map((room) => room.roomId).filter(Boolean);
+  return ids.length > 0 && nearEveryone(remainder, distinctMembers(ids), n);
+}
+
+/**
  * Hide across levels (QA S2, F2), per metric:
  * 1. A room whose gatherings cannot be shown under it without rebuilding a
  *    hidden one is hidden itself.
@@ -110,7 +134,8 @@ export function rebuildsHidden(values: readonly number[], shown: readonly Summar
  * 3. The grand total is also hidden when it would rebuild a hidden room (only
  *    one room has data, or every room but one is shown), or when it is the
  *    whole or near-whole membership of the rooms that contribute to it,
- *    counted as distinct people (`distinctMembers`).
+ *    counted as distinct people (`distinctMembers`), or when the hidden rooms'
+ *    combined remainder gives them away as a set (remainderGivesAway, QA N1).
  * 4. A hidden room hides all of its parts (gatherings, and weeks for
  *    write-ups). A shown room's gatherings (and weeks) are one group under
  *    that room's total, with the same complementary rule.
@@ -155,7 +180,8 @@ export function suppressSummary(
       // stays hidden whatever the room shows. Zero rooms give no cover.
       (n > 1 && contributing.length === 1) ||
       (n > 1 && rebuildsHidden(roomValues, rooms, n)) ||
-      (people && nearEveryone(grand, distinctMembers(contributing), n));
+      (people && nearEveryone(grand, distinctMembers(contributing), n)) ||
+      remainderGivesAway(roomValues, rooms, raw, n, people, distinctMembers);
     totals[metric] = grandHidden ? null : grand;
     raw.forEach((room, r) => {
       roomCells[r]![metric] = rooms[r]!;

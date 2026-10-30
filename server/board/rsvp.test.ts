@@ -16,10 +16,12 @@ import {
   RSVP_NOT_READY,
   ROLL_CALL_STALE,
   rsvpCutoff,
+  OLD_WRITE_UPS_DROP_DM_LINKS,
 } from "./rsvp.ts";
-import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
+import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, remainderGivesAway, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
-import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, startMinutes, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
+import { recordAttendance, sharesMeeting } from "../dm/store.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -1831,6 +1833,171 @@ test("QA F6: a write-up on a gathering id with no row gets 404 and claims nothin
     assert.equal(res.ok ? 0 : res.status, 404);
     assert.equal((await t.db.query(`select id from board_post`)).length, before);
     assert.equal((await t.db.query(`select 1 from public_gathering where id = $1`, [missing])).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+// ---- QA N1: the hidden rooms as one set ----
+
+test("QA N1's example: A 6/6 and B 7/7 hidden, C 25/50 shown; 38 - 25 = 13 = 6 + 7, so the grand total is hidden", () => {
+  const raw = [
+    { roomId: "a", members: 6, gatherings: [g("a1", 6, 6)], weeks: [] },
+    { roomId: "b", members: 7, gatherings: [g("b1", 7, 7)], weeks: [] },
+    { roomId: "c", members: 50, gatherings: [g("c1", 25, 25)], weeks: [] },
+  ];
+  const sizes: Record<string, number> = { a: 6, b: 7, c: 50 };
+  // Disjoint rooms: the distinct membership of A and B is 13.
+  const out = suppressSummary(raw, 5, (ids) => ids.reduce((sum, id) => sum + (sizes[id] ?? 0), 0));
+  const [a, b, c] = out.rooms;
+  assert.equal(a!.going, null);
+  assert.equal(b!.going, null);
+  assert.equal(c!.going, 25);
+  assert.equal(out.totals.going, null);
+  assert.equal(out.totals.came, null);
+  assert.equal(remainderGivesAway([6, 7, 25], [null, null, 25], raw, 5, true, () => 13), true);
+});
+
+test("QA N1 variants: overlapping members, and a near-whole remainder, still hide the total", () => {
+  // A and B share 3 people: their distinct membership is 10, the remainder 13 is at least that.
+  const overlap = [
+    { roomId: "a", members: 6, gatherings: [g("a1", 6)], weeks: [] },
+    { roomId: "b", members: 7, gatherings: [g("b1", 7)], weeks: [] },
+    { roomId: "c", members: 50, gatherings: [g("c1", 25)], weeks: [] },
+  ];
+  assert.equal(suppressSummary(overlap, 5, (ids) => (ids.length === 2 && !ids.includes("c") ? 10 : 60)).totals.going, null);
+  // Near-whole: A 6 of 8 and B 7 of 9 (distinct 17); 13 >= 17 - 5.
+  const near = [
+    { roomId: "a", members: 8, gatherings: [g("a1", 6)], weeks: [] },
+    { roomId: "b", members: 9, gatherings: [g("b1", 7)], weeks: [] },
+    { roomId: "c", members: 50, gatherings: [g("c1", 25)], weeks: [] },
+  ];
+  const sizes: Record<string, number> = { a: 8, b: 9, c: 50 };
+  const out = suppressSummary(near, 5, (ids) => ids.reduce((sum, id) => sum + (sizes[id] ?? 0), 0));
+  assert.deepEqual(out.rooms.map((r) => r.going), [null, null, 25]);
+  assert.equal(out.totals.going, null);
+});
+
+test("QA N1: hidden rooms whose remainder is far from their membership leave the total shown", () => {
+  const raw = [
+    { roomId: "a", members: 100, gatherings: [g("a1", 3)], weeks: [] },
+    { roomId: "b", members: 100, gatherings: [g("b1", 4)], weeks: [] },
+    { roomId: "c", members: 50, gatherings: [g("c1", 25)], weeks: [] },
+    { roomId: "d", members: 60, gatherings: [g("d1", 30)], weeks: [] },
+  ];
+  const sizes: Record<string, number> = { a: 100, b: 100, c: 50, d: 60 };
+  const out = suppressSummary(raw, 5, (ids) => ids.reduce((sum, id) => sum + (sizes[id] ?? 0), 0));
+  assert.deepEqual(out.rooms.map((r) => r.going), [null, null, 25, 30]);
+  // 62 - 55 = 7: at least N, and nowhere near 200 members.
+  assert.equal(out.totals.going, 62);
+  // Write-ups are not people: only the under-N rule applies to them.
+  assert.equal(remainderGivesAway([6, 7, 25], [null, null, 25], raw, 5, false, () => 13), false);
+  assert.equal(remainderGivesAway([2, 2, 25], [null, null, 25], raw, 5, false, () => 13), true);
+});
+
+// ---- QA N2: the start time is free text; read it in New York time ----
+
+test("QA N2: startMinutes reads am/pm, p.m., noon and 24-hour times; a bare 9:30 reads as the later 21:30", () => {
+  const cases: Array<[string, number | null]> = [
+    ["7 pm", 19 * 60],
+    ["7pm", 19 * 60],
+    ["7:00 p.m.", 19 * 60],
+    ["7 P.M.", 19 * 60],
+    ["11:59 pm", 23 * 60 + 59],
+    ["7:00am", 7 * 60],
+    ["12 am", 0],
+    ["12 pm", 12 * 60],
+    ["noon", 12 * 60],
+    ["19:00", 19 * 60],
+    ["07:30", 7 * 60 + 30],
+    ["0:30", 30],
+    ["9:30", 21 * 60 + 30],
+    ["12:15", 12 * 60 + 15],
+    ["Saturdays 6:30 PM, talk at 7", 18 * 60 + 30],
+    ["Room 12", null],
+    ["after supper", null],
+    ["", null],
+  ];
+  for (const [text, minutes] of cases) assert.equal(startMinutes(text), minutes, text);
+});
+
+test("QA N2: markOpen in New York time, across the clock change; unreadable times wait for the date to end; undated never opens", () => {
+  // Nov 1 2026 is the day the clocks go back: 23:30 UTC is 6:30 pm EST.
+  const at = (iso: string) => new Date(iso);
+  const day = "2026-11-01";
+  assert.equal(markOpen({ date: day, time: "7 pm" }, at("2026-11-01T23:30:00Z")), false);
+  assert.equal(markOpen({ date: day, time: "7 pm" }, at("2026-11-02T00:00:00Z")), true);
+  assert.equal(markOpen({ date: day, time: "6:30 p.m." }, at("2026-11-01T23:30:00Z")), true);
+  assert.equal(markOpen({ date: day, time: "11:59 pm" }, at("2026-11-02T04:58:00Z")), false);
+  assert.equal(markOpen({ date: day, time: "11:59 pm" }, at("2026-11-02T04:59:00Z")), true);
+  // Oct 30 (EDT): 7 am is 11:00 UTC.
+  assert.equal(markOpen({ date: "2026-10-30", time: "07:00" }, at("2026-10-30T10:59:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: "07:00" }, at("2026-10-30T11:00:00Z")), true);
+  // A bare 9:30 waits for 9:30 pm.
+  assert.equal(markOpen({ date: "2026-10-30", time: "9:30" }, at("2026-10-30T14:00:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: "9:30" }, at("2026-10-31T01:30:00Z")), true);
+  // Unreadable: closed all that day in New York, open the next.
+  assert.equal(markOpen({ date: "2026-10-30", time: "after supper" }, at("2026-10-31T03:59:00Z")), false);
+  assert.equal(markOpen({ date: "2026-10-30", time: "after supper" }, at("2026-10-31T04:00:00Z")), true);
+  // Before the date, closed; undated, closed on the client and the server alike.
+  assert.equal(markOpen({ date: "2026-11-02", time: "7 am" }, at("2026-11-01T23:30:00Z")), false);
+  assert.equal(markOpen({ date: "", time: "7 pm" }, at("2026-11-01T23:30:00Z")), false);
+});
+
+test("QA N2: the server refuses marks on an undated gathering, an unreadable time on its own day, and a 7 pm start at 7 am", async () => {
+  const t = await setup();
+  try {
+    // The handler's clock: Nov 1 2026, 7 a.m. in New York.
+    const ids = { undated: randomUUID(), supper: randomUUID(), evening: randomUUID(), morning: randomUUID(), yesterday: randomUUID() };
+    const plan: Array<[string, string, string]> = [
+      [ids.undated, "", "7 pm"],
+      [ids.supper, "2026-11-01", "after supper"],
+      [ids.evening, "2026-11-01", "7 pm"],
+      [ids.morning, "2026-11-01", "6:30 a.m."],
+      [ids.yesterday, "2026-10-31", "after supper"],
+    ];
+    for (const [id, date, time] of plan) {
+      const saved = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(id, "shop", { date, time }));
+      assert.equal(saved.status, 200, await saved.clone().text());
+      assert.equal((await call(t.handler, t.tom, "POST", `/api/gatherings/${id}/rsvp`, { going: true })).status, 200);
+    }
+    const mark = (id: string) => call(t.handler, t.dale, "POST", `/api/gatherings/${id}/attendance`, { userIds: [rsvpHandle(id, t.tom.id)] });
+    for (const id of [ids.undated, ids.supper, ids.evening]) {
+      const res = await mark(id);
+      assert.equal(res.status, 409, id);
+      assert.deepEqual(await res.json(), { error: MARK_TOO_EARLY, api: "rsvp" });
+    }
+    for (const id of [ids.morning, ids.yesterday]) assert.equal((await mark(id)).status, 200, id);
+  } finally {
+    await t.close();
+  }
+});
+
+// ---- QA N3: the purge also ends DM "met at a meeting" from old write-ups ----
+
+test("QA N3: someone named only on a write-up older than 12 months loses that DM eligibility (OLD_WRITE_UPS_DROP_DM_LINKS)", async () => {
+  assert.equal(OLD_WRITE_UPS_DROP_DM_LINKS, true);
+  const t = await setup();
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id)] },
+      now: new Date("2026-11-01T12:00:00Z"),
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    // That write-up is the only one naming Tom; make it older than 12 months.
+    await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
+    assert.equal((await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING])).ok, true);
+    assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "before the purge, Tom and Dale met at a meeting");
+    await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"));
+    assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), false, "after it, that write-up no longer makes them peers");
+    // And Tom can no longer confirm it.
+    await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING]);
+    assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 0);
   } finally {
     await t.close();
   }

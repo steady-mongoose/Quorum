@@ -33,9 +33,9 @@ test("rooms show their names, sorted alphabetically, not ids", () => {
   const sorted = sortSummaryRooms([{ roomId: "aa" }, { roomId: "zz" }, { roomId: "" }, { roomId: "mm" }], (id) => names[id]!);
   assert.deepEqual(sorted.map((r) => r.name), ["Apple room", "mango room", "No room", "Zebra room"]);
   assert.equal(summaryRoomName(""), "No room");
-  // The server's name first, then the catalogue, then "A room": never a raw id (QA F7).
+  // The server's name first, then the catalogue, then "Unnamed room": never a raw id (QA F7, Design M2).
   assert.equal(summaryRoomName("x-9f2", "Garage crew"), "Garage crew");
-  assert.equal(summaryRoomName("x-9f2"), "A room");
+  assert.equal(summaryRoomName("x-9f2"), "Unnamed room");
   assert.match(panel, /sortSummaryRooms\(summary\.rooms\)/);
   assert.match(panel, /\{room\.name\}:/);
   assert.doesNotMatch(panel, /\{room\.roomId \|\| "No room"\}/);
@@ -48,12 +48,15 @@ test("weeks read 'Week of Oct 26, 2026', oldest first; gatherings by date, never
   assert.doesNotMatch(panel, /g\.title/);
 });
 
-test("the panel is a card, 'RSVP counts', with scrolling tables, right-aligned numbers and 'Times members came'", () => {
+test("the panel is a card, 'RSVP counts', with scrolling tables, right-aligned numbers and 'Times came'", () => {
   assert.match(panel, /rounded-lg border border-line bg-surface p-4 sm:p-6/);
   assert.match(panel, />\s*RSVP counts\s*</);
   assert.match(panel, /className="overflow-x-auto"/);
   assert.match(panel, /px-2 py-2 text-right tabular-nums/);
-  assert.match(panel, />Times members came</);
+  // Visible "Times came", heard as "Times members came", no <abbr> (Design #126 M1).
+  assert.match(panel, /<span aria-hidden="true">Times came<\/span>\s*<span className="sr-only">Times members came<\/span>/);
+  assert.doesNotMatch(panel, /<abbr/);
+  assert.match(panel, /whitespace-nowrap text-right/);
   assert.doesNotMatch(panel, /Have come/);
   assert.match(panel, /so one member who came to three gatherings counts three times/);
   assert.match(panel, /Gatherings in \{room\.name\}: going, times members came and write-ups for each/);

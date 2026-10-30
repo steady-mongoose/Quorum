@@ -560,7 +560,8 @@ export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCa
 /** Focus lands here when a closed gathering drops off the list (Design #126). */
 const FIND_LIST_HEADING = "find-list-h";
 
-function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
+/** One gathering card on Find. Exported for render tests. */
+export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const visited = useBoard((state) => state.visited);
   const rsvp = useBoard((state) => state.rsvp);
   const updateCard = useBoard((state) => state.updateCard);
@@ -637,6 +638,16 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const started = markOpen({ date: card.next, time: card.time }, new Date());
   // "I went": only once it has started, and only after saying "going" (QA F4).
   const canSayWent = !went && started && going;
+  // Why "I went" is not open yet: a visible line the button is described by, not a tooltip (Design #126 L1).
+  const wentReason =
+    takesRoll(card) && !went && !canSayWent
+      ? started
+        ? "Say you’re going first, then you can mark “I went”."
+        : card.next
+          ? "You can mark “I went” once the gathering has started."
+          : "You can mark “I went” once the gathering has a date and has started."
+      : "";
+  const wentReasonId = useId();
   const [submitting, setSubmitting] = useState(false);
 
   return (
@@ -681,7 +692,12 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
       {/* Not before the gathering's date or start time (QA F4). */}
       {!isHost && takesRoll(card) && rollOn && card.next && started ? <StewardRollCall card={card} /> : null}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      {wentReason ? (
+        <p id={wentReasonId} className="mt-3 text-sm text-muted">
+          {wentReason}
+        </p>
+      ) : null}
+      <div className={cn("flex flex-wrap gap-2", wentReason ? "mt-2" : "mt-3")}>
         {!isHost && card.next ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
@@ -690,7 +706,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
             type="button"
             className={cn(btnGhost, "aria-disabled:opacity-70")}
             aria-disabled={!canSayWent || undefined}
-            title={!went && !canSayWent ? (started ? "Say you're going first." : "Once the gathering has started.") : undefined}
+            aria-describedby={wentReason ? wentReasonId : undefined}
             onClick={() => {
               if (!canSayWent) return;
               visited(card.id);

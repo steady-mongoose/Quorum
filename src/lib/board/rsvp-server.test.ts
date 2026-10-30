@@ -453,8 +453,8 @@ test("a member cannot mark 'I've been'; the host can", async () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   try {
     setBoardClient(stubClient());
-    // Dale said "going": only members going can be marked (QA F4).
-    useBoard.setState({ remote: true, admin: false, me: "Maria", rsvpHosts: [], cards: [card(G1, { host: "Dale", going: ["Dale"] })] });
+    // Dale said "going": only members going can be marked (QA F4). Dated in the past (QA N2).
+    useBoard.setState({ remote: true, admin: false, me: "Maria", rsvpHosts: [], cards: [card(G1, { host: "Dale", next: "2026-10-24", going: ["Dale"] })] });
     useBoard.getState().visited(G1);
     await settle();
     assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
@@ -535,7 +535,8 @@ test("\"I went\" is saved first: the card changes only on success or rsvp-not-re
   }) as typeof fetch;
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   // The host of the card: one of the two roles (host, room steward) that mark who came.
-  const hosted = () => card(G1, { host: "Me", unverified: true, going: ["Me"] });
+  // Dated in the past: an undated gathering never opens marking (QA N2).
+  const hosted = () => card(G1, { host: "Me", next: "2026-10-24", unverified: true, going: ["Me"] });
   try {
     setBoardClient(stubClient());
     useBoard.setState({ remote: true, admin: false, me: "Me", boardError: "", rsvpHosts: [G1], cards: [hosted()] });

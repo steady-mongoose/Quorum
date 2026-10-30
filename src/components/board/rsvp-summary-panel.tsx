@@ -10,7 +10,7 @@ import { gatheringLabel, sortSummaryRooms, sortWeeks, weekLabel } from "@/lib/bo
  * hiding is derived from RSVP_SUMMARY_MIN_COUNT (rsvp-rules.ts).
  */
 export const RSVP_SUMMARY_INTRO =
-  "Counts only. No one is named or listed. \u201cGoing\u201d is who said they'd come to the next date. \u201cTimes members came\u201d adds up, over every gathering, the members a host or steward marked as having come, so one member who came to three gatherings counts three times. \u201cBy week\u201d counts the write-ups filed each week. Barred members are counted too.";
+  "Counts only. No one is named or listed. \u201cGoing\u201d is who said they'd come to the next date. \u201cTimes came\u201d adds up, over every gathering, the members a host or steward marked as having come, so one member who came to three gatherings counts three times. \u201cBy week\u201d counts the write-ups filed each week. Barred members are counted too.";
 export const RSVP_WEEK_CAPTION = "By week, from write-ups: write-ups filed.";
 
 type State = { kind: "loading" } | { kind: "ready"; summary: RsvpSummary } | { kind: "message"; text: string };
@@ -68,21 +68,52 @@ export function Shown({ count }: { count: SummaryCount }) {
 }
 
 const th = "px-2 py-2 font-semibold text-muted";
+/** Number headers never wrap, so the table holds at 390px (Design #126 r5712986677 M1). */
+const numTh = `${th} whitespace-nowrap text-right`;
 const num = "px-2 py-2 text-right tabular-nums text-fg";
+
+/** Visible "Times came"; a screen reader hears "Times members came" (Design #126 M1). */
+export function TimesCameHeader() {
+  return (
+    <>
+      <span aria-hidden="true">Times came</span>
+      <span className="sr-only">Times members came</span>
+    </>
+  );
+}
+
+/** "came 10 times", "came 1 time", or "came Hidden" (no number, so no "times"). */
+function CameTimes({ count }: { count: SummaryCount }) {
+  if (count === null) {
+    return (
+      <>
+        came <Shown count={null} />
+      </>
+    );
+  }
+  return <>came {count === 1 ? "1 time" : `${count} times`}</>;
+}
+
+/** "going 13 · came 10 times · write-ups 3" (Design #126 M1). */
+export function SummaryLine({ cells }: { cells: { going: SummaryCount; came: SummaryCount; writeUps: SummaryCount } }) {
+  return (
+    <>
+      going <Shown count={cells.going} /> · <CameTimes count={cells.came} /> · write-ups <Shown count={cells.writeUps} />
+    </>
+  );
+}
 
 export function Tables({ summary }: { summary: RsvpSummary }) {
   if (summary.rooms.length === 0) return <p className="text-sm text-muted">No gatherings yet.</p>;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-fg">
-        All rooms: going <Shown count={summary.totals.going} />, times members came <Shown count={summary.totals.came} />,
-        write-ups <Shown count={summary.totals.writeUps} />.
+        All rooms: <SummaryLine cells={summary.totals} />
       </p>
       {sortSummaryRooms(summary.rooms).map((room) => (
         <details key={room.roomId || "none"} className="flex flex-col gap-2">
           <summary className="min-h-[44px] cursor-pointer py-2 text-fg">
-            {room.name}: going <Shown count={room.going} />, times members came <Shown count={room.came} />, write-ups{" "}
-            <Shown count={room.writeUps} />
+            {room.name}: <SummaryLine cells={room} />
           </summary>
           <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Gatherings in ${room.name}`}>
             <table className="w-full min-w-[19rem] text-left text-sm">
@@ -90,9 +121,11 @@ export function Tables({ summary }: { summary: RsvpSummary }) {
               <thead>
                 <tr>
                   <th scope="col" className={th}>Gathering</th>
-                  <th scope="col" className={`${th} text-right`}>Going</th>
-                  <th scope="col" className={`${th} text-right`}>Times members came</th>
-                  <th scope="col" className={`${th} text-right`}>Write-ups</th>
+                  <th scope="col" className={numTh}>Going</th>
+                  <th scope="col" className={numTh}>
+                    <TimesCameHeader />
+                  </th>
+                  <th scope="col" className={numTh}>Write-ups</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,7 +149,7 @@ export function Tables({ summary }: { summary: RsvpSummary }) {
                 <thead>
                   <tr>
                     <th scope="col" className={th}>Week of</th>
-                    <th scope="col" className={`${th} text-right`}>Write-ups</th>
+                    <th scope="col" className={numTh}>Write-ups</th>
                   </tr>
                 </thead>
                 <tbody>

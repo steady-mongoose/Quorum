@@ -452,18 +452,33 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
 }
 
 /**
+ * The one switch for QA N3 (Oct 30; QA is asking Josh). dm_named_account links
+ * a write-up to the accounts its roll call named, and those links are what
+ * make two people "met at a meeting" for DMs: whether they may message, the
+ * peer list, and confirming attendance (server/dm/store.ts REAL_MEETINGS).
+ * true (now, under Josh's 12-month rule): a write-up older than 12 months
+ * loses its links, so someone named only there loses that DM eligibility.
+ * false: the links stay and that eligibility stays; the came list itself
+ * is still cleared, so a write-up with no link (named by name only) loses
+ * it either way.
+ */
+export const OLD_WRITE_UPS_DROP_DM_LINKS = true;
+
+/**
  * Josh's 12-month rule covers who came on a write-up too (QA F3, Oct 30): a
  * hosted write-up older than the cutoff (by its date, or when it was filed if
  * it has none) loses its came list and its named-account links, so no one
  * reads an old "came" date for a member. The write-up itself stays. This
- * deletes data. Queries only; no schema change.
+ * deletes data. Queries only; no schema change. Dropping the links also
+ * ends DM "met at a meeting" eligibility from that write-up: see
+ * OLD_WRITE_UPS_DROP_DM_LINKS.
  */
 async function purgeOldWriteUpNames(db: Db, cutoff: Date): Promise<number> {
   const cutoffDay = cutoff.toISOString().slice(0, 10);
   const old = `p.type = 'hosted'
        and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date < $1 else p.created_at < $2 end)`;
   const named = await db.query<{ ready: string | null }>(`select to_regclass('public.dm_named_account')::text as ready`);
-  if (named[0]?.ready) {
+  if (OLD_WRITE_UPS_DROP_DM_LINKS && named[0]?.ready) {
     await db.query(
       `delete from dm_named_account n using board_post p where n.post_id = p.id and ${old}`,
       [cutoffDay, cutoff],
