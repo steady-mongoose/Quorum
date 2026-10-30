@@ -13,6 +13,15 @@ import {
 import * as model from "./model.ts";
 import { ROOMS, localReach, metAt, type MeetingCard, type Post, type Room } from "./model.ts";
 import type { MemberList, MemberRow } from "./room-members.ts";
+import {
+  FAILED_MS,
+  FRESH_MS,
+  HIDDEN_MS,
+  cachedReachReads,
+  serverReachAnswers,
+  type MemberAnswer,
+  type ReachAnswers,
+} from "./message-reach-reads.ts";
 
 function row(id: string, name: string, message: MemberRow["message"]): MemberRow {
   return { id, name, steward: false, joinedOn: "", lastPostedOn: "", attended: [], message };
@@ -194,4 +203,76 @@ test("Design: the refusal is an alert in body ink, and Find waits for the answer
   assert.match(mailbox, /setRefused\(refusalText\(opened\.message, sharesRoom\)\)/);
   const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
   assert.match(find, /card\.firstTimer && peers\.loaded/);
+});
+
+test("only a hidden member list (404) is cached for five minutes; 500, 429, 401 and network errors are asked again soon", async () => {
+  const realFetch = globalThis.fetch;
+  const statuses: Record<string, number | "network"> = {
+    hidden: 404,
+    broken: 500,
+    limited: 429,
+    signedout: 401,
+    offline: "network",
+  };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const room = String(input instanceof Request ? input.url : input).match(/rooms\/([^/]+)\/members/)?.[1] ?? "";
+    const status = statuses[room];
+    if (status === "network") throw new TypeError("Failed to fetch");
+    if (status) return new Response(JSON.stringify({ error: "No." }), { status });
+    return new Response(JSON.stringify({ members: [], rollCall: false }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const answers = serverReachAnswers({} as never);
+    const kinds: Record<string, string> = {};
+    for (const room of ["open", ...Object.keys(statuses)]) {
+      kinds[room] = (await answers.members(room)).kind;
+    }
+    assert.deepEqual(kinds, {
+      open: "list",
+      hidden: "hidden",
+      broken: "failed",
+      limited: "failed",
+      signedout: "failed",
+      offline: "failed",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.ok(FAILED_MS <= 30_000 && FRESH_MS <= 30_000 && HIDDEN_MS === 5 * 60_000);
+  let now = 0;
+  const asked: string[] = [];
+  const answer: Record<string, MemberAnswer> = {
+    hidden: { kind: "hidden" },
+    broken: { kind: "failed" },
+    open: { kind: "list", list: list(row("u1", "Ruth", "open")) },
+  };
+  const server: ReachAnswers = {
+    members: async (roomId) => {
+      asked.push(roomId);
+      return answer[roomId]!;
+    },
+    peers: async () => {
+      asked.push("peers");
+      return { kind: "failed" };
+    },
+  };
+  const { reads } = cachedReachReads(() => server, () => now);
+  const ask = async () => {
+    asked.length = 0;
+    for (const room of ["hidden", "broken", "open"]) await reads.members(room);
+    await reads.peers();
+    return [...asked];
+  };
+  assert.deepEqual(await ask(), ["hidden", "broken", "open", "peers"]);
+  now = 1_000;
+  assert.deepEqual(await ask(), []);
+  now = FAILED_MS;
+  // The failed list and the failed peers are asked again; the others are not.
+  assert.deepEqual(await ask(), ["broken", "peers"]);
+  now = FAILED_MS + 30_000;
+  assert.deepEqual(await ask(), ["broken", "open", "peers"]);
+  now = HIDDEN_MS;
+  assert.ok((await ask()).includes("hidden"));
+  assert.equal((await reads.members("open"))?.members[0]?.name, "Ruth");
 });

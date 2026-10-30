@@ -7,53 +7,26 @@ import {
   serverReach,
   type ReachAnswer,
 } from "@/lib/board/message-reach";
-import { readReach, serverReachReads, type ReachReads } from "@/lib/board/message-reach-reads";
-import type { MemberList } from "@/lib/board/room-members";
+import {
+  cachedReachReads,
+  readReach,
+  serverReachAnswers,
+  type ReachReads,
+} from "@/lib/board/message-reach-reads";
 import { browserTransport } from "@/lib/e2ee/browser";
 import { useBoard } from "@/lib/board/store";
 
-/** Server answers are reused this long, so each page does not refetch them. */
-const FRESH_MS = 30_000;
-/** A hidden member list (404) is not asked again for this long, so it stays quiet. */
-const HIDDEN_MS = 5 * 60_000;
-
-type Cached<T> = { at: number; ttl: number; value: Promise<T> };
-const roomLists = new Map<string, Cached<MemberList | null>>();
-let peerList: Cached<{ id: string; name: string }[]> | null = null;
 const reachVersion = createVersion();
-
-function fresh<T>(entry: Cached<T> | null | undefined, now: number): entry is Cached<T> {
-  return Boolean(entry && now - entry.at < entry.ttl);
-}
-
 /** GETs only, cached. See message-reach-reads.ts: a page load never writes. */
+const cache = cachedReachReads(() => serverReachAnswers(browserTransport()));
+
 function cachedReads(): ReachReads {
-  const server = serverReachReads(browserTransport());
-  return {
-    members(roomId) {
-      const now = Date.now();
-      const cached = roomLists.get(roomId);
-      if (fresh(cached, now)) return cached.value;
-      const entry: Cached<MemberList | null> = { at: now, ttl: FRESH_MS, value: server.members(roomId) };
-      void entry.value.then((list) => {
-        if (list === null) entry.ttl = HIDDEN_MS;
-      });
-      roomLists.set(roomId, entry);
-      return entry.value;
-    },
-    peers() {
-      const now = Date.now();
-      if (fresh(peerList, now)) return peerList.value;
-      peerList = { at: now, ttl: FRESH_MS, value: server.peers() };
-      return peerList.value;
-    },
-  };
+  return cache.reads;
 }
 
 /** Forget cached answers after a block or unblock; screens showing Message refetch. */
 export function forgetMessageReach(): void {
-  roomLists.clear();
-  peerList = null;
+  cache.forget();
   reachVersion.bump();
 }
 
