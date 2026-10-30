@@ -377,7 +377,7 @@ async function dispatch(
   }
 
   if (path === "/api/dm/peers" && method === "GET") {
-    return json(200, { peers: await listPeers(deps.db, userId) });
+    return json(200, { peers: await listPeers(deps.db, userId, deps.now()) });
   }
 
   if (path === "/api/dm/members" && method === "GET") {
