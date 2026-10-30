@@ -61,13 +61,19 @@ let pollReplies = [];
 /** url suffix -> [status, body] for a one-off reply (say, a refused Join). */
 let overrides = {};
 const posts = [];
+/** Every GET url, so a test can count reloads. */
+const gets = [];
 globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (init?.method === "POST") posts.push({ url, body: init.body });
+  else gets.push(url);
   let body;
   const hit = Object.keys(overrides).find((end) => url.endsWith(end));
   if (hit) {
-    const [status, reply] = overrides[hit];
+    // A function gives a different reply each time.
+    const pick = typeof overrides[hit] === "function" ? overrides[hit]() : overrides[hit];
+    if (pick === "network") throw new TypeError("Failed to fetch");
+    const [status, reply] = pick;
     return new Response(JSON.stringify(reply), {
       status,
       headers: { "content-type": "application/json" },
@@ -146,6 +152,8 @@ Object.defineProperty(navigator, "mediaDevices", {
 const { createElement, act } = await import("react");
 const { createRoot: makeRoot } = await import("react-dom/client");
 
+// Focus checks compare with === inside assert.ok: a failing assert.equal on two DOM nodes
+// makes node print the whole happy-dom graph, and the run is killed for memory.
 /** Each test gets a deadline, so a regression fails the run instead of hanging CI. */
 const test = (name, fn) => nodeTest(name, { timeout: 30_000 }, fn);
 /** Roots still mounted. afterEach unmounts them even when a test fails part way. */
@@ -179,7 +187,8 @@ after(async () => {
   }
 });
 const { SessionContext, EMPTY_SERVER_SESSION } = await import("../server-session-state.ts");
-const { CallRings, focusRoomCall } = await import("../../components/board/call-rings.tsx");
+const { CallRings, focusRoomCall, keepFieldClear } =
+  await import("../../components/board/call-rings.tsx");
 const { CallPanel, RoomCall } = await import("../../components/board/room-call.tsx");
 
 const flush = async (n = 20) => {
@@ -292,7 +301,7 @@ test("Join on a DM ring opens the call over the page; the caller hanging up ends
   assert.ok(host.querySelector('section[aria-label="Call with Ann"]'), "the call opens");
   assert.ok(button("Leave call"));
   assert.notEqual(document.activeElement, document.body, "focus stays in the call");
-  assert.equal(document.activeElement, button("Mute"), "Mute has focus once live");
+  assert.ok(document.activeElement === button("Mute", "focus"), "Mute has focus once live");
   // Ann hangs up: the next poll has nobody else in the call.
   await waitFor(() => /Ann left\. The call ended\./.test(host.textContent));
   assert.match(host.textContent, /Ann left\. The call ended\./);
@@ -433,7 +442,7 @@ test("Escape anywhere declines a ring, but not while typing or in an open dialog
   await flush();
   assert.equal(host.querySelector('section[role="region"]'), null);
   assert.ok(posts.some((p) => p.url.endsWith("/api/calls/rings/r20/decline")));
-  assert.equal(document.activeElement, input, "focus stays where you were");
+  assert.ok(document.activeElement === input, "focus stays where you were");
   input.remove();
   await act(async () => root.unmount());
 });
@@ -598,7 +607,7 @@ test("a ring focuses the card, not Join, so a stray Enter or Space does not join
   const { host, root } = await mountRings(ringtoneSpy().fn, () => went++);
   const card = host.querySelector('section[role="region"]');
   assert.ok(card);
-  assert.equal(document.activeElement, card, "the card region has focus");
+  assert.ok(document.activeElement === card, "the card region has focus");
   assert.equal(card.getAttribute("tabindex"), "-1", "focusable by script, not a Tab stop");
   assert.match(card.className, /(^|\s)focus-target(\s|$)/, "the team's focus ring");
   assert.deepEqual(focusCalls.at(-1), { el: card, options: { preventScroll: true } });
@@ -645,11 +654,11 @@ test("a ring does not take focus from someone typing; the live line still announ
     const field = make();
     document.body.append(field);
     field.focus();
-    assert.equal(document.activeElement, field);
+    assert.ok(document.activeElement === field, "focus");
     ringsReply = [{ id: "r41", kind: "room", roomId: "shop", fromName: "Josh" }];
     const { host, root } = await mountRings(ringtoneSpy().fn);
     assert.ok(host.querySelector('section[role="region"]'));
-    assert.equal(document.activeElement, field, `${field.tagName} keeps focus`);
+    assert.ok(document.activeElement === field, `${field.tagName} keeps focus`);
     assert.equal(
       host.querySelector('p[role="status"]').textContent,
       "Josh is calling you into a room call.",
@@ -672,7 +681,7 @@ test("a ring does not take focus while a dialog is open", async () => {
   ringsReply = [{ id: "r42", kind: "dm", threadId: thread, fromName: "Ann" }];
   const { host, root } = await mountRings(ringtoneSpy().fn);
   assert.ok(host.querySelector('section[role="region"]'));
-  assert.equal(document.activeElement, inside, "focus stays in the dialog");
+  assert.ok(document.activeElement === inside, "focus stays in the dialog");
   assert.equal(host.querySelector('p[role="status"]').textContent, "Ann is calling you.");
   ringsReply = [];
   await act(async () => root.unmount());
@@ -856,7 +865,7 @@ async function joinRoomCall(host) {
 
 test("low 3: a picker that fails to load says so with Try again, and Try again reloads it", async () => {
   const picker = "/api/calls/rooms/shop/ring";
-  const failed = "We couldn't load who you can call. Try again in a moment.";
+  const failed = "We couldn't load the members you can call.";
   overrides = { [picker]: [503, { canRing: false, members: [], error: failed, record: false }] };
   const host = document.createElement("div");
   document.body.append(host);
@@ -894,7 +903,7 @@ test("low 3: a picker that fails to load says so with Try again, and Try again r
   const select = host.querySelector("select");
   assert.ok(select, "the member list shows");
   assert.ok([...select.options].some((o) => o.textContent === "Ben"));
-  assert.equal(document.activeElement, select, "focus lands on the list");
+  assert.ok(document.activeElement === select, "focus lands on the list");
   overrides = {};
   await act(async () => root.unmount());
   host.remove();
@@ -904,27 +913,444 @@ test("low 3: someone who can't ring sees no picker, and raw server text never sh
   const picker = "/api/calls/rooms/shop/ring";
   for (const reply of [
     [200, { canRing: false, members: [], record: false }],
-    [503, { error: 'relation "dm_block" does not exist', record: false }],
+    [403, { error: 'relation "dm_block" does not exist', record: false }],
   ]) {
     overrides = { [picker]: reply };
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        createElement(
-          SessionContext.Provider,
-          { value: live },
-          createElement(RoomCall, { roomId: "shop" }),
-        ),
-      );
-    });
-    await joinRoomCall(host);
+    const { host } = await mountPicker();
     assert.equal(host.querySelector("select"), null);
     assert.equal(host.textContent.includes("Try again"), false);
     assert.equal(host.textContent.includes("dm_block"), false);
-    overrides = {};
+  }
+  // The picker's own 503 (sent only once the permission check passed) shows the plain line.
+  overrides = { [picker]: [503, PICKER_FAULT] };
+  const { host } = await mountPicker();
+  assert.ok(host.textContent.includes(PICKER_LINE));
+  assert.equal(host.textContent.includes("dm_block"), false);
+});
+
+const PICKER = "/api/calls/rooms/shop/ring";
+const PICKER_LINE = "We couldn't load the members you can call.";
+/** The server's picker 503: the permission check passed, then the list failed. */
+const PICKER_FAULT = {
+  canRing: false,
+  members: [],
+  error: PICKER_LINE,
+  checked: true,
+  record: false,
+};
+const pickerLoads = () => gets.filter((url) => url.endsWith(PICKER)).length;
+
+async function mountPicker() {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      createElement(
+        SessionContext.Provider,
+        { value: live },
+        createElement(RoomCall, { roomId: "shop" }),
+      ),
+    );
+  });
+  await joinRoomCall(host);
+  const button = (text) =>
+    [...host.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+  return { host, root, button };
+}
+
+async function pressRetry(button) {
+  const retry = button("Try again");
+  assert.ok(retry, "Try again shows");
+  retry.focus();
+  await act(async () => retry.click());
+  await flush();
+  return retry;
+}
+
+test("QA on #128: a first-load fault with no sign they can ring stays hidden, with one quiet retry", async () => {
+  for (const reply of [
+    [500, { error: 'relation "dm_block" does not exist' }],
+    [502, null],
+    [503, { error: "Calls aren't working right now. Try again in a moment.", record: false }],
+    "network",
+  ]) {
+    overrides = { [PICKER]: reply };
+    const before = pickerLoads();
+    const { host, root } = await mountPicker();
+    const label = String(reply[0] ?? reply);
+    assert.equal(host.querySelector("select"), null, `${label}: no picker`);
+    assert.equal(host.textContent.includes(PICKER_LINE), false, `${label}: no failure line`);
+    assert.equal(host.textContent.includes("Try again"), false, `${label}: no Try again`);
+    assert.equal(host.textContent.includes("dm_block"), false);
+    await waitFor(() => pickerLoads() - before === 2, 6000);
+    assert.equal(pickerLoads() - before, 2, `${label}: one quiet retry`);
+    await new Promise((r) => setTimeout(r, 3500));
+    assert.equal(pickerLoads() - before, 2, `${label}: and only one`);
+    assert.equal(host.textContent.includes(PICKER_LINE), false, `${label}: still quiet`);
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+test("QA on #128: the quiet retry that works shows the list without moving focus", async () => {
+  let n = 0;
+  overrides = {
+    [PICKER]: () =>
+      n++ === 0 ? [502, null] : [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }],
+  };
+  const { host } = await mountPicker();
+  assert.equal(host.querySelector("select"), null);
+  const was = document.activeElement;
+  await waitFor(() => host.querySelector("select"), 6000);
+  assert.ok([...host.querySelector("select").options].some((o) => o.textContent === "Ben"));
+  assert.ok(document.activeElement === was, "a quiet retry doesn't take focus");
+  assert.equal(host.textContent.includes(PICKER_LINE), false);
+});
+
+test("QA on #128: an earlier 'can ring' in this panel is evidence, so a later fault shows the line", async () => {
+  overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
+  const { host, button } = await mountPicker();
+  assert.ok(host.querySelector("select"));
+  await act(async () => button("Leave call").click());
+  await flush();
+  overrides = { [PICKER]: "network" };
+  await joinRoomCall(host);
+  assert.ok(host.textContent.includes(PICKER_LINE), "the line shows: they can ring here");
+  assert.ok(button("Try again"));
+});
+
+test("QA S4 on #128: a later canRing false ends the evidence, so a plain 503 stays quiet", async () => {
+  overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
+  const { host, button } = await mountPicker();
+  assert.ok(host.querySelector("select"), "a host: the list shows");
+  // Host rights are gone: the next load says so.
+  await act(async () => button("Leave call").click());
+  await flush();
+  overrides = { [PICKER]: [200, { canRing: false, members: [], record: false }] };
+  await joinRoomCall(host);
+  assert.equal(host.querySelector("select"), null);
+  // Then a plain 503 (not the picker's own): no evidence any more, so no line.
+  await act(async () => button("Leave call").click());
+  await flush();
+  overrides = {
+    [PICKER]: [
+      503,
+      { error: "Calls aren't working right now. Try again in a moment.", record: false },
+    ],
+  };
+  await joinRoomCall(host);
+  assert.equal(host.textContent.includes(PICKER_LINE), false, "no failure line");
+  assert.equal(button("Try again"), undefined);
+});
+
+test("QA S4: a Try again that fails any other way keeps the line, the button and focus", async () => {
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
+  const { host, button } = await mountPicker();
+  for (const reply of [
+    [500, { error: "boom" }],
+    [403, { error: "Not allowed." }],
+    [503, { error: "Calls aren't working right now. Try again in a moment." }],
+    "network",
+  ]) {
+    overrides = { [PICKER]: reply };
+    const retry = await pressRetry(button);
+    assert.equal(button("Try again"), retry, `${String(reply[0] ?? reply)}: the same button stays`);
+    assert.ok(document.activeElement === retry, "focus stays on Try again, not the page");
+    assert.ok(host.textContent.includes(PICKER_LINE));
+    assert.equal(host.textContent.includes("boom"), false);
+  }
+});
+
+test("Design L5: after Try again works, focus moves to the member list with the focus ring", async () => {
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
+  const { host, button } = await mountPicker();
+  overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
+  await pressRetry(button);
+  const select = host.querySelector("select");
+  assert.ok(select);
+  assert.ok(document.activeElement === select, "focus");
+  assert.equal(select.hasAttribute("data-focus-ring"), true, "focusWithRing");
+});
+
+test("Design L6: a Try again that brings back an empty list focuses the call panel", async () => {
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
+  const { host, button } = await mountPicker();
+  overrides = { [PICKER]: [200, { canRing: true, members: [] }] };
+  await pressRetry(button);
+  assert.equal(button("Try again"), undefined);
+  const panel = host.querySelector("section");
+  assert.ok(document.activeElement === panel, "focus lands on the call panel, not the page");
+  assert.equal(panel.hasAttribute("data-focus-ring"), true, "focusWithRing");
+  assert.equal(panel.getAttribute("tabindex"), "-1");
+});
+
+test("QA S4: once Ben answers, 'Calling Ben.' goes and Ben is no longer offered", async () => {
+  overrides = {
+    [PICKER]: [
+      200,
+      {
+        canRing: true,
+        members: [
+          { id: "ben", name: "Ben" },
+          { id: "cy", name: "Cy" },
+        ],
+      },
+    ],
+  };
+  const { host, button } = await mountPicker();
+  const select = host.querySelector("select");
+  await act(async () => {
+    select.value = "ben";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await act(async () => button("Call Ben").click());
+  await flush();
+  assert.match(host.textContent, /Calling Ben\. It rings for up to a minute\./);
+  // Ben joins: the next poll has him in the call.
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !/Calling Ben\./.test(host.textContent), 6000);
+  assert.doesNotMatch(host.textContent, /Calling Ben\./);
+  const names = [...host.querySelector("select").options].map((o) => o.textContent);
+  assert.deepEqual(names, ["Choose a member", "Cy"], "Ben is in the call, so not offered");
+  const said = [...host.querySelectorAll('p[role="status"]')].map((p) => p.textContent);
+  assert.ok(said.includes("Ben joined the call."), "Design L3: the status line says Ben joined");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+async function ringFrom(members, who) {
+  overrides = { [PICKER]: [200, { canRing: true, members }] };
+  const mounted = await mountPicker();
+  const select = mounted.host.querySelector("select");
+  await act(async () => {
+    select.value = who.id;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const call = mounted.button(`Call ${who.name}`);
+  call.focus();
+  await act(async () => call.click());
+  await flush();
+  assert.ok(document.activeElement === call, "focus");
+  return { ...mounted, call };
+}
+
+test("Design M1: when the member rung joins, the focused Call button stays focusable and does nothing", async () => {
+  const { host, call } = await ringFrom(
+    [
+      { id: "ben", name: "Ben" },
+      { id: "cy", name: "Cy" },
+    ],
+    { id: "ben", name: "Ben" },
+  );
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !/Calling Ben\./.test(host.textContent), 6000);
+  assert.equal(call.isConnected, true, "the same button is still there");
+  assert.equal(call.textContent.trim(), "Call");
+  assert.equal(call.disabled, false, "no native disabled, so focus is not dropped");
+  assert.equal(call.getAttribute("aria-disabled"), "true");
+  assert.match(call.className, /aria-disabled:opacity-70/, "4.5:1 in both themes");
+  assert.ok(document.activeElement === call, "focus stays on the Call button");
+  const before = posts.length;
+  await act(async () => call.click());
+  await flush();
+  assert.equal(posts.length, before, "a click with nobody chosen rings nobody");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("Design M1: when the last member on the list joins, focus goes to the call panel, not the page", async () => {
+  const { host } = await ringFrom([{ id: "ben", name: "Ben" }], { id: "ben", name: "Ben" });
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !host.querySelector("select"), 6000);
+  await flush();
+  const panel = host.querySelector("section");
+  assert.ok(document.activeElement === panel, "focus lands on the call panel");
+  assert.equal(panel.hasAttribute("data-focus-ring"), true, "focusWithRing");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("QA S3: a card that shows while typing scrolls the field clear of it", async () => {
+  const box = document.createElement("div");
+  const field = document.createElement("textarea");
+  box.append(field);
+  document.body.append(box);
+  const scrolled = [];
+  field.scrollIntoView = (o) => scrolled.push(o);
+  field.getBoundingClientRect = () => ({ top: 760, bottom: 800, left: 0, right: 390 });
+  const realRect = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.matches?.('section[role="region"]')
+      ? { top: 640, bottom: 780, left: 16, right: 374 }
+      : realRect.call(this);
+  };
+  try {
+    field.focus();
+    ringsReply = [{ id: "r70", kind: "dm", threadId: thread, fromName: "Ann" }];
+    await mountRings(ringtoneSpy().fn);
+    assert.ok(document.activeElement === field, "typing keeps focus");
+    assert.ok(scrolled.length > 0, "the field was scrolled clear of the card");
+    assert.deepEqual(scrolled[0], { block: "nearest" });
+  } finally {
+    window.HTMLElement.prototype.getBoundingClientRect = realRect;
+    box.remove();
+  }
+});
+
+test("QA S3: keepFieldClear leaves a field alone when the card is not over it, or it is a button", async () => {
+  const card = document.createElement("section");
+  card.getBoundingClientRect = () => ({ top: 640, bottom: 780 });
+  const field = document.createElement("input");
+  const press = document.createElement("button");
+  document.body.append(card, field, press);
+  const scrolled = [];
+  field.scrollIntoView = press.scrollIntoView = () => scrolled.push(1);
+  field.getBoundingClientRect = () => ({ top: 300, bottom: 340 });
+  field.focus();
+  keepFieldClear(card);
+  press.getBoundingClientRect = () => ({ top: 700, bottom: 740 });
+  press.focus();
+  keepFieldClear(card);
+  assert.equal(scrolled.length, 0);
+  field.getBoundingClientRect = () => ({ top: 700, bottom: 740 });
+  field.focus();
+  keepFieldClear(card);
+  assert.equal(scrolled.length, 1);
+  card.remove();
+  field.remove();
+  press.remove();
+});
+
+test("Design L2: keepFieldClear leaves a focused field alone once it is scrolled out of view below", async () => {
+  // Reading back up the history with the composer focused: the field is below the screen.
+  const card = document.createElement("section");
+  card.getBoundingClientRect = () => ({ top: 649, bottom: 773 });
+  const field = document.createElement("textarea");
+  document.body.append(card, field);
+  const scrolled = [];
+  field.scrollIntoView = (o) => scrolled.push(o);
+  try {
+    field.focus();
+    field.getBoundingClientRect = () => ({
+      top: window.innerHeight,
+      bottom: window.innerHeight + 56,
+    });
+    keepFieldClear(card);
+    field.getBoundingClientRect = () => ({
+      top: window.innerHeight + 900,
+      bottom: window.innerHeight + 956,
+    });
+    keepFieldClear(card);
+    assert.equal(scrolled.length, 0, "the page stays where they scrolled it");
+    // In view and under the card: still scrolled clear, and only with scrollIntoView.
+    field.getBoundingClientRect = () => ({
+      top: card.getBoundingClientRect().top + 10,
+      bottom: card.getBoundingClientRect().top + 66,
+    });
+    keepFieldClear(card);
+    assert.deepEqual(scrolled, [{ block: "nearest" }]);
+  } finally {
+    card.remove();
+    field.remove();
+  }
+});
+
+/** restoreFocus moves focus in an animation frame: wait one out, and a little more. */
+const nextFrame = () => new Promise((r) => window.requestAnimationFrame(() => setTimeout(r, 20)));
+
+test("Design M2 on #128: Decline, or a Join that fails, leaves focus in the field being typed in", async () => {
+  const main = document.createElement("main");
+  main.id = "main";
+  main.tabIndex = -1;
+  const field = document.createElement("textarea");
+  main.append(field);
+  document.body.append(main);
+  const press = async (b) => {
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    b.dispatchEvent(down);
+    if (!down.defaultPrevented) b.focus();
+    await act(async () => b.click());
+    await flush();
+    await nextFrame();
+  };
+  try {
+    field.focus();
+    ringsReply = [{ id: "r72", kind: "dm", threadId: thread, fromName: "Ann" }];
+    const first = await mountRings(ringtoneSpy().fn);
+    ringsReply = [];
+    assert.ok(document.activeElement === field, "focus");
+    await press(first.button("Decline"));
+    assert.equal(first.button("Decline"), undefined, "the card is gone");
+    assert.ok(document.activeElement === field, "Decline: still in the field, not #main");
+    await act(async () => first.root.unmount());
+
+    field.focus();
+    ringsReply = [{ id: "r73", kind: "dm", threadId: thread, fromName: "Ann" }];
+    overrides = { "/api/calls/rings/r73/dismiss": [409, { error: "gone", record: false }] };
+    const second = await mountRings(ringtoneSpy().fn);
+    ringsReply = [];
+    await press(second.button("Join"));
+    assert.ok(second.host.textContent.includes("That call isn't available anymore."));
+    assert.ok(document.activeElement === field, "a failed Join: still in the field, not #main");
+    overrides = {};
+    await act(async () => second.root.unmount());
+
+    // Focus in the card (a keyboard user on Decline): it still goes back, here to #main.
+    field.blur();
+    ringsReply = [{ id: "r74", kind: "dm", threadId: thread, fromName: "Ann" }];
+    const third = await mountRings(ringtoneSpy().fn);
+    ringsReply = [];
+    const decline = third.button("Decline");
+    decline.focus();
+    await act(async () => decline.click());
+    await flush();
+    await nextFrame();
+    assert.ok(document.activeElement === main, "from inside the card, focus is put back");
+    await act(async () => third.root.unmount());
+  } finally {
+    overrides = {};
+    main.remove();
+  }
+});
+
+test("QA on #128: pressing Decline while a field has focus keeps focus there, so the card doesn't jump", async () => {
+  const field = document.createElement("textarea");
+  document.body.append(field);
+  try {
+    field.focus();
+    ringsReply = [{ id: "r71", kind: "dm", threadId: thread, fromName: "Ann" }];
+    const { host } = await mountRings(ringtoneSpy().fn);
+    assert.ok(document.activeElement === field, "focus");
+    const decline = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent.trim() === "Decline",
+    );
+    assert.ok(decline);
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    decline.dispatchEvent(down);
+    assert.equal(down.defaultPrevented, true, "the field keeps focus, so the tab bar stays away");
+    // Not on the card's own text, and not without a text field focused.
+    const text = host.querySelector('section[role="region"] p');
+    const onText = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    text.dispatchEvent(onText);
+    assert.equal(onText.defaultPrevented, false);
+    field.blur();
+    const plain = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    decline.dispatchEvent(plain);
+    assert.equal(plain.defaultPrevented, false);
+  } finally {
+    field.remove();
+  }
+});
+
+test("QA S3: html's bottom scroll padding and main's padding reserve the call card's height", () => {
+  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  assert.match(
+    css,
+    /html\{scroll-padding-bottom:calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\) \+ \.5rem \+ var\(--call-card-h,0px\)\)\}/,
+  );
+  assert.match(css, /\.shell-body > main\{padding-bottom:calc\([^}]*var\(--call-card-h,0px\)\)\}/);
 });

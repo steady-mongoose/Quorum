@@ -20,9 +20,12 @@ html{-webkit-text-size-adjust:100%}
 @media (min-width:768px){:root{--mast-h:84px}}
 /* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
+/* A call card showing (--call-card-h, set by call-rings.tsx) is reserved at the bottom on every screen, so a
+   focused field can scroll clear of it. The phone rules below replace these under 768px. */
+html{scroll-padding-bottom:var(--call-card-h,0px)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
    clears the sticky chip row too (--chips-h, 3.75rem: 44px chips plus py-2). */
-@media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem)}}
+@media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem + var(--call-card-h,0px))}}
 @media (max-width:1023px){html:has(.room-chips){scroll-padding-top:calc(var(--mast-h) + var(--chips-h) + .5rem)}}
 /* The header's and the sticky chip row's own controls are never "obscured by the header": cancel the scroll padding on them, or focusing a
    header control (Tab, the desktop More dialog returning focus) scrolls the page (QA B1 on #121, 1200 to 745 at 1280). */
@@ -50,6 +53,13 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   padding:var(--space-3);
   padding-inline:var(--gutter-l) var(--gutter-r);
   padding-bottom:var(--space-4);
+}
+.shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px))}
+/* From 768px the card sits 1.5rem up (md:bottom-6), which --call-card-h does not count. min(var,...) is 0 with no
+   card, so nothing changes then. */
+@media (min-width:768px){
+  html{scroll-padding-bottom:calc(var(--call-card-h,0px) + min(var(--call-card-h,0px),2rem))}
+  .shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px) + min(var(--call-card-h,0px),1.5rem))}
 }
 .outer-art,.side-art{display:none}
 @media (min-width:1600px){
@@ -242,7 +252,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   }
   .tabbar button svg{width:24px;height:24px}
   .tabbar button[aria-current="page"]{color:var(--fg);border-top:2px solid var(--gold)}
-  .shell-body > main{padding-bottom:calc(var(--tabbar-h,56px) + 1rem + env(safe-area-inset-bottom))}
+  /* --call-card-h: a call card showing above the tab bar (call-rings.tsx), so the last field can scroll clear of it. */
+  .shell-body > main{padding-bottom:calc(var(--tabbar-h,56px) + 1rem + env(safe-area-inset-bottom) + var(--call-card-h,0px))}
   .more-sheet[open]{
     position:fixed;
     inset:auto 0 0 0;

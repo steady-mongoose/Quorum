@@ -117,8 +117,10 @@ export function CallRings({
       root.style.removeProperty(CARD_HEIGHT_VAR);
       return;
     }
-    const measure = () =>
+    const measure = () => {
       root.style.setProperty(CARD_HEIGHT_VAR, `${Math.ceil(node.offsetHeight) + 12}px`);
+      keepFieldClear(node);
+    };
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     observer?.observe(node);
@@ -131,9 +133,19 @@ export function CallRings({
   const restoreFocus = () => {
     const target = returnTo.current;
     returnTo.current = null;
-    requestAnimationFrame(() =>
-      (target?.isConnected ? target : document.getElementById("main"))?.focus(),
-    );
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      // Focus never left where they were (typing, say: holdTypingFocus keeps a press on
+      // the card from taking it): leave it there, so the phone keyboard stays up.
+      if (
+        !target &&
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        !cardRef.current?.contains(active)
+      )
+        return;
+      (target?.isConnected ? target : document.getElementById("main"))?.focus();
+    });
   };
 
   // Answer or decline in one tab, and the other tabs stop ringing right away.
@@ -183,6 +195,8 @@ export function CallRings({
   // good poll while the caller is still ringing.
   const join = async (item: IncomingRing) => {
     setNotice(NO_NOTICE);
+    // Read before the card goes: only focus that was in it is put back on a refusal.
+    const inside = cardRef.current?.contains(document.activeElement) ?? false;
     const back = returnTo.current;
     returnTo.current = null;
     joining.current.add(item.id);
@@ -196,8 +210,10 @@ export function CallRings({
     joining.current.delete(item.id);
     if (res && (res.ok || res.status === 409)) markHandled(item.id);
     if (!res || !res.ok) {
-      returnTo.current = back;
-      restoreFocus();
+      if (inside) {
+        returnTo.current = back;
+        restoreFocus();
+      }
       // Known sentences only; server text is never shown as-is.
       setNotice({ text: joinRefusal(res?.status), missed: [] });
       return;
@@ -336,6 +352,7 @@ export function CallRings({
         role="region"
         aria-label={RING_CARD_NAME}
         tabIndex={-1}
+        onMouseDown={holdTypingFocus}
         onFocus={(event) => {
           const from = event.relatedTarget;
           if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
@@ -367,7 +384,15 @@ export function CallRings({
           <button
             type="button"
             className={cn(btnGhost, "min-h-[44px]")}
-            onClick={() => void settle(ring, "decline", true)}
+            // Like Escape: put focus back only if it was in the card. A press while typing
+            // leaves it in the field (holdTypingFocus kept it there).
+            onClick={() =>
+              void settle(
+                ring,
+                "decline",
+                cardRef.current?.contains(document.activeElement) ?? false,
+              )
+            }
           >
             <PhoneOff className="size-4" aria-hidden="true" />
             Decline
@@ -403,6 +428,44 @@ export const ESCAPE_HINT = "Press Escape to decline.";
 const NO_NOTICE = { text: "", missed: [] as string[] };
 /** Height of the call card plus a gap; the board toast adds it to its bottom offset. */
 export const CARD_HEIGHT_VAR = "--call-card-h";
+
+const TEXT_FIELD =
+  "input:not([type='checkbox'],[type='radio'],[type='button'],[type='submit'],[type='reset'],[type='range'],[type='file'],[type='color'],[type='image']), textarea, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * A card that shows (or grows) while someone is typing must not sit on the
+ * field: scroll the field up clear of it. html's scroll-padding-bottom and
+ * main's bottom padding both add the card's height (--call-card-h), so
+ * "nearest" lands it just above the card. On desktop the card sits 1.5rem up,
+ * and fluid.css reserves that too, only while a card shows.
+ */
+export function keepFieldClear(card: HTMLElement): void {
+  const field = document.activeElement;
+  if (!(field instanceof HTMLElement) || card.contains(field) || !field.matches(TEXT_FIELD)) return;
+  const f = field.getBoundingClientRect();
+  // Not under the card, or scrolled out of view below it (reading back up the history):
+  // leave the page where they put it.
+  if (f.bottom <= card.getBoundingClientRect().top || f.top >= window.innerHeight) return;
+  field.scrollIntoView?.({ block: "nearest" });
+}
+
+/**
+ * A press on a card button while a text field has focus keeps the focus in the field.
+ * Otherwise, on a phone whose keyboard has closed, the field's blur brings the tab bar
+ * back and the card jumps up 57px between the press and the click, so Decline misses
+ * (QA on #128). The click still runs; keyboard users are unaffected.
+ */
+export function holdTypingFocus(event: {
+  target: EventTarget | null;
+  currentTarget: HTMLElement;
+  preventDefault: () => void;
+}): void {
+  const field = document.activeElement;
+  if (!(field instanceof HTMLElement) || event.currentTarget.contains(field)) return;
+  if (!field.matches(TEXT_FIELD)) return;
+  if (!(event.target instanceof Element) || !event.target.closest("button")) return;
+  event.preventDefault();
+}
 
 /** Escape inside a text field, an editable area or an open dialog is theirs, not the ring's. */
 export function escapeBelongsElsewhere(target: EventTarget | null): boolean {

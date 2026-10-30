@@ -1,4 +1,14 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { CAMERA_DENIED, MIC_DENIED, liveLine, openMedia } from "@/lib/calls/media";
 import { Mic, MicOff, PhoneCall, PhoneOff, Video, VideoOff } from "lucide-react";
 import { apiFetch } from "@/lib/api-base";
@@ -9,6 +19,7 @@ import { emitRingOutcome, onRingOutcome } from "@/lib/calls/rings";
 import { useServerSession } from "@/lib/server-session-state";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { focusWithRing } from "@/lib/board/focus-ring";
 
 /**
  * The button stays out of the page until the API says calls are on.
@@ -69,22 +80,76 @@ export function RoomCall({ roomId }: { roomId: string }) {
   );
 }
 
+/** Who else is in the live call, and the panel, for the picker below it. */
+const InCall = createContext<{
+  peerIds: string[];
+  panel: RefObject<HTMLElement | null>;
+  /** This panel has already been told "you can ring here". */
+  canRing: RefObject<boolean>;
+}>({
+  peerIds: [],
+  panel: { current: null },
+  canRing: { current: false },
+});
+
 /** Host, steward, or admin only. The list stays hidden for everyone else. */
 function RingMembers({ roomId }: { roomId: string }) {
+  const { peerIds, panel, canRing } = useContext(InCall);
   const [members, setMembers] = useState<{ id: string; name: string }[] | null>(null);
   const [choice, setChoice] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
-  /** The list failed to load for someone allowed to ring: say so and offer Try again. */
+  /** The list didn't load: say so and offer Try again, rather than vanish. */
   const [failed, setFailed] = useState(false);
   const [loadLine, setLoadLine] = useState("");
   const [attempt, setAttempt] = useState(0);
   const retried = useRef(false);
+  /** Quiet retries used on a fault with no sign this person can ring (at most one). */
+  const quietTries = useRef(0);
+  /** Where focus goes once a Try again has worked and the button is gone. */
+  const focusNext = useRef(false);
+  /** The member last rung, so their "Calling …" line clears when they join. */
+  const calling = useRef<{ id: string; name: string } | null>(null);
   const fieldId = useId();
   const fieldRef = useRef<HTMLSelectElement | null>(null);
+  /** The picker, and whether focus was last inside it (it may already be gone when we check). */
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const focusInside = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let quietRetry: ReturnType<typeof setTimeout> | undefined;
+    const fail = () => {
+      setMembers(null);
+      setFailed(true);
+      setLoadLine(PICKER_LOAD_FAILED);
+    };
+    // A Try again that worked: hand focus on, and stop counting it as a retry.
+    const settled = () => {
+      if (!retried.current) return;
+      retried.current = false;
+      focusNext.current = true;
+    };
+    // A fault with no sign this person can ring: stay hidden (a plain member has no picker
+    // to miss), and try once more quietly in case it was a blip.
+    const unproven = () => {
+      setFailed(false);
+      setLoadLine("");
+      setMembers(null);
+      if (quietTries.current >= 1) return;
+      quietTries.current += 1;
+      quietRetry = setTimeout(() => setAttempt((n) => n + 1), QUIET_RETRY_MS);
+    };
+    // Say it didn't load only when there is evidence they can ring: the server's own
+    // picker 503 (sent only after the permission check passed), or an earlier "can ring"
+    // in this panel. A Try again that fails keeps the line it was pressed from.
+    const faulted = (status: number, body: unknown) => {
+      const row = body as { checked?: unknown; error?: unknown } | null;
+      const pickerFault =
+        status === 503 && (row?.checked === true || row?.error === PICKER_LOAD_FAILED);
+      if (retried.current || pickerFault || canRing.current) fail();
+      else unproven();
+    };
     apiFetch(`/api/calls/rooms/${roomId}/ring`, { credentials: "include", cache: "no-store" })
       .then(async (response) => ({
         status: response.status,
@@ -92,49 +157,58 @@ function RingMembers({ roomId }: { roomId: string }) {
       }))
       .then(({ status, body }) => {
         if (cancelled) return;
-        const row = body as { canRing?: unknown; members?: unknown; error?: unknown } | null;
-        // Only the server's own picker failure counts: it is sent after the
-        // host check passed. Anything else (not a host, signed out) hides it.
-        if (status === 503 && row?.error === PICKER_LOAD_FAILED) {
-          setMembers(null);
-          setFailed(true);
-          setLoadLine(PICKER_LOAD_FAILED);
+        const row = body as { canRing?: unknown; members?: unknown } | null;
+        if (status === 200 && row?.canRing === true && Array.isArray(row.members)) {
+          canRing.current = true;
+          setFailed(false);
+          setLoadLine("");
+          settled();
+          setMembers(
+            row.members.filter(
+              (m): m is { id: string; name: string } =>
+                Boolean(m) && typeof m.id === "string" && typeof m.name === "string",
+            ),
+          );
           return;
         }
-        setFailed(false);
-        setLoadLine("");
-        if (status !== 200 || !row || row.canRing !== true || !Array.isArray(row.members)) {
+        // Not someone who can ring (a plain 200 with canRing false, or a 4xx
+        // on the first load): no picker, and nothing to say.
+        // A plain "can't ring" now (host rights gone, say) also ends any earlier evidence.
+        if (status === 200 && row?.canRing === false) canRing.current = false;
+        if (status === 200 || (status >= 400 && status < 500 && !retried.current)) {
+          setFailed(false);
+          setLoadLine("");
+          settled();
           setMembers(null);
           return;
         }
-        setMembers(
-          row.members.filter(
-            (m): m is { id: string; name: string } =>
-              Boolean(m) && typeof m.id === "string" && typeof m.name === "string",
-          ),
-        );
+        faulted(status, body);
       })
       .catch(() => {
-        if (cancelled) return;
-        if (retried.current) {
-          // Already showing the failure; say it again rather than vanish.
-          setLoadLine(PICKER_LOAD_FAILED);
-        } else {
-          setMembers(null);
-        }
+        if (!cancelled) faulted(0, null);
       });
     return () => {
       cancelled = true;
+      clearTimeout(quietRetry);
     };
-  }, [roomId, attempt]);
+  }, [roomId, attempt, canRing]);
 
-  // After a Try again that worked, the button is gone: put focus on the list.
-  useEffect(() => {
-    if (retried.current && !failed && members && members.length > 0) {
-      retried.current = false;
-      fieldRef.current?.focus();
+  // After a Try again that worked, focus the member list; if there is no list
+  // (nobody left to call), the call panel, so focus never drops to the page.
+  const handFocusOn = () => {
+    if (!focusNext.current || failed) return;
+    focusNext.current = false;
+    const field = fieldRef.current;
+    if (field) {
+      focusWithRing(field);
+      return;
     }
-  }, [failed, members]);
+    const box = panel.current;
+    if (!box) return;
+    if (!box.hasAttribute("tabindex")) box.setAttribute("tabindex", "-1");
+    focusWithRing(box);
+  };
+  useEffect(handFocusOn);
 
   useEffect(
     () =>
@@ -144,6 +218,34 @@ function RingMembers({ roomId }: { roomId: string }) {
       ),
     [],
   );
+
+  // The member rung has joined: their "Calling …" line goes, and so do they from the list.
+  const peerKey = peerIds.join(",");
+  useEffect(() => {
+    // Everyone on the list is now in the call, so the picker is gone: if focus was in it,
+    // move it to the call panel rather than let it drop to the page.
+    const left = (members ?? []).filter((m) => !peerIds.includes(m.id));
+    const active = document.activeElement;
+    const dropped = !active || active === document.body;
+    if (
+      members &&
+      left.length === 0 &&
+      (wrapRef.current?.contains(active) || (focusInside.current && dropped))
+    ) {
+      focusInside.current = false;
+      focusNext.current = true;
+      handFocusOn();
+    }
+    const rung = calling.current;
+    if (!rung || !peerIds.includes(rung.id)) return;
+    calling.current = null;
+    // Say so: focus may still be on Call, whose name changes without being read out.
+    setStatus((line) =>
+      line.startsWith(`Calling ${rung.name}.`) ? `${rung.name} joined the call.` : line,
+    );
+    setChoice((id) => (id === rung.id ? "" : id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peerKey]);
 
   if (failed) {
     return (
@@ -169,8 +271,17 @@ function RingMembers({ roomId }: { roomId: string }) {
     );
   }
 
-  if (!members || members.length === 0) return null;
-  const chosen = members.find((m) => m.id === choice);
+  // Someone already in the call is not offered again.
+  const offered = members ? members.filter((m) => !peerIds.includes(m.id)) : [];
+  if (offered.length === 0) {
+    // The "Calling …" line still shows until it clears.
+    return status ? (
+      <p className={cn("border-t border-line pt-3 text-sm text-muted", WRAP)} role="status">
+        {status}
+      </p>
+    ) : null;
+  }
+  const chosen = offered.find((m) => m.id === choice);
 
   const ring = async () => {
     if (!chosen) return;
@@ -185,6 +296,7 @@ function RingMembers({ roomId }: { roomId: string }) {
         body: JSON.stringify({ to: chosen.id }),
       });
       const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+      calling.current = response.ok ? chosen : null;
       setStatus(
         response.ok
           ? `Calling ${chosen.name}. It rings for up to a minute.`
@@ -199,7 +311,17 @@ function RingMembers({ roomId }: { roomId: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-2 border-t border-line pt-3">
+    <div
+      ref={wrapRef}
+      className="flex flex-col gap-2 border-t border-line pt-3"
+      onFocus={() => {
+        focusInside.current = true;
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (next && !event.currentTarget.contains(next)) focusInside.current = false;
+      }}
+    >
       <label htmlFor={fieldId} className="text-sm font-semibold text-fg">
         Call a member to this room
       </label>
@@ -208,11 +330,11 @@ function RingMembers({ roomId }: { roomId: string }) {
           ref={fieldRef}
           id={fieldId}
           className={cn(fieldClass, "min-h-[44px] max-w-xs")}
-          value={choice}
+          value={chosen ? choice : ""}
           onChange={(event) => setChoice(event.target.value)}
         >
           <option value="">Choose a member</option>
-          {members.map((m) => (
+          {offered.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
@@ -220,9 +342,13 @@ function RingMembers({ roomId }: { roomId: string }) {
         </select>
         <button
           type="button"
-          className={cn(btnGhost, "min-h-[44px]")}
-          onClick={() => void ring()}
-          disabled={!chosen || busy}
+          className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
+          // aria-disabled, not disabled: a natively disabled button drops focus to the page.
+          aria-disabled={!chosen || busy || undefined}
+          onClick={() => {
+            if (!chosen || busy) return;
+            void ring();
+          }}
         >
           <PhoneCall className="size-4" aria-hidden="true" />
           {chosen ? `Call ${chosen.name}` : "Call"}
@@ -236,7 +362,9 @@ function RingMembers({ roomId }: { roomId: string }) {
 }
 
 /** Same words as the server's PICKER_FAILED (server/calls/routes.ts). */
-const PICKER_LOAD_FAILED = "We couldn't load who you can call. Try again in a moment.";
+const PICKER_LOAD_FAILED = "We couldn't load the members you can call.";
+/** How long the one quiet retry waits after an unexplained fault. */
+const QUIET_RETRY_MS = 3000;
 
 function bindStream(node: HTMLVideoElement | null, stream: MediaStream | null) {
   if (!node || !stream || node.srcObject === stream) return;
@@ -302,6 +430,12 @@ export function CallPanel({
   const joinRef = useRef<HTMLButtonElement | null>(null);
   const focusJoin = useRef(false);
   const [remotes, setRemotes] = useState<RemotePeer[]>([]);
+  const peerKey = remotes.map((peer) => peer.id).join(",");
+  const canRingRef = useRef(false);
+  const inCall = useMemo(
+    () => ({ peerIds: peerKey ? peerKey.split(",") : [], panel: panelRef, canRing: canRingRef }),
+    [peerKey],
+  );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const sessionRef = useRef<RoomCallSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -604,7 +738,7 @@ export function CallPanel({
           </>
         )}
       </div>
-      {phase === "live" ? extra : null}
+      {phase === "live" ? <InCall.Provider value={inCall}>{extra}</InCall.Provider> : null}
     </section>
   );
 }
