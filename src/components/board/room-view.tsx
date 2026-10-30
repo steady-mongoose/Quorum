@@ -525,6 +525,8 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   // A close already saved for this date (here or in Find): lock to its names
   // as soon as the form opens, so new picks are never silently ignored (QA S3, Design #126 M1).
   const savedNames = closing ? savedCloseNames(closing.id, closing.next || todayIso()) : null;
+  // Who "Name one person" offers: the saved close's names win (Design #126 L1).
+  const cameNames = savedNames ?? current.came;
   // Roll call picks by member id. They belong to one card and only while
   // that card's write-up still lists them.
   const [rollPicks, setRollPicks] = useState<{ cardId: string; keys: string[] }>({ cardId: "", keys: [] });
@@ -792,11 +794,11 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                 {rollCall ? (
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
-                  {savedNames ? (
-                    <p role="status" className="text-fg">
-                      {whoCameSavedLine(savedNames)}
-                    </p>
-                  ) : closing && takesRoll(closing) && roll.length > 0 ? (
+                  {/* Always mounted, as in Find, so the lock is announced (Design #126 L2). */}
+                  <p role="status" className={cn("text-fg", !savedNames && "sr-only")}>
+                    {savedNames ? whoCameSavedLine(savedNames) : ""}
+                  </p>
+                  {savedNames ? null : closing && takesRoll(closing) && roll.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {roll.map((person) => (
                         <label
@@ -822,7 +824,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                   )}
                 </fieldset>
                 ) : null}
-                {rollCall && current.came.length > 0 ? (
+                {rollCall && cameNames.length > 0 ? (
                   <label className="flex flex-col gap-2 text-sm text-muted">
                     Name one person, if someone earned it
                     <select
@@ -833,7 +835,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                       onChange={(event) => patch({ named: event.target.value })}
                     >
                       <option value="">No one this time</option>
-                      {current.came.map((name) => (
+                      {cameNames.map((name) => (
                         <option key={name} value={name}>
                           {name}
                         </option>

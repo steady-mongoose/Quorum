@@ -51,7 +51,7 @@ import {
 } from "@/lib/board/rsvp-api";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
-import { forgetSavedClose, savedCloseNames, useBoard } from "@/lib/board/store";
+import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -395,8 +395,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   // so the chips are locked until the write-up is filed (Design #126 L1).
   // Read from the saved close each render, so a remounted or reopened form
   // stays locked, with the names that close marked (Design #126 M1).
-  const savedNames = savedCloseNames(card.id, card.next || todayIso());
-  const whoSaved = savedNames !== null;
+  const saved = savedClose(card.id, card.next || todayIso());
+  const savedNames = saved ? saved.names : null;
+  const whoSaved = saved !== null;
   const resetPicks = () => {
     const fresh = rollCallFor(card, useBoard.getState().rollCall);
     const next = resetRollPicks(roll, fresh, cameKeys);
@@ -426,6 +427,11 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
     writeUp.current?.focus();
     setRefocus(false);
   }, [refocus, closing]);
+  // "Write it up" opens the form: focus "How it went", not <body> (Design #126 L3).
+  const lineInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (closing) lineInput.current?.focus();
+  }, [closing]);
   const pagesHintId = useId();
   const room = roomById(card.room);
   // A room with roll off has no Who came section (QA r5707425337).
@@ -554,6 +560,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               <div className="flex flex-col gap-2 text-sm text-muted">
                 <label htmlFor={lineId}>How it went</label>
                 <input
+                  ref={lineInput}
                   id={lineId}
                   className={cn(fieldClass, "min-h-[44px]")}
                   aria-describedby={lineHintId}
@@ -647,12 +654,23 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     onChange={(event) => setNextDate(event.target.value)}
                   />
                 </label>
-                <button ref={saveButton} type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
-                  It happened
-                </button>
-                <button type="submit" value="no" className={cn(btnGhost, "whitespace-nowrap")}>
-                  It did not
-                </button>
+                {/* Locked to a saved close: offer only its outcome; the other renders null
+                    in its slot, so focus never lands on a removed button (Design #126 M1). */}
+                {!saved || saved.happened ? (
+                  <button ref={saveButton} type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
+                    It happened
+                  </button>
+                ) : null}
+                {!saved || !saved.happened ? (
+                  <button
+                    ref={saved ? saveButton : undefined}
+                    type="submit"
+                    value="no"
+                    className={cn(btnGhost, "whitespace-nowrap")}
+                  >
+                    It did not
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={cn(btnQuiet, "whitespace-nowrap")}

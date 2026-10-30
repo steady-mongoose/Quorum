@@ -21,7 +21,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { closeSavedFor, forgetSavedClose, savedCloseNames, useBoard } from "./store.ts";
+import { closeSavedFor, forgetSavedClose, savedClose, savedCloseNames, useBoard } from "./store.ts";
 
 const G1 = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const G2 = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -886,4 +886,87 @@ test("QA S3: after the composer's saved close, Find's close is locked to its nam
     globalThis.fetch = priorFetch;
     setBoardClient(null);
   }
+});
+
+async function lockedRun(
+  first: { happened: boolean; came: string[]; ids: string[] } | { composer: { came: string[]; ids: string[] } },
+  retry: (state: ReturnType<typeof useBoard.getState>) => Promise<{ ok: boolean }>,
+) {
+  const G7 = "2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3";
+  const drafts: { claim: string; came: string[]; named: string }[] = [];
+  let postFails = true;
+  let closes = 0;
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://x");
+    if (url.pathname === `/api/gatherings/${G7}/attendance`) {
+      closes += 1;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  const base = stubClient();
+  const createPost: BoardClient["createPost"] = async (draft) => {
+    drafts.push({ claim: draft.claim, came: draft.came, named: draft.named });
+    return postFails ? { ok: false, error: "Not saved." } : base.createPost(draft);
+  };
+  try {
+    forgetSavedClose();
+    setBoardClient(new Proxy(base, { get: (t, key) => (key === "createPost" ? createPost : Reflect.get(t, key)) }));
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      boardError: "",
+      rooms: ROOMS.map((room) => (room.id === "shop" ? { ...room, options: ["roll_call"] } : room)),
+      rsvpHosts: [G7],
+      rollCall: { [G7]: [{ userId: "h_ann", name: "Ann" }, { userId: "h_ben", name: "Ben" }] },
+      cards: [card(G7, { host: "Dale", next: "2026-10-31", going: ["Ann", "Ben"] })],
+    });
+    const failed =
+      "composer" in first
+        ? await useBoard.getState().file(
+            { ...blankDraft("shop"), type: "hosted", claim: "Good.", on: "2026-10-31", next: "", came: first.composer.came, cardId: G7 },
+            { cameIds: first.composer.ids },
+          )
+        : await useBoard.getState().closeCard(G7, first.happened, "", "", first.came, "", first.ids);
+    assert.equal(failed.ok, false);
+    postFails = false;
+    const done = await retry(useBoard.getState());
+    assert.equal(done.ok, true);
+    return { G7, drafts, closes };
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+}
+
+test("Design #126 M1: after a saved 'It happened' close, 'It did not' still files it happened with the kept names", async () => {
+  const { G7, drafts, closes } = await lockedRun({ happened: true, came: ["Ann", "Ben"], ids: ["h_ann", "h_ben"] }, (s) =>
+    s.closeCard("2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", false, "", "", [], "", []),
+  );
+  assert.equal(closes, 1);
+  assert.equal(drafts.at(-1)?.claim, "It happened.");
+  assert.deepEqual(drafts.at(-1)?.came, ["Ann", "Ben"]);
+  assert.equal(savedClose(G7, "2026-10-31"), null);
+});
+
+test("Design #126 M1: after a saved 'It did not' close, a retry files it did not, naming no one", async () => {
+  const { drafts, closes } = await lockedRun({ happened: false, came: [], ids: [] }, (s) =>
+    s.closeCard("2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3", true, "", "", ["Ann"], "", ["h_ann"]),
+  );
+  assert.equal(closes, 1);
+  assert.equal(drafts.at(-1)?.claim, "It did not happen.");
+  assert.deepEqual(drafts.at(-1)?.came, []);
+});
+
+test("Design #126 L1: the composer's retry drops a named person the saved close did not mark", async () => {
+  const { drafts, closes } = await lockedRun({ composer: { came: ["Ben"], ids: ["h_ben"] } }, (s) =>
+    s.file(
+      { ...blankDraft("shop"), type: "hosted", claim: "Good.", on: "2026-10-31", next: "", came: ["Ann"], named: "Ann", cardId: "2b7f8a9c-0dbe-4ac1-9bd3-5e6f7a8b9ca3" },
+      { cameIds: ["h_ann"] },
+    ),
+  );
+  assert.equal(closes, 1);
+  assert.deepEqual(drafts.at(-1), { claim: "Good.", came: ["Ben"], named: "" });
 });

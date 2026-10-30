@@ -25,7 +25,16 @@ import { removalFailedCopy } from "./errors.ts";
  * cleared on Cancel, sign-out, or another account (QA S3 #1).
  */
 let rsvpViewer: string | null = null;
-const closedUnfiled = new Map<string, { date: string; sent: string[]; names: string[] }>();
+type SavedClose = { date: string; sent: string[]; names: string[]; happened: boolean };
+const closedUnfiled = new Map<string, SavedClose>();
+/**
+ * The saved close for this card and date (who it marked and whether it
+ * happened), or null. A retry files that outcome, never a new one (Design #126 M1).
+ */
+export function savedClose(cardId: string, date: string): SavedClose | null {
+  const kept = closedUnfiled.get(cardId);
+  return kept && kept.date === date ? { ...kept, sent: [...kept.sent], names: [...kept.names] } : null;
+}
 /**
  * The names a saved close marked, for this card and date, or null when none
  * is saved. The form locks to these, and the retry's write-up names them,
@@ -51,12 +60,13 @@ async function closeOnce(
   cardId: string,
   date: string,
   names: string[],
+  happened = true,
 ): Promise<{ stop: string | null; sent: string[] }> {
   const kept = closedUnfiled.get(cardId);
   if (kept && kept.date === date) return { stop: null, sent: kept.sent };
   closedUnfiled.delete(cardId);
   const closed = await close();
-  if (!closed.stop) closedUnfiled.set(cardId, { date, sent: closed.sent, names: [...names] });
+  if (!closed.stop) closedUnfiled.set(cardId, { date, sent: closed.sent, names: [...names], happened });
   return closed;
 }
 
@@ -1003,7 +1013,10 @@ export const useBoard = create<BoardState>()(
                 const closing = cards.find((item) => item.id === draft.cardId);
                 if (closing) {
                   const kept = savedCloseNames(closing.id, closing.next || todayIso());
-                  if (kept) draft = { ...draft, came: kept };
+                  if (kept) {
+                    // Only someone the saved close marked can be named (Design #126 L1).
+                    draft = { ...draft, came: kept, named: kept.includes(draft.named) ? draft.named : "" };
+                  }
                   const closed = await closeOnce(() => closeOnServer(closing, draft.came, options?.cameIds), closing.id, closing.next || todayIso(), draft.came);
                   if (closed.stop) return { ok: false, stops: [closed.stop], notes: check.notes };
                   if (closed.sent.length > 0) draft = { ...draft, cameIds: closed.sent };
@@ -1398,9 +1411,14 @@ export const useBoard = create<BoardState>()(
           const { cards } = get();
           const card = cards.find((item) => item.id === id);
           if (!card) return { ok: false, stops: ["That card is gone."], notes: [] };
+          // A saved close's outcome and names win: the retry files what that close
+          // saved, so "It did not" never names who came (Design #126 M1).
+          const saved0 = savedClose(card.id, card.next || todayIso());
+          if (saved0) {
+            happened = saved0.happened;
+            came = saved0.happened ? saved0.names : [];
+          }
           const claim = line.trim() || (happened ? "It happened." : "It did not happen.");
-          // A saved close's names win: the retry names who that close marked (Design #126 M1).
-          came = savedCloseNames(card.id, card.next || todayIso()) ?? came;
           const draft: Draft = {
             ...blankDraft(card.room),
             type: "hosted",
@@ -1414,7 +1432,7 @@ export const useBoard = create<BoardState>()(
           const check = checkNow(draft);
           if (!check.ok) return check;
           if (get().remote) {
-            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on, came);
+            const closed = await closeOnce(() => closeOnServer(card, came, cameIds), card.id, draft.on, came, happened);
             if (closed.stop) return { ok: false, stops: [closed.stop], notes: [] };
             const saved = await (await getBoardClient()).createPost(
               closed.sent.length > 0 ? { ...draft, cameIds: closed.sent } : draft,

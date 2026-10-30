@@ -229,7 +229,7 @@ test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #1
 test("Design #126 M1: a saved close locks the form from the store, so a remount or reopen stays locked", () => {
   const src = read("find-view.tsx");
   // Derived each render from the saved close, never a local flag that starts false.
-  assert.match(src, /const savedNames = savedCloseNames\(card\.id, card\.next \|\| todayIso\(\)\);\s*const whoSaved = savedNames !== null;/);
+  assert.match(src, /const saved = savedClose\(card\.id, card\.next \|\| todayIso\(\)\);\s*const savedNames = saved \? saved\.names : null;\s*const whoSaved = saved !== null;/);
   assert.doesNotMatch(src, /useState\(false\);\s*\n[^\n]*whoSaved|\[whoSaved, setWhoSaved\]/);
   // Locked: no chips to toggle; the line names who that close marked.
   assert.match(src, /roll\.length > 0 && !whoSaved \? \(/);
@@ -241,7 +241,7 @@ test("Design #126 M1: a saved close locks the form from the store, so a remount 
 test("QA S3: Find reopened after a failed write-up opens locked with the kept names", () => {
   const src = read("find-view.tsx");
   // Read on every render, not set by a failed submit: a reopen is locked at once.
-  assert.match(src, /const savedNames = savedCloseNames\(card\.id, card\.next \|\| todayIso\(\)\);/);
+  assert.match(src, /const saved = savedClose\(card\.id, card\.next \|\| todayIso\(\)\);/);
   assert.doesNotMatch(src, /setWhoSaved/);
   assert.match(src, /\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
 });
@@ -249,5 +249,30 @@ test("QA S3: Find reopened after a failed write-up opens locked with the kept na
 test("QA S3: the composer opened after a saved close is locked with the kept names", () => {
   const src = read("room-view.tsx");
   assert.match(src, /const savedNames = closing \? savedCloseNames\(closing\.id, closing\.next \|\| todayIso\(\)\) : null;/);
-  assert.match(src, /\{savedNames \? \(\s*<p role="status" className="text-fg">\s*\{whoCameSavedLine\(savedNames\)\}/);
+  assert.match(src, /<p role="status" className=\{cn\("text-fg", !savedNames && "sr-only"\)\}>\s*\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
+});
+
+test("Design #126 M1: a locked Find form offers only the saved outcome; the other renders null", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /\{!saved \|\| saved\.happened \? \(\s*<button ref=\{saveButton\} type="submit" value="yes"/);
+  assert.match(src, /\{!saved \|\| !saved\.happened \? \(\s*<button\s+ref=\{saved \? saveButton : undefined\}\s+type="submit"\s+value="no"/);
+});
+
+test("Design #126 L1: the composer's 'Name one person' lists the saved close's names", () => {
+  const src = read("room-view.tsx");
+  assert.match(src, /const cameNames = savedNames \?\? current\.came;/);
+  assert.match(src, /\{rollCall && cameNames\.length > 0 \? \(/);
+  assert.match(src, /\{cameNames\.map\(\(name\) => \(/);
+});
+
+test("Design #126 L2: the composer's status line is always mounted; only the chips hide", () => {
+  const src = read("room-view.tsx");
+  assert.match(src, /\{savedNames \? null : closing && takesRoll\(closing\) && roll\.length > 0 \? \(/);
+  assert.doesNotMatch(src, /\{savedNames \? \(\s*<p role="status"/);
+});
+
+test("Design #126 L3: opening the close form focuses 'How it went'", () => {
+  const src = read("find-view.tsx");
+  assert.match(src, /useEffect\(\(\) => \{\s*if \(closing\) lineInput\.current\?\.focus\(\);\s*\}, \[closing\]\);/);
+  assert.match(src, /<input\s+ref=\{lineInput\}\s+id=\{lineId\}/);
 });
