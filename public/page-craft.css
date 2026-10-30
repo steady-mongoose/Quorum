@@ -1,8 +1,6 @@
-/* page-craft.css: the door's craft on every signed-in page (inner pages spec v2). Loads last in __root.tsx.
-   Budget 3 KB gzipped (page-craft.test.ts). One engraved plate per page fills the viewport behind the content
-   (the door's sticky .plate-ground and .scrim). Text sits only on solid cards or a solid backing.
-   Signed-in rules are scoped to .shell[data-entered], so the landing, sign-in and public pages are unchanged.
-   Motion: one settle of the plate (4.5s, once) and a 0.5s fade of list cards, only for no-preference. */
+/* page-craft.css: the door's craft on every signed-in page. Loads last in __root.tsx; budget 3 KB gzipped
+   (page-craft.test.ts). One plate fills the viewport behind the content; text sits only on solid backings.
+   Rules are scoped to .shell[data-entered]. Motion: one 4.5s plate settle and a 0.5s card fade, no-preference only. */
 :root{
   --pc-gilt:#c9a45c;--pc-rubric:#e07f73;--pc-ink:#f0e7d3;--pc-solid:#14100c;
   --pc-hair:color-mix(in srgb,var(--pc-gilt) 32%,var(--line));
@@ -33,6 +31,7 @@
   [data-section="civic"] [data-entered]>.plate-ground{background-position:80% 35%}
 }
 /* 1600px and wider: a different work or figure at each edge (Josh). 2400x1350. */
+.pc-wide{display:none}
 @media (min-width:1600px){
   [data-section="week"]{--pc-plate:url(/art/plate-week-A-2400.webp)}
   [data-section="rooms"]{--pc-plate:url(/art/plate-rooms-A-2400.webp)}
@@ -44,9 +43,8 @@
   [data-section="profile"]{--pc-plate:url(/art/plate-you-A-2400.webp)}
   [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-2400.webp)}
   .pc-narrow{display:none}
+  .pc-wide{display:block}
 }
-.pc-wide{display:none}
-@media (min-width:1600px){.pc-wide{display:block}}
 [data-palette="parchment"],[data-palette="parchment"] [data-section]{--pc-gilt:#6f5420;--pc-rubric:#8e2f26;--pc-ink:#2a2117;--pc-solid:#ece2cc;--pc-t1:#fffaf0;--pc-t2:#f8f3e7;--pc-t3:#efe6d2}
 
 /* The plate (the door keeps its own rules) */

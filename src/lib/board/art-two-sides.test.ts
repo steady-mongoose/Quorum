@@ -25,11 +25,11 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Gustave Doré", work: "Jacob's Dream", box: [0.422, 0.055, 0.819, 0.505] },
   },
   "plate-rooms-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.423, 0.65, 0.749, 1.0] },
+    left: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.409, 0.65, 0.734, 1.0] },
     right: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.408, 0.287, 0.742, 0.647] },
   },
   "plate-room-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.424, 0.105, 0.856, 0.555] },
+    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.389, 0.105, 0.821, 0.555] },
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
   "plate-groups-A-2400.webp": {
@@ -185,11 +185,14 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "the mother", box: [2050, 330, 2240, 520], from: 1600 },
   ],
   "plate-rooms-A-2400.webp": [
-    { who: "the lion", box: [40, 440, 360, 800], from: 1600 },
+    { who: "the lion", box: [40, 420, 380, 800], from: 1600 },
     { who: "Saint Jerome", box: [2040, 600, 2250, 870], from: 1600 },
   ],
-  "plate-room-A-2400.webp": [{ who: "Christ", box: [170, 600, 265, 710], from: 1600 }],
-  "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1920 }],
+  "plate-room-A-2400.webp": [
+    { who: "Christ", box: [250, 600, 360, 725], from: 1600 },
+    { who: "the woman beside Christ", box: [40, 710, 115, 805], from: 1600 },
+  ],
+  "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1600 }],
 };
 
 const rootPx = (vw: number) => {
