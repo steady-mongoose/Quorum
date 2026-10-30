@@ -63,12 +63,12 @@ test("page-craft.css loads last and stays at 3 KB or under gzipped", () => {
 
 test("every plate the sheet names is in public/art, Groups and a group included", () => {
   const urls = [...craft.matchAll(/url\((\/art\/[^)]+\.webp)\)/g)].map((m) => m[1]);
-  assert.equal(urls.length, 18, "nine plates, desktop and phone");
+  assert.equal(urls.length, 27, "nine plates: desktop, phone, and the two-sided 2400px file from 1600px");
   for (const url of urls) {
     const file = new URL(`../../../public${url}`, import.meta.url);
     assert.ok(existsSync(file), url);
     assert.equal(readFileSync(file).subarray(8, 12).toString("ascii"), "WEBP", url);
-    assert.ok(readFileSync(file).length < 100 * 1024, url);
+    assert.ok(readFileSync(file).length < (url.endsWith("-2400.webp") ? 140 : 100) * 1024, url);
     if (url.endsWith("-900.webp")) assert.ok(readFileSync(file).length < 52 * 1024, url);
   }
   const attribution = read("public/art/ATTRIBUTION.md");
@@ -208,7 +208,7 @@ test("the credit has room: a closed details lays out no hidden form under it (QA
 test("the shell renders the plate for every section, and the credit names it", () => {
   assert.match(app, /<div className="plate-ground" aria-hidden="true" \/>\n\s*<div className="scrim" aria-hidden="true" \/>/);
   assert.equal(/hero-band|outer-art|side-art|with-side/.test(app), false);
-  assert.match(app, /<p className="pc-credit">Plate: \{caption\}<\/p>/);
+  assert.match(app, /<p className=\{wideCaption \? "pc-credit pc-narrow" : "pc-credit"\}>Plate: \{caption\}<\/p>/);
   assert.equal(plateCaption("week", null), "Gustave Doré · Jacob’s Dream · 1866");
   assert.equal(plateCaption("rooms", "room"), "Gustave Doré · The Sermon on the Mount · 1866");
   assert.equal(plateCaption("civic", null), "Gustave Doré · The Judgment of Solomon · 1866");

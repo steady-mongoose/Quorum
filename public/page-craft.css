@@ -31,6 +31,21 @@
   [data-section="profile"]{--pc-plate:url(/art/plate-you-A-900.webp)}
   [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-900.webp)}
 }
+/* 1600px and wider: two sides, a different figure or work at each edge (Josh, Oct 29). 2400x1350, under 140 KB. */
+@media (min-width:1600px){
+  [data-section="week"]{--pc-plate:url(/art/plate-week-A-2400.webp)}
+  [data-section="rooms"]{--pc-plate:url(/art/plate-rooms-A-2400.webp)}
+  [data-section="rooms"][data-view="room"]{--pc-plate:url(/art/plate-room-A-2400.webp)}
+  [data-section="groups"]{--pc-plate:url(/art/plate-groups-A-2400.webp)}
+  [data-section="groups"][data-view="group"]{--pc-plate:url(/art/plate-group-A-2400.webp)}
+  [data-section="find"]{--pc-plate:url(/art/plate-find-A-2400.webp)}
+  [data-section="messages"]{--pc-plate:url(/art/plate-messages-A-2400.webp)}
+  [data-section="profile"]{--pc-plate:url(/art/plate-you-A-2400.webp)}
+  [data-section="civic"]{--pc-plate:url(/art/plate-desk-A-2400.webp)}
+  .pc-narrow{display:none}
+}
+.pc-wide{display:none}
+@media (min-width:1600px){.pc-wide{display:block}}
 [data-palette="parchment"],[data-palette="parchment"] [data-section]{--pc-gilt:#6f5420;--pc-rubric:#8e2f26;--pc-ink:#2a2117;--pc-solid:#ece2cc;--pc-t1:#fffaf0;--pc-t2:#f8f3e7;--pc-t3:#efe6d2}
 
 /* The plate (landing and sign-in keep their own rules in backgrounds.css and door.css) */

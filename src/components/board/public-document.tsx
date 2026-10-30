@@ -6,7 +6,7 @@ import { APP_NAME } from "@/lib/board/model";
 
 /**
  * A page outside the sign-in gate: About, Privacy, or Terms. All three carry
- * the About plate, Rembrandt's Three Trees, set after the first paint and
+ * the About band, the right half of Martin's Creation of Light, set after the first paint and
  * never under reduced data, the same way the board sets its plates.
  */
 export function PublicDocument({ children }: { children: ReactNode }) {

@@ -2,7 +2,7 @@
 
 These plates are the hero backgrounds for Avouch Social (issue #36, revision 2).
 Each one is public domain or CC0. Nothing violent or apocalyptic is used.
-Martin's *Creation of Light* appears on the landing page, the sign-in form, and the signed-in More / About page.
+Martin's *Creation of Light* appears on the landing page, the sign-in form, the signed-in More / About page, and the public About, Privacy, and Terms band.
 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
 and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to the
@@ -21,21 +21,12 @@ text is drawn on either.
 | This week, hero band and margin | Gustave Doré, *Jacob's Dream*, Doré's English Bible, 1866 | `dore-band-A.webp`, `dore-band-A-900.webp`, `dore-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:021.Jacob%27s_Dream.jpg | Public domain (artist died 1883) |
 | Rooms, hero band and margin. Messages hero band | Albrecht Dürer, *Saint Jerome in His Study*, 1514, engraving. National Gallery of Art scan, object 6642 | `durer-jerome-band-A.webp`, `durer-jerome-band-A-900.webp`, `durer-jerome-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Saint_Jerome_in_His_Study,_1514,_NGA_6642.jpg | CC0 (NGA Open Access) |
 | Messages, margin column | Albrecht Dürer, *Study of an Apostle's Hands (Praying Hands)*, 1508, brush drawing (Albertina) | `durer-hands-side-A.webp` (palette B: `durer-hands-side-B.webp`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_Praying_Hands,_1508_-_Google_Art_Project.jpg | Public domain (artist died 1528) |
-| Landing and sign-in only | John Martin, *Paradise Lost: The Creation of Light*, 1824–27, mezzotint. Cleveland Museum of Art 1983.84 | `martin-hero-A.webp` (palette B: `martin-hero-B.webp`) | https://commons.wikimedia.org/wiki/File:John_Martin_-_Paradise_Lost-_The_Creation_of_Light_-_1983.84_-_Cleveland_Museum_of_Art.tif | CC0 (CMA Open Access) |
-| Find, hero band and outer plates | Rembrandt van Rijn, *Christ Preaching (La Petite Tombe)*, about 1652, etching. Metropolitan Museum of Art | `rembrandt-preaching-band-A.webp`, `rembrandt-preaching-band-A-900.webp`, `rembrandt-preaching-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Christ_Preaching,_called_La_Petite_Tombe_MET_DP832290.jpg | CC0 (Met Open Access) |
-| Groups, hero band and margin | Jean-François Millet, *The Diggers (Les bêcheurs)*, about 1855–56, etching. National Gallery of Art 9192 | `millet-diggers-band-A.webp`, `millet-diggers-band-A-900.webp`, `millet-diggers-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Jean-Fran%C3%A7ois_Millet,_The_Diggers_(Les_becheurs),_NGA_9192.jpg | CC0 (NGA Open Access) |
-| You, hero band and margin | Rembrandt van Rijn, *Self-Portrait Leaning on a Stone Sill*, 1639, etching. National Gallery of Art 35136 | `rembrandt-self-band-A.webp`, `rembrandt-self-band-A-900.webp`, `rembrandt-self-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Rembrandt_van_Rijn,_Self-Portrait_Leaning_on_a_Stone_Sill,_1639,_NGA_35136.jpg | CC0 (NGA Open Access) |
-| About, Privacy, and Terms, hero band and margin | Rembrandt van Rijn, *The Three Trees*, 1643, etching. National Gallery of Art 43418 | `rembrandt-trees-band-A.webp`, `rembrandt-trees-band-A-900.webp`, `rembrandt-trees-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Rembrandt_van_Rijn,_The_Three_Trees,_1643,_NGA_43418.jpg | CC0 (NGA Open Access) |
-| The desk, hero band and margin | Asher B. Durand after John Trumbull, *The Declaration of Independence*, 1823, engraving. Metropolitan Museum of Art | `durand-declaration-band-A.webp`, `durand-declaration-band-A-900.webp`, `durand-declaration-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:The_Declaration_of_Independence_(July_4,_1776)_MET_49DD_388R3.jpg | CC0 (Met Open Access) |
+| Landing and sign-in; the public About, Privacy, and Terms band (right half) | John Martin, *Paradise Lost: The Creation of Light*, 1824–27, mezzotint. Cleveland Museum of Art 1983.84 | `martin-hero-A.webp` (palette B: `martin-hero-B.webp`) | https://commons.wikimedia.org/wiki/File:John_Martin_-_Paradise_Lost-_The_Creation_of_Light_-_1983.84_-_Cleveland_Museum_of_Art.tif | CC0 (CMA Open Access) |
 
-The five works added for Find, Groups, You, About, and the desk were made the same way as the
-Saint Jerome plates. Each scan was cut, turned to luminance, stretched between its 1st and 99th
-percentile, and mapped between the palette's two ends: band A `#17130e` to `#857f73`, margin A
-`#15110b` to `#76716a`, band B `#a29988` to `#ede2cd`, margin B `#a59c8a` to `#ece2cd`. The A
-margin end is a step lighter than the older margin plates so it never reads as murk on the dark
-ground. Bands are 1600×677 and 900×380, margins 1100 wide. The Declaration margin stays at 928
-wide, its scan's own width, so it is not upscaled. Their CSS lives in `public/page-art.css`, so
-`backgrounds.css` stays under its 3 KB budget.
+The off-list works this table used to carry for Find, Groups, You, About, and the desk (Rembrandt,
+Millet, and Durand after Trumbull) were removed in #116: Josh's approved artists are Doré, Martin,
+Dürer, Rackham, and Bauer. The public About, Privacy, and Terms band now uses Martin's *Creation of
+Light* (`martin-hero-A.webp` / `-B`, right half), the door's file; no new file.
 
 ## Signed-in plates (inner pages spec v3)
 
@@ -57,7 +48,29 @@ as one family. Printed captions and borders are trimmed off the Doré pages. CSS
 | Messages | Albrecht Dürer, *Erasmus of Rotterdam*, 1526, engraving. National Gallery of Art 6672 | `plate-messages-A.webp`, `plate-messages-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Erasmus_of_Rotterdam,_1526,_NGA_6672.jpg | CC0 (NGA Open Access) |
 | You | Albrecht Dürer, *Self-Portrait at Thirteen*, 1484, silverpoint (Albertina) | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Durer-self-portrait-at-the-age-of-thirteen.jpg | Public domain (artist died 1528) |
 | More / About | John Martin, *The Creation of Light* (the door's plate) | `martin-hero-A.webp` (no new file) | see the landing row above | CC0 (CMA Open Access) |
-| The desk | Gustave Doré, *The Judgment of Solomon*, Doré's English Bible, 1866 | `plate-desk-A.webp`, `plate-desk-A-900.webp` | https://commons.wikimedia.org/wiki/File:084.The_Judgment_of_Solomon.jpg | Public domain (artist died 1883) |
+| The desk | Gustave Doré, *The Judgment of Solomon*, Doré's English Bible, 1866. Cropped to Solomon on the throne and his court; the soldier's sword and the child are in no crop | `plate-desk-A.webp`, `plate-desk-A-900.webp` | https://commons.wikimedia.org/wiki/File:084.The_Judgment_of_Solomon.jpg | Public domain (artist died 1883) |
+
+### Two sides at 1600px and wider (Josh, Oct 29: art on both sides of the text, never the same picture twice)
+
+From 1600px each signed-in page swaps to a 2400×1350 plate, `plate-<key>-A-2400.webp`, under 140 KB each.
+It is two panels, 960 px wide, one at each edge, with the middle (under the 60rem column) eased to the
+page's darkest tone. The left and right panels are different works, or crops of one work that do not
+share a figure. Same sepia LUT and a 0.8 px blur. `art-two-sides.test.ts` holds the manifest below and
+fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or an artist off the list.
+1100 to 1599px keep the single 1600px plate.
+
+| Screen | Left edge | Right edge | File |
+|---|---|---|---|
+| This week | Doré, *Jacob's Dream*: Jacob asleep (lower left) | the same plate: the lit top of the ladder and angels | `plate-week-A-2400.webp` |
+| Rooms | Dürer, *Saint Jerome in His Study*: the window and sill | the same plate: Jerome at his desk | `plate-rooms-A-2400.webp` |
+| A room | Doré, *The Sermon on the Mount*: Christ and the hillside | the same plate: the listeners, lower right | `plate-room-A-2400.webp` |
+| Groups | Dürer, *The Feast of the Rose Garlands*: the pope's party | the same work: the emperor's party | `plate-groups-A-2400.webp` |
+| A group | Doré, *Ruth and Boaz*: the gleaners, left | the same plate: the reapers, right | `plate-group-A-2400.webp` |
+| Find | Bauer, *Princess Tuvstarr*: Tuvstarr at the tarn | the same work: the trees at the far left of the scene | `plate-find-A-2400.webp` |
+| Messages | Dürer, *Praying Hands*, 1508 | Dürer, *Erasmus of Rotterdam*, 1526 | `plate-messages-A-2400.webp` |
+| You | Dürer, *Self-Portrait at Thirteen*, 1484 | Dürer, *Self-Portrait*, 1500 (Alte Pinakothek), https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_1500_self-portrait_(High_resolution_and_detail).jpg, public domain (artist died 1528) | `plate-you-A-2400.webp` |
+| The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the seated elders, far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
+| More / About | Martin, *The Creation of Light* (`martin-hero-A.webp`, already 2400 wide): the left of the plate | its right half | no new file |
 
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.

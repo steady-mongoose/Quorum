@@ -48,7 +48,7 @@ import { desktopNav } from "@/lib/board/phone-nav";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { ServerSessionProvider } from "@/lib/server-session";
 import { useServerSession } from "@/lib/server-session-state";
-import { artSection, plateCaption, plateView } from "@/lib/board/engraved";
+import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
 
@@ -131,6 +131,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const groupOpen = useSyncExternalStore(subscribeGroupOpen, getGroupOpen, () => false);
   const plate = plateView({ section: art, browsing, groupOpen });
   const caption = entered ? plateCaption(art, plate) : null;
+  const wideCaption = entered ? plateCaptionWide(art, plate) : null;
   useEngravedDocument(art);
   usePlateView(plate);
 
@@ -427,7 +428,10 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
       <div className="shell-body">
         <main id="main" tabIndex={-1} aria-busy={busy || undefined}>
           {page}
-          {caption && !busy ? <p className="pc-credit">Plate: {caption}</p> : null}
+          {caption && !busy ? (
+            <p className={wideCaption ? "pc-credit pc-narrow" : "pc-credit"}>Plate: {caption}</p>
+          ) : null}
+          {wideCaption && !busy ? <p className="pc-credit pc-wide">Plates: {wideCaption}</p> : null}
         </main>
       </div>
       {entered ? <SessionLine /> : null}

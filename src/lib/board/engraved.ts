@@ -38,11 +38,11 @@ const HERO_LABEL: Record<Section, string> = {
   week: "Gustave Doré, Jacob’s Dream, 1866",
   rooms: "Albrecht Dürer, Saint Jerome in His Study, 1514",
   messages: "Albrecht Dürer, Saint Jerome in His Study, 1514",
-  find: "Rembrandt van Rijn, Christ Preaching (La Petite Tombe), about 1652",
-  groups: "Jean-François Millet, The Diggers, about 1855–56",
-  profile: "Rembrandt van Rijn, Self-Portrait Leaning on a Stone Sill, 1639",
-  about: "Rembrandt van Rijn, The Three Trees, 1643",
-  civic: "Asher B. Durand after John Trumbull, The Declaration of Independence, 1823",
+  find: "John Bauer, Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn, 1913",
+  groups: "Albrecht Dürer, The Feast of the Rose Garlands, 1506",
+  profile: "Albrecht Dürer, Self-Portrait at Thirteen, 1484",
+  about: "John Martin, The Creation of Light, 1824–27",
+  civic: "Gustave Doré, The Judgment of Solomon, 1866",
 };
 
 export function heroLabel(section: ArtSection | null): string | null {
@@ -79,6 +79,20 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   about: "John Martin · The Creation of Light · 1824–27",
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
+
+/**
+ * From 1600px the Messages and You plates put a second work on the right edge (art-two-sides.test.ts),
+ * so their chip names both. Other pages show two parts of one work and keep the one-work chip.
+ */
+const WIDE_CAPTION: Partial<Record<Section | PlateView, string>> = {
+  messages: "Albrecht Dürer · Praying Hands · 1508, and Erasmus of Rotterdam · 1526",
+  profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484, and Self-Portrait · 1500",
+};
+
+export function plateCaptionWide(section: ArtSection | null, view: PlateView | null): string | null {
+  if (section === null || section === "landing" || section === "signin" || view) return null;
+  return WIDE_CAPTION[section] ?? null;
+}
 
 export function plateCaption(section: ArtSection | null, view: PlateView | null): string | null {
   if (section === null || section === "landing" || section === "signin") return null;
