@@ -50,7 +50,7 @@ const ROOMS = [
 
 function Terms({ rows }: { rows: { term: string; what: string }[] }) {
   return (
-    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
+    <dl className="grid gap-x-6 gap-y-2">
       {rows.map((row) => (
         <div key={row.term} className="contents">
           <dt className="door-term">{row.term}</dt>

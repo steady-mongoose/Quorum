@@ -208,6 +208,25 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   .door-week::after{opacity:.22}
   [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
 }
+/* The engravings sit in a strip beside the words, never under them (Josh, 30 Oct). Each card is its own
+   container, so the strip and the two-column rows follow the card's width in its own ems: large text, whether
+   from the browser's default size or a root font-size, falls back to the phone layout (no art, solid card).
+   The strip is clamp(6.5rem,24%,10rem) of the card's padding box (100cqi + 3rem); the children reserve the
+   same width, and the card's own 1.5rem padding is the gutter. */
+.door-week,.door-rooms{container-type:inline-size}
+@media (min-width:640px){
+  .door-week::after,.door-rooms::after{inset:0 0 0 auto;width:clamp(6.5rem,calc(24cqi + .72rem),10rem);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}
+  @container (width >= 23.5em){.door-week>*,.door-rooms>*{padding-inline-end:clamp(6.5rem,calc(24cqi + .72rem),10rem)}}
+}
+/* Card under 23.5em (text column would drop under about 18-20em beside the strip): no strip. */
+@container (width < 23.5em){.door-week::after,.door-rooms::after{display:none}}
+/* Rows stack, term over definition, unless the card itself has 34em; the card decides, not the viewport. */
+.door-week dl,.door-rooms dl{grid-template-columns:minmax(0,1fr)}
+.door-week .door-term,.door-rooms .door-term{border-bottom:0;padding-bottom:0}
+@container (width >= 34em){
+  .door-week dl,.door-rooms dl{grid-template-columns:max-content minmax(0,1fr)}
+  .door-week .door-term,.door-rooms .door-term{border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent);padding-bottom:.55rem}
+}
 @media (min-width:1024px){
   .door-week::after,.door-rooms::after{background-size:auto 120%}
   .door-week::after{opacity:.4}
