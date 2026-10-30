@@ -69,7 +69,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 | Find | Bauer, *Princess Tuvstarr*: Tuvstarr at the tarn | the same work: the trees at the far left of the scene | `plate-find-A-2400.webp` |
 | Messages | Dürer, *Praying Hands*, 1508 | Dürer, *Erasmus of Rotterdam*, 1526 | `plate-messages-A-2400.webp` |
 | You | Dürer, *Self-Portrait at Thirteen*, 1484 | Dürer, *Self-Portrait*, 1500 (Alte Pinakothek), https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_1500_self-portrait_(High_resolution_and_detail).jpg, public domain (artist died 1528) | `plate-you-A-2400.webp` |
-| The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the seated elders, far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
+| The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the elders at the far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
 | More / About | Martin, *The Creation of Light* (`martin-hero-A.webp`, already 2400 wide): the left of the plate | its right half | no new file |
 
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
