@@ -503,6 +503,24 @@ const CONFIRMABLE = `
 
 const ATTENDANCE_CARD_CAP = 40;
 
+/**
+ * Attendance can be confirmed only for a write-up from the last 12 months, the
+ * same window as the RSVP/attendance retention (RSVP_RETENTION_MONTHS,
+ * writeUpWithin and rsvpCutoff in #126's server/board/rsvp-retention.ts, which
+ * is not on the-board yet). Without it, an add-only record would let a device
+ * re-send a meeting the purge had already aged out.
+ */
+const ATTENDANCE_RETENTION_MONTHS = 12;
+
+function attendanceCutoff(now: Date): Date {
+  const cutoff = new Date(now.getTime());
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - ATTENDANCE_RETENTION_MONTHS);
+  return cutoff;
+}
+
+/** SQL: a hosted write-up `p` dated on or after the cutoff (its date, or when it was filed). */
+const WRITE_UP_WITHIN = `(case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= $4 else p.created_at >= $5 end)`;
+
 /** Resolve the names on a hosted post to accounts that exist right now. */
 export async function rememberNamedAccounts(db: Db, postId: string): Promise<void> {
   const ready = await db.query<{ ready: string | null }>(
@@ -522,6 +540,14 @@ export async function rememberNamedAccounts(db: Db, postId: string): Promise<voi
   );
 }
 
+/**
+ * Confirm the meetings you went to. Add-only: the cards sent are added (a card
+ * already recorded stays as it was) and nothing is removed, so a device that
+ * shows fewer "went" cards, or an empty list, never drops earlier rows. Only
+ * cards you can confirm, from a write-up in the last 12 months, are stored;
+ * older ones are skipped quietly like any card you cannot confirm. A card in a
+ * room you cannot read refuses the whole request.
+ */
 export async function recordAttendance(
   db: Db,
   userId: string,
@@ -552,14 +578,22 @@ export async function recordAttendance(
       }
     }
   }
-  await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
   if (requested.length === 0) return { ok: true, value: null };
+  const cutoff = attendanceCutoff(now);
   await db.query(
     `insert into dm_attendance (user_id, meeting_id, recorded_at)
      select $1, allowed.meeting_id, $2
      from (${CONFIRMABLE}) allowed
-     where allowed.meeting_id = any($3::text[])`,
-    [userId, now, requested],
+     where allowed.meeting_id = any($3::text[])
+       and exists (
+         select 1 from board_post p
+         where p.card_id = allowed.meeting_id
+           and p.type = 'hosted'
+           and p.removed = false
+           and ${WRITE_UP_WITHIN}
+       )
+     on conflict (user_id, meeting_id) do nothing`,
+    [userId, now, requested, cutoff.toISOString().slice(0, 10), cutoff],
   );
   return { ok: true, value: null };
 }
@@ -585,14 +619,17 @@ async function meetingStandings(
   const ids = [...new Set(userIds.filter(Boolean))];
   const rooms = [...new Set(roomIds.filter(Boolean))];
   const standing = new Set<string>();
-  if (ids.length === 0 || rooms.length === 0) return standing;
+  // No room is not a shortcut: sharesMeeting asks with no rooms when there was
+  // no meeting, and runs the same lookups as a gated refusal (QA F1 S4 on #134).
+  if (ids.length === 0) return standing;
 
   const actors = await actorRoles(db, ids);
   const ready = await listingColumnsReady(db);
-  const listings = await db.query<{ id: string; name: string; status?: string }>(
+  // One read for the room's name, status and audience.
+  const listings = await db.query<{ id: string; name: string; status?: string; audience: string }>(
     ready
-      ? `select id, name, status from room where id = any ($1::text[])`
-      : `select id, name from room where id = any ($1::text[])`,
+      ? `select id, name, status, audience from room where id = any ($1::text[])`
+      : `select id, name, audience from room where id = any ($1::text[])`,
     [rooms],
   );
   const listed = new Map(
@@ -621,15 +658,12 @@ async function meetingStandings(
     if (open) barred.add(standingKey(row.user_id, row.room_id));
   }
 
-  const audiences = await db.query<{ id: string; audience: string }>(
-    `select id, audience from room where id = any ($1::text[])`,
-    [rooms],
-  );
   const audienceOf = new Map(
-    audiences.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
+    listings.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
   );
   const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
-  if ([...audienceOf.values()].some((audience) => audience !== "all")) {
+  // Read whatever the audiences are, so an audience room is not told apart by timing.
+  {
     const stated = await db.query<{
       user_id: string;
       gender: string | null;
@@ -680,6 +714,7 @@ async function metPeople(
   callerId: string,
   now: Date,
   others: string[] | null = null,
+  sameSteps = false,
 ): Promise<Set<string>> {
   const met = new Set<string>();
   if (!callerId || (others !== null && others.length === 0)) return met;
@@ -692,7 +727,13 @@ async function metPeople(
        and ($2::text[] is null or theirs.user_id = any ($2::text[]))`,
     [callerId, others],
   );
-  if (rows.length === 0) return met;
+  if (rows.length === 0) {
+    // One pair's answer (sharesMeeting, behind every refusal): never met runs
+    // the same standing lookups as a met pair that a gate refuses, so the
+    // refusal's timing does not say which it was. Lists skip this fixed cost.
+    if (sameSteps) await meetingStandings(db, [callerId, ...(others ?? [])], [], now);
+    return met;
+  }
   const standing = await meetingStandings(
     db,
     [callerId, ...rows.map((row) => row.user_id)],
@@ -741,7 +782,7 @@ export async function sharesMeeting(
 ): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
-  return (await metPeople(db, callerId, now, [otherUserId])).has(otherUserId);
+  return (await metPeople(db, callerId, now, [otherUserId], true)).has(otherUserId);
 }
 
 /** A member who joined a room this recently cannot start a conversation through it. */

@@ -479,3 +479,48 @@ test("every refusal runs the same lookups, so a ban is not given away by timing"
   );
   for (const [name, seen] of runs) assert.deepEqual(seen, clean, name);
 });
+
+test("never meeting and a met pair a gate refuses run the same lookups (QA F1 S4 on #134)", async () => {
+  const runs = new Map<string, { peers: string[]; may: string[] }>();
+  const cases: [
+    string,
+    (db: Db, ids: { anna: string; ben: string; stranger: string }) => Promise<string>,
+  ][] = [
+    ["never met", async (_db, { stranger }) => stranger],
+    [
+      "met, but banned",
+      async (db, { ben }) => {
+        await ban(db, ben, "");
+        return ben;
+      },
+    ],
+    [
+      "met, but outside the room's audience",
+      async (db, { ben }) => {
+        await db.query(`update room set audience = 'men' where id = $1`, [ROOM]);
+        await db.query(`update members set gender = 'woman' where user_id = $1`, [ben]);
+        return ben;
+      },
+    ],
+  ];
+  for (const [name, apply] of cases) {
+    const { db, close } = await openTestDb();
+    try {
+      const ids = await setup(db);
+      const other = await apply(db, ids);
+      const shares = counting(db);
+      assert.equal(await sharesMeeting(shares.db, ids.anna, other, now), false, name);
+      const may = counting(db);
+      assert.equal((await mayMessage(may.db, ids.anna, other, now)).ok, false, name);
+      runs.set(name, { peers: shares.seen, may: may.seen });
+    } finally {
+      await close();
+    }
+  }
+  const never = runs.get("never met")!;
+  assert.ok(
+    never.peers.some((text) => text.includes("board_ban")),
+    "the standing lookups ran",
+  );
+  for (const [name, seen] of runs) assert.deepEqual(seen, never, name);
+});
