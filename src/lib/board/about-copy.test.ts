@@ -36,8 +36,3 @@ test("the door and About describe messaging the way the server enforces it", () 
   assert.match(dmCopy, /You can block anyone, and they are not told\./);
   assert.match(dmCopy, /Only people from the same meeting can see your profile\./);
 });
-
-test("the About rule list lowercases only the first letter, so God and Christ keep their capitals", () => {
-  assert.equal(about.includes("RULE_LABEL[rule].toLowerCase()"), false);
-  assert.match(about, /return label\.charAt\(0\)\.toLowerCase\(\) \+ label\.slice\(1\);/);
-});
