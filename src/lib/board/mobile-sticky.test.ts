@@ -161,6 +161,19 @@ test("header controls cancel the scroll padding, so focusing them never scrolls 
   assert.match(fluid, /--chips-h:3\.75rem/);
 });
 
+test("desktop reserves a showing call card too, and the phone rules come after and win (Design M2 on #128)", () => {
+  // At 1280 the card (649-773) sat on the chat field (744-800): only the phone rules added --call-card-h.
+  const desktopPad = /^html\{scroll-padding-bottom:var\(--call-card-h,0px\)\}$/m;
+  const desktopMain = /^\.shell-body > main\{padding-bottom:calc\(var\(--space-4\) \+ var\(--call-card-h,0px\)\)\}$/m;
+  assert.match(fluid, desktopPad, "top level, not inside a media query");
+  assert.match(fluid, desktopMain, "top level, not inside a media query");
+  const phonePad = fluid.indexOf("@media (max-width:767px){html{scroll-padding-bottom:");
+  const phoneMain = fluid.indexOf(".shell-body > main{padding-bottom:calc(var(--tabbar-h,56px)");
+  assert.ok(phonePad > 0 && phoneMain > 0);
+  assert.ok(fluid.search(desktopPad) < phonePad, "the phone scroll padding comes later");
+  assert.ok(fluid.search(desktopMain) < phoneMain, "the phone main padding comes later");
+});
+
 test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {
   assert.match(fluid, /@media \(min-width:768px\)\{:root\{--mast-h:84px\}\}/);
   assert.doesNotMatch(fluid, /--mast-h:97px/);

@@ -338,6 +338,7 @@ export function CallRings({
         role="region"
         aria-label={RING_CARD_NAME}
         tabIndex={-1}
+        onMouseDown={holdTypingFocus}
         onFocus={(event) => {
           const from = event.relatedTarget;
           if (from instanceof HTMLElement && !event.currentTarget.contains(from)) {
@@ -413,7 +414,9 @@ const TEXT_FIELD =
  * A card that shows (or grows) while someone is typing must not sit on the
  * field: scroll the field up clear of it. html's scroll-padding-bottom and
  * main's bottom padding both add the card's height (--call-card-h), so
- * "nearest" lands it just above the card.
+ * "nearest" lands it just above the card. On desktop the card sits 1.5rem up
+ * from the bottom, and a field already in full view is not moved by
+ * scrollIntoView at all, so whatever still overlaps is scrolled off by hand.
  */
 export function keepFieldClear(card: HTMLElement): void {
   const field = document.activeElement;
@@ -421,7 +424,31 @@ export function keepFieldClear(card: HTMLElement): void {
   const top = card.getBoundingClientRect().top;
   if (field.getBoundingClientRect().bottom <= top) return;
   field.scrollIntoView?.({ block: "nearest" });
+  const over =
+    field.getBoundingClientRect().bottom - (card.getBoundingClientRect().top - FIELD_GAP);
+  if (over > 0) window.scrollBy?.({ top: Math.ceil(over) });
 }
+
+/**
+ * A press on a card button while a text field has focus keeps the focus in the field.
+ * Otherwise, on a phone whose keyboard has closed, the field's blur brings the tab bar
+ * back and the card jumps up 57px between the press and the click, so Decline misses
+ * (QA on #128). The click still runs; keyboard users are unaffected.
+ */
+export function holdTypingFocus(event: {
+  target: EventTarget | null;
+  currentTarget: HTMLElement;
+  preventDefault: () => void;
+}): void {
+  const field = document.activeElement;
+  if (!(field instanceof HTMLElement) || event.currentTarget.contains(field)) return;
+  if (!field.matches(TEXT_FIELD)) return;
+  if (!(event.target instanceof Element) || !event.target.closest("button")) return;
+  event.preventDefault();
+}
+
+/** Space left between a field and the card above it. */
+const FIELD_GAP = 8;
 
 /** Escape inside a text field, an editable area or an open dialog is theirs, not the ring's. */
 export function escapeBelongsElsewhere(target: EventTarget | null): boolean {

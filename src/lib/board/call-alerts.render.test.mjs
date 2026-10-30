@@ -61,14 +61,19 @@ let pollReplies = [];
 /** url suffix -> [status, body] for a one-off reply (say, a refused Join). */
 let overrides = {};
 const posts = [];
+/** Every GET url, so a test can count reloads. */
+const gets = [];
 globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (init?.method === "POST") posts.push({ url, body: init.body });
+  else gets.push(url);
   let body;
   const hit = Object.keys(overrides).find((end) => url.endsWith(end));
   if (hit) {
-    if (overrides[hit] === "network") throw new TypeError("Failed to fetch");
-    const [status, reply] = overrides[hit];
+    // A function gives a different reply each time.
+    const pick = typeof overrides[hit] === "function" ? overrides[hit]() : overrides[hit];
+    if (pick === "network") throw new TypeError("Failed to fetch");
+    const [status, reply] = pick;
     return new Response(JSON.stringify(reply), {
       status,
       headers: { "content-type": "application/json" },
@@ -858,7 +863,7 @@ async function joinRoomCall(host) {
 
 test("low 3: a picker that fails to load says so with Try again, and Try again reloads it", async () => {
   const picker = "/api/calls/rooms/shop/ring";
-  const failed = "We couldn't load who you can call. Try again in a moment.";
+  const failed = "We couldn't load the members you can call.";
   overrides = { [picker]: [503, { canRing: false, members: [], error: failed, record: false }] };
   const host = document.createElement("div");
   document.body.append(host);
@@ -914,15 +919,24 @@ test("low 3: someone who can't ring sees no picker, and raw server text never sh
     assert.equal(host.textContent.includes("Try again"), false);
     assert.equal(host.textContent.includes("dm_block"), false);
   }
-  // A server fault shows the plain line, never its own text.
-  overrides = { [picker]: [500, { error: 'relation "dm_block" does not exist', record: false }] };
+  // The picker's own 503 (sent only once the permission check passed) shows the plain line.
+  overrides = { [picker]: [503, PICKER_FAULT] };
   const { host } = await mountPicker();
   assert.ok(host.textContent.includes(PICKER_LINE));
   assert.equal(host.textContent.includes("dm_block"), false);
 });
 
 const PICKER = "/api/calls/rooms/shop/ring";
-const PICKER_LINE = "We couldn't load who you can call. Try again in a moment.";
+const PICKER_LINE = "We couldn't load the members you can call.";
+/** The server's picker 503: the permission check passed, then the list failed. */
+const PICKER_FAULT = {
+  canRing: false,
+  members: [],
+  error: PICKER_LINE,
+  checked: true,
+  record: false,
+};
+const pickerLoads = () => gets.filter((url) => url.endsWith(PICKER)).length;
 
 async function mountPicker() {
   const host = document.createElement("div");
@@ -952,18 +966,60 @@ async function pressRetry(button) {
   return retry;
 }
 
-test("QA S4: a network failure on the first load shows the line and Try again, not nothing", async () => {
-  overrides = { [PICKER]: "network" };
+test("QA on #128: a first-load fault with no sign they can ring stays hidden, with one quiet retry", async () => {
+  for (const reply of [
+    [500, { error: 'relation "dm_block" does not exist' }],
+    [502, null],
+    [503, { error: "Calls aren't working right now. Try again in a moment.", record: false }],
+    "network",
+  ]) {
+    overrides = { [PICKER]: reply };
+    const before = pickerLoads();
+    const { host, root } = await mountPicker();
+    const label = String(reply[0] ?? reply);
+    assert.equal(host.querySelector("select"), null, `${label}: no picker`);
+    assert.equal(host.textContent.includes(PICKER_LINE), false, `${label}: no failure line`);
+    assert.equal(host.textContent.includes("Try again"), false, `${label}: no Try again`);
+    assert.equal(host.textContent.includes("dm_block"), false);
+    await waitFor(() => pickerLoads() - before === 2, 6000);
+    assert.equal(pickerLoads() - before, 2, `${label}: one quiet retry`);
+    await new Promise((r) => setTimeout(r, 3500));
+    assert.equal(pickerLoads() - before, 2, `${label}: and only one`);
+    assert.equal(host.textContent.includes(PICKER_LINE), false, `${label}: still quiet`);
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("QA on #128: the quiet retry that works shows the list without moving focus", async () => {
+  let n = 0;
+  overrides = {
+    [PICKER]: () =>
+      n++ === 0 ? [502, null] : [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }],
+  };
+  const { host } = await mountPicker();
+  assert.equal(host.querySelector("select"), null);
+  const was = document.activeElement;
+  await waitFor(() => host.querySelector("select"), 6000);
+  assert.ok([...host.querySelector("select").options].some((o) => o.textContent === "Ben"));
+  assert.equal(document.activeElement, was, "a quiet retry doesn't take focus");
+  assert.equal(host.textContent.includes(PICKER_LINE), false);
+});
+
+test("QA on #128: an earlier 'can ring' in this panel is evidence, so a later fault shows the line", async () => {
+  overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
   const { host, button } = await mountPicker();
-  const line = [...host.querySelectorAll('p[role="status"]')].find(
-    (p) => p.textContent === PICKER_LINE,
-  );
-  assert.ok(line, "the same status line");
+  assert.ok(host.querySelector("select"));
+  await act(async () => button("Leave call").click());
+  await flush();
+  overrides = { [PICKER]: "network" };
+  await joinRoomCall(host);
+  assert.ok(host.textContent.includes(PICKER_LINE), "the line shows: they can ring here");
   assert.ok(button("Try again"));
 });
 
 test("QA S4: a Try again that fails any other way keeps the line, the button and focus", async () => {
-  overrides = { [PICKER]: [503, { canRing: false, members: [], error: PICKER_LINE }] };
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
   const { host, button } = await mountPicker();
   for (const reply of [
     [500, { error: "boom" }],
@@ -981,7 +1037,7 @@ test("QA S4: a Try again that fails any other way keeps the line, the button and
 });
 
 test("Design L5: after Try again works, focus moves to the member list with the focus ring", async () => {
-  overrides = { [PICKER]: "network" };
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
   const { host, button } = await mountPicker();
   overrides = { [PICKER]: [200, { canRing: true, members: [{ id: "ben", name: "Ben" }] }] };
   await pressRetry(button);
@@ -992,7 +1048,7 @@ test("Design L5: after Try again works, focus moves to the member list with the 
 });
 
 test("Design L6: a Try again that brings back an empty list focuses the call panel", async () => {
-  overrides = { [PICKER]: "network" };
+  overrides = { [PICKER]: [503, PICKER_FAULT] };
   const { host, button } = await mountPicker();
   overrides = { [PICKER]: [200, { canRing: true, members: [] }] };
   await pressRetry(button);
@@ -1033,6 +1089,60 @@ test("QA S4: once Ben answers, 'Calling Ben.' goes and Ben is no longer offered"
   assert.doesNotMatch(host.textContent, /Calling Ben\./);
   const names = [...host.querySelector("select").options].map((o) => o.textContent);
   assert.deepEqual(names, ["Choose a member", "Cy"], "Ben is in the call, so not offered");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+async function ringFrom(members, who) {
+  overrides = { [PICKER]: [200, { canRing: true, members }] };
+  const mounted = await mountPicker();
+  const select = mounted.host.querySelector("select");
+  await act(async () => {
+    select.value = who.id;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const call = mounted.button(`Call ${who.name}`);
+  call.focus();
+  await act(async () => call.click());
+  await flush();
+  assert.equal(document.activeElement, call);
+  return { ...mounted, call };
+}
+
+test("Design M1: when the member rung joins, the focused Call button stays focusable and does nothing", async () => {
+  const { host, call } = await ringFrom(
+    [
+      { id: "ben", name: "Ben" },
+      { id: "cy", name: "Cy" },
+    ],
+    { id: "ben", name: "Ben" },
+  );
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !/Calling Ben\./.test(host.textContent), 6000);
+  assert.equal(call.isConnected, true, "the same button is still there");
+  assert.equal(call.textContent.trim(), "Call");
+  assert.equal(call.disabled, false, "no native disabled, so focus is not dropped");
+  assert.equal(call.getAttribute("aria-disabled"), "true");
+  assert.match(call.className, /aria-disabled:opacity-50/);
+  assert.equal(document.activeElement, call, "focus stays on the Call button");
+  const before = posts.length;
+  await act(async () => call.click());
+  await flush();
+  assert.equal(posts.length, before, "a click with nobody chosen rings nobody");
+  pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
+});
+
+test("Design M1: when the last member on the list joins, focus goes to the call panel, not the page", async () => {
+  const { host } = await ringFrom([{ id: "ben", name: "Ben" }], { id: "ben", name: "Ben" });
+  pollReplies = [
+    { record: false, peers: [{ id: "ben", name: "Ben", generation: 1 }], signals: [], cursor: 1 },
+  ];
+  await waitFor(() => !host.querySelector("select"), 6000);
+  await flush();
+  const panel = host.querySelector("section");
+  assert.equal(document.activeElement, panel, "focus lands on the call panel");
+  assert.equal(panel.hasAttribute("data-focus-ring"), true, "focusWithRing");
   pollReplies = [{ record: false, peers: [], signals: [], cursor: 0 }];
 });
 
@@ -1085,6 +1195,62 @@ test("QA S3: keepFieldClear leaves a field alone when the card is not over it, o
   card.remove();
   field.remove();
   press.remove();
+});
+
+test("Design M2: a field already in full view under a desktop card is scrolled off it by hand", async () => {
+  // At 1280 scrollIntoView({block:"nearest"}) leaves a fully visible field where it is, under the card.
+  const card = document.createElement("section");
+  card.getBoundingClientRect = () => ({ top: 649, bottom: 773 });
+  const field = document.createElement("textarea");
+  document.body.append(card, field);
+  field.scrollIntoView = () => {};
+  field.getBoundingClientRect = () => ({ top: 744, bottom: 800 });
+  const realScrollBy = window.scrollBy;
+  const by = [];
+  window.scrollBy = (o) => by.push(o);
+  try {
+    field.focus();
+    keepFieldClear(card);
+    assert.deepEqual(by, [{ top: 800 - 649 + 8 }], "clears the card with an 8px gap");
+    // Once clear, nothing more moves.
+    by.length = 0;
+    field.getBoundingClientRect = () => ({ top: 585, bottom: 641 });
+    keepFieldClear(card);
+    assert.equal(by.length, 0);
+  } finally {
+    window.scrollBy = realScrollBy;
+    card.remove();
+    field.remove();
+  }
+});
+
+test("QA on #128: pressing Decline while a field has focus keeps focus there, so the card doesn't jump", async () => {
+  const field = document.createElement("textarea");
+  document.body.append(field);
+  try {
+    field.focus();
+    ringsReply = [{ id: "r71", kind: "dm", threadId: thread, fromName: "Ann" }];
+    const { host } = await mountRings(ringtoneSpy().fn);
+    assert.equal(document.activeElement, field);
+    const decline = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent.trim() === "Decline",
+    );
+    assert.ok(decline);
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    decline.dispatchEvent(down);
+    assert.equal(down.defaultPrevented, true, "the field keeps focus, so the tab bar stays away");
+    // Not on the card's own text, and not without a text field focused.
+    const text = host.querySelector('section[role="region"] p');
+    const onText = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    text.dispatchEvent(onText);
+    assert.equal(onText.defaultPrevented, false);
+    field.blur();
+    const plain = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    decline.dispatchEvent(plain);
+    assert.equal(plain.defaultPrevented, false);
+  } finally {
+    field.remove();
+  }
 });
 
 test("QA S3: html's bottom scroll padding and main's padding reserve the call card's height", () => {

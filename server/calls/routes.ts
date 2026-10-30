@@ -55,7 +55,7 @@ export const RING_GONE = "That call isn't available anymore.";
 /** Any check that failed for a reason the person can't act on. Never a raw error. */
 export const CALLS_TRY_AGAIN = "Calls aren't working right now. Try again in a moment.";
 /** The picker's member list could not be checked. */
-export const PICKER_FAILED = "We couldn't load who you can call. Try again in a moment.";
+export const PICKER_FAILED = "We couldn't load the members you can call.";
 
 const defaultIce = createIceSource();
 bindTurnRelease((userId, prefix) => defaultIce.release(userId, prefix));
@@ -253,8 +253,16 @@ export async function handleCalls(
       try {
         rows = await (runtime.ringable ?? ringableMembers)(db, targetId, session.id);
       } catch {
-        // Fail closed: no list beats a list that skipped the block check.
-        return json(503, { canRing: false, members: [], error: PICKER_FAILED, record: false });
+        // Fail closed: no list beats a list that skipped the block check. checked: the
+        // permission check passed, so the page may say the list didn't load. A throw from
+        // canRing itself falls to the generic 503 below, with no checked and CALLS_TRY_AGAIN.
+        return json(503, {
+          canRing: false,
+          members: [],
+          error: PICKER_FAILED,
+          checked: true,
+          record: false,
+        });
       }
       return json(200, {
         canRing: true,

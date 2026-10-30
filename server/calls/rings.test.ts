@@ -528,10 +528,27 @@ test("S4: a picker whose block check fails says so plainly and lists no one", as
   const res = await send(r, "host", "/api/calls/rooms/shop/ring");
   assert.equal(res.status, 503);
   assert.equal(res.body.error, PICKER_FAILED);
-  assert.equal(PICKER_FAILED, "We couldn't load who you can call. Try again in a moment.");
+  assert.equal(PICKER_FAILED, "We couldn't load the members you can call.");
   assert.deepEqual(res.body.members, [], "fail closed");
   assert.equal(res.body.canRing, false);
+  assert.equal(res.body.checked, true, "the permission check passed, so the page may say so");
   assert.doesNotMatch(JSON.stringify(res.body), /relation|dm_block|does not exist/);
+});
+
+test("QA on #128: a picker whose permission check throws is the generic 503, not the picker's", async () => {
+  const r: CallsRuntime = {
+    ...rt(["host"], ["host", "ada"]),
+    canRing: async () => {
+      throw new Error("connection terminated");
+    },
+  };
+  const res = await send(r, "ada", "/api/calls/rooms/shop/ring");
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error, CALLS_TRY_AGAIN);
+  assert.notEqual(res.body.error, PICKER_FAILED);
+  assert.equal(res.body.checked, undefined, "no sign this person can ring");
+  assert.equal(res.body.members, undefined);
+  assert.doesNotMatch(JSON.stringify(res.body), /connection terminated/);
 });
 
 test("S4: an unexpected database error never reaches the person as raw text", async () => {

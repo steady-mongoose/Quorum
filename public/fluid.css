@@ -20,6 +20,9 @@ html{-webkit-text-size-adjust:100%}
 @media (min-width:768px){:root{--mast-h:84px}}
 /* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
+/* A call card showing (--call-card-h, set by call-rings.tsx) is reserved at the bottom on every screen, so a
+   focused field can scroll clear of it. The phone rules below replace these under 768px. */
+html{scroll-padding-bottom:var(--call-card-h,0px)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
    clears the sticky chip row too (--chips-h, 3.75rem: 44px chips plus py-2). */
 @media (max-width:767px){html{scroll-padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem + var(--call-card-h,0px))}}
@@ -51,6 +54,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
   padding-inline:var(--gutter-l) var(--gutter-r);
   padding-bottom:var(--space-4);
 }
+.shell-body > main{padding-bottom:calc(var(--space-4) + var(--call-card-h,0px))}
 .outer-art,.side-art{display:none}
 @media (min-width:1600px){
   .outer-art{
