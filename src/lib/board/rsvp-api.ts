@@ -15,7 +15,7 @@ import type { MeetingCard } from "./model.ts";
 /** The server's one code for "0049 is not applied yet". Only this keeps a change on the device. */
 export const RSVP_NOT_READY = "rsvp-not-ready";
 export const RSVP_NOT_SAVED = "Your RSVP was not saved. Try again in a moment.";
-export const CAME_NOT_SAVED = "Who came was not saved. Try again in a moment.";
+export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 
 export type ServerRsvp = {
   gatheringId: string;
@@ -144,7 +144,7 @@ export async function saveAttendance(
   const saved = await post(
     `/api/gatherings/${encodeURIComponent(gatheringId.toLowerCase())}/attendance`,
     input,
-    "Who came was not saved.",
+    "The write-up was not saved.",
   );
   return saved.ok ? { ok: true } : saved;
 }

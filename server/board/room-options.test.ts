@@ -7,7 +7,7 @@ import { roomCallMember } from "../calls/membership.ts";
 import { listChat, sendChat } from "../chat/store.ts";
 import { listRoomMembers } from "./members.ts";
 import { parseRoomOptions, roomOptions } from "./room-options.ts";
-import { createRoom, updateRoom } from "./store.ts";
+import { createRoom, listBoard, updateRoom } from "./store.ts";
 import { createPost } from "./test-posting.ts";
 import { ROOM_OPTION_OFF } from "../../src/lib/board/room-options.ts";
 
@@ -206,7 +206,8 @@ test("members see each other in name order; attendance only in a room that takes
     assert.equal(after.value.rollCall, true);
     const byName = new Map(after.value.members.map((row) => [row.name, row]));
     assert.deepEqual(byName.get("Amos")?.attended, [{ on: "2026-10-22", host: "Zeb", hosted: false }]);
-    assert.deepEqual(byName.get("Zeb")?.attended, [{ on: "2026-10-22", host: "Zeb", hosted: true }]);
+    // Who came is private (Josh, 10:06 PM ET): Amos sees only his own.
+    assert.deepEqual(byName.get("Zeb")?.attended, []);
     assert.equal(byName.get("Zeb")?.lastPostedOn, "2026-10-29");
     assert.deepEqual(Object.keys(byName.get("Amos") ?? {}).sort(), [
       "attended",
@@ -227,6 +228,65 @@ test("members see each other in name order; attendance only in a room that takes
     await updateRoom(db, { userId: admin, id: "shop", options: ["roll_call"], now });
     const off = await listRoomMembers(db, amos, "shop", now);
     assert.deepEqual(off.ok ? null : [off.status, off.error], [404, ROOM_OPTION_OFF.members]);
+  } finally {
+    await close();
+  }
+});
+
+test("who came is private: host, the room's stewards and admins see it; a member sees only their own", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const admin = await person(db, "Ada", [["admin", ""]]);
+    const sue = await person(db, "Sue", [["steward", "shop"]]);
+    const hal = await person(db, "Hal");
+    const ann = await person(db, "Ann");
+    const ben = await person(db, "Ben");
+    const cal = await person(db, "Cal");
+    for (const id of [admin, sue, hal, ann, ben, cal]) await join(db, id, "shop", 10);
+    await updateRoom(db, { userId: admin, id: "shop", options: ["roll_call", "members"], now });
+    const posted = await createPost(db, {
+      userId: hal,
+      name: "Hal",
+      roomId: "shop",
+      body: hosted(["Ann", "Ben"]),
+      now,
+    });
+    assert.equal(posted.ok, true);
+    if (posted.ok) assert.deepEqual(posted.value.came, ["Ann", "Ben"], "the host's own reply");
+
+    const cameOnBoard = async (viewer: string) => {
+      const board = await listBoard(db, viewer, now, { room: "shop" });
+      assert.equal(board.ok, true);
+      if (!board.ok) return null;
+      const post = board.value.posts.find((item) => item.type === "hosted");
+      return post?.came ?? null;
+    };
+    const attendedOf = async (viewer: string) => {
+      const list = await listRoomMembers(db, viewer, "shop", now);
+      assert.equal(list.ok, true);
+      if (!list.ok) return {};
+      return Object.fromEntries(list.value.members.map((row) => [row.name, row.attended.length]));
+    };
+
+    // The host, the room's steward and an admin read the whole roll call.
+    for (const viewer of [hal, sue, admin]) {
+      assert.deepEqual(await cameOnBoard(viewer), ["Ann", "Ben"]);
+      const seen = await attendedOf(viewer);
+      assert.equal(seen.Ann, 1);
+      assert.equal(seen.Ben, 1);
+    }
+    // A member who came sees only themselves, everywhere.
+    assert.deepEqual(await cameOnBoard(ann), ["Ann"]);
+    const annSees = await attendedOf(ann);
+    assert.equal(annSees.Ann, 1);
+    assert.equal(annSees.Ben, 0);
+    assert.equal(annSees.Hal, 0);
+    // A member who did not come sees nobody's attendance.
+    assert.deepEqual(await cameOnBoard(cal), []);
+    const calSees = await attendedOf(cal);
+    for (const name of ["Ann", "Ben", "Hal", "Cal"]) assert.equal(calSees[name], 0, name);
+    const raw = JSON.stringify(await listBoard(db, cal, now, { room: "shop" }));
+    assert.doesNotMatch(raw, /"Ann"|"Ben"/);
   } finally {
     await close();
   }

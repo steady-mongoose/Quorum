@@ -371,7 +371,7 @@ export async function loadSharedGathering(
  */
 export async function rsvpGatheringFor(
   db: Db,
-  input: { userId: string; id: string; now: Date },
+  input: { userId: string; id: string; now: Date; clearingOwn?: boolean },
 ): Promise<
   | {
       ok: true;
@@ -388,7 +388,12 @@ export async function rsvpGatheringFor(
   const listed = await readRoomListing(db, row.room_id);
   if (!listed || !canReadRoom(listed.status, actor)) return fail(404, "Not found.");
   if (await gatheringAudience(db, input.userId, row.room_id, input.now)) return fail(404, "Not found.");
-  if (row.host_user_id !== input.userId && (await openBan(db, input.userId, input.now, row.room_id))) {
+  // A member barred from the room may still clear their own RSVP there (QA S4).
+  if (
+    !input.clearingOwn &&
+    row.host_user_id !== input.userId &&
+    (await openBan(db, input.userId, input.now, row.room_id))
+  ) {
     return fail(404, "Not found.");
   }
   return {

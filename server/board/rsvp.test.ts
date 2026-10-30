@@ -7,6 +7,7 @@ import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { openTestDb } from "../closed-test/test-db.ts";
 import {
+  rsvpHandle,
   MARK_REFUSED,
   moveEntries,
   purgeOldRsvps,
@@ -118,6 +119,8 @@ async function setup() {
   await db.query(`insert into bootstrap_seat (id, user_id) values ('founding', $1) on conflict (id) do update set user_id = $1`, [owner]);
   await stewardOf(db, sam, "Sam", "shop");
   await stewardOf(db, cara, "Cara", "county");
+  // These gatherings are in a room that takes roll (rooms start with roll off).
+  await db.query(`update room set options = array['roll_call', 'members', 'chat', 'calls'] where id = 'shop'`);
   const joshSession = await trustAuthenticator(db, josh);
   const ownerSession = await trustAuthenticator(db, owner);
   const samSession = await trustAuthenticator(db, sam);
@@ -180,7 +183,7 @@ async function seen(t: Awaited<ReturnType<typeof setup>>, who: As) {
 async function scene(t: Awaited<ReturnType<typeof setup>>) {
   await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
   const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-    userIds: [t.tom.id],
+    userIds: [rsvpHandle(GATHERING, t.tom.id)],
   });
   assert.equal(marked.status, 200);
   await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
@@ -228,7 +231,7 @@ test("an admin sees everyone who is going and who has been", async () => {
     await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-      userIds: [t.tom.id],
+      userIds: [rsvpHandle(GATHERING, t.tom.id)],
       close: false,
     });
     await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false });
@@ -274,7 +277,7 @@ test("the routes check who is asking", async () => {
     // A member cannot mark anyone as having come, or set it through rsvp.
     await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     const sneak = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-      userIds: [t.tom.id],
+      userIds: [rsvpHandle(GATHERING, t.tom.id)],
     });
     assert.equal(sneak.status, 403);
     const fake = await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: false });
@@ -287,7 +290,7 @@ test("the routes check who is asking", async () => {
 
     // The host marks who came, but the answer names nobody.
     const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-      userIds: [t.tom.id, t.maria.id],
+      userIds: [rsvpHandle(GATHERING, t.tom.id), rsvpHandle(GATHERING, t.maria.id)],
       close: true,
     });
     assert.equal(marked.status, 200);
@@ -446,7 +449,7 @@ test("who sees what, by role: admin, owner, host, steward, member, signed out", 
       ]);
       // A steward reads who came but does not mark it: not for others, not for themselves.
       const mark = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/attendance`, {
-        userIds: [t.maria.id],
+        userIds: [rsvpHandle(GATHERING, t.maria.id)],
       });
       assert.equal(mark.status, 403);
       const close = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/attendance`, {
@@ -541,7 +544,9 @@ test("a host who is not an admin closes a date and attendance is recorded on the
       people: { userId: string; name: string; going: boolean }[];
     };
     const tomId = roll.people.find((p) => p.name === "Tom")?.userId;
-    assert.equal(tomId, t.tom.id);
+    // An opaque per-gathering handle, never Tom's account id.
+    assert.equal(tomId, rsvpHandle(MARIAS, t.tom.id));
+    assert.notEqual(tomId, t.tom.id);
     const closed = await call(t.handler, t.maria, "POST", `/api/gatherings/${MARIAS}/attendance`, {
       userIds: [tomId],
       close: true,
@@ -628,7 +633,7 @@ test("migration 0049 is valid, owner-approved, idempotent, and has no counts", a
   }
 });
 
-test("retention: RSVP rows are deleted after 12 months, going and attended alike; newer ones stay", async () => {
+test("retention: RSVP rows are deleted after 12 months untouched or ended, going and attended alike, dated or not; newer ones stay", async () => {
   const { db, close } = await openTestDb();
   try {
     const now = new Date("2026-10-29T12:00:00Z");
@@ -660,26 +665,30 @@ test("retention: RSVP rows are deleted after 12 months, going and attended alike
     await rsvp(recent, ann, false, true, "2025-11-29T20:00:00Z");
     await rsvp(recent, tom, true, false, "2025-11-28T20:00:00Z");
     // A weekly meeting that still meets: its date moved forward. Attendance
-    // last touched 13 months ago ages out; 11 months ago stays; a "going"
-    // for the next date stays even if the row is old.
+    // last touched 13 months ago ages out; 11 months ago stays. A "going"
+    // (alone or with came) untouched for 13 months ages out too (QA S3).
     const weekly = await gathering("2026-11-05");
     await rsvp(weekly, ann, false, true, "2025-09-29T20:00:00Z");
     await rsvp(weekly, tom, false, true, "2025-11-29T20:00:00Z");
     await rsvp(weekly, host, true, true, "2025-09-29T20:00:00Z");
+    // A gathering with no date: an old "going" goes, a recent one stays.
+    const undated = await gathering("");
+    await rsvp(undated, ann, true, false, "2025-09-29T20:00:00Z");
+    await rsvp(undated, tom, true, false, "2025-11-29T20:00:00Z");
 
     const result = await purgeOldRsvps(db, now);
-    assert.equal(result.deleted, 3);
+    assert.equal(result.deleted, 5);
     const left = await db.query<{ gathering_id: string; user_id: string }>(
       `select gathering_id, user_id from gathering_rsvp order by gathering_id, user_id`,
     );
     const key = (g: string, u: string) => `${g}:${u}`;
     assert.deepEqual(
       left.map((r) => key(r.gathering_id, r.user_id)).sort(),
-      [key(recent, ann), key(recent, tom), key(weekly, tom), key(weekly, host)].sort(),
+      [key(recent, ann), key(recent, tom), key(weekly, tom), key(undated, tom)].sort(),
     );
     // The gatherings themselves are not touched.
     const gatherings = await db.query(`select id from public_gathering`);
-    assert.equal(gatherings.length, 3);
+    assert.equal(gatherings.length, 4);
     // A second run deletes nothing more.
     assert.equal((await purgeOldRsvps(db, now)).deleted, 0);
   } finally {
@@ -712,7 +721,7 @@ test("concurrent toggles never answer 500, and a close racing a 'going' succeeds
     await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     await call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
     const [close, going, again] = await Promise.all([
-      call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, { userIds: [t.tom.id], close: true }),
+      call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, { userIds: [rsvpHandle(GATHERING, t.tom.id)], close: true }),
       call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false }),
       call(t.handler, t.maria, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true }),
     ]);
@@ -815,6 +824,168 @@ test("removing a gathering deletes its RSVPs; the purge clears removed gathering
     assert.equal((await t.db.query(`select 1 from gathering_rsvp`)).length, 0);
     // Gatherings are not deleted by the purge.
     assert.equal((await t.db.query(`select 1 from public_gathering`)).length, 3);
+  } finally {
+    await t.close();
+  }
+});
+
+test("host and steward lists carry no account ids; an admin's do (Josh, 10:21 PM ET)", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+    const others = (viewer: string) =>
+      [t.dale.id, t.maria.id, t.tom.id, t.josh.id, t.owner.id, t.sam.id, t.cara.id].filter((id) => id !== viewer);
+    for (const who of [t.dale, t.sam]) {
+      const list = await (await call(t.handler, who, "GET", "/api/rsvps")).json();
+      const one = await (await call(t.handler, who, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
+      const text = JSON.stringify(list) + JSON.stringify(one);
+      assert.ok((one as { people?: unknown[] }).people?.length, "the roll call is there");
+      for (const id of others(who.id)) assert.equal(text.includes(id), false, `${who.id} saw ${id}`);
+      // Only the viewer's own id may appear.
+      const gatheringIds = new Set([GATHERING, MARIAS, OTHER].map((id) => id.toLowerCase()));
+      for (const found of text.match(uuid) ?? []) {
+        if (!gatheringIds.has(found.toLowerCase())) assert.equal(found, who.id);
+      }
+      const handles = (one as { people: { userId: string }[] }).people.map((row) => row.userId);
+      assert.ok(handles.every((h) => /^h_[A-Za-z0-9_-]{22}$/.test(h) || h === who.id));
+    }
+    // Handles differ per gathering, so lists cannot be linked.
+    assert.notEqual(rsvpHandle(GATHERING, t.tom.id), rsvpHandle(MARIAS, t.tom.id));
+    // A made-up handle marks nobody.
+    const fake = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: ["h_AAAAAAAAAAAAAAAAAAAAAA", t.maria.id],
+    });
+    assert.equal(fake.status, 200);
+    const maria = await t.db.query<{ attended: boolean }>(
+      `select attended from gathering_rsvp where gathering_id = $1 and user_id = $2`,
+      [GATHERING, t.maria.id],
+    );
+    assert.equal(maria[0]?.attended, false, "a host cannot mark by raw id");
+    // Admins keep real ids.
+    const admin = JSON.stringify(await (await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json());
+    assert.ok(admin.includes(t.tom.id));
+  } finally {
+    await t.close();
+  }
+});
+
+test("a steward without a trusted authenticator cannot RSVP (Josh, 10:21 PM ET: keep it)", async () => {
+  const t = await setup();
+  try {
+    const bare = { id: t.sam.id };
+    const refused = await call(t.handler, bare, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.notEqual(refused.status, 200, await refused.clone().text());
+    const rows = await t.db.query(`select 1 from gathering_rsvp where user_id = $1`, [t.sam.id]);
+    assert.equal(rows.length, 0);
+    const ok = await call(t.handler, t.sam, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal(ok.status, 200);
+  } finally {
+    await t.close();
+  }
+});
+
+test("a room with roll off refuses who came; a close with no names still clears going", async () => {
+  const t = await setup();
+  try {
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await t.db.query(`update room set options = array['members', 'chat', 'calls'] where id = 'shop'`);
+    const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [rsvpHandle(GATHERING, t.tom.id)],
+    });
+    assert.equal(marked.status, 409);
+    assert.deepEqual(await marked.json(), { error: "This room does not take roll. Leave out who came.", api: "rsvp" });
+    const self = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+    assert.equal(self.status, 409);
+    const attended = await t.db.query(`select 1 from gathering_rsvp where attended`);
+    assert.equal(attended.length, 0);
+    const closed = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [],
+      close: true,
+    });
+    assert.equal(closed.status, 200);
+    assert.equal((await t.db.query(`select 1 from gathering_rsvp`)).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+test("a host cannot mark a hidden barred member as came, by handle or by id", async () => {
+  const t = await setup();
+  try {
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await t.db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
+      [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
+    );
+    const marked = await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/attendance`, {
+      userIds: [rsvpHandle(GATHERING, t.tom.id), t.tom.id],
+    });
+    assert.equal(marked.status, 200);
+    const row = await t.db.query<{ attended: boolean }>(
+      `select attended from gathering_rsvp where user_id = $1`,
+      [t.tom.id],
+    );
+    assert.equal(row[0]?.attended, false);
+  } finally {
+    await t.close();
+  }
+});
+
+test("a member barred from the room can still clear their own RSVP, and nothing else", async () => {
+  const t = await setup();
+  try {
+    await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    await t.db.query(
+      `insert into board_ban (id, user_id, name, reason, by_name, strikes, until_at, room_id, created_at)
+       values ($1, $2, 'Tom', 'threat', 'Sam', 1, $3, 'shop', now())`,
+      [randomUUID(), t.tom.id, "2027-01-01T00:00:00Z"],
+    );
+    const again = await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    assert.equal(again.status, 404);
+    const read = await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`);
+    assert.equal(read.status, 404);
+    const cleared = await call(t.handler, t.tom, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: false });
+    assert.equal(cleared.status, 200, await cleared.clone().text());
+    assert.equal((await t.db.query(`select 1 from gathering_rsvp where user_id = $1`, [t.tom.id])).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+test("oddly cased or trailing-slash RSVP paths answer 404 with the api marker; a body with no length is capped", async () => {
+  const t = await setup();
+  try {
+    for (const path of [
+      "/api/rsvps/",
+      "/API/rsvps",
+      "/api/rsvps/move/",
+      `/api/gatherings/${GATHERING}/rsvps/`,
+      `/api/gatherings/${GATHERING.toUpperCase()}/RSVP`,
+      `/api/gatherings/${GATHERING}/attendance/`,
+    ]) {
+      const res = await call(t.handler, t.tom, "GET", path);
+      assert.equal(res.status, 404, path);
+      assert.deepEqual(await res.json(), { error: "Not found.", api: "rsvp" }, path);
+    }
+    // A streamed body with no Content-Length, over the cap, is refused.
+    const big = new TextEncoder().encode(JSON.stringify({ going: true, pad: "x".repeat(40_000) }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < big.length; i += 4096) controller.enqueue(big.slice(i, i + 4096));
+        controller.close();
+      },
+    });
+    const res = await t.handler(
+      new Request(`${BASE}/api/gatherings/${GATHERING}/rsvp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": t.tom.id },
+        body: stream,
+        duplex: "half",
+      } as RequestInit),
+    );
+    assert.equal(res.status, 413);
   } finally {
     await t.close();
   }

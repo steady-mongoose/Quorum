@@ -596,6 +596,17 @@ export function typeMeta(type: PostType): TypeMeta {
   return POST_TYPES.find((item) => item.id === type) ?? POST_TYPES[0];
 }
 
+/**
+ * The write-up's who-came line. Who came is private (Josh, Oct 29, 10:06 PM ET):
+ * the server sends the full list only to the host, the room's stewards and admins;
+ * anyone else gets at most their own name, shown as "You were there."
+ */
+export function cameText(came: string[], me: string, seesAll: boolean): string {
+  if (came.length === 0) return "";
+  if (!seesAll) return came.includes(me.trim()) ? "You were there. " : "";
+  return `There: ${came.join(", ")}. `;
+}
+
 export function authorName(me: string): string {
   return me.trim() || "You";
 }

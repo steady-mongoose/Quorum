@@ -73,7 +73,7 @@ const HOW = [
   },
   {
     title: "Members",
-    text: "In a room with a member list, everyone in the room can see who else is in it, when each joined, and when each last posted. In a room that also takes roll, members can see which gatherings each person came to. The list is in name order. Nobody is ranked, and who's going next time stays with the admins.",
+    text: "In a room with a member list, everyone in the room can see who else is in it, when each joined, and when each last posted. The list is in name order, and nobody is ranked. Who is going and who came stay with the host, the room's stewards, and the admins.",
   },
   {
     title: "Who can see you",

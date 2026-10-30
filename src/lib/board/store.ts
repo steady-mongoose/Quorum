@@ -683,6 +683,16 @@ export const useBoard = create<BoardState>()(
           cards: applyServerRsvps(get().cards, list, { me: me(), gatheringIds }),
         });
       };
+      const refreshRsvps = async () => {
+        try {
+          const ids = get()
+            .cards.filter((item) => isGatheringId(item.id))
+            .map((item) => item.id.toLowerCase());
+          await syncRsvps(new Set(ids));
+        } catch {
+          // The next board load reads them again.
+        }
+      };
       /**
        * Only the server's rsvp-not-ready (0049 not applied yet), or a 404 from
        * an API that predates the RSVP routes, keeps a change on this device. Anything else, a dropped connection included, is a
@@ -925,8 +935,12 @@ export const useBoard = create<BoardState>()(
                 }
               }
               const saved = await (await getBoardClient()).createPost(draft);
-              if (!saved.ok)
+              if (!saved.ok) {
+                // The close may have saved on the server (going cleared) while the
+                // write-up did not: read the RSVPs again so the card matches (QA S4).
+                if (draft.type === "hosted") void refreshRsvps();
                 return { ok: false, stops: saved.stops ?? [saved.error], notes: check.notes };
+              }
               if (draft.type === "hosted") {
                 const card = cards.find((item) => item.id === draft.cardId);
                 if (card) {

@@ -37,6 +37,7 @@ import {
   removalConfirm,
   RULE_SENTENCE,
   authorName,
+  cameText,
   activeBan,
   blankDraft,
   cardSummary,
@@ -970,6 +971,7 @@ const PostCard = memo(function PostCard({
   const now = useNow();
   const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
+  const viewerMe = useBoard((state) => state.me);
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
@@ -1077,7 +1079,7 @@ const PostCard = memo(function PostCard({
           ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              {post.came.length > 0 ? `There: ${post.came.join(", ")}. ` : ""}
+              {cameText(post.came, viewerMe, mine || steward)}
               {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
               {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>

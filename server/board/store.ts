@@ -54,6 +54,7 @@ import {
 } from "./csam.ts";
 import type { ObjectStore } from "../media/s3.ts";
 import { orderPosts } from "./order.ts";
+import { cameFor, cameViewer, type CameViewer } from "./came-sight.ts";
 import { groupsApprovedFrom } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
 import { rememberNamedAccounts } from "../dm/store.ts";
@@ -381,6 +382,8 @@ function rulesOf(room: BoardRoom): RoomRules {
 type PostRow = {
   id: string;
   room_id: string;
+  /** The host of a write-up; decides who reads its roll call. */
+  author_user_id?: string | null;
   author_name: string;
   type: string;
   claim: string;
@@ -400,7 +403,7 @@ type PostRow = {
   created_at: Date | string;
 };
 
-function toPost(row: PostRow, media: BoardPost["media"] = []): BoardPost {
+function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewer): BoardPost {
   const mark = isMarkValue(row.mark) ? row.mark : null;
   return {
     id: row.id,
@@ -410,7 +413,8 @@ function toPost(row: PostRow, media: BoardPost["media"] = []): BoardPost {
     reason: row.reason,
     on: row.on_date,
     next: row.next_date,
-    came: textList(row.came),
+    // Without a viewer the roll call is never sent (fail closed).
+    came: viewer ? cameFor(textList(row.came), viewer, row.room_id, row.author_user_id) : [],
     named: row.named,
     author: row.author_name,
     at: atMs(row.created_at),
@@ -577,7 +581,7 @@ async function pagePosts(
   limit: number,
 ): Promise<{ rows: PostRow[]; next: string | null }> {
   const rows = await db.query<PostRow>(
-    `select id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+    `select id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
             parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at
      from board_post
      where removed = false
@@ -744,7 +748,8 @@ export async function listBoard(
     db,
     postRows.map((row) => row.id),
   );
-  const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [])));
+  const sight = await cameViewer(db, userId, actor);
+  const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [], sight)));
   const councils = await councilMarks(
     db,
     ordered.map((post) => post.id),
@@ -1173,7 +1178,7 @@ export async function createPost(
          (id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
           card_id, trade_id, campaign_id, subject, created_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+         returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                    parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
         [
           id,
@@ -1199,7 +1204,10 @@ export async function createPost(
       if (type === "hosted") await rememberNamedAccounts(tx, saved.id);
       return saved;
     });
-    return { ok: true, value: await withCouncil(db, toPost(row)) };
+    return {
+      ok: true,
+      value: await withCouncil(db, toPost(row, [], await cameViewer(db, input.userId, actor))),
+    };
   } catch (error) {
     if (error instanceof Stop) return fail(error.status, error.message, error.stops);
     if (isUniqueViolation(error)) return fail(409, "That post was already filed.");
@@ -1252,7 +1260,7 @@ export async function replyToPost(
     `insert into board_post
      (id, room_id, author_user_id, author_name, type, claim, parent_id, created_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8)
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [
       id,
@@ -1268,7 +1276,10 @@ export async function replyToPost(
   const row = inserted[0];
   if (!row) return fail(500, "The reply was not filed.");
   await standInRoom(db, input.userId, parent.room_id);
-  return { ok: true, value: await withCouncil(db, toPost(row)) };
+  return {
+    ok: true,
+    value: await withCouncil(db, toPost(row, [], await cameViewer(db, input.userId, actor))),
+  };
 }
 
 export async function revisePost(
@@ -1315,13 +1326,19 @@ export async function revisePost(
   if (stops.length > 0) return fail(400, stops[0] ?? "That revision was not saved.", stops);
   const updated = await db.query<PostRow>(
     `update board_post set claim = $2, reason = $3 where id = $1
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [post.id, input.claim.trim(), input.reason.trim()],
   );
   const saved = updated[0];
   if (!saved) return fail(404, "That post is not here.");
-  return { ok: true, value: { post: await withCouncil(db, toPost(saved)), mark: null } };
+  return {
+    ok: true,
+    value: {
+      post: await withCouncil(db, toPost(saved, [], await cameViewer(db, input.userId, actor))),
+      mark: null,
+    },
+  };
 }
 
 export async function closeAsked(
@@ -1350,13 +1367,16 @@ export async function closeAsked(
   const updated = await db.query<PostRow>(
     `update board_post set closed = true
      where id = $1 and author_user_id = $2 and type = 'asked' and parent_id is null and removed = false
-     returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+     returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
     [input.postId, input.userId],
   );
   const row = updated[0];
   if (!row) return fail(404, "That question is not here.");
-  return { ok: true, value: await withCouncil(db, toPost(row)) };
+  return {
+    ok: true,
+    value: await withCouncil(db, toPost(row, [], await cameViewer(db, input.userId, actor))),
+  };
 }
 
 export async function markPost(
@@ -1403,7 +1423,7 @@ export async function markPost(
   const saved = await db.transaction(async (tx) => {
     const updated = await tx.query<PostRow>(
       `update board_post set mark = $2 where id = $1 and removed = false
-       returning id, room_id, author_name, type, claim, reason, on_date, next_date, came, named,
+       returning id, room_id, author_user_id, author_name, type, claim, reason, on_date, next_date, came, named,
                  parent_id, closed, mark, removed, card_id, trade_id, campaign_id, subject, created_at`,
       [post.id, mark],
     );
@@ -1431,7 +1451,7 @@ export async function markPost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved)),
+      post: await withCouncil(db, toPost(saved, [], await cameViewer(db, input.userId, actor))),
       row: {
         id,
         room: post.room_id,
@@ -1973,11 +1993,12 @@ export async function decideAppeal(
       db,
       posts.map((post) => post.id),
     );
+    const sight = await cameViewer(db, input.userId, actor);
     return {
       ok: true,
       value: {
         appeal: appealFrom(row),
-        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [])),
+        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [], sight)),
       },
     };
   } catch (error) {
@@ -2173,7 +2194,8 @@ export async function updateRoom(
     const changing =
       options.length !== current.options.length ||
       options.some((option) => !current.options.includes(option));
-    if (changing && !actor.admin) return fail(403, "Only an admin can change what a room includes.");
+    if (changing && !actor.admin)
+      return fail(403, "Only an admin can change what a room includes.");
     if (changing && !(await optionsColumnReady(db)))
       return fail(503, "Room options are not set up on this server yet.");
     if (!changing) options = null;

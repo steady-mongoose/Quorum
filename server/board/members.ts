@@ -1,15 +1,17 @@
 import type { Db } from "../db.ts";
 import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
-import { stewardsRoom } from "./access.ts";
+import { actorRole, stewardsRoom } from "./access.ts";
+import { cameViewer, seesWhoCame } from "./came-sight.ts";
 import { ROOM_OPTION_OFF, roomOptions } from "./room-options.ts";
 import { memberMessageStates, type MemberMessage } from "../dm/store.ts";
 
 /**
  * Who is in a room, for the people in it (Josh, 2026-10-29): every member sees
- * every other member's name, when they joined, when they last posted, and the
- * gatherings the host's roll call says they came to, in a room that takes roll. The list is in name order,
- * never by activity, and carries no count or score. Upcoming RSVPs are not here;
- * they stay admin-only.
+ * every other member's name, when they joined, when they last posted. The list is
+ * in name order, never by activity, and carries no count or score. Upcoming RSVPs
+ * are not here. Who came is private (Josh, Oct 29, 10:06 PM ET): a member's
+ * "attended" is sent only to the room's stewards and admins (every gathering),
+ * to a host (the gatherings they hosted), and to the member themselves.
  */
 export type RoomMember = {
   id: string;
@@ -105,9 +107,17 @@ export async function listRoomMembers(
      order by p.created_at desc, p.id`,
     [roomId],
   );
+  // The viewer's role from the batch above when they are listed; one lookup otherwise.
+  const self = people.find((person) => person.id === userId);
+  const selfActor = standings.actors.get(userId);
+  const viewer =
+    self && selfActor
+      ? { userId, name: self.name, actor: selfActor }
+      : await cameViewer(db, userId, await actorRole(db, userId));
   const attended = new Map<string, Map<string, { on: string; host: string; hosted: boolean }>>();
   const note = (personId: string | null, row: (typeof roll)[number], hosted: boolean) => {
     if (!personId) return;
+    if (personId !== userId && !seesWhoCame(viewer, roomId, row.host_id)) return;
     const mine = attended.get(personId) ?? new Map();
     if (!mine.has(row.post_id)) {
       mine.set(row.post_id, {

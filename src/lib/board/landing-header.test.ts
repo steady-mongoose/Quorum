@@ -250,7 +250,7 @@ test("the door explains how the app and the rooms work, in plain sentences", () 
   // The rules the brief fixes: invite only, admins alone see who is going,
   // shared-room messaging, no feed, a steward in every room.
   assert.match(how, /invite code/);
-  assert.match(how, /Only the room's admins see the full list/);
+  assert.match(how, /You see only your own answer\. The host, the room's stewards, and the admins see who is going\./);
   assert.match(how, /people you've been at a gathering with/);
   assert.match(how, /No likes, reshares, scores, or algorithm/);
   assert.match(rooms, /Every room has a steward/);

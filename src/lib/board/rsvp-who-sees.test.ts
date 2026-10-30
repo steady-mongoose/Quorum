@@ -26,7 +26,7 @@ test("every going or has-been list is behind seesGoing, seesCame or takesRoll", 
   // Who came: the host, admins and the room's stewards read it (Josh, 9:24 PM ET).
   assert.match(read("find-view.tsx"), /seesCame\(card\) \? <span>· has been:/);
   // Marking it (the "I went" button and the roll-call pills) stays host or admin only.
-  assert.match(read("find-view.tsx"), /takesRoll\(card\) && roll\.length > 0/);
+  assert.match(read("find-view.tsx"), /takesRoll\(card\) && rollOn && roll\.length > 0/);
   assert.match(read("room-view.tsx"), /closing && takesRoll\(closing\) && roll\.length > 0/);
 });
 
@@ -49,7 +49,45 @@ test("about copy says who sees the list", () => {
   );
 });
 
-import { forViewer } from "./model.ts";
+test("about members copy: who is going and who came stay with the host, stewards and admins", () => {
+  const source = read("about-view.tsx");
+  assert.doesNotMatch(source, /stays with the admins/);
+  assert.doesNotMatch(source, /members can see which gatherings each person came to/);
+  assert.match(
+    source,
+    /The list is in name order, and nobody is ranked\. Who is going and who came stay with the host, the room's stewards, and the admins\./,
+  );
+});
+
+test("door roll call copy: only host, stewards and admins see who came", () => {
+  assert.match(
+    read("door.tsx"),
+    /In a room that takes roll, the host records who came\. Only the host, the room's stewards, and the admins see it\. You see your own\./,
+  );
+});
+
+test("a write-up shows a plain member only their own attendance", () => {
+  assert.equal(cameText(["Ann", "Ben"], "Ann", true), "There: Ann, Ben. ");
+  assert.equal(cameText(["Ann"], "Ann", false), "You were there. ");
+  assert.equal(cameText(["Ben"], "Ann", false), "");
+  assert.equal(cameText([], "Ann", true), "");
+});
+
+test("door copy: you see your own answer; host, stewards and admins see who is going", () => {
+  const source = read("door.tsx");
+  assert.doesNotMatch(source, /Only the room's admins see the full list/);
+  assert.match(
+    source,
+    /Say you're going to a gathering\. You see only your own answer\. The host, the room's stewards, and the admins see who is going\./,
+  );
+});
+
+test("Find clears refused at each close submit so a repeat failure is announced again", () => {
+  const source = read("find-view.tsx");
+  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*const happened =/);
+});
+
+import { cameText, forViewer } from "./model.ts";
 import { SEED_CARDS } from "./seed-cards.ts";
 
 test("a plain member's board data carries no other names", () => {
@@ -87,7 +125,7 @@ test("RSVPs are filtered on the server in SQL by role, and forViewer stays as a 
   assert.match(server, /or \(g\.room_id <> '' and g\.room_id = any \(\$4::text\[\]\)\)/);
   // Only these four may read anyone else's row: admin, own, host, steward.
   assert.match(server, /\$2::boolean\s+or r\.user_id = \$3\s+or g\.host_user_id = \$3\s+or \(g\.room_id/);
-  assert.match(server, /seesPeople\(reader, gate\.gathering\) \? \{ people: rows \} : \{\}/);
+  assert.match(server, /seesPeople\(reader, gate\.gathering\) \? \{ people: withHandles\(rows, reader\) \} : \{\}/);
   assert.match(server, /if \(!host && !gate\.actor\.admin\) \{\s*return json\(403, \{ error: MARK_REFUSED \}\);/);
   const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(store, /await syncRsvps\(/);

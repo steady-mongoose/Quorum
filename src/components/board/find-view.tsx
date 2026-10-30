@@ -26,6 +26,7 @@ import {
   hostsClear,
   readingLine,
   roomById,
+  roomIncludes,
   stoodWith,
   todayIso,
   witnessesByTrade,
@@ -366,6 +367,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const pagesId = useId();
   const pagesHintId = useId();
   const room = roomById(card.room);
+  // A room with roll off has no Who came section (QA r5707425337).
+  // Only a room whose options are known and leave roll out; the server refuses names there anyway.
+  const rollOn = !(room.id === card.room && room.options && !roomIncludes(room, "roll_call"));
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
@@ -447,6 +451,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               className="flex w-full flex-col gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
+                // Clear first so a repeat failure re-mounts the alert and is announced again.
+                setRefused([]);
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
                 void closeCard(
@@ -505,7 +511,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {takesRoll(card) && roll.length > 0 ? (
+              {takesRoll(card) && rollOn && roll.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {roll.map((person) => (

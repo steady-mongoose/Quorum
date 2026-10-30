@@ -1,7 +1,10 @@
+import { createHmac, randomBytes } from "node:crypto";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
 import { listGatheringsFor, rsvpGatheringFor } from "./gathering-record.ts";
 import { actorRole } from "./access.ts";
+import { roomOptions } from "./room-options.ts";
+import { ROOM_OPTION_OFF } from "../../src/lib/board/room-options.ts";
 import { banOpen } from "./ban.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
@@ -22,7 +25,7 @@ import { isGatheringId } from "../../src/lib/board/public-gathering.ts";
  *   GET  /api/rsvps                      the rows this viewer may see
  *   GET  /api/gatherings/:id/rsvps       mine; host, steward, admin also get `people`
  *   POST /api/gatherings/:id/rsvp        { going?: boolean, attended?: true (host or admin) }
- *   POST /api/gatherings/:id/attendance  host or admin: { userIds, close? }
+ *   POST /api/gatherings/:id/attendance  host or admin: { userIds (handles from the list), close? }
  *   POST /api/rsvps/move                 the one-time move from this browser
  */
 
@@ -55,6 +58,8 @@ export const RSVP_BATCH_MAX = 200;
 /** Exact match only: lowercase ids (as stored) and lowercase actions. */
 const ONE = /^\/api\/gatherings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(rsvps|rsvp|attendance)$/;
 
+const LOOSE = /^\/api\/(rsvps(\/move)?\/?|gatherings\/[^/]+\/(rsvps|rsvp|attendance)\/?)$/i;
+
 /**
  * Every refusal from these routes says `api: "rsvp"`, so the client can tell
  * this API's 404 (no such gathering for you) from an API that predates the
@@ -81,8 +86,29 @@ async function readBody(request: Request, max = 32_768): Promise<Record<string, 
   // Refuse a declared oversize body before reading any of it.
   const declared = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > max) throw new BadBody(413, "That request is too large.");
-  const text = await request.text();
-  if (text.length > max) throw new BadBody(413, "That request is too large.");
+  // No (or a false) Content-Length: read the stream and stop at the cap (QA S4).
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > max) {
+        void reader.cancel().catch(() => {});
+        throw new BadBody(413, "That request is too large.");
+      }
+      chunks.push(value);
+    }
+  }
+  const joined = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(joined);
   if (!text) return {};
   let parsed: unknown;
   try {
@@ -121,6 +147,48 @@ function toRow(row: DbRow): RsvpRow {
     going: row.going === true,
     attended: row.attended === true,
   };
+}
+
+/**
+ * No internal account ids in host or steward lists (Josh, Oct 29, 10:21 PM ET).
+ * Other people's rows carry an opaque per-gathering handle in `userId` instead:
+ * an HMAC of the gathering and the account under a key that never leaves the
+ * server, so it cannot be turned back into an id or linked across gatherings.
+ * The host sends handles back to mark who came; the server maps them. Admins
+ * keep real ids. A viewer's own row keeps their own id.
+ */
+const HANDLE_KEY = process.env.BETTER_AUTH_SECRET || randomBytes(32).toString("hex");
+
+export function rsvpHandle(gatheringId: string, userId: string): string {
+  const mac = createHmac("sha256", `rsvp-handle:${HANDLE_KEY}`)
+    .update(`${gatheringId.toLowerCase()}\n${userId}`)
+    .digest("base64url");
+  return `h_${mac.slice(0, 22)}`;
+}
+
+export function withHandles(rows: RsvpRow[], reader: { userId: string; admin: boolean }): RsvpRow[] {
+  if (reader.admin) return rows;
+  return rows.map((row) =>
+    row.userId === reader.userId ? row : { ...row, userId: rsvpHandle(row.gatheringId, row.userId) },
+  );
+}
+
+/** Handles (or, for an admin, ids) from a roll call, as account ids for this gathering. */
+export async function idsFromHandles(
+  db: Db,
+  input: RsvpReader & { gatheringId: string; sent: string[]; now: Date },
+): Promise<string[]> {
+  // Only rows this reader can see: a barred member, hidden from the list,
+  // cannot be marked by handle or by id (QA S4).
+  const rows = await readRsvps(db, { ...input, gatheringIds: [input.gatheringId] });
+  const byHandle = new Map(rows.map((row) => [rsvpHandle(input.gatheringId, row.userId), row.userId]));
+  const ids = new Set(rows.map((row) => row.userId));
+  const out: string[] = [];
+  for (const sent of input.sent) {
+    const id = byHandle.get(sent) ?? (input.admin && ids.has(sent) ? sent : undefined);
+    if (id) out.push(id);
+  }
+  return out;
 }
 
 /** Who is reading. `stewardRooms` is from actorRole; admins are not listed there. */
@@ -305,10 +373,10 @@ export function rsvpCutoff(now: Date): Date {
  * attended alike, when either:
  *   - its gathering's date (gather_on, YYYY-MM-DD) is more than 12 months
  *     ago: the gathering ended and was never given a later date; or
- *   - it says only "came" (going is false) and nobody has touched it for
- *     12 months. A weekly meeting keeps moving its date forward, so this is
- *     what ages out old attendance on a gathering that still meets. A row
- *     that says "going" is for the next date and is kept;
+ *   - nobody has touched it for 12 months (updated_at, from 0049), whether it
+ *     says "going", "came" or both. A weekly meeting keeps moving its date
+ *     forward, and a gathering may have no date, so this is what ages out a
+ *     row on a gathering that still meets or never had a date (QA r5707425337);
  *   - its gathering was removed, or its room no longer exists (no route can
  *     reach those rows). Removing a gathering also deletes its rows at once
  *     (removeGathering); this catches anything left from before.
@@ -331,7 +399,7 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
          from gathering_rsvp r
          join public_gathering g on g.id = r.gathering_id
          where (g.gather_on ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' and g.gather_on < $1)
-            or (not r.going and r.updated_at < $2)
+            or r.updated_at < $2
             or g.removed
             or (g.room_id <> '' and not exists (select 1 from room where room.id = g.room_id))
          limit $3
@@ -430,7 +498,11 @@ export async function handleRsvp(
   const one = ONE.exec(url.pathname);
   const list = url.pathname === "/api/rsvps";
   const move = url.pathname === "/api/rsvps/move";
-  if (!one && !list && !move) return null;
+  if (!one && !list && !move) {
+    // Oddly cased or trailing-slash forms of these routes: 404 with the marker (QA S4).
+    if (LOOSE.test(url.pathname)) return json(404, { error: "Not found." });
+    return null;
+  }
   const action = one?.[2] ?? "";
   const method = request.method;
   const matched =
@@ -467,7 +539,7 @@ export async function handleRsvp(
         // applies the same rule again (forViewer) with these.
         hosts: gatherings.filter((row) => row.mine).map((row) => row.id),
         stewardRooms: actor.stewardRooms,
-        rsvps,
+        rsvps: withHandles(rsvps, { userId: session.id, admin: actor.admin }),
       });
     }
 
@@ -479,7 +551,11 @@ export async function handleRsvp(
       return json(200, { ok: true, saved });
     }
 
-    const gate = await rsvpGatheringFor(deps.db, { userId: session.id, id: one?.[1] ?? "", now });
+    const body = method === "POST" ? await readBody(request) : {};
+    // Only "not going", with nothing else: a barred member may still clear their own.
+    const clearingOwn =
+      action === "rsvp" && body.going === false && Object.keys(body).length === 1;
+    const gate = await rsvpGatheringFor(deps.db, { userId: session.id, id: one?.[1] ?? "", now, clearingOwn });
     if (!gate.ok) return json(gate.status, { error: gate.error });
     const gatheringId = gate.gathering.id;
 
@@ -495,11 +571,14 @@ export async function handleRsvp(
       const mine = rows.find((row) => row.userId === session.id);
       return json(200, {
         mine: { going: mine?.going === true, attended: mine?.attended === true },
-        ...(seesPeople(reader, gate.gathering) ? { people: rows } : {}),
+        ...(seesPeople(reader, gate.gathering) ? { people: withHandles(rows, reader) } : {}),
       });
     }
 
-    const body = await readBody(request);
+    // A room with roll off records nobody as having come (QA r5707425337).
+    // A close with no names still clears the going list.
+    const rollOff = async () =>
+      gate.gathering.roomId !== "" && !(await roomOptions(deps.db, gate.gathering.roomId)).includes("roll_call");
 
     if (action === "rsvp") {
       const going = body.going === true ? true : body.going === false ? false : undefined;
@@ -511,6 +590,9 @@ export async function handleRsvp(
       // and admins can.
       if (body.attended === true && !host && !gate.actor.admin) {
         return json(403, { error: MARK_REFUSED });
+      }
+      if (body.attended === true && (await rollOff())) {
+        return json(409, { error: ROOM_OPTION_OFF.roll_call });
       }
       const mine = await setMyRsvp(deps.db, {
         userId: session.id,
@@ -532,9 +614,17 @@ export async function handleRsvp(
     if (!Array.isArray(raw) || raw.length > RSVP_BATCH_MAX || raw.some((id) => typeof id !== "string")) {
       return json(400, { error: `Send up to ${RSVP_BATCH_MAX} member ids.` });
     }
+    if (raw.length > 0 && (await rollOff())) {
+      return json(409, { error: ROOM_OPTION_OFF.roll_call });
+    }
     await markAttendance(deps.db, {
       gatheringId,
-      userIds: raw as string[],
+      userIds: await idsFromHandles(deps.db, {
+        ...reader,
+        gatheringId,
+        sent: (raw as string[]).slice(0, RSVP_BATCH_MAX),
+        now,
+      }),
       close: body.close === true,
     });
     return json(200, { ok: true });
