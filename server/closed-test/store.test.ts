@@ -108,7 +108,7 @@ test("a single-use code logs who invited whom and cannot be reused", async () =>
     const now = new Date("2026-10-19T12:00:00Z");
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7, attestAdult: true },
       now,
     );
     assert.equal(minted.ok, true);
@@ -126,6 +126,7 @@ test("a single-use code logs who invited whom and cannot be reused", async () =>
         email: "maria@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       createAccount,
@@ -140,6 +141,7 @@ test("a single-use code logs who invited whom and cannot be reused", async () =>
         email: "luis@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       createAccount,
@@ -171,7 +173,7 @@ test("a limited code stops at its max uses", async () => {
     const now = new Date("2026-10-19T12:00:00Z");
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 2, expiresInDays: 7 },
+      { userId: seated.value.userId, maxUses: 2, expiresInDays: 7, attestAdult: true },
       now,
     );
     assert.equal(minted.ok, true);
@@ -184,6 +186,7 @@ test("a limited code stops at its max uses", async () => {
           email: `${name.toLowerCase()}@example.com`,
           password: "correct-horse",
           code: minted.value.code,
+          adult: true,
           headers,
         },
         createAccount,
@@ -199,6 +202,7 @@ test("a limited code stops at its max uses", async () => {
         email: "ruth@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       createAccount,
@@ -220,7 +224,7 @@ test("an expired code is refused and does not create a user", async () => {
     if (!seated.ok) return;
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 1, expiresInDays: 1 },
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 1, attestAdult: true },
       new Date("2026-10-01T00:00:00Z"),
     );
     assert.equal(minted.ok, true);
@@ -233,6 +237,7 @@ test("an expired code is refused and does not create a user", async () => {
         email: "maria@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       async () => {
@@ -259,7 +264,7 @@ test("a failed account create gives the code back", async () => {
     const now = new Date("2026-10-19T12:00:00Z");
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7, attestAdult: true },
       now,
     );
     assert.equal(minted.ok, true);
@@ -271,6 +276,7 @@ test("a failed account create gives the code back", async () => {
         email: "maria@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       async () => {
@@ -293,6 +299,7 @@ test("a failed account create gives the code back", async () => {
         email: "maria@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       createAccount,
@@ -314,7 +321,7 @@ test("a failed member grant rolls back the account and the invite claim", async 
     const now = new Date("2026-10-19T12:00:00Z");
     const minted = await mintInvite(
       db,
-      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7 },
+      { userId: seated.value.userId, maxUses: 1, expiresInDays: 7, attestAdult: true },
       now,
     );
     assert.equal(minted.ok, true);
@@ -326,6 +333,7 @@ test("a failed member grant rolls back the account and the invite claim", async 
         email: "maria@example.com",
         password: "correct-horse",
         code: minted.value.code,
+        adult: true,
         headers,
       },
       async (tx, input) => {
