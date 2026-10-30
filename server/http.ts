@@ -18,6 +18,7 @@ import { handleMedia, type MediaRuntime } from "./media/routes.ts";
 import { readMediaConfig } from "./media/config.ts";
 import { ATTEMPT_LIMIT, consumeLimit, emailRateKey } from "./rate-limit.ts";
 import { isOpenSignupPath } from "./closed-test/rules.ts";
+import { AGE_CONFIRM_PATH, ageConfirmed, confirmAge, enforceAge } from "./closed-test/age-gate.ts";
 import {
   isAdmin,
   listInviteLog,
@@ -272,6 +273,28 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
   };
 }
 
+/** Adds ageConfirmed to a session body that names a user, so the client can show the age step. */
+async function withAgeFlag(deps: AppDeps, response: Response, headers: Headers): Promise<Response> {
+  if (response.status !== 200) return response;
+  const text = await response.text();
+  const copy = () => {
+    const next = new Headers(response.headers);
+    next.delete("content-length");
+    return next;
+  };
+  let body: Record<string, unknown> | null = null;
+  try {
+    const parsed = text ? (JSON.parse(text) as unknown) : null;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+  } catch {
+    body = null;
+  }
+  const session = body?.user ? await deps.readSession(headers) : null;
+  if (!body || !session) return new Response(text, { status: response.status, headers: copy() });
+  body.ageConfirmed = await ageConfirmed(deps.db, session.id);
+  return new Response(JSON.stringify(body), { status: response.status, headers: copy() });
+}
+
 async function route(
   deps: AppDeps,
   media: MediaRuntime,
@@ -326,6 +349,21 @@ async function route(
   const mfaBlocked = await enforceMfa(deps, request, url);
   if (mfaBlocked) return mfaBlocked;
 
+  // Same deny-by-default shape for the 18+ confirmation. A member who has not
+  // confirmed (an account from before the check) gets 403 age_required on every
+  // route except the session read, sign-out, the second factor, and the confirm step.
+  const ageBlocked = await enforceAge(deps.db, request, url, deps.readSession);
+  if (ageBlocked) return ageBlocked;
+
+  if (url.pathname === AGE_CONFIRM_PATH && request.method === "POST") {
+    const session = await deps.readSession(request.headers);
+    if (!session) return json(401, { error: "Sign in first." });
+    const body = await readJson(request);
+    const result = await confirmAge(deps.db, session, body.adult, deps.now());
+    if (!result.ok) return json(result.status, { error: result.error });
+    return json(200, { ok: true, ageConfirmed: true });
+  }
+
   if (url.pathname.startsWith("/api/auth/sign-in") && request.method === "POST") {
     const text = await readBody(request);
     let email = "";
@@ -350,7 +388,8 @@ async function route(
 
   if (url.pathname === "/api/auth/get-session" && request.method === "GET") {
     const forwarded = await deps.forwardAuth(request);
-    return annotateAuthBody(deps, forwarded, "session", request.headers);
+    const annotated = await annotateAuthBody(deps, forwarded, "session", request.headers);
+    return withAgeFlag(deps, annotated, request.headers);
   }
 
   if (url.pathname.startsWith("/api/auth/")) {
@@ -383,6 +422,7 @@ async function route(
         password: stringField(body, "password"),
         code: stringField(body, "inviteCode"),
         headers: request.headers,
+        adult: body.adult,
       },
       deps.createAccount,
       deps.signIn,
@@ -433,6 +473,7 @@ async function route(
         expiresInDays: body.expiresInDays,
         note: body.note,
         roomId: body.roomId,
+        attestAdult: body.attestAdult,
       },
       deps.now(),
     );

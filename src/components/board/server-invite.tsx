@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { INVITE_HASH, landOnInvite, watchInviteHash } from "@/lib/board/invite-hash";
+import { AGE_INVITE_ERROR, AGE_INVITE_LABEL } from "@/lib/board/age";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const COPIED = "Code copied.";
@@ -45,6 +46,9 @@ export function ServerInvite() {
       stop();
     };
   }, [live]);
+  const [attestAdult, setAttestAdult] = useState(false);
+  const [ageError, setAgeError] = useState(false);
+  const ageRef = useRef<HTMLInputElement>(null);
 
   if (server.mode !== "live" || !server.user) return null;
 
@@ -67,13 +71,40 @@ export function ServerInvite() {
           onChange={(event) => setMaxUses(event.target.value)}
         />
       </label>
+      <label className="flex min-h-[44px] items-center gap-3 text-sm text-fg">
+        <input
+          type="checkbox"
+          className="check-gilt"
+          ref={ageRef}
+          checked={attestAdult}
+          aria-invalid={ageError ? true : undefined}
+          aria-describedby={ageError ? "invite-age-error" : undefined}
+          onChange={(event) => {
+            setAttestAdult(event.target.checked);
+            if (event.target.checked) setAgeError(false);
+          }}
+        />
+        {AGE_INVITE_LABEL}
+      </label>
+      {ageError ? (
+        <p id="invite-age-error" role="alert" className="text-sm text-danger">
+          {AGE_INVITE_ERROR}
+        </p>
+      ) : null}
       <button
         type="button"
         className={cn(btnSignal, "self-start")}
         onClick={() => {
           setOutcome(null);
+          if (!attestAdult) {
+            setCode(null);
+            setAgeError(true);
+            ageRef.current?.focus();
+            return;
+          }
+          setAgeError(false);
           const parsed = Number(maxUses);
-          void server.createInvite({ maxUses: parsed }).then((result) => {
+          void server.createInvite({ maxUses: parsed, attestAdult: true }).then((result) => {
             if (!result.ok) {
               setCode(null);
               setOutcome(result.message);
@@ -81,6 +112,15 @@ export function ServerInvite() {
             }
             setCopyNote("");
             setCode(result.code);
+            // One confirmation covers one code.
+            setAttestAdult(false);
+            // On a phone the new code can land under the tab bar. Bring it up and read it out.
+            window.requestAnimationFrame(() => {
+              const node = codeText.current;
+              if (!node) return;
+              node.focus();
+              node.scrollIntoView?.({ block: "nearest" });
+            });
           });
         }}
       >
@@ -88,7 +128,12 @@ export function ServerInvite() {
       </button>
       {code ? (
         <div className="flex flex-wrap items-center gap-3">
-          <p ref={codeText} id="invite-code" className="font-mono text-lg tracking-widest text-fg select-all">
+          <p
+            ref={codeText}
+            id="invite-code"
+            tabIndex={-1}
+            className="minted-code scroll-mb-[calc(var(--tabbar-h,64px)+env(safe-area-inset-bottom)+16px)] font-mono text-lg tracking-widest text-fg select-all"
+          >
             {code}
           </p>
           <button

@@ -16,6 +16,9 @@ export type ServerSession = {
   /** challenge hides the hall until the second step. enroll is a grace period. */
   mfa: MfaPhase;
   mfaEnrolled: boolean;
+  /** False while a signed-in member still owes the one-time 18+ confirmation. */
+  ageConfirmed: boolean;
+  confirmAge: (adult: boolean) => Promise<{ ok: boolean; message?: string }>;
   signUp: typeof signUpWithInvite;
   signIn: typeof signInWithPassword;
   finishMfa: (code: string) => Promise<{ ok: boolean; message?: string }>;
@@ -38,6 +41,8 @@ export const EMPTY_SERVER_SESSION: ServerSession = {
   user: null,
   mfa: "ok",
   mfaEnrolled: false,
+  ageConfirmed: true,
+  confirmAge: async () => ({ ok: false, message: "Sign in first." }),
   signUp: signUpWithInvite,
   signIn: signInWithPassword,
   finishMfa: async () => ({ ok: false, message: "Sign in first." }),

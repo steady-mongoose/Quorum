@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { AccountRemoval } from "@/components/board/account-removal";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -26,6 +27,7 @@ export function ProfileView() {
   const [household, setHousehold] = useState(profile.household);
   const [parish, setParish] = useState(profile.parish);
   const [trade, setTrade] = useState(profile.trade);
+  const fieldsId = useId();
   const [saved, setSaved] = useState(false);
   const skipSave = useRef(true);
 
@@ -90,39 +92,50 @@ export function ProfileView() {
               Name, as people know you
               <input
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Josh"
                 autoComplete="name"
                 value={knownAs}
                 onChange={(event) => setKnownAs(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Household
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${fieldsId}-household`}>Household</label>
               <input
+                id={`${fieldsId}-household`}
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="the McMullins"
+                aria-describedby={`${fieldsId}-household-hint`}
                 value={household}
                 onChange={(event) => setHousehold(event.target.value)}
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Church
+              <p id={`${fieldsId}-household-hint`} className="text-xs text-muted">
+                {FIELD_HINT.household}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${fieldsId}-church`}>Church</label>
               <input
+                id={`${fieldsId}-church`}
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Epiphany of Our Lord"
+                aria-describedby={`${fieldsId}-church-hint`}
                 value={parish}
                 onChange={(event) => setParish(event.target.value)}
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              Trade
+              <p id={`${fieldsId}-church-hint`} className="text-xs text-muted">
+                {FIELD_HINT.church}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${fieldsId}-trade`}>Trade</label>
               <input
+                id={`${fieldsId}-trade`}
                 className={cn(fieldClass, "min-h-[44px]")}
-                placeholder="Electrician"
+                aria-describedby={`${fieldsId}-trade-hint`}
                 value={trade}
                 onChange={(event) => setTrade(event.target.value)}
               />
-            </label>
+              <p id={`${fieldsId}-trade-hint`} className="text-xs text-muted">
+                {FIELD_HINT.trade}
+              </p>
+            </div>
             {saved ? (
               <p role="status" className="text-sm text-muted sm:col-span-3">
                 Saved
@@ -189,7 +202,7 @@ export function ProfileView() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl text-fg">{mine ? "People you've met here" : `People ${name} has met here`}</h2>
-        <p className="text-sm text-muted">{theirs.size === 0 ? "Nobody yet. Go to a meeting." : [...theirs].join(", ")}</p>
+        <p className="text-sm text-muted">{theirs.size === 0 ? "No one yet. People you meet at a gathering will appear here." : [...theirs].join(", ")}</p>
       </section>
 
       {mine && server.mode === "live" ? <MfaSettings /> : null}
