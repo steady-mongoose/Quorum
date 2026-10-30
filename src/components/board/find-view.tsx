@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { Copy, Check as CheckIcon, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
@@ -13,6 +13,7 @@ import {
 } from "@/components/quorum/bits";
 import { GatheringShareControl } from "@/components/board/gathering-share";
 import { RsvpControl } from "@/components/board/rsvp-control";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import {
   CARD_LABELS,
@@ -105,7 +106,9 @@ export function FindView() {
         <section className="grid gap-3 xl:grid-cols-2">
           {groups.listed.length === 0 ? (
             <p className="text-sm text-muted" role="status">
-              No card has been visited twice yet.
+              {cards.length === 0
+                ? "Nothing is listed yet. Add the first card under List a card."
+                : "No card has been visited twice yet."}
             </p>
           ) : null}
           {groups.listed.map((card) => (
@@ -346,6 +349,8 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const [came, setCame] = useState<string[]>([]);
   const [pages, setPages] = useState("");
   const [refused, setRefused] = useState<string[]>([]);
+  const pagesId = useId();
+  const pagesHintId = useId();
   const room = roomById(card.room);
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, rest.clear);
@@ -453,15 +458,19 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 />
               </label>
               {card.book ? (
-                <label className="flex flex-col gap-2 text-sm text-muted">
-                  What to have read by then
+                <div className="flex flex-col gap-2 text-sm text-muted">
+                  <label htmlFor={pagesId}>What to have read by then</label>
                   <input
+                    id={pagesId}
                     className={cn(fieldClass, "min-h-[44px]")}
-                    placeholder={card.book}
+                    aria-describedby={pagesHintId}
                     value={pages}
                     onChange={(event) => setPages(event.target.value)}
                   />
-                </label>
+                  <p id={pagesHintId} className="text-[13px] text-muted">
+                    {FIELD_HINT.pages}
+                  </p>
+                </div>
               ) : null}
               {refused.length > 0 ? (
                 <ul className="flex flex-col gap-1 text-sm text-danger" role="alert">
@@ -557,6 +566,7 @@ function AddCard({ me }: { me: string }) {
   const [days, setDays] = useState<string[]>([]);
   const reading = room === "shelf" && kind === "meeting";
   const kinds = roomById(room).cardKinds;
+  const formId = useId();
   const labels = CARD_LABELS[kind === "trade" ? "trade" : kind === "need" ? "need" : "meeting"];
   const set = (patch: Partial<typeof fields>) => setFields({ ...fields, ...patch });
 
@@ -589,17 +599,33 @@ function AddCard({ me }: { me: string }) {
     setDays([]);
   };
 
-  const text = (key: "name" | "place" | "time" | "host", placeholder?: string) => (
-    <label className="flex flex-col gap-2 text-sm text-muted">
-      {labels[key]}
-      <input
-        className={fieldClass}
-        placeholder={placeholder}
-        value={fields[key]}
-        onChange={(event) => set({ [key]: event.target.value })}
-      />
-    </label>
-  );
+  const text = (
+    key: "name" | "place" | "time" | "host",
+    options: { placeholder?: string; hint?: string } = {},
+  ) => {
+    const id = `${formId}-${key}`;
+    const hintId = `${id}-hint`;
+    return (
+      <div className="flex flex-col gap-2 text-sm text-muted">
+        <label htmlFor={id}>{labels[key]}</label>
+        <input
+          id={id}
+          className={fieldClass}
+          placeholder={options.placeholder}
+          aria-describedby={options.hint ? hintId : undefined}
+          value={fields[key]}
+          onChange={(event) => set({ [key]: event.target.value })}
+        />
+        {options.hint ? (
+          <p id={hintId} className="text-[13px] text-muted">
+            {options.hint}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+  const timeHint =
+    kind === "trade" ? FIELD_HINT.tradeWork : kind === "need" ? FIELD_HINT.needWhat : FIELD_HINT.meetingTime;
 
   const kindLabel = (item: CardKind) =>
     item === "meeting"
@@ -653,8 +679,8 @@ function AddCard({ me }: { me: string }) {
         </label>
         {text("name")}
         {text("place")}
-        {text("time")}
-        {text("host", me)}
+        {text("time", { hint: timeHint })}
+        {text("host", { placeholder: me })}
         {reading ? (
           <>
             <label className="flex flex-col gap-2 text-sm text-muted">
@@ -665,14 +691,19 @@ function AddCard({ me }: { me: string }) {
                 onChange={(event) => set({ book: event.target.value })}
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-muted">
-              What to have read for the first table
+            <div className="flex flex-col gap-2 text-sm text-muted">
+              <label htmlFor={`${formId}-pages`}>What to have read for the first table</label>
               <input
+                id={`${formId}-pages`}
                 className={fieldClass}
+                aria-describedby={`${formId}-pages-hint`}
                 value={fields.pages}
                 onChange={(event) => set({ pages: event.target.value })}
               />
-            </label>
+              <p id={`${formId}-pages-hint`} className="text-[13px] text-muted">
+                {FIELD_HINT.pages}
+              </p>
+            </div>
           </>
         ) : null}
         {kind === "need" ? (

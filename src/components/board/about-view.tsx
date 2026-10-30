@@ -18,6 +18,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
+import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import { DM_ABOUT_NOTICE } from "@/lib/e2ee/copy";
 import type { HomeAccessRow } from "@/lib/board/home";
@@ -528,13 +529,16 @@ function RemovalAppeal({
         id={fieldId}
         ref={input}
         className={`${fieldClass} min-h-[44px]`}
-        placeholder="For example: I was quoting the rule, not breaking it."
+        aria-describedby={`${fieldId}-hint`}
         value={reason}
         onChange={(event) => {
           setReason(event.target.value);
           setError("");
         }}
       />
+      <p id={`${fieldId}-hint`} className="text-xs text-muted">
+        {FIELD_HINT.appeal}
+      </p>
       {error ? (
         <p className="text-danger" role="alert">
           {error}
@@ -1045,6 +1049,7 @@ function AdminTools({
   correctZip: (input: ZipCorrectionInput) => Promise<{ ok: boolean; error?: string }>;
   accessLog: HomeAccessRow[];
 }) {
+  const adminId = useId();
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
@@ -1070,14 +1075,19 @@ function AdminTools({
         Home. A ZIP correction is an append-only log. An empty town clears that ZIP.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          Room, in lowercase letters, numbers, and hyphens
+        <div className="flex flex-col gap-2 text-sm text-muted">
+          <label htmlFor={`${adminId}-room`}>Room address</label>
           <input
+            id={`${adminId}-room`}
             className={fieldClass}
+            aria-describedby={`${adminId}-room-hint`}
             value={id}
             onChange={(event) => setId(event.target.value)}
           />
-        </label>
+          <p id={`${adminId}-room-hint`} className="text-xs text-muted">
+            {FIELD_HINT.roomAddress}
+          </p>
+        </div>
         <label className="flex flex-col gap-2 text-sm text-muted">
           Name
           <input
@@ -1198,14 +1208,19 @@ function AdminTools({
             onChange={(event) => setTown(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          State, as two letters
+        <div className="flex flex-col gap-2 text-sm text-muted">
+          <label htmlFor={`${adminId}-state`}>State</label>
           <input
+            id={`${adminId}-state`}
             className={fieldClass}
+            aria-describedby={`${adminId}-state-hint`}
             value={stateCode}
             onChange={(event) => setStateCode(event.target.value)}
           />
-        </label>
+          <p id={`${adminId}-state-hint`} className="text-xs text-muted">
+            {FIELD_HINT.state}
+          </p>
+        </div>
         <label className="flex items-center gap-2 self-end text-sm text-muted">
           <input
             type="checkbox"
