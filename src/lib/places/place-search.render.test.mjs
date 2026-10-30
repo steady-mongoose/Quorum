@@ -368,7 +368,7 @@ test("only the hint is tied to the field; it sits below the input in text-xs, an
     const notice = [...view.host.querySelectorAll("p")].find((p) => /Photon/.test(p.textContent ?? ""));
     assert.equal(
       notice?.textContent?.replace(/\s+/g, " ").trim(),
-      "Searches go through our server to Photon (photon.komoot.io), a free OpenStreetMap search. We keep your words briefly in memory and never keep your location. Places you are shown are kept on our server for up to an hour, so you can save one.",
+      "Searches go through our server to Photon (photon.komoot.io), a free OpenStreetMap search. We keep your words briefly in memory and never keep your location. Search results are kept on our server for up to an hour so you can pick one and save it.",
     );
     assert.ok(!(view.input.getAttribute("aria-describedby") ?? "").split(" ").includes(notice?.id ?? "x"));
     const credit = /** @type {HTMLAnchorElement | null} */ (
@@ -376,7 +376,9 @@ test("only the hint is tied to the field; it sits below the input in text-xs, an
     );
     assert.ok(credit, "the linked OSM credit stays after the notice");
     assert.ok(notice && notice.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING);
-    assert.match(view.input.className, /focus-target/);
+    // Design low: the field takes the same ring as its neighbours; links keep the house ring.
+    assert.doesNotMatch(view.input.className, /focus-target/);
+    assert.match(credit.className, /focus-target/);
   } finally {
     view.unmount();
   }

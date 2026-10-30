@@ -296,7 +296,9 @@ export function PlaceSearch({
           aria-describedby={describedBy}
           autoComplete="off"
           spellCheck={false}
-          className={cn(fieldClass, "min-h-[44px] w-full", RING)}
+          // No house ring on the field itself (Design low): it takes the same
+          // gold ring as Household and Trade. Links and the button keep RING.
+          className={cn(fieldClass, "min-h-[44px] w-full")}
           value={text}
           onFocus={() => {
             // Never ask for location here. Only the button below asks.
@@ -389,8 +391,8 @@ export function PlaceSearch({
 
       <p id={providerId} className="text-xs text-muted">
         Searches go through our server to Photon ({PLACE_PROVIDER_HOST}), a free OpenStreetMap
-        search. We keep your words briefly in memory and never keep your location. Places
-        you are shown are kept on our server for up to an hour, so you can save one.
+        search. We keep your words briefly in memory and never keep your location. Search
+        results are kept on our server for up to an hour so you can pick one and save it.
       </p>
       <p className="text-xs text-muted">
         Place data{" "}

@@ -476,3 +476,22 @@ test("a busy answer does not count against the member or IP limit (QA S4)", asyn
   assert.equal(capped.ok, false);
   if (!capped.ok) assert.match(capped.error, /Too many searches/);
 });
+
+test("the 'kept for up to an hour' copy matches pickTtlMs (QA S4)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../../src/components/board/place-search.tsx", import.meta.url),
+    "utf8",
+  );
+  const copy = source.replace(/\s+/g, " ");
+  const match = /Search results are kept on our server for up to (an|a|\d+) (hour|hours|minute|minutes)\b/.exec(copy);
+  assert.ok(match, "the field states how long search results are kept");
+  const count = match[1] === "an" || match[1] === "a" ? 1 : Number(match[1]);
+  const unit = match[2].startsWith("hour") ? 60 * 60 * 1000 : 60 * 1000;
+  assert.equal(
+    count * unit,
+    readPlaceLookupConfig({}).pickTtlMs,
+    "change the copy in place-search.tsx and pickTtlMs together",
+  );
+  assert.equal(readPlaceLookupConfig({}).pickTtlMs, 60 * 60 * 1000);
+});

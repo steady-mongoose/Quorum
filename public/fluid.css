@@ -8,8 +8,6 @@
   --content-max:72rem;
   --side-art:clamp(16rem,22vw,22rem);
   --flag-h:clamp(36px,4.5vw,56px);
-  /* Phone tabbar: 56px buttons plus its 1px top border. */
-  --tabbar-h:57px;
 }
 html{-webkit-text-size-adjust:100%}
 /* Sticky and fixed layers on phones (Josh, 29 Oct: the Rooms chips stuck 60px under the header and the page
