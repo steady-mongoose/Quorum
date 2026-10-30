@@ -66,7 +66,11 @@ test("viewport-fit=cover, and the tab bar respects the safe-area insets", () => 
 });
 
 test("the 20-minute line sits on top of the tab bar, sharing #119's --tabbar-h:57px", () => {
-  assert.match(fluid, /@media \(max-width:767px\)\{:root\{--tabbar-h:57px\}\}/);
+  // #119's declaration, inside the phone tab bar block, is the one copy (QA M1 on #121).
+  const phone = fluid.indexOf("/* Phone: five slots in one row.");
+  assert.ok(phone >= 0);
+  assert.match(fluid.slice(phone, phone + 300), /@media \(max-width:767px\)\{[^}]*:root\{--tabbar-h:57px\}/);
+  assert.doesNotMatch(fluid, /@media \(max-width:767px\)\{:root\{--tabbar-h:57px\}\}/);
   assert.match(line, /bottom-\[calc\(var\(--tabbar-h,57px\)\+env\(safe-area-inset-bottom\)\)\]/);
   assert.doesNotMatch(line, /bottom-\[calc\(56px/);
 });

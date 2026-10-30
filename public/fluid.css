@@ -12,11 +12,10 @@
 html{-webkit-text-size-adjust:100%}
 /* Sticky and fixed layers on phones (Josh, 29 Oct: the Rooms chips stuck 60px under the header and the page
    scrolled through the gap). --mast-h is the header's measured height (useMastHeight, app.tsx); the values here
-   are only the first-paint guess. --tabbar-h is the phone tab bar without the home-indicator inset (unset on wider screens, where each
-   use keeps its own fallback). */
+   are only the first-paint guess. --tabbar-h (the phone tab bar without the home-indicator inset) is declared once,
+   in the phone tab bar block below (#119); it is unset on wider screens, where each use keeps its own fallback. */
 :root{--mast-h:70px}
 @media (min-width:768px){:root{--mast-h:84px}}
-@media (max-width:767px){:root{--tabbar-h:57px}}
 /* The overscroll bounce shows the page colour, not white, and anchors and focus land below the header. */
 html{background:var(--bg);scroll-padding-top:calc(var(--mast-h) + .5rem)}
 /* Focus not obscured (WCAG 2.4.11): on phones a focused control clears the tab bar, and on Rooms below 1024px it
