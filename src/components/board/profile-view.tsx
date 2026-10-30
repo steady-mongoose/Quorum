@@ -110,10 +110,26 @@ export function ProfileView() {
             return;
           }
           syncedChurch.current = key;
-          if (parishPlace && !answer.church?.place) {
+          if (answer.note === "not-confirmed") {
+            // The server could not match the pick to a recent search, so it
+            // kept the church as typed. Show it that way here too.
+            syncedChurch.current = churchKey(parish.trim(), null);
+            setParishPlace(null);
+            setChurchNote(
+              "Saved the church name as typed. To put it on the map, search and choose it again.",
+            );
+          } else if (parishPlace && !answer.church?.place) {
             setChurchNote(
               "Saved the church name. The map pick stays on this device until saving places is turned on.",
             );
+          } else if (answer.church?.place) {
+            // The saved name and address are the server's, from OpenStreetMap.
+            const saved = answer.church;
+            syncedChurch.current = churchKey(saved.name, saved.place);
+            if (saved.name !== parish) setParish(saved.name);
+            if (saved.place && saved.place.address !== parishPlace?.address) {
+              setParishPlace(saved.place);
+            }
           }
         })
         .catch(() => setChurchNote("That did not save."));

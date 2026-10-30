@@ -449,7 +449,7 @@ async function route(
     return json(201, minted.value);
   }
 
-  const places = await handlePlaces(deps, request, url);
+  const places = await handlePlaces(deps, request, url, clientIp(request));
   if (places) return places;
 
   const profile = await handleProfile(deps, request, url);

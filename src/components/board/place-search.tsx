@@ -373,27 +373,24 @@ export function PlaceSearch({
               </li>
             ))}
           </ul>
+          {/* A visible credit while the list is open. It is plain text, so
+              the popup holds only the listbox; the link is just below. */}
           <p className="border-t border-line px-3 py-2 text-xs text-muted">
-            Place data{" "}
-            {/* tabIndex -1 keeps Tab on the field while the list is open. The
-                same credit link under a picked place is reachable by keyboard. */}
-            <a
-              className={cn("underline", RING)}
-              href={OSM_COPYRIGHT_URL}
-              target="_blank"
-              rel="noreferrer"
-              tabIndex={-1}
-              onMouseDown={(event) => event.preventDefault()}
-            >
-              {OSM_ATTRIBUTION}
-            </a>
+            Place data {OSM_ATTRIBUTION}
           </p>
         </div>
       </div>
 
       <p id={providerId} className="text-xs text-muted">
         Searches go from our server to Photon ({PLACE_PROVIDER_HOST}), a free search of
-        OpenStreetMap. So do a town or ZIP and a rough location, if you give them.
+        OpenStreetMap. So do a town or ZIP and a rough location, if you give them. Our server
+        holds your search words for up to 10 minutes and the places shown for up to an hour,
+        in memory only, so it can save the one you choose. It never keeps your location.
+        Place data{" "}
+        {/* Outside the listbox and the popup, so Tab reaches it from the field. */}
+        <a className={cn("underline", RING)} href={OSM_COPYRIGHT_URL} target="_blank" rel="noreferrer">
+          {OSM_ATTRIBUTION}
+        </a>
       </p>
 
       <p role="status" aria-live="polite" className="sr-only">
@@ -445,17 +442,7 @@ export function PlaceSearch({
           <span className="text-[var(--gold)]">On the map</span>
           {value.address ? <> · {value.address}</> : null}
           {pickedNote ? <span className="block">{pickedNote}</span> : null}
-          <span className="block text-xs">
-            Place data{" "}
-            <a
-              className={cn("underline", RING)}
-              href={OSM_COPYRIGHT_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {OSM_ATTRIBUTION}
-            </a>
-          </span>
+          <span className="block text-xs">Place data {OSM_ATTRIBUTION}</span>
         </p>
       ) : null}
     </div>

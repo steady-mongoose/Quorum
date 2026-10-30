@@ -8,6 +8,7 @@ import { openTestDb } from "../closed-test/test-db.ts";
 import { createApp, type AppDeps } from "../http.ts";
 import type { Db } from "../db.ts";
 import { trustAuthenticator } from "../mfa/test-trust.ts";
+import type { PickedPlace, PlaceLookup } from "../places/lookup.ts";
 import { parseChurchPlace } from "./store.ts";
 
 const MIGRATION = "0048_church_place.sql";
@@ -46,7 +47,23 @@ function asDb(pg: PGlite): Db {
   return adapter(pg);
 }
 
-function app(db: Db) {
+/** Places "returned by" each member's own search, as the server saw them. */
+const SEEN: Record<string, PickedPlace[]> = {
+  ann: [
+    { ref: "node/358757062", name: "Epiphany of Our Lord", address: "Jackson Road, Florida 33592" },
+    { ref: "node/1", name: "Epiphany of Our Lord", address: "1 Main Street" },
+  ],
+};
+
+function fakePlaces(seen: Record<string, PickedPlace[]> = SEEN): PlaceLookup {
+  return {
+    search: async () => ({ ok: true, places: [] }),
+    picked: (memberId, ref) => seen[memberId]?.find((place) => place.ref === ref) ?? null,
+    inspect: () => ({ cacheKeys: [], limiterKeys: [], pickKeys: [] }),
+  };
+}
+
+function app(db: Db, places: PlaceLookup | null = fakePlaces()) {
   const sessions = new Map<string, Promise<string>>();
   return createApp({
     db,
@@ -65,6 +82,7 @@ function app(db: Db) {
       return { id, name: "Ann", email: "ann@example.com", sessionId: await session };
     },
     forwardAuth: async () => new Response(null, { status: 500 }),
+    ...(places ? { places } : {}),
   } satisfies AppDeps);
 }
 
@@ -108,6 +126,8 @@ test("0048 is the last pending migration and applies twice", async () => {
   );
   const sql = await readFile(new URL(MIGRATION, dir), "utf8");
   assert.match(sql, /must approve this file before it is applied/);
+  assert.match(sql, /Rollback/);
+  assert.match(sql, /drop column if exists church_osm_ref/);
   assert.equal(isSkipEmbedded(sql), false);
   const pg = await freshPg();
   try {
@@ -181,6 +201,81 @@ test("a picked church saves its reference and reads back on the map; a typed one
   }
 });
 
+test("the server takes the church name and address from OpenStreetMap, not from the browser", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    await member(db, "eve");
+    const handler = app(db);
+    // A real reference with a made-up name and address: both are replaced.
+    const spoof = await patch(handler, "ann", {
+      church: "Somebody Else's Church",
+      churchPlace: { ref: "node/358757062", address: "1 Fake Street, Anywhere" },
+    });
+    const spoofText = await spoof.text();
+    assert.equal(spoof.status, 200, spoofText);
+    const spoofBody = JSON.parse(spoofText) as {
+      profile: { church: string; churchPlace?: { ref: string; address?: string } };
+      churchPlaceNote?: string;
+    };
+    assert.equal(spoofBody.profile.church, "Epiphany of Our Lord");
+    assert.deepEqual(spoofBody.profile.churchPlace, {
+      ref: "node/358757062",
+      address: "Jackson Road, Florida 33592",
+    });
+    assert.equal(spoofBody.churchPlaceNote, undefined);
+    const stored = await db.query<{ church: string; church_address: string }>(
+      `select church, church_address from members where user_id = 'ann'`,
+    );
+    assert.deepEqual(stored[0], {
+      church: "Epiphany of Our Lord",
+      church_address: "Jackson Road, Florida 33592",
+    });
+
+    // Eve never searched, so a reference she sends is not confirmed. The
+    // church saves as typed, with no reference and no address.
+    const unseen = await patch(handler, "eve", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+    });
+    const unseenText = await unseen.text();
+    assert.equal(unseen.status, 200, unseenText);
+    const unseenBody = JSON.parse(unseenText) as {
+      profile: { church: string; churchPlace?: unknown };
+      churchPlaceNote?: string;
+    };
+    assert.equal(unseenBody.profile.church, "Epiphany of Our Lord");
+    assert.equal(unseenBody.profile.churchPlace, undefined);
+    assert.equal(unseenBody.churchPlaceNote, "not-confirmed");
+    const eve = await db.query<{ church_osm_ref: string | null; church_address: string }>(
+      `select church_osm_ref, church_address from members where user_id = 'eve'`,
+    );
+    assert.deepEqual(eve[0], { church_osm_ref: null, church_address: "" });
+  } finally {
+    await close();
+  }
+});
+
+test("with place search off, a sent reference is not kept", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    const off = await patch(app(db, null), "ann", {
+      church: "Epiphany of Our Lord",
+      churchPlace: { ref: "node/358757062", address: "Jackson Road, Florida 33592" },
+    });
+    const body = JSON.parse(await off.text()) as {
+      profile: { churchPlace?: unknown };
+      churchPlaceNote?: string;
+    };
+    assert.equal(off.status, 200);
+    assert.equal(body.profile.churchPlace, undefined);
+    assert.equal(body.churchPlaceNote, "not-confirmed");
+  } finally {
+    await close();
+  }
+});
+
 test("before 0048 is applied, profiles still read and typed churches still save", async () => {
   const pg = await freshPg([MIGRATION]);
   try {
@@ -199,9 +294,11 @@ test("before 0048 is applied, profiles still read and typed churches still save"
     assert.equal(picked.status, 200, pickedText);
     const pickedBody = JSON.parse(pickedText) as {
       profile: { church: string; churchPlace?: unknown };
+      churchPlaceNote?: string;
     };
     assert.equal(pickedBody.profile.church, "Epiphany of Our Lord");
     assert.equal(pickedBody.profile.churchPlace, undefined);
+    assert.equal(pickedBody.churchPlaceNote, "not-ready");
     const read = await handler(
       new Request("http://127.0.0.1:8787/api/profile", { headers: { "x-user-id": "ann" } }),
     );
@@ -263,7 +360,11 @@ test("others see the church address only where they may see Location", async () 
 
 test("churchPlace parsing", () => {
   assert.deepEqual(parseChurchPlace(null), { ok: true, value: null });
-  assert.equal(parseChurchPlace({ ref: "relation/7", address: "  a  b " }).ok, true);
+  // Any address sent is dropped; the server fills it in from its own search.
+  assert.deepEqual(parseChurchPlace({ ref: "relation/7", address: "  a  b " }), {
+    ok: true,
+    value: { ref: "relation/7" },
+  });
   assert.equal(parseChurchPlace({ ref: "node/01" }).ok, false);
   assert.equal(parseChurchPlace({ ref: "shop/1" }).ok, false);
   assert.equal(parseChurchPlace("node/1").ok, false);

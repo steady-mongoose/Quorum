@@ -135,6 +135,8 @@ export type AccountChurch = {
 
 type ProfileAnswer = {
   profile?: { church?: string; churchPlace?: { ref?: string; address?: string } };
+  /** Why a sent pick was not kept: not confirmed by our search, or 0048 not applied. */
+  churchPlaceNote?: "not-confirmed" | "not-ready";
   error?: string;
 };
 
@@ -157,19 +159,27 @@ export async function loadAccountChurch(): Promise<AccountChurch | null> {
 
 /**
  * Saves the church on the account with PATCH /api/profile. A typed church
- * sends churchPlace null, which clears a picked place on the server.
+ * sends churchPlace null, which clears a picked place on the server. A pick
+ * sends only its reference: the server takes the name and address from its
+ * own search results, and answers with what it saved.
  */
 export async function saveAccountChurch(
   name: string,
   place: { ref: string; address: string } | null,
-): Promise<{ ok: true; church: AccountChurch | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; church: AccountChurch | null; note?: "not-confirmed" | "not-ready" }
+  | { ok: false; error: string }
+> {
   const response = await apiFetch("/api/profile", {
     method: "PATCH",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ church: name, churchPlace: name && place ? place : null }),
+    body: JSON.stringify({ church: name, churchPlace: name && place ? { ref: place.ref } : null }),
   });
   const json = (await response.json().catch(() => null)) as ProfileAnswer | null;
   if (!response.ok) return { ok: false, error: json?.error || "That did not save." };
-  return { ok: true, church: churchOf(json) };
+  const note = json?.churchPlaceNote;
+  return note === "not-confirmed" || note === "not-ready"
+    ? { ok: true, church: churchOf(json), note }
+    : { ok: true, church: churchOf(json) };
 }

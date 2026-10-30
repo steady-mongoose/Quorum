@@ -7,6 +7,15 @@
  * It never gets a member id, a name, an email, a cookie, or an exact point.
  * Nothing here writes to the database or to the log.
  *
+ * What this process keeps in memory, and only in memory (gone on restart):
+ * - Answers to searches made without a location, for 10 minutes, under a
+ *   hash of the request. A search sorted by a location or by a town or ZIP
+ *   is never cached, so no location is held after the answer is sent.
+ * - For each member, under a hashed key, the places their own searches
+ *   returned in the last hour (reference, name, address). Saving a church
+ *   takes the name and address from here, never from the browser.
+ * - Search times per hashed member key and per hashed IP, for rate limits.
+ *
  * The default provider is Photon (photon.komoot.io), which supports search
  * as you type under fair use. The public Nominatim service forbids
  * autocomplete, so it is not a valid PLACE_LOOKUP_URL for this module.
@@ -37,9 +46,17 @@ export type PlaceLookupConfig = {
   cacheMax: number;
   /** Per member. Kept in memory under a hashed key, never written down. */
   memberLimit: { windowMs: number; max: number };
+  /** Per client IP, so many accounts on one address share a ceiling. Hashed key. */
+  ipLimit: { windowMs: number; max: number };
   /** Gap between two provider calls from this process. */
   minIntervalMs: number;
+  /** Most provider calls that may wait their turn at once. More get a 429. */
+  queueMax: number;
+  /** Longest a call may wait for its turn. A longer wait gets a 429 at once. */
+  queueWaitMs: number;
   timeoutMs: number;
+  /** How long the places a member's search returned can be saved as their church. */
+  pickTtlMs: number;
 };
 
 export const DEFAULT_PLACE_LOOKUP_URL = "https://photon.komoot.io";
@@ -115,14 +132,22 @@ export function readPlaceLookupConfig(env: Record<string, string | undefined>): 
     baseUrl: safeProviderUrl(env.PLACE_LOOKUP_URL),
     userAgent: PLACE_USER_AGENT,
     country: /^[A-Z]{2}$/.test(country) ? country : country === "" ? "" : "US",
-    cacheTtlMs: 24 * 60 * 60 * 1000,
-    cacheMax: 1000,
+    cacheTtlMs: 10 * 60 * 1000,
+    cacheMax: 500,
     memberLimit: {
       windowMs: 60_000,
       max: clampInt(env.PLACE_LOOKUP_PER_MINUTE, 30, 1, 120),
     },
+    // A parish hall on one connection can have many members, so this is wider.
+    ipLimit: {
+      windowMs: 60_000,
+      max: clampInt(env.PLACE_LOOKUP_PER_IP_MINUTE, 90, 1, 600),
+    },
     minIntervalMs: 250,
+    queueMax: 12,
+    queueWaitMs: 3000,
     timeoutMs: 6000,
+    pickTtlMs: 60 * 60 * 1000,
   };
 }
 
@@ -259,15 +284,34 @@ export function parseSearchBody(
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** A place a member's own search returned, as the provider sent it. */
+export type PickedPlace = { ref: string; name: string; address: string };
+
 export type PlaceLookup = {
-  search: (memberId: string, input: SearchInput) => Promise<SearchResult>;
-  /** For tests: what the cache and limiter hold. */
-  inspect: () => { cacheKeys: string[]; limiterKeys: string[] };
+  /** ip is the rate-limit form of the client IP. Without it only the member limit applies. */
+  search: (memberId: string, input: SearchInput, ip?: string) => Promise<SearchResult>;
+  /**
+   * The place with this reference, if this member's own search returned it
+   * within pickTtlMs. Null otherwise. The saved church name and address come
+   * from here, so a member cannot attach an address of their own to a real
+   * OpenStreetMap place.
+   */
+  picked: (memberId: string, ref: string) => PickedPlace | null;
+  /** For tests: what the cache and limiters hold. */
+  inspect: () => { cacheKeys: string[]; limiterKeys: string[]; pickKeys: string[] };
 };
 
-function memberKey(memberId: string): string {
-  return createHash("sha256").update(`place-lookup:${memberId}`).digest("hex").slice(0, 32);
+function hashKey(scope: string, value: string): string {
+  return createHash("sha256").update(`place-lookup:${scope}:${value}`).digest("hex").slice(0, 32);
 }
+
+function memberKey(memberId: string): string {
+  return hashKey("member", memberId);
+}
+
+class Busy extends Error {}
+
+const BUSY_ERROR = "Place search is busy. Try again in a moment, or choose Not listed to type it in.";
 
 export function createPlaceLookup(options: {
   config: PlaceLookupConfig;
@@ -282,8 +326,10 @@ export function createPlaceLookup(options: {
   const cache = new Map<string, { at: number; value: unknown }>();
   const inflight = new Map<string, Promise<unknown>>();
   const hits = new Map<string, number[]>();
-  let lastCall = Number.NEGATIVE_INFINITY;
-  let queue: Promise<void> = Promise.resolve();
+  const picks = new Map<string, Map<string, PickedPlace & { at: number }>>();
+  // The time the last reserved provider call may start.
+  let lastSlot = Number.NEGATIVE_INFINITY;
+  let waiting = 0;
 
   function remember(key: string, value: unknown) {
     cache.delete(key);
@@ -307,46 +353,88 @@ export function createPlaceLookup(options: {
     return entry.value;
   }
 
-  function limited(memberId: string): number {
-    const key = memberKey(memberId);
+  /** Seconds to wait, or 0 when the search may go ahead. Counts only allowed searches. */
+  function limited(keys: { key: string; limit: { windowMs: number; max: number } }[]): number {
     const at = now();
-    const recent = (hits.get(key) ?? []).filter((t) => at - t < config.memberLimit.windowMs);
-    if (recent.length >= config.memberLimit.max) {
+    let retry = 0;
+    const lists = keys.map(({ key, limit }) => {
+      const recent = (hits.get(key) ?? []).filter((t) => at - t < limit.windowMs);
       hits.set(key, recent);
-      const first = recent[0] ?? at;
-      return Math.max(1, Math.ceil((config.memberLimit.windowMs - (at - first)) / 1000));
-    }
-    recent.push(at);
-    hits.set(key, recent);
+      if (recent.length >= limit.max) {
+        const first = recent[0] ?? at;
+        retry = Math.max(retry, Math.max(1, Math.ceil((limit.windowMs - (at - first)) / 1000)));
+      }
+      return recent;
+    });
+    if (retry) return retry;
+    for (const list of lists) list.push(at);
     if (hits.size > 10_000) {
+      const longest = Math.max(config.memberLimit.windowMs, config.ipLimit.windowMs);
       for (const [k, list] of hits) {
-        if (!list.some((t) => at - t < config.memberLimit.windowMs)) hits.delete(k);
+        if (!list.some((t) => at - t < longest)) hits.delete(k);
       }
     }
     return 0;
   }
 
-  async function throttled<T>(work: () => Promise<T>): Promise<T> {
-    const turn = queue.then(async () => {
-      const wait = lastCall + config.minIntervalMs - now();
-      if (wait > 0) await sleep(wait);
-      lastCall = now();
-    });
-    queue = turn.catch(() => undefined);
-    await turn;
-    return work();
+  function keepPicks(memberId: string, places: PlaceSuggestion[]) {
+    if (places.length === 0) return;
+    const key = memberKey(memberId);
+    const at = now();
+    const mine = picks.get(key) ?? new Map<string, PickedPlace & { at: number }>();
+    picks.delete(key);
+    for (const place of places) {
+      mine.delete(place.ref);
+      mine.set(place.ref, { ref: place.ref, name: place.name, address: place.address, at });
+    }
+    for (const [ref, entry] of mine) {
+      if (mine.size <= 64 && at - entry.at <= config.pickTtlMs) break;
+      mine.delete(ref);
+    }
+    picks.set(key, mine);
+    while (picks.size > 5000) {
+      const oldest = picks.keys().next().value;
+      if (oldest === undefined) break;
+      picks.delete(oldest);
+    }
   }
 
-  async function provider(params: URLSearchParams): Promise<unknown> {
+  /**
+   * Waits for this call's turn so calls from this process are minIntervalMs
+   * apart. At most queueMax calls wait at once, and none waits longer than
+   * queueWaitMs; past either, the call fails at once with Busy.
+   */
+  async function throttled<T>(work: (remainingMs: number) => Promise<T>): Promise<T> {
+    const start = now();
+    const slot = Math.max(start, lastSlot + config.minIntervalMs);
+    const wait = slot - start;
+    if (wait > 0 && (waiting >= config.queueMax || wait > config.queueWaitMs)) throw new Busy();
+    lastSlot = slot;
+    if (wait > 0) {
+      waiting += 1;
+      try {
+        await sleep(wait);
+      } finally {
+        waiting -= 1;
+      }
+    }
+    // The 6 s budget covers the wait too, so a caller never waits past it.
+    return work(Math.max(1000, config.timeoutMs - (now() - start)));
+  }
+
+  /** cache false: the answer is never kept, as for a search sorted by a location. */
+  async function provider(params: URLSearchParams, keep: boolean): Promise<unknown> {
     const url = `${config.baseUrl}/api/?${params.toString()}`;
-    const key = url;
-    const hit = cached(key);
-    if (hit !== undefined) return hit;
+    const key = createHash("sha256").update(url).digest("hex");
+    if (keep) {
+      const hit = cached(key);
+      if (hit !== undefined) return hit;
+    }
     const pending = inflight.get(key);
     if (pending) return pending;
-    const run = throttled(async () => {
+    const run = throttled(async (remainingMs) => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+      const timer = setTimeout(() => controller.abort(), remainingMs);
       try {
         // No cookie, no authorization, no referer, no member detail.
         const response = await options.fetch(url, {
@@ -359,7 +447,7 @@ export function createPlaceLookup(options: {
         });
         if (!response.ok) throw new Error(`provider ${response.status}`);
         const body = (await response.json()) as unknown;
-        remember(key, body);
+        if (keep) remember(key, body);
         return body;
       } finally {
         clearTimeout(timer);
@@ -376,13 +464,26 @@ export function createPlaceLookup(options: {
   async function pointFor(nearText: string): Promise<PlacePoint | null> {
     if (!nearText) return null;
     const params = new URLSearchParams({ q: nearText, limit: "5", lang: "en" });
-    return toPoint(await provider(params), config.country);
+    // A town or ZIP is a location, so this answer is not cached.
+    return toPoint(await provider(params, false), config.country);
   }
 
   return {
-    inspect: () => ({ cacheKeys: [...cache.keys()], limiterKeys: [...hits.keys()] }),
-    async search(memberId, input) {
-      const retryAfter = limited(memberId);
+    inspect: () => ({
+      cacheKeys: [...cache.keys()],
+      limiterKeys: [...hits.keys()],
+      pickKeys: [...picks.keys()],
+    }),
+    picked(memberId, ref) {
+      const mine = picks.get(memberKey(memberId));
+      const entry = mine?.get(ref);
+      if (!entry || now() - entry.at > config.pickTtlMs) return null;
+      return { ref: entry.ref, name: entry.name, address: entry.address };
+    },
+    async search(memberId, input, ip) {
+      const keys = [{ key: memberKey(memberId), limit: config.memberLimit }];
+      if (ip) keys.push({ key: hashKey("ip", ip), limit: config.ipLimit });
+      const retryAfter = limited(keys);
       if (retryAfter) {
         return { ok: false, status: 429, error: "Too many searches. Wait a moment.", retryAfter };
       }
@@ -394,9 +495,15 @@ export function createPlaceLookup(options: {
           params.set("lat", near.lat.toFixed(2));
           params.set("lon", near.lon.toFixed(2));
         }
-        const body = await provider(params);
-        return { ok: true, places: toSuggestions(body, input.kind, config.country, near) };
-      } catch {
+        // Only a search with no location at all is cached.
+        const body = await provider(params, !near && !input.nearText);
+        const places = toSuggestions(body, input.kind, config.country, near);
+        keepPicks(memberId, places);
+        return { ok: true, places };
+      } catch (error) {
+        if (error instanceof Busy) {
+          return { ok: false, status: 429, error: BUSY_ERROR, retryAfter: 2 };
+        }
         return {
           ok: false,
           status: 502,

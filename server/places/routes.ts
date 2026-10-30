@@ -20,15 +20,56 @@ function json(status: number, body: unknown, extra?: Record<string, string>): Re
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+export const MAX_SEARCH_BODY = 2048;
+
+/**
+ * Reads at most `max` bytes. Stops and answers null as soon as the declared
+ * length or the bytes read so far pass it, so a large body is never buffered.
+ */
+export async function readCapped(request: Request, max: number): Promise<string | null> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null) {
+    const length = Number(declared);
+    if (!Number.isFinite(length) || length > max) return null;
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 /**
  * POST /api/places/search with { q, kind, near?, nearText? }.
  * A POST body keeps the typed words and any point out of access logs.
- * Signed-in members only. Nothing is stored and nothing is logged.
+ * Signed-in members only. Nothing is written to the database or the log.
+ * The lookup keeps some answers in memory for a short time; see lookup.ts.
  */
 export async function handlePlaces(
   deps: PlaceRouteDeps,
   request: Request,
   url: URL,
+  ip?: string,
 ): Promise<Response | null> {
   if (url.pathname !== PLACE_SEARCH_PATH) return null;
   if (request.method !== "POST") return json(405, { error: "Not found." });
@@ -39,8 +80,8 @@ export async function handlePlaces(
   if (!deps.places)
     return json(503, { error: "Place search is off for now. Choose Not listed to type it in." });
 
-  const raw = await request.text();
-  if (raw.length > 2048) return json(413, { error: "That request is too large." });
+  const raw = await readCapped(request, MAX_SEARCH_BODY);
+  if (raw === null) return json(413, { error: "That request is too large." });
   let body: unknown;
   try {
     body = raw ? JSON.parse(raw) : {};
@@ -52,7 +93,7 @@ export async function handlePlaces(
   }
   const parsed = parseSearchBody(body as Record<string, unknown>);
   if (!parsed.ok) return json(400, { error: parsed.error });
-  const result = await deps.places.search(session.id, parsed.input);
+  const result = await deps.places.search(session.id, parsed.input, ip);
   if (!result.ok) {
     return json(
       result.status,

@@ -441,7 +441,8 @@ test("the list carries the phone-safe class and the links carry the house ring",
     await press(view.input, "ArrowDown");
     await press(view.input, "Enter");
     const links = [...view.host.querySelectorAll("a")];
-    assert.equal(links.length, 2);
+    // One credit link, under the field; the popup and the pick show the credit as text.
+    assert.equal(links.length, 1);
     for (const link of links) assert.match(link.className, /focus-target/);
   } finally {
     view.unmount();
@@ -509,10 +510,45 @@ test("the account church is saved with PATCH /api/profile, and a typed church cl
     });
     await saveAccountChurch("My home church", null);
     assert.deepEqual(calls.map((call) => [call.url, call.method, call.body]), [
-      ["/api/profile", "PATCH", { church: "Grace Bible Church", churchPlace: { ref: "node/2", address: "10 Main Street" } }],
+      // Only the reference goes up; the server fills in the name and address.
+      ["/api/profile", "PATCH", { church: "Grace Bible Church", churchPlace: { ref: "node/2" } }],
       ["/api/profile", "PATCH", { church: "My home church", churchPlace: null }],
     ]);
   } finally {
     globalThis.fetch = real;
+  }
+});
+
+test("the OpenStreetMap link sits outside the listbox and popup, and Tab reaches it", async () => {
+  const view = mount();
+  try {
+    await focus(view.input);
+    await type(view.input, "Grace");
+    assert.equal(view.input.getAttribute("aria-expanded"), "true");
+    const links = [...view.host.querySelectorAll("a")].filter(
+      (a) => a.getAttribute("href") === "https://www.openstreetmap.org/copyright",
+    );
+    assert.equal(links.length, 1, "one credit link");
+    const link = links[0];
+    assert.equal(link.getAttribute("tabindex"), null, "in the normal Tab order");
+    assert.equal(link.closest('[role="listbox"]'), null);
+    assert.equal(link.closest(".place-pop"), null);
+    const listbox = view.host.querySelector('[role="listbox"]');
+    for (const child of [...(listbox?.children ?? [])]) {
+      assert.equal(child.getAttribute("role"), "option", "the listbox holds only options");
+    }
+    // The next focusable element after the field is the credit link.
+    const focusables = [...view.host.querySelectorAll("input, a, button")].filter(
+      (el) => el.getAttribute("tabindex") !== "-1" && !el.closest("[hidden]"),
+    );
+    assert.equal(focusables[focusables.indexOf(view.input) + 1], link);
+    // The popup still shows the credit as text while it is open.
+    const pop = view.host.querySelector(".place-pop");
+    assert.match(pop?.textContent ?? "", /© OpenStreetMap contributors/);
+    // The copy is honest about what the server holds in memory.
+    assert.match(view.host.textContent ?? "", /in memory only/);
+    assert.match(view.host.textContent ?? "", /never keeps your location/);
+  } finally {
+    view.unmount();
   }
 });

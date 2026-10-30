@@ -135,23 +135,121 @@ test("the search sends the filter, a User-Agent, and no member detail", async ()
   assert.equal(call.init?.referrerPolicy, "no-referrer");
 });
 
-test("repeat words come from the cache, and the cache holds no member or exact point", async () => {
+test("repeat words come from a short cache that holds no member, words, or point", async () => {
   const { calls, fetch } = fakeFetch();
   let clock = 1_000_000;
   const lookup = createPlaceLookup({ config: config(), fetch, now: () => clock });
-  const input = { q: "Epiphany", kind: "church" as const, near: BRANDON, nearText: "" };
+  const input = { q: "Epiphany", kind: "church" as const, near: null, nearText: "" };
   await lookup.search("ann", input);
   await lookup.search("bob", { ...input, q: "epiphany" });
   assert.equal(calls.length, 1);
   const seen = lookup.inspect();
-  for (const key of [...seen.cacheKeys, ...seen.limiterKeys]) {
+  for (const key of [...seen.cacheKeys, ...seen.limiterKeys, ...seen.pickKeys]) {
+    assert.match(key, /^[0-9a-f]+$/, "every key is a hash");
     assert.equal(key.includes("ann"), false);
     assert.equal(key.includes("bob"), false);
-    assert.equal(key.includes("27.9378"), false);
+    assert.equal(key.includes("epiphany"), false);
   }
-  clock += 25 * 60 * 60 * 1000;
+  clock += 11 * 60 * 1000;
   await lookup.search("ann", input);
-  assert.equal(calls.length, 2, "a day-old answer is fetched again");
+  assert.equal(calls.length, 2, "an answer older than 10 minutes is fetched again");
+});
+
+test("a search sorted by a location or a town is never cached", async () => {
+  const { calls, fetch } = fakeFetch();
+  const lookup = createPlaceLookup({ config: config(), fetch });
+  const near = { q: "Epiphany", kind: "church" as const, near: BRANDON, nearText: "" };
+  await lookup.search("ann", near);
+  await lookup.search("ann", near);
+  assert.equal(calls.length, 2);
+  const town = { q: "Epiphany", kind: "church" as const, near: null, nearText: "33511" };
+  await lookup.search("ann", town);
+  assert.equal(calls.length, 4, "the town and the search each call the provider");
+  assert.deepEqual(lookup.inspect().cacheKeys, []);
+});
+
+test("only places a member's own search returned can be saved, for an hour", async () => {
+  const { fetch } = fakeFetch();
+  let clock = 0;
+  const lookup = createPlaceLookup({ config: config(), fetch, now: () => clock });
+  await lookup.search("ann", { q: "Church", kind: "church", near: BRANDON, nearText: "" });
+  assert.deepEqual(lookup.picked("ann", "node/2"), {
+    ref: "node/2",
+    name: "Near Church",
+    address: "10 Main Street, Brandon, Florida 33511",
+  });
+  assert.equal(lookup.picked("bob", "node/2"), null, "another member's search does not count");
+  assert.equal(lookup.picked("ann", "node/3"), null, "a filtered-out shop is not a pick");
+  assert.equal(lookup.picked("ann", "node/999"), null);
+  clock += 61 * 60 * 1000;
+  assert.equal(lookup.picked("ann", "node/2"), null);
+});
+
+test("each client IP is rate-limited across members", async () => {
+  const { fetch } = fakeFetch();
+  const lookup = createPlaceLookup({
+    config: config({ ipLimit: { windowMs: 60_000, max: 2 } }),
+    fetch,
+    now: () => 0,
+  });
+  const input = { q: "Grace", kind: "church" as const, near: null, nearText: "" };
+  assert.equal((await lookup.search("ann", input, "203.0.113.8")).ok, true);
+  assert.equal((await lookup.search("bob", input, "203.0.113.8")).ok, true);
+  const third = await lookup.search("cat", input, "203.0.113.8");
+  assert.equal(third.ok, false);
+  if (!third.ok) assert.equal(third.status, 429);
+  assert.equal((await lookup.search("cat", input, "198.51.100.4")).ok, true);
+  for (const key of lookup.inspect().limiterKeys) assert.equal(key.includes("203.0"), false);
+});
+
+test("the provider queue has a cap and a deadline, and answers 429 past them", async () => {
+  const { calls, fetch } = fakeFetch();
+  const lookup = createPlaceLookup({
+    config: config({ minIntervalMs: 250, queueMax: 3, queueWaitMs: 1000 }),
+    fetch,
+    now: () => 0,
+    // Never resolves, so calls stay queued.
+    sleep: () => new Promise<void>(() => undefined),
+  });
+  const results = Array.from({ length: 6 }, (_, i) =>
+    lookup.search(`m${i}`, { q: `Church ${i}`, kind: "church", near: null, nearText: "" }),
+  );
+  // Call 0 runs at once; 1-3 wait (250, 500, 750 ms); 4 is past the cap.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settled = await Promise.race([
+    Promise.all([results[0], results[4], results[5]]),
+    new Promise<null>((done) => {
+      timer = setTimeout(() => done(null), 2000);
+    }),
+  ]);
+  clearTimeout(timer);
+  assert.ok(settled, "busy calls answer at once instead of waiting");
+  const [first, fifth, sixth] = settled!;
+  assert.equal(first.ok, true);
+  for (const busy of [fifth, sixth]) {
+    assert.equal(busy.ok, false);
+    if (!busy.ok) {
+      assert.equal(busy.status, 429);
+      assert.match(busy.error, /busy/);
+      assert.equal(busy.retryAfter, 2);
+    }
+  }
+  assert.equal(calls.length, 1);
+});
+
+test("a wait longer than the deadline is refused even under the cap", async () => {
+  const { fetch } = fakeFetch();
+  const lookup = createPlaceLookup({
+    config: config({ minIntervalMs: 2000, queueMax: 10, queueWaitMs: 1000 }),
+    fetch,
+    now: () => 0,
+    sleep: () => new Promise<void>(() => undefined),
+  });
+  const input = { q: "Grace", kind: "church" as const, near: null, nearText: "" };
+  assert.equal((await lookup.search("a", input)).ok, true);
+  const late = await lookup.search("b", { ...input, q: "Other" });
+  assert.equal(late.ok, false);
+  if (!late.ok) assert.equal(late.status, 429);
 });
 
 test("the same words at the same moment share one provider call", async () => {
@@ -267,6 +365,8 @@ test("the provider URL is an https setting with a safe default, never public Nom
   assert.equal(safeProviderUrl("http://127.0.0.1:2322"), "http://127.0.0.1:2322");
   assert.equal(readPlaceLookupConfig({ PLACE_LOOKUP_COUNTRY: "" }).country, "");
   assert.equal(readPlaceLookupConfig({ PLACE_LOOKUP_PER_MINUTE: "9999" }).memberLimit.max, 120);
+  assert.equal(readPlaceLookupConfig({}).cacheTtlMs, 10 * 60 * 1000);
+  assert.equal(readPlaceLookupConfig({}).ipLimit.max, 90);
 });
 
 test("nothing is written to the log during a search", async () => {

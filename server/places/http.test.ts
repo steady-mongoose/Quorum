@@ -51,11 +51,12 @@ test("place search needs a session, three letters, and returns places with attri
   const { db, close } = await openTestDb();
   try {
     await member(db, "ann");
-    const seen: { memberId: string; input: SearchInput }[] = [];
+    const seen: { memberId: string; input: SearchInput; ip?: string }[] = [];
     const places: PlaceLookup = {
-      inspect: () => ({ cacheKeys: [], limiterKeys: [] }),
-      search: async (memberId, input) => {
-        seen.push({ memberId, input });
+      inspect: () => ({ cacheKeys: [], limiterKeys: [], pickKeys: [] }),
+      picked: () => null,
+      search: async (memberId, input, ip) => {
+        seen.push({ memberId, input, ip });
         return {
           ok: true,
           places: [
@@ -75,6 +76,7 @@ test("place search needs a session, three letters, and returns places with attri
     assert.equal(body.places[0]?.ref, "node/2");
     assert.equal(body.attribution, "© OpenStreetMap contributors");
     assert.deepEqual(seen[0]?.input.near, { lat: 27.94, lon: -82.29 });
+    assert.ok(seen[0]?.ip, "the route passes the client IP for the per-IP limit");
     const get = await handler(
       new Request("http://127.0.0.1:8787/api/places/search", { headers: { "x-user-id": "ann" } }),
     );
@@ -90,6 +92,62 @@ test("place search answers 503 when it is not configured", async () => {
     await member(db, "ann");
     const response = await app(db)(post("ann", { q: "Grace", kind: "church" }));
     assert.equal(response.status, 503);
+  } finally {
+    await close();
+  }
+});
+
+test("place search refuses a body over 2KB while reading it", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    await member(db, "ann");
+    let searched = 0;
+    const places: PlaceLookup = {
+      inspect: () => ({ cacheKeys: [], limiterKeys: [], pickKeys: [] }),
+      picked: () => null,
+      search: async () => {
+        searched += 1;
+        return { ok: true, places: [] };
+      },
+    };
+    const handler = app(db, places);
+    const big = JSON.stringify({ q: "Grace", kind: "church", pad: "x".repeat(4000) });
+    // A declared length over the cap is refused before any byte is read.
+    const declared = await handler(
+      new Request("http://127.0.0.1:8787/api/places/search", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "ann", "content-length": String(big.length) },
+        body: big,
+      }),
+    );
+    assert.equal(declared.status, 413);
+    // A streamed body with no length stops at the cap and is cancelled.
+    let pulled = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 100) return controller.close();
+        controller.enqueue(new TextEncoder().encode("x".repeat(512)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const streamed = await handler(
+      new Request("http://127.0.0.1:8787/api/places/search", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "ann" },
+        body: stream,
+        duplex: "half",
+      } as RequestInit),
+    );
+    assert.equal(streamed.status, 413);
+    assert.ok(pulled <= 6, `read ${pulled} chunks, not the whole body`);
+    assert.equal(cancelled, true);
+    assert.equal(searched, 0);
+    const small = await handler(post("ann", { q: "Grace", kind: "church" }));
+    assert.equal(small.status, 200);
   } finally {
     await close();
   }

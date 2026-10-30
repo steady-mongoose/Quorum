@@ -11,6 +11,23 @@
 -- reference and no address, and is shown as typed. No location, point, or
 -- search is stored. Nothing here is a count, a like, a score, or a rank.
 -- Deleting the account drops the members row, and these columns with it.
+--
+-- Deploy order: apply this file before deploying an API that writes these
+-- columns. An API from this pull request also runs without it: it checks
+-- information_schema and saves only the church name until both columns
+-- exist, so applying first is safest but not required.
+--
+-- Rollback (by hand, in one transaction). Deploy an API that does not read
+-- or write these columns first, or keep this one: it falls back to the name
+-- only once the columns are gone. Dropping them loses every saved map pick;
+-- the church names in members.church stay.
+--
+--   begin;
+--   alter table members drop constraint if exists members_church_address_check;
+--   alter table members drop constraint if exists members_church_osm_ref_check;
+--   alter table members drop column if exists church_address;
+--   alter table members drop column if exists church_osm_ref;
+--   commit;
 
 alter table members add column if not exists church_osm_ref text;
 alter table members add column if not exists church_address text not null default '';

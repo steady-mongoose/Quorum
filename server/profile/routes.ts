@@ -4,6 +4,7 @@ import { MIN_PROFILE_AGE } from "./age.ts";
 import { decideCorrection, listCorrections, requestCorrection } from "./corrections.ts";
 import { INTERESTS } from "./interests.ts";
 import { ADMINS_ONLY_LATER, ANONYMOUS_LATER } from "./permissions.ts";
+import type { PlaceLookup } from "../places/lookup.ts";
 import { churchSuggestions, saveProfile } from "./store.ts";
 import { COUNTIES, ELSEWHERE_ID, TOWNS } from "./towns.ts";
 import { profileView, type ProfileFailure } from "./view.ts";
@@ -14,6 +15,8 @@ export type ProfileDeps = {
   db: Db;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
   now: () => Date;
+  /** Confirms a picked church against the member's own recent place search. */
+  places?: PlaceLookup;
 };
 
 const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -141,9 +144,22 @@ export async function handleProfile(
     }
 
     const body = await readJson(request);
-    const saved = await saveProfile(deps.db, session.id, body, now, onboard ? "onboard" : "patch");
+    const places = deps.places;
+    const saved = await saveProfile(
+      deps.db,
+      session.id,
+      body,
+      now,
+      onboard ? "onboard" : "patch",
+      places ? (ref) => places.picked(session.id, ref) : undefined,
+    );
     if (!saved.ok) return fromFailure(saved);
-    return json(200, { profile: saved.profile });
+    return json(
+      200,
+      saved.churchPlaceNote
+        ? { profile: saved.profile, churchPlaceNote: saved.churchPlaceNote }
+        : { profile: saved.profile },
+    );
   } catch (error) {
     if (error instanceof HttpError) return json(error.status, { error: error.message });
     throw error;
