@@ -17,9 +17,9 @@ import {
   ROLL_CALL_STALE,
   rsvpCutoff,
 } from "./rsvp.ts";
-import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
+import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
-import { ADMIN_NO_NAMES, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
 
 const GATHERING = "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const OTHER = "7c2a3b4d-5e6f-4b7c-9d8e-0f1a2b3c4d5e";
@@ -68,7 +68,8 @@ function app(db: Db) {
   return createApp({
     db,
     origins: ["http://localhost:8080"],
-    now: () => new Date("2026-10-29T12:00:00Z"),
+    // After the gatherings below (Oct 31), so marking is open (QA F4).
+    now: () => new Date("2026-11-01T12:00:00Z"),
     createAccount: async () => ({ id: randomUUID() }),
     signIn: async (input) => ({
       ok: true,
@@ -383,8 +384,10 @@ test("the move keeps a self-marked 'I've been' only for the host or the room's s
   const t = await setup();
   try {
     const entries = [
-      { gatheringId: GATHERING, going: false, attended: true },
+      { gatheringId: GATHERING, going: true, attended: true },
       { gatheringId: MARIAS, going: true, attended: true },
+      // Not going: the device mark is not kept for anyone (QA F4).
+      { gatheringId: OTHER, going: false, attended: true },
     ];
     const rows = (userId: string) =>
       t.db.query<{ gathering_id: string; going: boolean; attended: boolean }>(
@@ -396,7 +399,7 @@ test("the move keeps a self-marked 'I've been' only for the host or the room's s
     assert.deepEqual(
       (await rows(t.dale.id)).map((r) => [r.gathering_id, r.going, r.attended]),
       [
-        [GATHERING, false, true],
+        [GATHERING, true, true],
         [MARIAS, true, false],
       ],
     );
@@ -404,7 +407,10 @@ test("the move keeps a self-marked 'I've been' only for the host or the room's s
     assert.equal((await call(t.handler, t.josh, "POST", "/api/rsvps/move", { entries })).status, 200);
     assert.deepEqual(
       (await rows(t.josh.id)).map((r) => [r.gathering_id, r.going, r.attended]),
-      [[MARIAS, true, false]],
+      [
+        [GATHERING, true, false],
+        [MARIAS, true, false],
+      ],
     );
   } finally {
     await t.close();
@@ -531,6 +537,13 @@ test("only the host or the room's steward marks who came; a member, another host
     const tom = await (await call(t.handler, t.tom, "GET", `/api/gatherings/${GATHERING}/rsvps`)).json();
     assert.deepEqual(tom, { mine: { going: true, attended: false } });
     // The host may say they came, as on the device. So may the room's steward.
+    // Each says "going" first: only members going can be marked (QA F4).
+    for (const who of [t.dale, t.sam]) {
+      const early = await call(t.handler, who, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true });
+      assert.equal(early.status, 409);
+      assert.deepEqual(await early.json(), { error: MARK_NOT_GOING, api: "rsvp" });
+      await call(t.handler, who, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true });
+    }
     assert.equal(
       (await call(t.handler, t.dale, "POST", `/api/gatherings/${GATHERING}/rsvp`, { attended: true })).status,
       200,
@@ -1326,7 +1339,9 @@ test("GET /api/rsvps/summary: counts for an admin, 403 for everyone else", async
     assert.equal(/h_[A-Za-z0-9_-]{22}/.test(text), false);
     assert.equal(/@/.test(text), false);
     for (const name of ["Tom", "Maria", "Dale", "Sam", "Olive"]) assert.equal(text.includes(`"${name}"`), false, name);
-    assert.equal(/userId|user_id|name"|email|rank|score/i.test(text), false);
+    assert.equal(/userId|user_id|email|rank|score/i.test(text), false);
+    // The only names are room names (QA F7), never a person's.
+    for (const room of body.rooms) assert.ok(typeof room.name === "string" && room.name !== "" && room.name !== room.roomId);
     // The owner is an admin too.
     assert.equal((await call(t.handler, t.owner, "GET", "/api/rsvps/summary")).status, 200);
   } finally {
@@ -1577,3 +1592,246 @@ for (const seesNames of [true, false]) test(`seeing who came needs a real host o
     await t.close();
   }
 }));
+
+// ---- QA review 5712501868 (Oct 30) ----
+
+const gatheringBody = (id: string, roomId: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  roomId,
+  title: "Saturday lifts",
+  date: "2026-10-31",
+  time: "7 a.m.",
+  place: "Dale's garage, Riverview",
+  ...extra,
+});
+
+test("QA F1: TEST Ava, an admin who neither hosts nor stewards, cannot edit or move a gathering, and gets no names", async () => {
+  const t = await setup();
+  try {
+    await scene(t);
+    const roomOf = async () =>
+      (await t.db.query<{ room_id: string }>(`select room_id from public_gathering where id = $1`, [GATHERING]))[0]!.room_id;
+    const noNames = async (res: Response) => {
+      const text = await res.text();
+      for (const name of ["Tom", "Maria"]) assert.equal(text.includes(name), false, name);
+      assert.equal(text.includes(t.tom.id), false);
+    };
+    // Josh (Ava's case): admin grant only. Edit in place and move both 403.
+    for (const roomId of ["shop", "county"]) {
+      const res = await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, roomId, { title: "Taken over" }));
+      assert.equal(res.status, 403, roomId);
+      await noNames(res);
+    }
+    assert.equal(await roomOf(), "shop");
+    // Still no names after trying (the move did not make him a steward of anything).
+    const after = await call(t.handler, t.josh, "GET", `/api/gatherings/${GATHERING}/rsvps`);
+    await noNames(after);
+    const list = (await (await call(t.handler, t.josh, "GET", "/api/rsvps")).json()) as ListBody;
+    assert.deepEqual(list.rsvps.filter((row) => row.userId !== t.josh.id), []);
+    // A real steward of the target room only: still 403 (needs both rooms).
+    await stewardOf(t.db, t.josh.id, "Josh", "county");
+    assert.equal((await call(t.handler, t.josh, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 403);
+    // The other room's steward cannot edit; the room's own steward edits but cannot move it out.
+    assert.equal((await call(t.handler, t.cara, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop"))).status, 403);
+    assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 403);
+    assert.equal(await roomOf(), "shop");
+    assert.equal((await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { title: "Lifts" }))).status, 200);
+    // The real host may move it.
+    assert.equal((await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "county"))).status, 200);
+    assert.equal(await roomOf(), "county");
+  } finally {
+    await t.close();
+  }
+});
+
+const room = (roomId: string, members: number, going: number[]) => ({
+  roomId,
+  members,
+  gatherings: going.map((value, i) => g(`${roomId}${i}`, value)),
+  weeks: [],
+});
+
+test("QA F2: 6 going of a 6-member room: the room and the grand total are hidden", () => {
+  const out = suppressSummary([room("a", 6, [6])], 5);
+  assert.equal(out.rooms[0]!.going, null);
+  assert.equal(out.totals.going, null);
+});
+
+test("QA F2: 20 going of 20 distinct members across two rooms: the grand total is hidden", () => {
+  const out = suppressSummary([room("a", 10, [6]), room("b", 10, [14])], 5, () => 20);
+  assert.equal(out.totals.going, null);
+});
+
+test("QA F2: 17 going of 20 distinct members is near everyone: the grand total is hidden", () => {
+  const out = suppressSummary([room("a", 10, [6]), room("b", 10, [11])], 5, () => 20);
+  assert.equal(out.totals.going, null);
+  // 17 of 40 is not near everyone, and two rooms carry it: shown.
+  const wide = suppressSummary([room("a", 20, [6]), room("b", 20, [11])], 5, () => 40);
+  assert.equal(wide.totals.going, 17);
+});
+
+test("QA F2: 8 of 8 in one room plus rooms of zeros: zeros give no cover, the grand total is hidden", () => {
+  const out = suppressSummary([room("a", 8, [8]), room("b", 10, [0]), room("c", 10, [0])], 5, () => 28);
+  assert.equal(out.rooms[0]!.going, null);
+  assert.equal(out.totals.going, null);
+  // One room with data, even far from its membership: the total would be that room.
+  const lone = suppressSummary([room("a", 50, [8]), room("b", 10, [0])], 5, () => 60);
+  assert.equal(lone.totals.going, null);
+});
+
+test("QA F2: every room but one shown would rebuild the hidden one, so the total hides", () => {
+  assert.equal(rebuildsHidden([9, 3], [9, null], 5), true);
+  assert.equal(rebuildsHidden([9, 0], [9, null], 5), false);
+  assert.equal(rebuildsHidden([9, 6, 7], [9, null, null], 5), false);
+  // Room b (3) is hidden, so room a (9) is hidden with it: 12 - 9 cannot give 3 back.
+  const out = suppressSummary([room("a", 100, [9]), room("b", 100, [3])], 5, () => 200);
+  assert.deepEqual(out.rooms.map((r) => r.going), [null, null]);
+  assert.equal(out.totals.going, 12);
+  // Three rooms, one hidden by the whole-membership rule and the rest shown: the total hides.
+  const three = suppressSummary([room("a", 100, [9]), room("b", 100, [8]), room("c", 7, [7])], 5, () => 207);
+  const shown = three.rooms.map((r) => r.going);
+  assert.equal(shown[2], null);
+  if (shown.filter((v) => v === null).length === 1) assert.equal(three.totals.going, null);
+});
+
+test("QA F5: room membership is the distinct people across room_join and room_member", async () => {
+  const t = await setup();
+  try {
+    const five: string[] = [];
+    for (const name of ["Pat", "Lee", "Kim", "Ray", "Bo"]) {
+      const id = await user(t.db, name);
+      await grant(t.db, id, name);
+      assert.equal((await call(t.handler, { id }, "POST", `/api/gatherings/${GATHERING}/rsvp`, { going: true })).status, 200);
+      five.push(id);
+    }
+    const gathering = async () =>
+      (await rsvpSummary(t.db, new Date("2026-11-01T12:00:00Z"), 5)).rooms
+        .flatMap((r) => r.gatherings)
+        .find((x) => x.gatheringId === GATHERING)!.going;
+    // Eleven distinct members: three by room_join, nine by room_member, one in both.
+    for (const id of five.slice(0, 3)) {
+      await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [id]);
+    }
+    for (const id of [...five.slice(2), t.dale.id, t.maria.id, t.sam.id, t.cara.id, t.owner.id, t.josh.id]) {
+      await t.db.query(`insert into room_member (room_id, user_id) values ('shop', $1) on conflict do nothing`, [id]);
+    }
+    assert.equal(await gathering(), 5, "5 of 11 distinct members is shown");
+    // Drop the room_member side: 5 going of 3 joined is the whole membership, hidden.
+    await t.db.query(`delete from room_member where room_id = 'shop'`);
+    assert.equal(await gathering(), null);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA F3: the 12-month purge clears old write-up came lists and named-account links, keeps new ones", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id)] },
+      now: new Date("2026-11-01T12:00:00Z"),
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    const fresh = randomUUID();
+    const old = randomUUID();
+    // Two copies by hand, one dated long ago, to test the purge alone.
+    for (const [id, on] of [[old, "2025-09-01"], [fresh, "2026-10-01"]] as const) {
+      await t.db.query(
+        `insert into board_post (id, room_id, type, claim, reason, on_date, author_user_id, author_name, came, created_at)
+         select $1, room_id, type, claim, reason, $2, author_user_id, author_name, array['Tom'], now()
+         from board_post where type = 'hosted' limit 1`,
+        [id, on],
+      );
+      await t.db.query(`insert into dm_named_account (post_id, user_id) values ($1, $2)`, [id, t.tom.id]);
+    }
+    const result = await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"));
+    assert.ok((result.writeUps ?? 0) >= 1);
+    const came = async (id: string) =>
+      (await t.db.query<{ came: string[] }>(`select came from board_post where id = $1`, [id]))[0]!.came;
+    const links = async (id: string) =>
+      (await t.db.query(`select 1 from dm_named_account where post_id = $1`, [id])).length;
+    assert.deepEqual(await came(old), []);
+    assert.equal(await links(old), 0);
+    assert.deepEqual(await came(fresh), ["Tom"]);
+    assert.equal(await links(fresh), 1);
+    // The old write-up itself stays.
+    assert.equal((await t.db.query(`select 1 from board_post where id = $1`, [old])).length, 1);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA F4: no marks before the gathering starts (New York time), and a host can take a mark back", async () => {
+  const t = await setup();
+  try {
+    // Nov 1 2026, 12:00 UTC is 7 a.m. in New York (after the clocks go back).
+    const later = randomUUID();
+    const soon = randomUUID();
+    for (const [id, time] of [[later, "18:00"], [soon, "06:30"]] as const) {
+      const saved = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(id, "shop", { date: "2026-11-01", time }));
+      assert.equal(saved.status, 200, await saved.clone().text());
+      const going = await call(t.handler, t.tom, "POST", `/api/gatherings/${id}/rsvp`, { going: true });
+      assert.equal(going.status, 200, await going.clone().text());
+    }
+    const early = await call(t.handler, t.dale, "POST", `/api/gatherings/${later}/attendance`, { userIds: [rsvpHandle(later, t.tom.id)] });
+    assert.equal(early.status, 409, await early.clone().text());
+    assert.deepEqual(await early.json(), { error: MARK_TOO_EARLY, api: "rsvp" });
+    // The room's steward, going, cannot say "I went" early either. (A member cannot at all: 403.)
+    await call(t.handler, t.sam, "POST", `/api/gatherings/${later}/rsvp`, { going: true });
+    const self = await call(t.handler, t.sam, "POST", `/api/gatherings/${later}/rsvp`, { attended: true });
+    assert.equal(self.status, 409);
+    assert.deepEqual(await self.json(), { error: MARK_TOO_EARLY, api: "rsvp" });
+    const tomRow = async (id: string) =>
+      (await t.db.query<{ going: boolean; attended: boolean }>(`select going, attended from gathering_rsvp where gathering_id = $1 and user_id = $2`, [id, t.tom.id]))[0];
+    assert.deepEqual({ ...(await tomRow(later)) }, { going: true, attended: false });
+    // Started at 6:30: marking is open.
+    const tom = rsvpHandle(soon, t.tom.id);
+    assert.equal((await call(t.handler, t.dale, "POST", `/api/gatherings/${soon}/attendance`, { userIds: [tom] })).status, 200);
+    assert.deepEqual({ ...(await tomRow(soon)) }, { going: true, attended: true });
+    // The roll call shows the existing mark.
+    const roll = (await (await call(t.handler, t.dale, "GET", `/api/gatherings/${soon}/rsvps`)).json()) as {
+      people: { userId: string; attended: boolean }[];
+    };
+    assert.equal(roll.people.find((p) => p.userId === tom)?.attended, true);
+    // Mark and take back the same person at once: 400.
+    assert.equal((await call(t.handler, t.dale, "POST", `/api/gatherings/${soon}/attendance`, { userIds: [tom], unmark: [tom] })).status, 400);
+    // Take it back.
+    assert.equal((await call(t.handler, t.dale, "POST", `/api/gatherings/${soon}/attendance`, { userIds: [], unmark: [tom] })).status, 200);
+    assert.deepEqual({ ...(await tomRow(soon)) }, { going: true, attended: false });
+    // A member who cancelled is not on the roll: refused, nothing set.
+    await call(t.handler, t.maria, "POST", `/api/gatherings/${soon}/rsvp`, { going: true });
+    await call(t.handler, t.maria, "POST", `/api/gatherings/${soon}/rsvp`, { going: false });
+    const gone = await call(t.handler, t.dale, "POST", `/api/gatherings/${soon}/attendance`, { userIds: [rsvpHandle(soon, t.maria.id)] });
+    assert.equal(gone.status >= 400 && gone.status < 500, true);
+    assert.equal((await t.db.query(`select 1 from gathering_rsvp where gathering_id = $1 and user_id = $2`, [soon, t.maria.id])).length, 0);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA F6: a write-up on a gathering id with no row gets 404 and claims nothing", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    const before = (await t.db.query(`select id from board_post`)).length;
+    const missing = randomUUID();
+    const res = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: [], cardId: missing },
+      now: new Date("2026-11-01T12:00:00Z"),
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.ok ? 0 : res.status, 404);
+    assert.equal((await t.db.query(`select id from board_post`)).length, before);
+    assert.equal((await t.db.query(`select 1 from public_gathering where id = $1`, [missing])).length, 0);
+  } finally {
+    await t.close();
+  }
+});

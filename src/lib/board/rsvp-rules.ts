@@ -52,8 +52,41 @@ export const RSVP_SUMMARY_MIN_COUNT = 5;
 
 /** The panel's always-shown privacy line, from N. */
 export function privacyNote(n: number = RSVP_SUMMARY_MIN_COUNT): string {
-  return `To protect privacy, a count under ${n} is hidden, and so is one count beside it, so a total can't give it away.`;
+  return `To protect privacy, a count under ${n} is hidden, and so is one count beside it, so a total can't give it away. A count that matches a room's whole membership is hidden too.`;
 }
 
 /** What a screen reader hears for a hidden cell. */
 export const HIDDEN_CELL_LABEL = "hidden to protect privacy";
+
+/** The board's civil time zone (as profile age uses). */
+export const MARK_TIME_ZONE = "America/New_York";
+
+/** Why a mark was refused: before the gathering, or someone who never said they'd go. */
+export const MARK_TOO_EARLY = "You can mark who came once the gathering has started.";
+export const MARK_NOT_GOING = "Only members who said they're going can be marked as came.";
+
+/**
+ * Whether marks may be made yet (QA F4, Oct 30): not before a dated
+ * gathering's date, nor before its start time when the time reads as HH:MM,
+ * in the board's time zone. An undated gathering (a repeating one) has no
+ * date to wait for here; its next date is checked by the client.
+ */
+export function markOpen(gathering: { date: string; time?: string }, now: Date): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(gathering.date)) return true;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MARK_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  const today = `${get("year")}-${get("month")}-${get("day")}`;
+  if (today !== gathering.date) return today > gathering.date;
+  const time = /^(\d{1,2}):(\d{2})$/.exec((gathering.time ?? "").trim());
+  if (!time) return true;
+  const start = `${time[1]!.padStart(2, "0")}:${time[2]}`;
+  return `${get("hour")}:${get("minute")}` >= start;
+}

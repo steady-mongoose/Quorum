@@ -116,7 +116,7 @@ export type StatsPayload = {
 };
 
 export const RSVP_NOTE =
-  "The going list stays on each member's board. It is not collected, so there is no RSVP count. Attendance is the host's roll.";
+  "RSVP counts are in their own panel below, with small counts hidden. No one is named there. Attendance is marked by the host or the room's stewards.";
 
 export function showCount(count: number): ShownCount {
   if (!Number.isFinite(count) || count < SMALL_COUNT) return "<5";

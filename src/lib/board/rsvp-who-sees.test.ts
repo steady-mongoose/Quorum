@@ -27,7 +27,7 @@ test("every going or has-been list is behind seesGoing, seesCame or takesRoll", 
   // Who came: the host, admins and the room's stewards read it (Josh, 9:24 PM ET).
   assert.match(read("find-view.tsx"), /seesCame\(card\) \? <span>· has been:/);
   // Marking it (the "I went" button and the roll-call pills) stays host or admin only.
-  assert.match(read("find-view.tsx"), /takesRoll\(card\) && rollOn && roll\.length > 0/);
+  assert.match(read("find-view.tsx"), /takesRoll\(card\) && rollOn && started && roll\.length > 0/);
   assert.match(read("room-view.tsx"), /closing && takesRoll\(closing\) && roll\.length > 0/);
 });
 
@@ -36,7 +36,8 @@ test("members keep their own RSVP, and the 'I went' control is only for the host
   const find = read("find-view.tsx");
   assert.match(find, /const going = card\.going\.includes\(rest\.me\)/);
   assert.match(read("rsvp-control.tsx"), /You’re going/);
-  assert.match(find, /\{takesRoll\(card\) \? \(\s*<button[^>]*onClick=\{\(\) => visited\(card\.id\)\}/);
+  // "I went" is aria-disabled with a guard until it has started and you're going (QA F4, Design).
+  assert.match(find, /\{takesRoll\(card\) \? \(\s*<button[\s\S]{0,400}?if \(!canSayWent\) return;\s*visited\(card\.id\);/);
   // The Find intro no longer tells members to press "I went".
   assert.doesNotMatch(find, /<strong className="font-semibold text-fg">I went<\/strong>/);
 });
@@ -114,7 +115,7 @@ test("door copy: you see your own answer; host, stewards and admins see who is g
 
 test("Find clears refused at each close submit so a repeat failure is announced again", () => {
   const source = read("find-view.tsx");
-  assert.match(source, /event\.preventDefault\(\);\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*setDroppedPeople\(\[\]\);\s*const happened =/);
+  assert.match(source, /event\.preventDefault\(\);\s*if \(submitting\) return;\s*(\/\/[^\n]*\n\s*)?setRefused\(\[\]\);\s*setDroppedPeople\(\[\]\);\s*const happened =/);
 });
 
 import { cameText, forViewer } from "./model.ts";
@@ -224,7 +225,7 @@ test("Design #126 M2: after Reload, focus goes to the first chip with the ring, 
   assert.match(src, /setAfterReload\(true\)/);
   assert.match(src, /focusWithRing\(firstChip\.current \?\? saveButton\.current\)/);
   assert.match(src, /ref=\{index === 0 \? firstChip : undefined\}/);
-  assert.match(src, /<button ref=\{saveButton\} type="submit" value="yes"/);
+  assert.match(src, /<button\s+ref=\{saveButton\}\s+type="submit"\s+value="yes"/);
 });
 
 test("the sheet-wide reduced-motion rule zeroes transition delays too (Design #126 low 3)", () => {
@@ -239,7 +240,7 @@ test("Design #126 M1: a saved close locks the form from the store, so a remount 
   assert.doesNotMatch(src, /useState\(false\);\s*\n[^\n]*whoSaved|\[whoSaved, setWhoSaved\]/);
   // Locked: no chips to toggle; the line names who that close marked.
   assert.match(src, /roll\.length > 0 && !whoSaved \? \(/);
-  assert.match(src, /\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
+  assert.match(src, /\{saved \? \(saved\.happened \? whoCameSavedLine\(savedNames \?\? \[\]\) : DID_NOT_SAVED_LINE\) : ""\}/);
   // L2: dropped names are not collapsed by name.
   assert.match(src, /const dropped = droppedLine\(droppedPeople\.map\(\(person\) => person\.name\)\);/);
 });
@@ -249,7 +250,7 @@ test("QA S3: Find reopened after a failed write-up opens locked with the kept na
   // Read on every render, not set by a failed submit: a reopen is locked at once.
   assert.match(src, /const saved = savedClose\(card\.id, card\.next \|\| todayIso\(\)\);/);
   assert.doesNotMatch(src, /setWhoSaved/);
-  assert.match(src, /\{savedNames \? whoCameSavedLine\(savedNames\) : ""\}/);
+  assert.match(src, /\{saved \? \(saved\.happened \? whoCameSavedLine\(savedNames \?\? \[\]\) : DID_NOT_SAVED_LINE\) : ""\}/);
 });
 
 test("QA S3: the composer opened after a saved close is locked with the kept names", () => {
@@ -260,7 +261,7 @@ test("QA S3: the composer opened after a saved close is locked with the kept nam
 
 test("Design #126 M1: a locked Find form offers only the saved outcome; the other renders null", () => {
   const src = read("find-view.tsx");
-  assert.match(src, /\{!saved \|\| saved\.happened \? \(\s*<button ref=\{saveButton\} type="submit" value="yes"/);
+  assert.match(src, /\{!saved \|\| saved\.happened \? \(\s*<button\s+ref=\{saveButton\}\s+type="submit"\s+value="yes"/);
   assert.match(src, /\{!saved \|\| !saved\.happened \? \(\s*<button\s+ref=\{saved \? saveButton : undefined\}\s+type="submit"\s+value="no"/);
 });
 

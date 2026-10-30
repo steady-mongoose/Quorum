@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { readDemoFlag } from "../api-mode.ts";
-import { roleCounts } from "./rsvp-rules.ts";
+import { MARK_TOO_EARLY, markOpen, roleCounts } from "./rsvp-rules.ts";
 import {
   getBoardClient,
   type AccessInput,
@@ -307,7 +307,7 @@ type BoardState = {
    */
   markWhoCame: (
     id: string,
-    picked: { userIds: string[]; names: string[] },
+    picked: { userIds: string[]; names: string[]; unmark?: string[]; unmarkNames?: string[] },
   ) => Promise<{ ok: true } | { ok: false; stops: string[] }>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
@@ -1500,10 +1500,18 @@ export const useBoard = create<BoardState>()(
         markWhoCame: async (id, picked) => {
           const card = get().cards.find((item) => item.id === id);
           if (!card || !marksCame(card)) return { ok: false, stops: [MARK_NOT_ALLOWED] };
+          // Not before the gathering (QA F4); the server checks again.
+          if (picked.userIds.length + picked.names.length > 0 && !markOpen({ date: card.next, time: card.time }, new Date())) {
+            return { ok: false, stops: [MARK_TOO_EARLY] };
+          }
+          const gone = new Set(picked.unmarkNames ?? []);
           const mark = () =>
             patchCard(id, (item) => ({
               ...item,
-              wentBy: picked.names.reduce((names, name) => addName(names, name), item.wentBy),
+              wentBy: picked.names.reduce(
+                (names, name) => addName(names, name),
+                item.wentBy.filter((name) => !gone.has(name)),
+              ),
             }));
           if (!get().remote || !isGatheringId(id)) {
             mark();
@@ -1511,7 +1519,11 @@ export const useBoard = create<BoardState>()(
           }
           try {
             // close: false keeps the date open and every "going" as it is.
-            const result = await saveAttendance(card.id, { userIds: picked.userIds, close: false });
+            const result = await saveAttendance(card.id, {
+              userIds: picked.userIds,
+              close: false,
+              ...(picked.unmark && picked.unmark.length > 0 ? { unmark: picked.unmark } : {}),
+            });
             if (result.ok) {
               mark();
               await refreshRsvps();
@@ -1587,6 +1599,10 @@ export const useBoard = create<BoardState>()(
           // Only the host or the room's steward marks who came; an admin as an
           // admin does not (Oct 30). See marksCame above.
           if (!card || !marksCame(card)) return;
+          // "I went" only after the gathering has started, and only after
+          // saying "going" (QA F4). The server checks both again.
+          if (!markOpen({ date: card.next, time: card.time }, new Date())) return;
+          if (get().remote && isGatheringId(id) && !card.going.includes(me())) return;
           const mark = () =>
             patchCard(id, (item) => ({
               ...item,

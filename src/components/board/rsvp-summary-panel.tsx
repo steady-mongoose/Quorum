@@ -4,13 +4,13 @@ import { HIDDEN_CELL_LABEL, RSVP_SUMMARY_MIN_COUNT, privacyNote } from "@/lib/bo
 import { gatheringLabel, sortSummaryRooms, sortWeeks, weekLabel } from "@/lib/board/rsvp-summary-view";
 
 /**
- * Admin RSVP counts (Oct 30): going, have come and write-ups, per room, per
+ * Admin RSVP counts (Oct 30): going, times members came and write-ups, per room, per
  * gathering and per week. Counts only: no one is named or listed, nothing is
  * ranked, no gathering titles. Members never see this page. Every line about
  * hiding is derived from RSVP_SUMMARY_MIN_COUNT (rsvp-rules.ts).
  */
 export const RSVP_SUMMARY_INTRO =
-  "Counts only. No one is named or listed. \u201cGoing\u201d is who said they'd come to the next date. \u201cHave come\u201d is how many members a host or steward has ever marked as having come. \u201cBy week\u201d counts the write-ups filed each week. Barred members are counted too.";
+  "Counts only. No one is named or listed. \u201cGoing\u201d is who said they'd come to the next date. \u201cTimes members came\u201d adds up, over every gathering, the members a host or steward marked as having come, so one member who came to three gatherings counts three times. \u201cBy week\u201d counts the write-ups filed each week. Barred members are counted too.";
 export const RSVP_WEEK_CAPTION = "By week, from write-ups: write-ups filed.";
 
 type State = { kind: "loading" } | { kind: "ready"; summary: RsvpSummary } | { kind: "message"; text: string };
@@ -75,23 +75,23 @@ export function Tables({ summary }: { summary: RsvpSummary }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-fg">
-        All rooms: going <Shown count={summary.totals.going} />, have come <Shown count={summary.totals.came} />,
+        All rooms: going <Shown count={summary.totals.going} />, times members came <Shown count={summary.totals.came} />,
         write-ups <Shown count={summary.totals.writeUps} />.
       </p>
       {sortSummaryRooms(summary.rooms).map((room) => (
         <details key={room.roomId || "none"} className="flex flex-col gap-2">
           <summary className="min-h-[44px] cursor-pointer py-2 text-fg">
-            {room.name}: going <Shown count={room.going} />, have come <Shown count={room.came} />, write-ups{" "}
+            {room.name}: going <Shown count={room.going} />, times members came <Shown count={room.came} />, write-ups{" "}
             <Shown count={room.writeUps} />
           </summary>
           <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Gatherings in ${room.name}`}>
-            <table className="w-full min-w-[22rem] text-left text-sm">
-              <caption className="sr-only">Gatherings in {room.name}</caption>
+            <table className="w-full min-w-[19rem] text-left text-sm">
+              <caption className="sr-only">Gatherings in {room.name}: going, times members came and write-ups for each</caption>
               <thead>
                 <tr>
                   <th scope="col" className={th}>Gathering</th>
                   <th scope="col" className={`${th} text-right`}>Going</th>
-                  <th scope="col" className={`${th} text-right`}>Have come</th>
+                  <th scope="col" className={`${th} text-right`}>Times members came</th>
                   <th scope="col" className={`${th} text-right`}>Write-ups</th>
                 </tr>
               </thead>

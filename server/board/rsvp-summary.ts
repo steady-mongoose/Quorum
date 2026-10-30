@@ -8,7 +8,7 @@ import type { Db } from "../db.ts";
  * operational numbers: never shown to members, never ranked or scored.
  */
 
-// RSVP_SUMMARY_MIN_COUNT (TODO Josh) lives in src/lib/board/rsvp-rules.ts, so
+// RSVP_SUMMARY_MIN_COUNT (5, Josh, Oct 30) lives in src/lib/board/rsvp-rules.ts, so
 // the server's suppression and the panel's copy read the same number.
 import { RSVP_SUMMARY_MIN_COUNT } from "../../src/lib/board/rsvp-rules.ts";
 export { RSVP_SUMMARY_MIN_COUNT };
@@ -31,6 +31,8 @@ export type RsvpSummary = {
   rooms: Array<
     SummaryCells & {
       roomId: string;
+      /** The room's name (rooms are not people), or "". */
+      name: string;
       gatherings: Array<SummaryCells & { gatheringId: string; date: string }>;
       weeks: Array<{ week: string; writeUps: SummaryCount }>;
     }
@@ -71,7 +73,7 @@ export function suppressGroup(
 /**
  * Near everyone: a count of people at or above (members - n) all but names
  * the room (QA S2). Only for people counts, only where the room's member
- * count is known (room_join), never for "No room".
+ * count is known (room_join or room_member), never for "No room".
  */
 export function nearEveryone(value: number, members: number, n: number): boolean {
   if (members <= 0 || value <= 0) return false;
@@ -84,19 +86,43 @@ type People = "going" | "came";
 const PEOPLE: People[] = ["going", "came"];
 
 type RawGathering = { gatheringId: string; date: string; going: number; came: number; writeUps: number };
-type RawRoom = { roomId: string; members: number; gatherings: RawGathering[]; weeks: Array<{ week: string; writeUps: number }> };
+type RawRoom = { roomId: string; name?: string; members: number; gatherings: RawGathering[]; weeks: Array<{ week: string; writeUps: number }> };
 
 /**
- * Hide across levels (QA S2), per metric:
- * 1. Rooms are one group under the grand total (small, near-everyone, then
- *    complementary). A grand total under n hides itself and every room.
- * 2. A hidden room hides all of its parts (gatherings, and weeks for
- *    write-ups), so its parts never rebuild it, and the grand total minus the
- *    shown rooms never gives a small room back from its parts.
- * 3. A shown room's gatherings (and weeks) are one group under that room's
- *    total, with the same complementary rule.
+ * Whether showing a group's total would rebuild a hidden cell: exactly one
+ * non-zero cell is hidden, or the hidden ones add up to under n. Zero cells
+ * give no cover (QA F2, Oct 30).
  */
-export function suppressSummary(raw: RawRoom[], n: number = RSVP_SUMMARY_MIN_COUNT): RsvpSummary {
+export function rebuildsHidden(values: readonly number[], shown: readonly SummaryCount[], n: number): boolean {
+  const hidden = values.filter((value, i) => value > 0 && shown[i] === null);
+  if (hidden.length === 0) return false;
+  const sum = hidden.reduce((a, b) => a + b, 0);
+  return hidden.length === 1 || (n > 1 && sum < n);
+}
+
+/**
+ * Hide across levels (QA S2, F2), per metric:
+ * 1. A room whose gatherings cannot be shown under it without rebuilding a
+ *    hidden one is hidden itself.
+ * 2. Rooms are one group under the grand total (small, whole or near
+ *    membership, then complementary). A grand total under n hides itself and
+ *    every room.
+ * 3. The grand total is also hidden when it would rebuild a hidden room (only
+ *    one room has data, or every room but one is shown), or when it is the
+ *    whole or near-whole membership of the rooms that contribute to it,
+ *    counted as distinct people (`distinctMembers`).
+ * 4. A hidden room hides all of its parts (gatherings, and weeks for
+ *    write-ups). A shown room's gatherings (and weeks) are one group under
+ *    that room's total, with the same complementary rule.
+ */
+export function suppressSummary(
+  raw: RawRoom[],
+  n: number = RSVP_SUMMARY_MIN_COUNT,
+  // Distinct members across these rooms. Without it, the largest room's
+  // count: never more than the true union, so it can only hide more.
+  distinctMembers: (roomIds: string[]) => number = (ids) =>
+    Math.max(0, ...raw.filter((room) => ids.includes(room.roomId)).map((room) => room.members)),
+): RsvpSummary {
   const metrics = ["going", "came", "writeUps"] as const;
   const totals = { going: 0, came: 0, writeUps: 0 } as SummaryCells;
   const roomCells = raw.map(() => ({ going: 0, came: 0, writeUps: 0 }) as SummaryCells);
@@ -104,24 +130,36 @@ export function suppressSummary(raw: RawRoom[], n: number = RSVP_SUMMARY_MIN_COU
   const weekCells: SummaryCount[][] = raw.map((room) => room.weeks.map(() => 0));
   for (const metric of metrics) {
     const people = (PEOPLE as readonly string[]).includes(metric);
-    const roomValues = raw.map((room) => room.gatherings.reduce((acc, g) => acc + g[metric], 0));
+    const partsOf = raw.map((room) => room.gatherings.map((g) => g[metric]));
+    const roomValues = partsOf.map((parts) => parts.reduce((a, b) => a + b, 0));
+    const partsShown = raw.map((room, r) =>
+      suppressGroup(partsOf[r]!, n, partsOf[r]!.map((v) => people && nearEveryone(v, room.members, n))),
+    );
     const grand = roomValues.reduce((a, b) => a + b, 0);
-    const grandHidden = n > 1 && grand > 0 && grand < n;
-    totals[metric] = grandHidden ? null : grand;
-    const rooms = grandHidden
+    const grandSmall = n > 1 && grand > 0 && grand < n;
+    const rooms = grandSmall
       ? roomValues.map((v) => (v > 0 ? null : 0))
       : suppressGroup(
           roomValues,
           n,
-          raw.map((room, i) => people && nearEveryone(roomValues[i]!, room.members, n)),
+          raw.map(
+            (room, i) =>
+              (people && nearEveryone(roomValues[i]!, room.members, n)) ||
+              rebuildsHidden(partsOf[i]!, partsShown[i]!, n),
+          ),
         );
+    const contributing = raw.filter((_, i) => roomValues[i]! > 0).map((room) => room.roomId);
+    const grandHidden =
+      grandSmall ||
+      // One room with data: the total is that room, so it follows QA F2 and
+      // stays hidden whatever the room shows. Zero rooms give no cover.
+      (n > 1 && contributing.length === 1) ||
+      (n > 1 && rebuildsHidden(roomValues, rooms, n)) ||
+      (people && nearEveryone(grand, distinctMembers(contributing), n));
+    totals[metric] = grandHidden ? null : grand;
     raw.forEach((room, r) => {
       roomCells[r]![metric] = rooms[r]!;
-      const parts = room.gatherings.map((g) => g[metric]);
-      const shownParts =
-        rooms[r] === null
-          ? parts.map((v) => (v > 0 ? null : 0))
-          : suppressGroup(parts, n, parts.map((v) => people && nearEveryone(v, room.members, n)));
+      const shownParts = rooms[r] === null ? partsOf[r]!.map((v) => (v > 0 ? null : 0)) : partsShown[r]!;
       shownParts.forEach((v, g) => {
         gatheringCells[r]![g]![metric] = v;
       });
@@ -136,6 +174,7 @@ export function suppressSummary(raw: RawRoom[], n: number = RSVP_SUMMARY_MIN_COU
     totals,
     rooms: raw.map((room, r) => ({
       roomId: room.roomId,
+      name: room.name ?? "",
       ...roomCells[r]!,
       gatherings: room.gatherings.map((g, i) => ({ gatheringId: g.gatheringId, date: g.date, ...gatheringCells[r]![i]! })),
       weeks: room.weeks.map((w, i) => ({ week: w.week, writeUps: weekCells[r]![i]! })),
@@ -155,10 +194,26 @@ export async function rsvpSummary(db: Db, now: Date, n: number = RSVP_SUMMARY_MI
      where g.removed = false
      order by g.room_id, g.gather_on, g.id`,
   );
-  const members = await db.query<{ room_id: string; members: unknown }>(
-    `select room_id, count(distinct user_id)::int as members from room_join group by room_id`,
+  // Membership is the distinct people across room_join and room_member, the
+  // same set as the member list (QA F5). Admins who joined only to look
+  // count too (open question for Josh). Ids stay on the server.
+  const memberRows = await db.query<{ room_id: string; user_id: string }>(
+    `select room_id, user_id from room_join
+     union
+     select room_id, user_id from room_member`,
   );
-  const memberCount = new Map(members.map((row) => [row.room_id, Number(row.members)]));
+  const memberSets = new Map<string, Set<string>>();
+  for (const row of memberRows) {
+    const set = memberSets.get(row.room_id) ?? new Set<string>();
+    set.add(row.user_id);
+    memberSets.set(row.room_id, set);
+  }
+  const memberCount = new Map([...memberSets].map(([id, set]) => [id, set.size]));
+  const distinctMembers = (roomIds: string[]) => {
+    const all = new Set<string>();
+    for (const id of roomIds) for (const user of memberSets.get(id) ?? []) all.add(user);
+    return all.size;
+  };
   const since = new Date(now.getTime() - RSVP_SUMMARY_WEEKS * 7 * 24 * 60 * 60 * 1000);
   const weeks = await db.query<{ room_id: string; week: string; write_ups: unknown }>(
     `select g.room_id,
@@ -174,9 +229,11 @@ export async function rsvpSummary(db: Db, now: Date, n: number = RSVP_SUMMARY_MI
      order by 1, 2`,
     [since.toISOString().slice(0, 10)],
   );
+  const names = await db.query<{ id: string; name: string | null }>(`select id, name from room`);
+  const roomName = new Map(names.map((row) => [row.id, row.name ?? ""]));
   const byRoom = new Map<string, RawRoom>();
   const room = (id: string) => {
-    const found = byRoom.get(id) ?? { roomId: id, members: id ? (memberCount.get(id) ?? 0) : 0, gatherings: [], weeks: [] };
+    const found = byRoom.get(id) ?? { roomId: id, name: roomName.get(id) ?? "", members: id ? (memberCount.get(id) ?? 0) : 0, gatherings: [], weeks: [] };
     byRoom.set(id, found);
     return found;
   };
@@ -190,5 +247,5 @@ export async function rsvpSummary(db: Db, now: Date, n: number = RSVP_SUMMARY_MI
     });
   }
   for (const row of weeks) room(row.room_id).weeks.push({ week: row.week, writeUps: Number(row.write_ups) });
-  return suppressSummary([...byRoom.values()], n);
+  return suppressSummary([...byRoom.values()], n, distinctMembers);
 }

@@ -410,6 +410,7 @@ type PostRow = {
 
 /** A gathering's write-up is its real host's (QA S1). */
 export const WRITE_UP_HOST_ONLY = "Only this gathering's host can write it up.";
+export const GATHERING_NOT_FOUND = "That gathering is not here.";
 
 function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewer): BoardPost {
   const mark = isMarkValue(row.mark) ? row.mark : null;
@@ -1185,10 +1186,12 @@ export async function createPost(
         // roll call by filing (QA S1, Oct 30).
         if (isGatheringId(cardId)) {
           const gathering = await tx.query<{ host_user_id: string }>(
-            `select host_user_id from public_gathering where id = $1`,
+            `select host_user_id from public_gathering where id = $1 and removed = false`,
             [cardId.toLowerCase()],
           );
-          if (gathering[0] && gathering[0].host_user_id !== input.userId) {
+          // A gathering-shaped id with no row claims nothing (QA F6): 404.
+          if (!gathering[0]) throw new Stop(404, GATHERING_NOT_FOUND);
+          if (gathering[0].host_user_id !== input.userId) {
             throw new Stop(403, WRITE_UP_HOST_ONLY);
           }
         }

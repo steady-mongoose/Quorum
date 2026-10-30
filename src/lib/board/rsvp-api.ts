@@ -26,6 +26,8 @@ export function whoCameSavedLine(names: readonly string[]): string {
     ? "This close is already saved. Send the write-up again."
     : `Who came is already saved: ${names.join(", ")}. Send the write-up again.`;
 }
+/** A saved "It did not happen" close whose write-up did not go (Design 5712145240). */
+export const DID_NOT_SAVED_LINE = "This was saved as did not happen. Send the write-up again.";
 export const CAME_NOT_SAVED = "The write-up was not saved. Try again in a moment.";
 /** A steward's (or host's) "Save who came", which does not close the date (Design #126 H1). */
 export const WHO_CAME_NOT_SAVED = "Who came was not saved. Try again in a moment.";
@@ -54,7 +56,8 @@ export type RsvpList = {
 };
 
 /** One person on a roll call, by server id. Two members may share a name. */
-export type RollPerson = { userId: string; name: string };
+/** One going member on a roll call. `came`: already marked as having come (QA F4). */
+export type RollPerson = { userId: string; name: string; came?: boolean };
 
 export type RsvpMove = { gatheringId: string; going: boolean; attended: boolean };
 
@@ -156,7 +159,7 @@ export async function saveMyRsvp(
 /** Host or steward: who came, and end this date so every "going" resets. */
 export async function saveAttendance(
   gatheringId: string,
-  input: { userIds: string[]; close: boolean; seen?: string[]; happened?: boolean },
+  input: { userIds: string[]; close: boolean; seen?: string[]; happened?: boolean; unmark?: string[] },
 ): Promise<{ ok: true } | Fail> {
   const saved = await post(
     `/api/gatherings/${encodeURIComponent(gatheringId.toLowerCase())}/attendance`,
@@ -251,7 +254,11 @@ export function rollCallPeople(list: RsvpList, me: string): Record<string, RollP
     if (!roleCounts(list.admin)) continue;
     if (!list.hosts.includes(row.gatheringId) && !(row.roomId !== "" && list.stewardRooms.includes(row.roomId))) continue;
     const people = out[row.gatheringId] ?? [];
-    people.push({ userId: row.userId, name: row.userId === list.viewer ? me : row.name });
+    people.push({
+      userId: row.userId,
+      name: row.userId === list.viewer ? me : row.name,
+      ...(row.attended ? { came: true } : {}),
+    });
     out[row.gatheringId] = people;
   }
   return out;
@@ -368,6 +375,8 @@ export type RsvpSummary = {
   rooms: Array<
     RsvpSummaryCells & {
       roomId: string;
+      /** The room's name from the server, or "" when it has none. */
+      name?: string;
       gatherings: Array<RsvpSummaryCells & { gatheringId: string; date: string }>;
       weeks: Array<{ week: string; writeUps: SummaryCount }>;
     }
@@ -386,6 +395,7 @@ export function isRsvpSummary(value: unknown): value is RsvpSummary {
   if (!body || typeof body.minCount !== "number" || !isCells(body.totals) || !Array.isArray(body.rooms)) return false;
   return body.rooms.every((room: Record<string, unknown>) =>
     typeof room.roomId === "string" &&
+    (room.name === undefined || typeof room.name === "string") &&
     isCells(room as unknown) &&
     Array.isArray(room.gatherings) &&
     room.gatherings.every((g: Record<string, unknown>) => typeof g.gatheringId === "string" && typeof g.date === "string" && isCells(g)) &&

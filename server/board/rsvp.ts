@@ -1,5 +1,5 @@
 import { DID_NOT_NAMES, rsvpHandle } from "./rsvp-handle.ts";
-import { ADMIN_NO_NAMES, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
+import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { rsvpSummary } from "./rsvp-summary.ts";
 import type { Db } from "../db.ts";
 import { limitBoard } from "./routes.ts";
@@ -335,9 +335,10 @@ export async function setMyRsvp(
  */
 export async function markAttendance(
   db: Db,
-  input: { gatheringId: string; userIds: string[]; close: boolean; check?: (tx: Db) => Promise<boolean> },
+  input: { gatheringId: string; userIds: string[]; unmark?: string[]; close: boolean; check?: (tx: Db) => Promise<boolean> },
 ): Promise<boolean> {
   const ids = [...new Set(input.userIds)].slice(0, RSVP_BATCH_MAX);
+  const unmark = [...new Set(input.unmark ?? [])].slice(0, RSVP_BATCH_MAX);
   const run = async (tx: Db): Promise<boolean> => {
     if (input.check) {
       // Lock this gathering's rows, then check the host's list inside the same
@@ -354,6 +355,20 @@ export async function markAttendance(
         `update gathering_rsvp set attended = true, updated_at = now()
          where gathering_id = $1 and going = true and user_id = any ($2::text[])`,
         [input.gatheringId, ids],
+      );
+    }
+    if (unmark.length > 0) {
+      // Taking a mark back. A row left saying nothing is removed, never kept
+      // empty (the check would refuse it). attended is one flag per member
+      // and gathering, so this also clears an earlier date's mark.
+      await tx.query(
+        `delete from gathering_rsvp where gathering_id = $1 and not going and user_id = any ($2::text[])`,
+        [input.gatheringId, unmark],
+      );
+      await tx.query(
+        `update gathering_rsvp set attended = false, updated_at = now()
+         where gathering_id = $1 and going and user_id = any ($2::text[])`,
+        [input.gatheringId, unmark],
       );
     }
     if (input.close) {
@@ -403,12 +418,12 @@ export function rsvpCutoff(now: Date): Date {
  * Deletes run in bounded batches. Before 0049 is applied there is no table,
  * and this does nothing.
  */
-export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: number }> {
+export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: number; writeUps?: number }> {
   const present = await db.query<{ present: string | null }>(
     `select to_regclass('public.gathering_rsvp')::text as present`,
   );
-  if (!present[0]?.present) return { deleted: 0 };
   const cutoff = rsvpCutoff(now);
+  if (!present[0]?.present) return { deleted: 0, writeUps: await purgeOldWriteUpNames(db, cutoff) };
   const cutoffDay = cutoff.toISOString().slice(0, 10);
   let deleted = 0;
   for (let round = 0; round < RSVP_PURGE_ROUNDS; round += 1) {
@@ -431,8 +446,34 @@ export async function purgeOldRsvps(db: Db, now: Date): Promise<{ deleted: numbe
     deleted += rows.length;
     if (rows.length < RSVP_PURGE_BATCH) break;
   }
-  console.log(JSON.stringify({ event: "rsvp-retention-purge", deleted }));
-  return { deleted };
+  const writeUps = await purgeOldWriteUpNames(db, cutoff);
+  console.log(JSON.stringify({ event: "rsvp-retention-purge", deleted, writeUps }));
+  return { deleted, writeUps };
+}
+
+/**
+ * Josh's 12-month rule covers who came on a write-up too (QA F3, Oct 30): a
+ * hosted write-up older than the cutoff (by its date, or when it was filed if
+ * it has none) loses its came list and its named-account links, so no one
+ * reads an old "came" date for a member. The write-up itself stays. This
+ * deletes data. Queries only; no schema change.
+ */
+async function purgeOldWriteUpNames(db: Db, cutoff: Date): Promise<number> {
+  const cutoffDay = cutoff.toISOString().slice(0, 10);
+  const old = `p.type = 'hosted'
+       and (case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date < $1 else p.created_at < $2 end)`;
+  const named = await db.query<{ ready: string | null }>(`select to_regclass('public.dm_named_account')::text as ready`);
+  if (named[0]?.ready) {
+    await db.query(
+      `delete from dm_named_account n using board_post p where n.post_id = p.id and ${old}`,
+      [cutoffDay, cutoff],
+    );
+  }
+  const stripped = await db.query<{ id: string }>(
+    `update board_post p set came = '{}' where ${old} and cardinality(p.came) > 0 returning p.id`,
+    [cutoffDay, cutoff],
+  );
+  return stripped.length;
 }
 
 /** Runs once at start and then every 24 hours, like the security-log purge. */
@@ -497,7 +538,8 @@ export async function moveMyRsvps(
       { userId: input.userId, admin: gate.actor.admin, stewardRooms: gate.actor.stewardRooms },
       gate.gathering,
     );
-    const entry = { ...raw, attended: raw.attended && marks };
+    // Not before the gathering, and only with a "going" (QA F4).
+    const entry = { ...raw, attended: raw.attended && marks && raw.going && markOpen(gate.gathering, input.now) };
     if (!entry.going && !entry.attended) continue;
     await db.query(
       `insert into gathering_rsvp as r (gathering_id, user_id, going, attended)
@@ -627,6 +669,12 @@ export async function handleRsvp(
       if (body.attended === true && (await rollOff())) {
         return json(409, { error: ROOM_OPTION_OFF.roll_call });
       }
+      if (body.attended === true) {
+        // Not before the gathering, and only after saying "going" (QA F4).
+        if (!markOpen(gate.gathering, now)) return json(409, { error: MARK_TOO_EARLY });
+        const own = await setMyRsvp(deps.db, { userId: session.id, gatheringId });
+        if (!own.going && !own.attended) return json(409, { error: MARK_NOT_GOING });
+      }
       const mine = await setMyRsvp(deps.db, {
         userId: session.id,
         gatheringId,
@@ -660,6 +708,18 @@ export async function handleRsvp(
     if (raw.length > 0 && (await rollOff())) {
       return json(409, { error: ROOM_OPTION_OFF.roll_call });
     }
+    // Taking a mark back (QA F4): handles of members already marked as came.
+    const unmarkRaw = body.unmark ?? [];
+    if (!Array.isArray(unmarkRaw) || unmarkRaw.length > RSVP_BATCH_MAX || unmarkRaw.some((id) => typeof id !== "string")) {
+      return json(400, { error: `Send up to ${RSVP_BATCH_MAX} member ids.` });
+    }
+    if (unmarkRaw.some((id) => (raw as string[]).includes(id as string))) {
+      return json(400, { error: "A member cannot be marked and unmarked at once." });
+    }
+    // No marks before the gathering's date or start time (QA F4).
+    if (raw.length > 0 && !markOpen(gate.gathering, now)) {
+      return json(409, { error: MARK_TOO_EARLY });
+    }
     const userIds = await idsFromHandles(deps.db, {
       ...reader,
       gatheringId,
@@ -667,6 +727,16 @@ export async function handleRsvp(
       now,
     });
     if (!userIds) return json(409, { error: ROLL_CALL_STALE });
+    const unmarkIds = await idsFromHandles(deps.db, { ...reader, gatheringId, sent: unmarkRaw as string[], now });
+    if (!unmarkIds) return json(409, { error: ROLL_CALL_STALE });
+    if (userIds.length > 0) {
+      // Only members who said they're going (or are already marked) can be marked (QA F4).
+      const rows = await readRsvps(deps.db, { ...reader, gatheringIds: [gatheringId], now });
+      const byId = new Map(rows.map((row) => [row.userId, row]));
+      if (userIds.some((id) => !byId.get(id)?.going && !byId.get(id)?.attended)) {
+        return json(409, { error: MARK_NOT_GOING });
+      }
+    }
     let check: ((tx: Db) => Promise<boolean>) | undefined;
     if (body.close === true) {
       // A close clears every "going". Refuse one from a list that never showed
@@ -690,6 +760,7 @@ export async function handleRsvp(
     const done = await markAttendance(deps.db, {
       gatheringId,
       userIds,
+      unmark: unmarkIds,
       close: body.close === true,
       ...(check ? { check } : {}),
     });

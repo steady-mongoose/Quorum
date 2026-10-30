@@ -1,4 +1,4 @@
-import { actorRole, stewardsRoom } from "./access.ts";
+import { actorRole, realStewardOf, stewardsRoom } from "./access.ts";
 import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibility.ts";
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
@@ -181,13 +181,14 @@ export async function saveGathering(
     if (await hidden(db, existing, input.now)) return fail(404, "Not found.");
     const existingRoom = await readRoomListing(db, existing.room_id);
     if (!existingRoom || !canReadRoom(existingRoom.status, actor)) return fail(404, "Not found.");
-    const allowed = existing.host_user_id === input.userId || stewardsRoom(actor, existing.room_id);
+    // Editing needs the real host or a real steward of its current room; a
+    // move needs that in BOTH rooms. The admin grant in stewardsRoom never
+    // counts here: moving a gathering into a room someone stewards would hand
+    // them its names (QA F1, Oct 30).
+    const host = existing.host_user_id === input.userId;
+    const allowed = host || realStewardOf(actor, existing.room_id);
     if (!allowed) return fail(403, "Only the organizer can change this gathering.");
-    if (
-      existing.room_id !== roomId &&
-      !stewardsRoom(actor, roomId) &&
-      existing.host_user_id !== input.userId
-    ) {
+    if (existing.room_id !== roomId && !host && !realStewardOf(actor, roomId)) {
       return fail(403, "Only the organizer can change this gathering.");
     }
     await db.query(
@@ -313,7 +314,8 @@ export async function readGatheringFor(
   const actor = await actorRole(db, input.userId);
   const listed = await readRoomListing(db, row.room_id);
   if (!listed || !canReadRoom(listed.status, actor)) return fail(404, "Not found.");
-  const allowed = row.host_user_id === input.userId || stewardsRoom(actor, row.room_id);
+  // Reading it for editing: the real host or a real steward of its room (QA F1).
+  const allowed = row.host_user_id === input.userId || realStewardOf(actor, row.room_id);
   if (!allowed) return fail(404, "Not found.");
   return { ok: true, gathering: toRecord(row, input.userId) };
 }
@@ -375,7 +377,7 @@ export async function rsvpGatheringFor(
 ): Promise<
   | {
       ok: true;
-      gathering: { id: string; roomId: string; hostUserId: string };
+      gathering: { id: string; roomId: string; hostUserId: string; date: string; time: string };
       actor: Awaited<ReturnType<typeof actorRole>>;
     }
   | Fail
@@ -398,7 +400,7 @@ export async function rsvpGatheringFor(
   }
   return {
     ok: true,
-    gathering: { id: row.id, roomId: row.room_id, hostUserId: row.host_user_id },
+    gathering: { id: row.id, roomId: row.room_id, hostUserId: row.host_user_id, date: row.gather_on, time: row.gather_time },
     actor,
   };
 }

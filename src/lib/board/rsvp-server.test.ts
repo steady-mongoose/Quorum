@@ -21,7 +21,7 @@ import {
   type RsvpList,
 } from "./rsvp-api.ts";
 import { setBoardClient, type BoardClient } from "./client.ts";
-import { ADMIN_ROLE_SEES_NAMES } from "./rsvp-rules.ts";
+import { ADMIN_ROLE_SEES_NAMES, MARK_TOO_EARLY } from "./rsvp-rules.ts";
 import { readFileSync } from "node:fs";
 import { savedWhoCameLine } from "./rsvp-api.ts";
 import { closeSavedFor, forgetSavedClose, savedClose, savedCloseNames, useBoard } from "./store.ts";
@@ -453,7 +453,8 @@ test("a member cannot mark 'I've been'; the host can", async () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   try {
     setBoardClient(stubClient());
-    useBoard.setState({ remote: true, admin: false, me: "Maria", rsvpHosts: [], cards: [card(G1, { host: "Dale" })] });
+    // Dale said "going": only members going can be marked (QA F4).
+    useBoard.setState({ remote: true, admin: false, me: "Maria", rsvpHosts: [], cards: [card(G1, { host: "Dale", going: ["Dale"] })] });
     useBoard.getState().visited(G1);
     await settle();
     assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
@@ -534,7 +535,7 @@ test("\"I went\" is saved first: the card changes only on success or rsvp-not-re
   }) as typeof fetch;
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   // The host of the card: one of the two roles (host, room steward) that mark who came.
-  const hosted = () => card(G1, { host: "Me", unverified: true });
+  const hosted = () => card(G1, { host: "Me", unverified: true, going: ["Me"] });
   try {
     setBoardClient(stubClient());
     useBoard.setState({ remote: true, admin: false, me: "Me", boardError: "", rsvpHosts: [G1], cards: [hosted()] });
@@ -1029,7 +1030,8 @@ test("a steward marks who came WITHOUT closing the date (Design #126 H1)", async
   }) as typeof fetch;
   try {
     setBoardClient(stubClient());
-    const open = card(G1, { host: "Dale", room: "shop", next: "2026-10-31", going: ["Tom", "Ann"] });
+    // A date that has passed: marking is open (QA F4).
+    const open = card(G1, { host: "Dale", room: "shop", next: "2026-10-24", going: ["Tom", "Ann"] });
     useBoard.setState({
       remote: true,
       admin: false,
@@ -1045,7 +1047,7 @@ test("a steward marks who came WITHOUT closing the date (Design #126 H1)", async
     assert.deepEqual(attendance, [{ path: `/api/gatherings/${G1}/attendance`, body: { userIds: ["h_tom"], close: false } }]);
     // The date stays open: same next date, nobody's going reset, no write-up posted.
     const after = useBoard.getState().cards[0]!;
-    assert.equal(after.next, "2026-10-31");
+    assert.equal(after.next, "2026-10-24");
     assert.deepEqual(after.going, ["Tom", "Ann"]);
     assert.ok(after.wentBy.includes("Tom"));
     assert.equal(sent.some((s) => !s.path.endsWith("/attendance") && s.path.includes("post")), false);
@@ -1081,6 +1083,72 @@ test("the steward's 'Mark who came' form has no next date, no outcome buttons an
   for (const banned of [/Next date/, /It happened/, /It did not/, /closeCard/, /How it went/, /close: true/]) {
     assert.doesNotMatch(form, banned);
   }
-  assert.match(src, /!isHost && takesRoll\(card\) && rollOn && card\.next \? <StewardRollCall card=\{card\} \/> : null/);
+  assert.match(src, /!isHost && takesRoll\(card\) && rollOn && card\.next && started \? <StewardRollCall card=\{card\} \/> : null/);
   assert.equal(savedWhoCameLine(["Ann", "Ben"]), "Saved: Ann, Ben.");
+});
+
+test("QA F4: \"I went\" and a steward's marks wait for the start, and need a \"going\"", async () => {
+  const sent: string[] = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://x");
+    if (init?.method === "POST") sent.push(`${url.pathname} ${String(init.body)}`);
+    return new Response(JSON.stringify({ ok: true, mine: { going: true, attended: true } }), { status: 200 });
+  }) as typeof fetch;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    setBoardClient(stubClient());
+    // Next year: not started.
+    useBoard.setState({
+      remote: true,
+      admin: false,
+      me: "Dale",
+      rsvpHosts: [G1],
+      stewardRooms: [],
+      cards: [card(G1, { host: "Dale", room: "shop", next: "2099-01-01", going: ["Dale", "Tom"] })],
+    });
+    useBoard.getState().visited(G1);
+    await settle();
+    const early = await useBoard.getState().markWhoCame(G1, { userIds: ["h_tom"], names: ["Tom"] });
+    assert.equal(early.ok, false);
+    assert.deepEqual(early.ok ? [] : early.stops, [MARK_TOO_EARLY]);
+    assert.deepEqual(sent, []);
+    // Started, but Dale is not going: "I went" sends nothing.
+    useBoard.setState({ cards: [card(G1, { host: "Dale", room: "shop", next: "2026-10-24", going: ["Tom"] })] });
+    useBoard.getState().visited(G1);
+    await settle();
+    assert.deepEqual(sent, []);
+    // A steward takes a mark back: sent as unmark, and the name leaves the card.
+    useBoard.setState({ cards: [card(G1, { host: "Dale", room: "shop", next: "2026-10-24", going: ["Tom"], wentBy: ["Tom"] })] });
+    const back = await useBoard.getState().markWhoCame(G1, { userIds: [], names: [], unmark: ["h_tom"], unmarkNames: ["Tom"] });
+    assert.equal(back.ok, true);
+    assert.deepEqual(sent, [`/api/gatherings/${G1}/attendance {"userIds":[],"close":false,"unmark":["h_tom"]}`]);
+    assert.deepEqual(useBoard.getState().cards[0]?.wentBy, []);
+  } finally {
+    globalThis.fetch = priorFetch;
+    setBoardClient(null);
+  }
+});
+
+test("QA F4 + Design lows: the form starts from saved marks, sends unmark, and buttons use aria-disabled guards", () => {
+  const src = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  // Not before the start, and only once going.
+  assert.match(src, /const started = markOpen\(\{ date: card\.next, time: card\.time \}, new Date\(\)\);/);
+  assert.match(src, /const canSayWent = !went && started && going;/);
+  // "I went": aria-disabled with a guard, never native disabled.
+  assert.match(src, /aria-disabled=\{!canSayWent \|\| undefined\}/);
+  assert.match(src, /if \(!canSayWent\) return;\s*visited\(card\.id\);/);
+  assert.equal(/disabled=\{went\}/.test(src), false);
+  // The host's chips wait for the start too.
+  assert.match(src, /takesRoll\(card\) && rollOn && started && roll\.length > 0/);
+  // Existing marks pre-checked; un-picked ones go back as unmark.
+  assert.match(src, /const marked = roll\.filter\(\(person\) => person\.came\);/);
+  assert.match(src, /unmark: back\.map\(\(person\) => person\.userId\)/);
+  // Host close: one submit at a time.
+  assert.match(src, /if \(submitting\) return;/);
+  assert.match(src, /\.finally\(\(\) => setSubmitting\(false\)\)/);
+  assert.equal((src.match(/aria-busy=\{submitting \|\| undefined\}/g) ?? []).length, 2);
+  assert.match(src, /aria-disabled:opacity-70/);
+  // A saved "did not happen" close says so.
+  assert.match(src, /saved\.happened \? whoCameSavedLine\(savedNames \?\? \[\]\) : DID_NOT_SAVED_LINE/);
 });

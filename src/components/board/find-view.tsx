@@ -48,8 +48,10 @@ import {
   toggleRoll,
   savedWhoCameLine,
   whoCameSavedLine,
+  DID_NOT_SAVED_LINE,
   type RollPerson,
 } from "@/lib/board/rsvp-api";
+import { markOpen } from "@/lib/board/rsvp-rules";
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
@@ -376,9 +378,11 @@ export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCa
   const rollCall = useBoard((state) => state.rollCall);
   const roll = rollCallFor(card, rollCall);
   const [open, setOpen] = useState(initialOpen);
-  const [keys, setKeys] = useState<string[]>([]);
-  const [names, setNames] = useState<string[]>([]);
-  const [ids, setIds] = useState<string[]>([]);
+  // Opened already: start from the saved marks too (QA F4).
+  const marks = initialOpen ? roll.filter((person) => person.came) : [];
+  const [keys, setKeys] = useState<string[]>(() => marks.map(rollKey));
+  const [names, setNames] = useState<string[]>(() => marks.map((person) => person.name));
+  const [ids, setIds] = useState<string[]>(() => marks.map((person) => person.userId).filter(Boolean));
   const [sending, setSending] = useState(false);
   const [savedLine, setSavedLine] = useState("");
   const [refused, setRefused] = useState<string[]>([]);
@@ -414,6 +418,11 @@ export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCa
           aria-controls={formId}
           onClick={() => {
             setSavedLine("");
+            // Start from the saved marks, so a wrong one can be taken back (QA F4).
+            const marked = roll.filter((person) => person.came);
+            setKeys(marked.map(rollKey));
+            setNames(marked.map((person) => person.name));
+            setIds(marked.map((person) => person.userId).filter(Boolean));
             setOpen(true);
           }}
         >
@@ -438,7 +447,15 @@ export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCa
         setSavedLine("");
         setSending(true);
         const picked = names;
-        void markWhoCame(card.id, { userIds: ids, names: picked })
+        const before = roll.filter((person) => person.came);
+        const add = roll.filter((person) => keys.includes(rollKey(person)) && !person.came);
+        const back = before.filter((person) => !keys.includes(rollKey(person)));
+        void markWhoCame(card.id, {
+          userIds: add.map((person) => person.userId).filter(Boolean),
+          names: add.map((person) => person.name),
+          unmark: back.map((person) => person.userId).filter(Boolean),
+          unmarkNames: back.map((person) => person.name),
+        })
           .then((result) => {
             if (!result.ok) {
               setRefused(result.stops);
@@ -480,6 +497,7 @@ export function StewardRollCall({ card, initialOpen = false }: { card: MeetingCa
       {takesRoll(card) && roll.length > 0 ? (
         <fieldset className="flex flex-wrap items-center gap-2 text-sm text-muted">
           <legend className="mb-2">Who came:</legend>
+          <p className="basis-full text-[13px] text-muted">Marked members are saved as came. Tap one to take the mark back.</p>
           {roll.map((person, index) => (
             <label
               key={rollKey(person)}
@@ -616,6 +634,10 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
   const going = card.going.includes(rest.me);
+  const started = markOpen({ date: card.next, time: card.time }, new Date());
+  // "I went": only once it has started, and only after saying "going" (QA F4).
+  const canSayWent = !went && started && going;
+  const [submitting, setSubmitting] = useState(false);
 
   return (
     <article
@@ -656,14 +678,24 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
 
       {/* A steward marks who came here: no next date, no outcome, no write-up,
           so the host's write-up never goes out under a steward's name (Design #126 H1). */}
-      {!isHost && takesRoll(card) && rollOn && card.next ? <StewardRollCall card={card} /> : null}
+      {/* Not before the gathering's date or start time (QA F4). */}
+      {!isHost && takesRoll(card) && rollOn && card.next && started ? <StewardRollCall card={card} /> : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!isHost && card.next ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
         {takesRoll(card) ? (
-          <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
+          <button
+            type="button"
+            className={cn(btnGhost, "aria-disabled:opacity-70")}
+            aria-disabled={!canSayWent || undefined}
+            title={!went && !canSayWent ? (started ? "Say you're going first." : "Once the gathering has started.") : undefined}
+            onClick={() => {
+              if (!canSayWent) return;
+              visited(card.id);
+            }}
+          >
             {went ? "You've been" : "I went"}
           </button>
         ) : null}
@@ -697,11 +729,13 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
               className="flex w-full flex-col gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (submitting) return;
                 // Clear first so a repeat failure re-mounts the alert and is announced again.
                 setRefused([]);
                 setDroppedPeople([]);
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
+                setSubmitting(true);
                 void closeCard(
                   card.id,
                   happened,
@@ -733,7 +767,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     setPages("");
                     setRefused([]);
                   },
-                );
+                ).finally(() => setSubmitting(false));
               }}
             >
               <div className="flex flex-col gap-2 text-sm text-muted">
@@ -789,7 +823,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {takesRoll(card) && rollOn && roll.length > 0 && !whoSaved ? (
+              {takesRoll(card) && rollOn && started && roll.length > 0 && !whoSaved ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {roll.map((person, index) => (
@@ -821,7 +855,7 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 {dropped}
               </p>
               <p role="status" className={cn("text-sm text-fg", !whoSaved && "sr-only")}>
-                {savedNames ? whoCameSavedLine(savedNames) : ""}
+                {saved ? (saved.happened ? whoCameSavedLine(savedNames ?? []) : DID_NOT_SAVED_LINE) : ""}
               </p>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex basis-full flex-col gap-2 text-sm text-muted">
@@ -836,7 +870,14 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 {/* Locked to a saved close: offer only its outcome; the other renders null
                     in its slot, so focus never lands on a removed button (Design #126 M1). */}
                 {!saved || saved.happened ? (
-                  <button ref={saveButton} type="submit" value="yes" className={cn(btnSignal, "whitespace-nowrap")}>
+                  <button
+                    ref={saveButton}
+                    type="submit"
+                    value="yes"
+                    className={cn(btnSignal, "whitespace-nowrap aria-disabled:opacity-70")}
+                    aria-disabled={submitting || undefined}
+                    aria-busy={submitting || undefined}
+                  >
                     It happened
                   </button>
                 ) : null}
@@ -845,7 +886,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                     ref={saved ? saveButton : undefined}
                     type="submit"
                     value="no"
-                    className={cn(btnGhost, "whitespace-nowrap")}
+                    className={cn(btnGhost, "whitespace-nowrap aria-disabled:opacity-70")}
+                    aria-disabled={submitting || undefined}
+                    aria-busy={submitting || undefined}
                   >
                     It did not
                   </button>
