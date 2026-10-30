@@ -134,6 +134,26 @@ test("focused controls clear the tab bar on phones and the chip row on Rooms bel
   );
 });
 
+test("header controls cancel the scroll padding, so focusing them never scrolls the page (QA B1 on #121)", () => {
+  // html scroll-padding-top treats the sticky header's own controls as obscured by it: at 1280, header focus
+  // scrolled 1200 to 745 and the desktop More dialog 700 to 245 to 0. Each padding gets an equal negative margin.
+  assert.match(fluid, /\.mast-bar,\.mast-bar \*\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ \.5rem\)\)\}/);
+  assert.match(
+    fluid,
+    /@media \(max-width:1023px\)\{html:has\(\.room-chips\) :is\(\.mast-bar,\.mast-bar \*\)\{scroll-margin-top:calc\(-1 \* \(var\(--mast-h\) \+ 3\.75rem \+ \.5rem\)\)\}\}/,
+  );
+  // Every scroll-padding-top on html has a matching cancel on the header.
+  const pads = [...fluid.matchAll(/scroll-padding-top:calc\(([^;}]+)\)[;}]/g)].map((m) => m[1]);
+  const cancels = [...fluid.matchAll(/scroll-margin-top:calc\(-1 \* \(([^;}]+)\)\)[;}]/g)].map((m) => m[1]);
+  assert.ok(pads.length >= 2);
+  assert.deepEqual([...cancels].sort(), [...pads].sort());
+});
+
+test("the desktop --mast-h first-paint guess is the measured 84px board header (QA N1)", () => {
+  assert.match(fluid, /@media \(min-width:768px\)\{:root\{--mast-h:84px\}\}/);
+  assert.doesNotMatch(fluid, /--mast-h:97px/);
+});
+
 test("main reserves the tab bar's own height, and --tabbar-h:57px is declared exactly once", () => {
   assert.match(
     fluid,
