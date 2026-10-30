@@ -8,6 +8,7 @@ import { registerRoomPost } from "./media/access.ts";
 import { handleGroups } from "./board/group-routes.ts";
 import { handleBoard, limitBoardWrite } from "./board/routes.ts";
 import { handlePublicGathering } from "./board/public-gathering.ts";
+import { handleRsvp } from "./board/rsvp.ts";
 import { noteAuthenticatedRequest } from "./stats/activity.ts";
 import { handleStats } from "./stats/routes.ts";
 import { handleProfile } from "./profile/routes.ts";
@@ -518,6 +519,9 @@ async function route(
 
   const inviteTracker = await handleInviteTracker(deps, request, url);
   if (inviteTracker) return inviteTracker;
+
+  const rsvp = await handleRsvp(deps, request, url);
+  if (rsvp) return rsvp;
 
   const board = await handleBoard({ ...deps, store: media.store }, request, url);
   if (board) return board;

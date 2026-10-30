@@ -57,8 +57,16 @@ test("the views read cards through forViewer", () => {
   assert.match(read("room-view.tsx"), /"Say how it went, and set the next date\."/);
 });
 
-test("server board responses carry a forViewer TODO", () => {
-  for (const path of ["../../../server/board/store.ts", "./store.ts"]) {
-    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /TODO\(rsvp-server\):[^\n]*forViewer/);
+test("RSVPs are read from the server, filtered there, and forViewer stays as a second layer", () => {
+  const server = readFileSync(new URL("../../../server/board/rsvp.ts", import.meta.url), "utf8");
+  // A non-admin's read is filtered to their own user id in SQL.
+  assert.match(server, /\(\$2::boolean or r\.user_id = \$3\)/);
+  assert.match(server, /admin: actor\.admin/);
+  assert.match(server, /\.\.\.\(gate\.actor\.admin \? \{ people: rows \} : \{\}\)/);
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  assert.match(store, /await syncRsvps\(/);
+  assert.doesNotMatch(store, /TODO\(rsvp-server\)/);
+  for (const name of ["week-view.tsx", "find-view.tsx", "room-view.tsx"]) {
+    assert.match(read(name), /forViewer\(card, \{ admin: viewerAdmin, name: viewerName \}\)/, name);
   }
 });

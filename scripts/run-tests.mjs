@@ -11,6 +11,8 @@ const appTests = [
   "server/board/removal-mine.test.ts",
   "server/board/group-invites.test.ts",
   "src/lib/board/rsvp-admin-only.test.ts",
+  "src/lib/board/rsvp-server.test.ts",
+  "server/board/rsvp.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "server/board/steward-rule.test.ts",
   "src/lib/board/appeal-a11y.test.ts",

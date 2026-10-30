@@ -962,7 +962,9 @@ export async function listBoard(
       csamReports,
       adminAlerts,
       pages,
-      // TODO(rsvp-server): this board response carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
+      // RSVPs are not in this response. GET /api/rsvps (server/board/rsvp.ts)
+      // returns them, filtered in SQL the way forViewer (src/lib/board/model.ts)
+      // filters on the device: a member gets only their own rows.
     },
   };
 }

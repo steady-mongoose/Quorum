@@ -25,6 +25,16 @@ import {
   saveGathering,
   type StoredGathering,
 } from "./gathering-public.ts";
+import { isGatheringId } from "./public-gathering.ts";
+import {
+  applyServerRsvps,
+  deviceRsvpMoves,
+  loadRsvps,
+  moveRsvps,
+  rsvpIdsByName,
+  saveAttendance,
+  saveMyRsvp,
+} from "./rsvp-api.ts";
 import {
   APP_NAME,
   DAY,
@@ -136,6 +146,11 @@ type BoardState = {
   /** The member row whose Message button takes focus when its room shows again. */
   focusMember: string | null;
   lineDismissedAt: number;
+  /**
+   * Server user ids whose RSVPs this browser has already moved to the server
+   * (migration 0049). The move runs once per member per browser.
+   */
+  rsvpMovedFor: string[];
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
   setMe: (me: string) => void;
@@ -528,6 +543,15 @@ export const useBoard = create<BoardState>()(
           posts: [post, ...get().posts.filter((item) => item.id !== post.id)],
           cards: get().cards.map((item) => (item.id === card.id ? closed : item)),
         });
+        if (get().remote && isGatheringId(card.id)) {
+          // The server ends the date too. Only an admin's roll call carries ids;
+          // a host who is not an admin never sees the list, so sends none.
+          const ids = rsvpIds.get(card.id.toLowerCase());
+          const userIds = input.came
+            .map((name) => ids?.get(name))
+            .filter((id): id is string => Boolean(id));
+          void saveAttendance(card.id, { userIds, close: true }).then(savedOrLocal);
+        }
       };
       const patchCard = (id: string, fn: (card: MeetingCard) => MeetingCard) =>
         set({ cards: get().cards.map((card) => (card.id === id ? fn(card) : card)) });
@@ -540,7 +564,14 @@ export const useBoard = create<BoardState>()(
           time: card.time,
           place: card.place,
         }).then((result) => {
-          if (!result.ok) set({ boardError: result.error });
+          if (!result.ok) {
+            set({ boardError: result.error });
+            return;
+          }
+          // The lister has been, as on the device. Only my own name is sent.
+          if (card.wentBy.includes(me())) {
+            void saveMyRsvp(card.id, { attended: true }).then(savedOrLocal);
+          }
         });
       };
       const mergeGatherings = (rows: StoredGathering[]) => {
@@ -579,6 +610,35 @@ export const useBoard = create<BoardState>()(
         }
         set({ cards });
       };
+      /** Admin roll call only: card id, then a name, to the member's server id. */
+      let rsvpIds = new Map<string, Map<string, string>>();
+      /**
+       * After sign-in: move this browser's own RSVPs to the server once, then
+       * read the server's. A member gets back only their own rows; an admin
+       * gets every row. Before 0049 is applied (503) the device keeps its own.
+       */
+      const syncRsvps = async (gatheringIds: ReadonlySet<string>) => {
+        let list = await loadRsvps();
+        if (!list.ok) return;
+        if (!get().rsvpMovedFor.includes(list.viewer)) {
+          const moves = deviceRsvpMoves(get().cards, me());
+          const moved = moves.length > 0 ? await moveRsvps(moves) : { ok: true as const };
+          if (!moved.ok) return;
+          set({ rsvpMovedFor: [...get().rsvpMovedFor, list.viewer] });
+          if (moves.length > 0) {
+            list = await loadRsvps();
+            if (!list.ok) return;
+          }
+        }
+        rsvpIds = rsvpIdsByName(list, me());
+        set({ cards: applyServerRsvps(get().cards, list, { me: me(), gatheringIds }) });
+      };
+      /** A 503 means 0049 is not applied yet: keep the change on this device. */
+      const savedOrLocal = (result: { ok: true } | { ok: false; status: number; error: string }) => {
+        if (result.ok || result.status === 503) return true;
+        set({ boardError: result.error });
+        return false;
+      };
       let posting = false;
 
       const applySnapshot = (board: BoardSnapshot) => {
@@ -588,7 +648,8 @@ export const useBoard = create<BoardState>()(
           remote: true,
           boardError: "",
           rooms,
-          // TODO(rsvp-server): the server board carries no cards today. When RSVPs move to the server, apply forViewer (src/lib/board/model.ts) to every card here so non-admins get only their own name in going and wentBy.
+          // RSVPs come from /api/rsvps (syncRsvps), filtered on the server: a
+          // member gets only their own rows. The views still apply forViewer.
           posts: board.posts,
           markLog: board.marks,
           removals: board.removals,
@@ -733,6 +794,7 @@ export const useBoard = create<BoardState>()(
         messages: [],
         openThread: null,
         lineDismissedAt: 0,
+        rsvpMovedFor: [],
         undoClear: null,
         localEntry: false,
         setSection: (section) => {
@@ -1232,15 +1294,24 @@ export const useBoard = create<BoardState>()(
               }
               return;
             }
-            toggle();
+            if (!isGatheringId(card.id)) {
+              toggle();
+              return;
+            }
+            const going = !card.going.includes(me());
+            if (savedOrLocal(await saveMyRsvp(card.id, { going }))) toggle();
           })();
         },
-        visited: (id) =>
+        visited: (id) => {
           patchCard(id, (card) => ({
             ...card,
             unverified: false,
             wentBy: addName(card.wentBy, me()),
-          })),
+          }));
+          if (get().remote && isGatheringId(id)) {
+            void saveMyRsvp(id, { attended: true }).then(savedOrLocal);
+          }
+        },
         removeCard: async (id) => {
           const cards = get().cards;
           const index = cards.findIndex((card) => card.id === id);
@@ -1561,7 +1632,10 @@ export const useBoard = create<BoardState>()(
           applySnapshot(loaded.board);
           await pullHome();
           const listed = await loadGatherings();
-          if (listed.ok) mergeGatherings(listed.gatherings);
+          if (listed.ok) {
+            mergeGatherings(listed.gatherings);
+            await syncRsvps(new Set(listed.gatherings.map((row) => row.id.toLowerCase())));
+          }
         },
         loadOlder: async (room) => {
           if (!get().remote) return;
@@ -1690,6 +1764,7 @@ export const useBoard = create<BoardState>()(
         deskOn: state.deskOn,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
+        rsvpMovedFor: state.rsvpMovedFor,
         posts: state.remote ? [] : state.posts,
         cards: state.cards,
         invites: state.invites,

@@ -347,3 +347,37 @@ export async function loadSharedGathering(
   if (!(await roomIsOpen(db, row.room_id))) return null;
   return { title: row.title, date: row.gather_on, time: row.gather_time, town: row.town };
 }
+
+/**
+ * A gathering one member may RSVP to: the same rule as listGatheringsFor.
+ * Missing, removed, barred, or outside the room's audience is a 404, so a
+ * member cannot learn that a gathering they cannot see exists.
+ */
+export async function rsvpGatheringFor(
+  db: Db,
+  input: { userId: string; id: string; now: Date },
+): Promise<
+  | {
+      ok: true;
+      gathering: { id: string; roomId: string; hostUserId: string };
+      actor: Awaited<ReturnType<typeof actorRole>>;
+    }
+  | Fail
+> {
+  if (!isGatheringId(input.id)) return fail(404, "Not found.");
+  const actor = await actorRole(db, input.userId);
+  if (!actor.member && !actor.steward) return fail(404, "Not found.");
+  const row = await loadRow(db, input.id);
+  if (!row || (await hidden(db, row, input.now))) return fail(404, "Not found.");
+  const listed = await readRoomListing(db, row.room_id);
+  if (!listed || !canReadRoom(listed.status, actor)) return fail(404, "Not found.");
+  if (await gatheringAudience(db, input.userId, row.room_id, input.now)) return fail(404, "Not found.");
+  if (row.host_user_id !== input.userId && (await openBan(db, input.userId, input.now, row.room_id))) {
+    return fail(404, "Not found.");
+  }
+  return {
+    ok: true,
+    gathering: { id: row.id, roomId: row.room_id, hostUserId: row.host_user_id },
+    actor,
+  };
+}
