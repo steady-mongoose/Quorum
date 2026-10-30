@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadInvites, type InviteRow } from "@/lib/admin/invite-tracker";
+import { INVITES_WAIT } from "@/lib/board/load-failure";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
 
 function day(ms: number | null): string {
   if (!ms) return "—";
@@ -58,25 +60,40 @@ export function InviteTrackerTable({ rows }: { rows: InviteRow[] }) {
   );
 }
 
-export function InviteTracker() {
+export function InviteTracker({ onSetUp }: { onSetUp?: () => void } = {}) {
   const [rows, setRows] = useState<InviteRow[] | null>(null);
-  const [error, setError] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
   useEffect(() => {
+    let cancel = false;
     void loadInvites().then((result) => {
-      if (result.ok) setRows(result.rows);
-      else setError(result.error);
+      if (cancel) return;
+      // A failed load is said inside this panel, never as a page alert.
+      if (result.ok) {
+        setRows(result.rows);
+        loaded();
+      } else {
+        failed(result);
+      }
     });
-  }, []);
+    return () => {
+      cancel = true;
+    };
+  }, [tick]);
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5">
-      <h2 className="text-2xl text-fg">Invites</h2>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">{error}</p>
-      ) : rows ? (
-        <InviteTrackerTable rows={rows} />
-      ) : (
-        <p className="text-sm text-muted">Loading.</p>
-      )}
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
+        Invites
+      </h2>
+      <PanelNote
+        failure={failure}
+        gateText={INVITES_WAIT}
+        onRetry={retry}
+        onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
+      />
+      {!failure && rows ? <InviteTrackerTable rows={rows} /> : null}
     </section>
   );
 }

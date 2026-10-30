@@ -1,12 +1,15 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
 import { useServerSession } from "@/lib/server-session-state";
+import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
+import { MFA_RESETS_WAIT, PANEL_LOAD_FAILED, panelFailure } from "@/lib/board/load-failure";
 import {
   approveMfaReset,
   confirmMfaEnroll,
   disableMfa,
   listMfaResets,
+  MFA_RESETS_LOAD_FAILED,
   readMfaStatus,
   requestMfaReset,
   startMfaEnroll,
@@ -133,6 +136,10 @@ export function MfaChallenge({
 }
 
 export function MfaSettings() {
+  // The session's phase (server.mfa) drives About's Admin lists card and the top
+  // banner. It is read when the session loads, so read it again whenever this
+  // panel turns the authenticator on or off.
+  const { refreshPhase } = useServerSession();
   const [status, setStatus] = useState<MfaStatus | null>(null);
   const [secret, setSecret] = useState("");
   const [modules, setModules] = useState<number[][] | null>(null);
@@ -255,6 +262,7 @@ export function MfaSettings() {
                 setSecret("");
                 setCode("");
                 refresh();
+                void refreshPhase();
               });
             }}
           >
@@ -331,6 +339,7 @@ export function MfaSettings() {
               setCode("");
               setNotice("Authenticator is off.");
               refresh();
+              void refreshPhase();
             });
           }}
         >
@@ -404,32 +413,47 @@ function approveBlock(row: MfaResetRow, viewerId: string): string | null {
   return null;
 }
 
-export function MfaResetQueue() {
+export function MfaResetQueue({ onSetUp }: { onSetUp?: () => void } = {}) {
   const viewerId = useServerSession().user?.id ?? "";
   const [rows, setRows] = useState<MfaResetRow[] | null>(null);
   const [userId, setUserId] = useState("");
   const [code, setCode] = useState("");
+  // role=alert is kept for what a submit or an approval says went wrong. Why the
+  // queue did not load is a PanelNote inside the panel, never a page alert.
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { tick, failure, busy: retrying, retry, loaded, failed, retriedOnce } = usePanelRetry(heading);
+  const [refresh, setRefresh] = useState(0);
+  const load = () => setRefresh((value) => value + 1);
 
-  const load = () => {
+  useEffect(() => {
+    let cancel = false;
     void listMfaResets().then((result) => {
+      if (cancel) return;
       if (!result.ok) {
-        setError(result.message);
+        // A bare code (the message falls back to it) never reaches the page, and
+        // nor does the API's own fallback: every load failure that is not the
+        // authenticator gate says "That did not load.", as on the other lists.
+        const said =
+          result.message === result.error || result.message === MFA_RESETS_LOAD_FAILED ? "" : result.message;
+        failed(panelFailure({ error: result.error, message: said }, PANEL_LOAD_FAILED));
         return;
       }
       setRows(result.value.resets);
+      loaded();
     });
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
+    return () => {
+      cancel = true;
+    };
+  }, [tick, refresh, failed, loaded]);
 
   return (
     <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
-      <h2 className="text-2xl text-fg">Authenticator reset</h2>
+      <h2 ref={heading} tabIndex={-1} className={`text-2xl text-fg ${HEADING_FOCUS_RING}`}>
+        Authenticator reset
+      </h2>
       <p className="max-w-prose text-sm text-muted">
         Two different admins approve. The person who asked cannot approve, and nobody approves a
         reset of their own account. The owner counts as an admin. Enter a fresh code first.
@@ -478,7 +502,15 @@ export function MfaResetQueue() {
           onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
         />
       </label>
-      {rows && rows.length === 0 ? <p className="text-sm text-muted">No resets are waiting.</p> : null}
+      <PanelNote
+        failure={failure}
+        gateText={MFA_RESETS_WAIT}
+        onRetry={retry}
+        onSetUp={onSetUp}
+        busy={retrying}
+        live={retriedOnce}
+      />
+      {!failure && rows && rows.length === 0 ? <p className="text-sm text-muted">No resets are waiting.</p> : null}
       <ul className="flex flex-col gap-3">
         {(rows ?? []).map((row) => {
           const blocked = approveBlock(row, viewerId);
