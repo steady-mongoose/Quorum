@@ -1066,7 +1066,11 @@ const PostCard = memo(function PostCard({
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!canPost ? (
-          <MemberGate allowed={false}>{null}</MemberGate>
+          // Its own line, so the buttons below never share it and the card
+          // keeps its height when "Message X" appears.
+          <div className="basis-full">
+            <MemberGate allowed={false}>{null}</MemberGate>
+          </div>
         ) : replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <input

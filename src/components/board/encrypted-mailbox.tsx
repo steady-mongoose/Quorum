@@ -277,7 +277,6 @@ export function EncryptedMailbox() {
   }
 
   async function openPeer(userId: string, name?: string, fromRoomList = false) {
-    setChoices([]);
     setRefused("");
     const opened = await openEncryptedThread(transport, userId);
     if (!opened.ok) {
@@ -288,6 +287,8 @@ export function EncryptedMailbox() {
       setRefused(refusalText(opened.message, sharesRoom));
       return;
     }
+    // Only once it opens: on a refusal the pressed row stays, and keeps focus.
+    setChoices([]);
     setNotice("");
     setActive(opened.thread);
     await loadThread(opened.thread);
@@ -513,7 +514,9 @@ export function EncryptedMailbox() {
               <p className="mt-1 text-[0.8125rem] text-muted">
                 {message.from} · <When at={message.at} format={formatWhen} />
               </p>
-              {message.from !== me.name ? <DmReportControl messageId={message.id} text={message.text} /> : null}
+              {message.from !== me.name ? (
+                <DmReportControl messageId={message.id} text={message.text} />
+              ) : null}
             </li>
           ))}
         </ul>
@@ -589,6 +592,37 @@ export function EncryptedMailbox() {
         </ul>
       )}
 
+      {/* The choices, the notice and the refusal sit right under the conversations,
+          so on a phone the answer shows next to the row you pressed, above
+          Blocked and Key backup. */}
+      {choices.length > 1 || notice || refused ? (
+        <div className="flex max-w-xl flex-col gap-2">
+          {choices.length > 1 ? (
+            <ul className="flex max-w-xl flex-col gap-2">
+              {choices.map((peer) => (
+                <li key={peer.id}>
+                  <button
+                    type="button"
+                    aria-label={`Conversation with ${peer.name}`}
+                    className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
+                    onClick={() => void openPeer(peer.id, peer.name)}
+                  >
+                    <span className="text-base font-semibold text-fg">{peer.name}</span>
+                    <span className="text-sm text-muted">Account {peer.id.slice(0, 8)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+          {refused ? (
+            <p role="alert" className="text-sm text-fg">
+              {refused}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {blocked.length > 0 ? (
         <section className="flex max-w-xl flex-col gap-2">
           <h2 className="text-lg text-fg">Blocked</h2>
@@ -601,11 +635,7 @@ export function EncryptedMailbox() {
                 <span className="text-sm text-fg">
                   {person.name} · {person.id.slice(0, 8)}
                 </span>
-                <button
-                  type="button"
-                  className={btnQuiet}
-                  onClick={() => void unblock(person.id)}
-                >
+                <button type="button" className={btnQuiet} onClick={() => void unblock(person.id)}>
                   Unblock
                 </button>
               </li>
@@ -711,29 +741,6 @@ export function EncryptedMailbox() {
           ))}
         </ul>
       </section>
-      {choices.length > 1 ? (
-        <ul className="flex max-w-xl flex-col gap-2">
-          {choices.map((peer) => (
-            <li key={peer.id}>
-              <button
-                type="button"
-                aria-label={`Conversation with ${peer.name}`}
-                className="flex min-h-[44px] w-full flex-col items-start gap-1 rounded-md border border-line bg-surface px-3 py-3 text-left"
-                onClick={() => void openPeer(peer.id, peer.name)}
-              >
-                <span className="text-base font-semibold text-fg">{peer.name}</span>
-                <span className="text-sm text-muted">Account {peer.id.slice(0, 8)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {notice ? <p className="text-sm text-muted">{notice}</p> : null}
-      {refused ? (
-        <p role="alert" className="text-sm text-fg">
-          {refused}
-        </p>
-      ) : null}
     </div>
   );
 }
