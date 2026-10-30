@@ -2,7 +2,8 @@
 -- before the pull request that adds it is merged. Applying it is a separate
 -- decision from merging. The API process does not apply migrations.
 --
--- Numbered 0048. 0046 and 0047 are reserved by other pull requests.
+-- Numbered 0048. 0047 is age attestation (#119, on the-board); 0046 is
+-- reserved by the message-privacy pull request.
 --
 -- A member's church can be a place picked from OpenStreetMap. The name
 -- stays in members.church. church_osm_ref is the stable OpenStreetMap
@@ -27,6 +28,7 @@
 --   alter table members drop constraint if exists members_church_osm_ref_check;
 --   alter table members drop column if exists church_address;
 --   alter table members drop column if exists church_osm_ref;
+--   delete from _migrations where name = '0048_church_place.sql';
 --   commit;
 
 alter table members add column if not exists church_osm_ref text;

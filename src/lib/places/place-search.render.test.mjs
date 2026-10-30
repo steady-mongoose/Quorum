@@ -343,25 +343,31 @@ test("a declined location shows a Near a town or ZIP box that sorts instead", as
   }
 });
 
-test("the field has its hint and the Photon notice tied with aria-describedby", async () => {
+test("only the hint is tied to the field; it sits below the input in text-xs, and the short Photon notice is visible but not described (Design r148 N2)", async () => {
   const view = mount();
   try {
-    const texts = described(view.input);
-    assert.equal(
-      texts[0],
+    assert.deepEqual(described(view.input), [
       "Start typing the name, then choose your church from the list. If it is not there, choose Not listed.",
-    );
-    assert.match(texts[1] ?? "", /Photon \(photon\.komoot\.io\)/);
-    const label = view.host.querySelector("label");
-    const hint = document.getElementById(
-      (view.input.getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "",
-    );
-    assert.ok(label && hint);
+    ]);
+    const hint = document.getElementById(view.input.getAttribute("aria-describedby") ?? "");
+    assert.ok(hint);
     assert.ok(
-      label.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING &&
-        hint.compareDocumentPosition(view.input) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "the hint sits between the label and the input",
+      view.input.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "the hint sits below the input, like Household and Trade",
     );
+    assert.match(hint.className, /\btext-xs\b/);
+    assert.doesNotMatch(hint.className, /\btext-sm\b/);
+    const notice = [...view.host.querySelectorAll("p")].find((p) => /Photon/.test(p.textContent ?? ""));
+    assert.equal(
+      notice?.textContent?.replace(/\s+/g, " ").trim(),
+      "Searches go through our server to Photon (photon.komoot.io), a free OpenStreetMap search. We keep your words briefly in memory and never keep your location.",
+    );
+    assert.ok(!(view.input.getAttribute("aria-describedby") ?? "").split(" ").includes(notice?.id ?? "x"));
+    const credit = /** @type {HTMLAnchorElement | null} */ (
+      [...view.host.querySelectorAll("a")].find((a) => /OpenStreetMap contributors/.test(a.textContent ?? "")) ?? null
+    );
+    assert.ok(credit, "the linked OSM credit stays after the notice");
+    assert.ok(notice && notice.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING);
     assert.match(view.input.className, /focus-target/);
   } finally {
     view.unmount();
@@ -545,9 +551,9 @@ test("the OpenStreetMap link sits outside the listbox and popup, and Tab reaches
     // The popup still shows the credit as text while it is open.
     const pop = view.host.querySelector(".place-pop");
     assert.match(pop?.textContent ?? "", /© OpenStreetMap contributors/);
-    // The copy is honest about what the server holds in memory.
-    assert.match(view.host.textContent ?? "", /in memory only/);
-    assert.match(view.host.textContent ?? "", /never keeps your location/);
+    // The short copy (Design r148 N2) is honest about what the server holds.
+    assert.match(view.host.textContent ?? "", /We keep your words briefly in memory/);
+    assert.match(view.host.textContent ?? "", /never keep your location/);
   } finally {
     view.unmount();
   }

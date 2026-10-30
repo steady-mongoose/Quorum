@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createPlaceLookup,
   DEFAULT_PLACE_LOOKUP_URL,
+  MAX_PROVIDER_BYTES,
   matchesKind,
   parseSearchBody,
   readPlaceLookupConfig,
@@ -398,4 +399,80 @@ test("nothing is written to the log during a search", async () => {
     Object.assign(console, original);
   }
   assert.deepEqual(lines, []);
+});
+
+test("an oversized provider reply is refused before it is parsed or cached (QA S3-2)", async () => {
+  const big = JSON.stringify({
+    ...sample,
+    features: [...sample.features, { properties: { pad: "x".repeat(MAX_PROVIDER_BYTES) } }],
+  });
+  for (const declared of [false, true]) {
+    let pulled = 0;
+    const calls: string[] = [];
+    const fetch = async (url: string) => {
+      calls.push(url);
+      const bytes = new TextEncoder().encode(big);
+      // Streamed in 4 KB pieces, with no length header unless declared.
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (pulled >= bytes.length) return controller.close();
+          controller.enqueue(bytes.slice(pulled, pulled + 4096));
+          pulled += 4096;
+        },
+      });
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (declared) headers["content-length"] = String(bytes.length);
+      return new Response(stream, { status: 200, headers });
+    };
+    const lookup = createPlaceLookup({ config: config(), fetch });
+    const input = { q: "Grace", kind: "church" as const, near: null, nearText: "" };
+    const answer = await lookup.search("ann", input);
+    assert.equal(answer.ok, false);
+    if (!answer.ok) assert.equal(answer.status, 502);
+    assert.ok(pulled <= MAX_PROVIDER_BYTES + 8192, `stopped reading early (read ${pulled})`);
+    assert.deepEqual(lookup.inspect().cacheKeys, [], "nothing cached");
+    assert.equal(lookup.picked("ann", "node/2"), null, "nothing kept to save");
+    await lookup.search("ann", input);
+    assert.equal(calls.length, 2, "the refused reply was not served from cache");
+  }
+  // A normal reply still parses.
+  const { fetch } = fakeFetch();
+  const ok = await createPlaceLookup({ config: config(), fetch }).search("ann", {
+    q: "Grace",
+    kind: "church",
+    near: null,
+    nearText: "",
+  });
+  assert.equal(ok.ok, true);
+  assert.ok(JSON.stringify(sample).length < MAX_PROVIDER_BYTES);
+});
+
+test("a busy answer does not count against the member or IP limit (QA S4)", async () => {
+  const { fetch } = fakeFetch();
+  let clock = 0;
+  const lookup = createPlaceLookup({
+    config: config({
+      minIntervalMs: 2000,
+      queueMax: 10,
+      queueWaitMs: 1000,
+      memberLimit: { windowMs: 60_000, max: 2 },
+      ipLimit: { windowMs: 60_000, max: 2 },
+    }),
+    fetch,
+    now: () => clock,
+    sleep: () => new Promise<void>(() => undefined),
+  });
+  const input = { q: "Grace", kind: "church" as const, near: null, nearText: "" };
+  assert.equal((await lookup.search("ann", input, "203.0.113.8")).ok, true);
+  for (let i = 0; i < 3; i += 1) {
+    const busy = await lookup.search("ann", { ...input, q: `Other ${i}` }, "203.0.113.8");
+    assert.equal(busy.ok, false);
+    if (!busy.ok) assert.match(busy.error, /busy/);
+  }
+  clock = 5000;
+  const after = await lookup.search("ann", { ...input, q: "Later" }, "203.0.113.8");
+  assert.equal(after.ok, true, "the three busy answers did not use up the limit of 2");
+  const capped = await lookup.search("ann", { ...input, q: "Again" }, "203.0.113.8");
+  assert.equal(capped.ok, false);
+  if (!capped.ok) assert.match(capped.error, /Too many searches/);
 });

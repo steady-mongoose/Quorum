@@ -276,14 +276,13 @@ export function PlaceSearch({
             ? "No places found. Choose Not listed to type it in."
             : "";
 
-  const describedBy = [hintId, providerId, picked ? onMapId : ""].filter(Boolean).join(" ");
+  // Design r148 N2: only the hint (and the map note once picked) is read on
+  // focus. The Photon notice stays visible below but is not tied to the input.
+  const describedBy = [hintId, picked ? onMapId : ""].filter(Boolean).join(" ");
 
   return (
     <div className={cn("relative flex flex-col gap-2 text-sm text-muted", className)}>
       <label htmlFor={inputId}>{label}</label>
-      <p id={hintId} className="text-sm text-muted">
-        {hint}
-      </p>
       <div className="relative">
         <input
           ref={inputRef}
@@ -382,11 +381,17 @@ export function PlaceSearch({
         </div>
       </div>
 
+      {/* Design r148 N2: the hint sits below the input in text-xs, like
+          Household and Trade. */}
+      <p id={hintId} className="text-xs text-muted">
+        {hint}
+      </p>
+
       <p id={providerId} className="text-xs text-muted">
-        Searches go from our server to Photon ({PLACE_PROVIDER_HOST}), a free search of
-        OpenStreetMap. So do a town or ZIP and a rough location, if you give them. Our server
-        holds your search words for up to 10 minutes and the places shown for up to an hour,
-        in memory only, so it can save the one you choose. It never keeps your location.
+        Searches go through our server to Photon ({PLACE_PROVIDER_HOST}), a free OpenStreetMap
+        search. We keep your words briefly in memory and never keep your location.
+      </p>
+      <p className="text-xs text-muted">
         Place data{" "}
         {/* Outside the listbox and the popup, so Tab reaches it from the field. */}
         <a className={cn("underline", RING)} href={OSM_COPYRIGHT_URL} target="_blank" rel="noreferrer">

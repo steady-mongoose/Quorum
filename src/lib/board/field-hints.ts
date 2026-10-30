@@ -8,8 +8,8 @@ export const FIELD_HINT = {
   tradeWork: "The trade, and the kind of work they take.",
   needWhat: "What would help, and by when.",
   household: "Your family name, as neighbors would say it.",
-  // PR #124, Design M1: the Church field is the place search, so its hint says
-  // how to search and pick, between the label and the input.
+  // PR #124: the Church field is the place search, so its hint says how to
+  // search and pick. Like the others, it sits below the input (Design r148 N2).
   church: "Start typing the name, then choose your church from the list. If it is not there, choose Not listed.",
   trade: "Your work, in a word or two. Leave it blank if you like.",
   pages: "Chapters or pages, as you would say them aloud.",

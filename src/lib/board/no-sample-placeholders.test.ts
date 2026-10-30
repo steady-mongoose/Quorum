@@ -265,3 +265,23 @@ test("a new board starts empty, and each empty view says what to do next", () =>
   const room = readFileSync("src/components/board/room-view.tsx", "utf8");
   assert.ok(room.includes("Nothing coming up in this room inside two weeks."));
 });
+
+test("Church has its own profile row, its note claims no display, and the house ring is unlayered (Design r148)", () => {
+  const profile = readFileSync("src/components/board/profile-view.tsx", "utf8");
+  assert.match(
+    profile,
+    /CHURCH_ADDRESS_NOTE =\s*"Kept with your account\. When church shows on profiles, the address will show only where your location does\.";/,
+  );
+  assert.doesNotMatch(profile, /Others see the church/);
+  assert.match(profile, /<div className="sm:col-span-3">\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<PlaceSearch\s+className="max-w-xl"/);
+  const search = readFileSync("src/components/board/place-search.tsx", "utf8");
+  assert.match(search, /const describedBy = \[hintId, picked \? onMapId : ""\]/);
+  assert.match(search, /<p id=\{hintId\} className="text-xs text-muted">/);
+  assert.ok(search.indexOf("<input") < search.indexOf("<p id={hintId}"), "the Church hint sits below its input");
+  const fluid = readFileSync("public/fluid.css", "utf8");
+  assert.ok(
+    fluid.includes(
+      ".focus-target:focus-visible,[data-focus-ring]:focus-visible{outline:2px solid currentColor;outline-offset:2px}",
+    ),
+  );
+});

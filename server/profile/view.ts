@@ -61,9 +61,12 @@ export type ProfileBody = {
   /**
    * Present when the church was picked from OpenStreetMap ("on the map").
    * The address is the member's pick, copied when picked, not live data.
-   * Others get it only where they may also see the member's Location.
+   * Others get the reference and address only where they may also see the
+   * member's Location. Otherwise they get only { onMap: true }: an OSM
+   * reference pasted into openstreetmap.org would give the exact address
+   * (QA r5707306306 S3-1).
    */
-  churchPlace?: { ref: string; address?: string };
+  churchPlace?: { ref: string; address?: string } | { onMap: true };
   interests?: { id: string; label: string }[];
   links?: ProfileLink[];
   photo?: ProfilePhoto | null;
@@ -102,10 +105,16 @@ type SubjectRow = {
 };
 
 // to_jsonb reads the 0048 columns without failing on a database that does not have them yet.
-function churchPlaceOf(row: SubjectRow, withAddress: boolean): { ref: string; address?: string } {
+// With the address hidden, neither the reference nor any OSM link is sent:
+// the reference alone leads to the address on openstreetmap.org.
+function churchPlaceOf(
+  row: SubjectRow,
+  withAddress: boolean,
+): { ref: string; address?: string } | { onMap: true } {
+  if (!withAddress) return { onMap: true };
   const ref = row.church_osm_ref ?? "";
   const address = row.church_address ?? "";
-  return withAddress && address ? { ref, address } : { ref };
+  return address ? { ref, address } : { ref };
 }
 
 const LEVELS = new Set<VisibilityLevel>(["members", "shared", "private", "admins"]);

@@ -151,6 +151,38 @@ test("0048 is the last pending migration and applies twice", async () => {
   }
 });
 
+test("0048's rollback drops its columns and its _migrations row, so it can be applied again (QA S3-3)", async () => {
+  const sql = await readFile(new URL(MIGRATION, dir), "utf8");
+  const lines = sql.split("\n");
+  const start = lines.findIndex((line) => /^--\s+begin;$/.test(line));
+  const end = lines.findIndex((line, i) => i > start && /^--\s+commit;$/.test(line));
+  assert.ok(start >= 0 && end > start, "the rollback block is in the header");
+  const rollback = lines.slice(start, end + 1).map((line) => line.replace(/^--\s+/, "")).join("\n");
+  assert.match(rollback, /delete from _migrations where name = '0048_church_place\.sql';/);
+  const pg = await freshPg();
+  try {
+    await pg.exec(
+      "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    );
+    await pg.query("insert into _migrations (name) values ($1)", [MIGRATION]);
+    await pg.exec(rollback);
+    const left = await pg.query(
+      `select column_name from information_schema.columns
+       where table_name = 'members' and column_name in ('church_osm_ref', 'church_address')`,
+    );
+    assert.equal(left.rows.length, 0);
+    assert.equal((await pg.query("select 1 from _migrations where name = $1", [MIGRATION])).rows.length, 0);
+    await pg.exec(sql);
+    const back = await pg.query(
+      `select column_name from information_schema.columns
+       where table_name = 'members' and column_name in ('church_osm_ref', 'church_address')`,
+    );
+    assert.equal(back.rows.length, 2);
+  } finally {
+    await pg.close();
+  }
+});
+
 test("0048 refuses a bad reference and an address with no reference", async () => {
   const { db, close } = await openTestDb();
   try {
@@ -344,13 +376,28 @@ test("others see the church address only where they may see Location", async () 
       const text = await response.text();
       assert.equal(response.status, 200, text);
       return (JSON.parse(text) as {
-        profile: { church?: string; churchPlace?: { ref: string; address?: string }; location?: unknown };
+        profile: { church?: string; churchPlace?: unknown; location?: unknown };
       }).profile;
     };
+    const raw = async () =>
+      (await handler(
+        new Request("http://127.0.0.1:8787/api/profile/ann", { headers: { "x-user-id": "bob" } }),
+      )).text();
     const hidden = await view();
     assert.equal(hidden.church, "Epiphany of Our Lord");
     assert.equal(hidden.location, undefined);
-    assert.deepEqual(hidden.churchPlace, { ref: "node/358757062" });
+    // QA r5707306306 S3-1: with the address hidden, no OSM reference or link
+    // reaches another member, since the reference leads to the address.
+    assert.deepEqual(hidden.churchPlace, { onMap: true });
+    const hiddenText = await raw();
+    assert.doesNotMatch(hiddenText, /358757062/);
+    assert.doesNotMatch(hiddenText, /openstreetmap\.org/);
+    assert.doesNotMatch(hiddenText, /Jackson Road/);
+    // The member still sees their own reference.
+    const own = await handler(
+      new Request("http://127.0.0.1:8787/api/profile", { headers: { "x-user-id": "ann" } }),
+    );
+    assert.match(await own.text(), /node\/358757062/);
     const opened = await patch(handler, "ann", { visibility: { location: "members" } });
     assert.equal(opened.status, 200, await opened.text());
     const shown = await view();

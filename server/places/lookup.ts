@@ -65,6 +65,44 @@ export const PLACE_USER_AGENT =
 export const MIN_QUERY = 3;
 export const MAX_QUERY = 80;
 export const MAX_RESULTS = 8;
+/**
+ * Largest provider reply read. A normal Photon answer for 20 places is about
+ * 10 to 20 KB, so a bigger one is refused before it is parsed or cached
+ * (QA r5707306306 S3-2).
+ */
+export const MAX_PROVIDER_BYTES = 64 * 1024;
+
+class TooLarge extends Error {}
+
+/** Reads a reply body, stopping as soon as it passes maxBytes. */
+export async function readCapped(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new TooLarge();
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new TooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 /** Churches are places of worship. */
 export const CHURCH_TAGS: readonly string[] = ["amenity:place_of_worship"];
@@ -353,8 +391,14 @@ export function createPlaceLookup(options: {
     return entry.value;
   }
 
-  /** Seconds to wait, or 0 when the search may go ahead. Counts only allowed searches. */
-  function limited(keys: { key: string; limit: { windowMs: number; max: number } }[]): number {
+  /**
+   * Seconds to wait, or 0 when the search may go ahead. Counts only allowed
+   * searches, and returns how to take the count back (for a Busy answer).
+   */
+  function limited(keys: { key: string; limit: { windowMs: number; max: number } }[]): {
+    retry: number;
+    refund: () => void;
+  } {
     const at = now();
     let retry = 0;
     const lists = keys.map(({ key, limit }) => {
@@ -366,7 +410,7 @@ export function createPlaceLookup(options: {
       }
       return recent;
     });
-    if (retry) return retry;
+    if (retry) return { retry, refund: () => undefined };
     for (const list of lists) list.push(at);
     if (hits.size > 10_000) {
       const longest = Math.max(config.memberLimit.windowMs, config.ipLimit.windowMs);
@@ -374,7 +418,16 @@ export function createPlaceLookup(options: {
         if (!list.some((t) => at - t < longest)) hits.delete(k);
       }
     }
-    return 0;
+    return {
+      retry: 0,
+      refund: () => {
+        for (const { key } of keys) {
+          const list = hits.get(key);
+          const index = list ? list.lastIndexOf(at) : -1;
+          if (list && index >= 0) list.splice(index, 1);
+        }
+      },
+    };
   }
 
   function keepPicks(memberId: string, places: PlaceSuggestion[]) {
@@ -446,7 +499,7 @@ export function createPlaceLookup(options: {
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`provider ${response.status}`);
-        const body = (await response.json()) as unknown;
+        const body = JSON.parse(await readCapped(response, MAX_PROVIDER_BYTES)) as unknown;
         if (keep) remember(key, body);
         return body;
       } finally {
@@ -483,7 +536,7 @@ export function createPlaceLookup(options: {
     async search(memberId, input, ip) {
       const keys = [{ key: memberKey(memberId), limit: config.memberLimit }];
       if (ip) keys.push({ key: hashKey("ip", ip), limit: config.ipLimit });
-      const retryAfter = limited(keys);
+      const { retry: retryAfter, refund } = limited(keys);
       if (retryAfter) {
         return { ok: false, status: 429, error: "Too many searches. Wait a moment.", retryAfter };
       }
@@ -502,6 +555,10 @@ export function createPlaceLookup(options: {
         return { ok: true, places };
       } catch (error) {
         if (error instanceof Busy) {
+          // Our own queue was full, so the member did not cost the provider
+          // anything: a busy answer does not count against either limit
+          // (QA r5707306306 S4).
+          refund();
           return { ok: false, status: 429, error: BUSY_ERROR, retryAfter: 2 };
         }
         return {

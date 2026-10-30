@@ -11,9 +11,12 @@ import { PlaceSearch } from "@/components/board/place-search";
 import { useServerSession } from "@/lib/server-session-state";
 import { loadAccountChurch, saveAccountChurch } from "@/lib/places/client";
 
-/** Shown under a picked church, so members know who sees the address. */
+/**
+ * Shown under a picked church. Other members do not see church yet (Design
+ * r148 N1, option b), so this says only what is true today.
+ */
 export const CHURCH_ADDRESS_NOTE =
-  "Others see the church name. The address shows only where your location does.";
+  "Kept with your account. When church shows on profiles, the address will show only where your location does.";
 
 function churchKey(name: string, place: { ref: string; address: string } | null): string {
   return JSON.stringify([name.trim(), place?.ref ?? "", place?.address ?? ""]);
@@ -193,21 +196,6 @@ export function ProfileView() {
                 {FIELD_HINT.household}
               </p>
             </div>
-            <PlaceSearch
-              label="Church"
-              kind="church"
-              hint={FIELD_HINT.church}
-              value={{
-                name: parish,
-                ref: parishPlace?.ref ?? null,
-                address: parishPlace?.address ?? "",
-              }}
-              onChange={(next) => {
-                setParish(next.name);
-                setParishPlace(next.ref ? { ref: next.ref, address: next.address } : null);
-              }}
-              pickedNote={CHURCH_ADDRESS_NOTE}
-            />
             <div className="flex flex-col gap-2 text-sm text-muted">
               <label htmlFor={`${fieldsId}-trade`}>Trade</label>
               <input
@@ -220,6 +208,26 @@ export function ProfileView() {
               <p id={`${fieldsId}-trade-hint`} className="text-xs text-muted">
                 {FIELD_HINT.trade}
               </p>
+            </div>
+            {/* Design r148 N2: Church gets its own row, so its search, notes and
+                button do not push Household and Trade out of line. */}
+            <div className="sm:col-span-3">
+              <PlaceSearch
+                className="max-w-xl"
+                label="Church"
+                kind="church"
+                hint={FIELD_HINT.church}
+                value={{
+                  name: parish,
+                  ref: parishPlace?.ref ?? null,
+                  address: parishPlace?.address ?? "",
+                }}
+                onChange={(next) => {
+                  setParish(next.name);
+                  setParishPlace(next.ref ? { ref: next.ref, address: next.address } : null);
+                }}
+                pickedNote={CHURCH_ADDRESS_NOTE}
+              />
             </div>
             {saved ? (
               <p role="status" className="text-sm text-muted sm:col-span-3">
