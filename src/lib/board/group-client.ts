@@ -87,7 +87,27 @@ export type GroupAppealRow = {
   decidedAt: number | null;
 };
 
-export type GroupCall<T> = { ok: true; value: T } | { ok: false; error: string };
+/**
+ * `mfa` is set when the server refused because of the authenticator gate.
+ * "enroll": no authenticator is on yet (mfa_required, step enroll). The page
+ * says what is waiting and offers the way to turn it on.
+ * "verify": a code is needed or attempts are locked (mfa_step_up, mfa_locked,
+ * the sign-in challenge). The server's own sentence is shown.
+ * A load that fails this way is a quiet note in its own section, not a page alert.
+ */
+export type GroupMfa = "enroll" | "verify";
+export type GroupFailure = { error: string; mfa?: GroupMfa };
+export type GroupCall<T> = { ok: true; value: T } | ({ ok: false } & GroupFailure);
+
+/** A load that failed. Only a save says "That did not save." */
+export const GROUP_LOAD_FAILED = "That did not load.";
+export const GROUP_SAVE_FAILED = "That did not save.";
+/** The server's own enroll wording, used when its 403 carries no message. */
+export const GROUP_MFA_NEEDED = "Turn on an authenticator before using this.";
+/** What waits on the authenticator, per place. */
+export const GROUP_REQUESTS_WAIT = "Group requests wait until you turn on an authenticator.";
+export const GROUP_PAGE_WAIT = "Invites and appeals wait until you turn on an authenticator.";
+export const GROUP_SET_UP = "Turn it on under You";
 
 const HARD = new Set(["threat", "porn", "csam", "doxxing", "blasphemy"]);
 const MARKS = new Set(["sloppy", "unsupported"]);
@@ -295,20 +315,37 @@ export function runByLine(names: readonly string[]): string {
   return `Run by ${clean.slice(0, -1).join(", ")}, and ${clean[clean.length - 1]}`;
 }
 
-function errorText(json: unknown, fallback: string): string {
+const MFA_CODES = new Set(["mfa_required", "mfa_step_up", "mfa_locked"]);
+
+/**
+ * The server's own sentence when it sent one: `error` for the group routes,
+ * `message` for the authenticator gate. A bare code falls back.
+ */
+export function groupFailure(json: unknown, fallback: string): GroupFailure {
   const row = record(json);
-  const error = row && typeof row.error === "string" ? row.error : "";
-  if (!error || error === "banned") {
-    return error === "banned" ? "You are barred from that group." : fallback;
+  const error = row && typeof row.error === "string" ? row.error.trim() : "";
+  const message = row && typeof row.message === "string" ? row.message.trim() : "";
+  const step = row && typeof row.step === "string" ? row.step : "";
+  if (MFA_CODES.has(error)) {
+    const enroll =
+      error === "mfa_required" &&
+      (step === "enroll" || (!step && (!message || message === GROUP_MFA_NEEDED)));
+    return {
+      error: userFacingError(message, GROUP_MFA_NEEDED),
+      mfa: enroll ? "enroll" : "verify",
+    };
   }
-  return userFacingError(error, fallback);
+  if (error === "banned") return { error: "You are barred from that group." };
+  const said = userFacingError(error, "");
+  if (said) return { error: said };
+  return { error: userFacingError(message, fallback) };
 }
 
 async function call(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
-): Promise<{ ok: true; json: unknown } | { ok: false; error: string }> {
+): Promise<{ ok: true; json: unknown } | ({ ok: false } & GroupFailure)> {
   let response: Response;
   try {
     response = await apiFetch(path, {
@@ -329,7 +366,10 @@ async function call(
       json = null;
     }
   }
-  if (!response.ok) return { ok: false, error: errorText(json, "That did not save.") };
+  if (!response.ok) {
+    const fallback = method === "GET" ? GROUP_LOAD_FAILED : GROUP_SAVE_FAILED;
+    return { ok: false, ...groupFailure(json, fallback) };
+  }
   return { ok: true, json };
 }
 

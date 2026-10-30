@@ -352,3 +352,62 @@ test("Groups and an open group: every text node sits on a solid backing (server 
     removeSheets();
   }
 });
+
+test("§7: an owner without an authenticator sees no page alert and no orphan 'That did not save.' on Groups or a group", async () => {
+  const removeSheets = installSheets();
+  const realFetch = globalThis.fetch;
+  const now = Date.now();
+  const group = { id: "carpentry", name: "Carpentry", about: "Joinery and the shop.", joined: true, admin: true };
+  const enroll = { error: "mfa_required", message: "Turn on an authenticator before using this.", step: "enroll" };
+  /** @type {Record<string, [number, unknown]>} */
+  const replies = {
+    "/api/groups": [200, { groups: [group] }],
+    "/api/groups/carpentry": [
+      200,
+      {
+        group: { ...group, admins: ["Josh"], canInvite: true, invited: false, invitedBy: "" },
+        posts: [{ id: "p1", groupId: "carpentry", author: "Boaz", body: "Dovetails on Saturday.", on: "", at: now, mark: null }],
+        marks: [],
+        removals: [],
+        next: null,
+      },
+    ],
+    "/api/group-requests": [403, enroll],
+    "/api/group-appeals": [403, enroll],
+    "/api/groups/carpentry/invites": [403, enroll],
+  };
+  globalThis.fetch = /** @type {typeof fetch} */ (
+    async (/** @type {unknown} */ url) => {
+      const [status, body] = replies[new URL(String(url), "http://localhost").pathname] ?? [404, {}];
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    }
+  );
+  useBoard.setState({ member: true, me: "Josh", section: "groups", browsing: true, remote: true, steward: true, admin: true });
+  const page = await mount();
+  try {
+    await frames();
+    await frames();
+    const main = () => /** @type {Element} */ (page.host.querySelector("main"));
+    const loose = () => [...main().querySelectorAll("p, span")].filter((n) => /That did not (save|load)\./.test(n.textContent ?? ""));
+    assert.match(main().textContent ?? "", /Carpentry/, "the group list loaded");
+    assert.deepEqual([...main().querySelectorAll('[role="alert"]')].map((n) => n.textContent), [], "Groups: no alert");
+    assert.deepEqual(loose(), [], "Groups: no orphan failure line");
+    assert.match(main().textContent ?? "", /Group requests wait until you turn on an authenticator\./);
+    assert.deepEqual(textOnTheArt(main()).bare, [], "Groups: the wait note is on a solid backing");
+    const open = [...main().querySelectorAll("button, a")].find((b) => /Carpentry/.test(b.textContent ?? ""));
+    assert.ok(open);
+    await act(async () => /** @type {HTMLElement} */ (open).click());
+    await frames();
+    await frames();
+    assert.match(main().textContent ?? "", /Dovetails on Saturday/, "the group loaded");
+    assert.deepEqual([...main().querySelectorAll('[role="alert"]')].map((n) => n.textContent), [], "a group: no alert");
+    assert.deepEqual(loose(), [], "a group: no orphan failure line");
+    assert.deepEqual(textOnTheArt(main()).bare, [], "a group: text on the art");
+  } finally {
+    await page.unmount();
+    globalThis.fetch = realFetch;
+    setGroupOpen(false);
+    useBoard.setState({ remote: false, admin: false, steward: false });
+    removeSheets();
+  }
+});

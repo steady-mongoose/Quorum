@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
@@ -9,10 +9,14 @@ import {
   fetchGroupRequests,
   fetchGroups,
   GROUP_INVITE_ONLY,
+  GROUP_PAGE_WAIT,
+  GROUP_REQUESTS_WAIT,
+  GROUP_SET_UP,
   postGroup,
   runByLine,
   type GroupAppealRow,
   type GroupDetail,
+  type GroupFailure,
   type GroupInviteRow,
   type GroupPostRow,
   type GroupRemovalRow,
@@ -22,6 +26,8 @@ import {
 import type { HomePayload } from "@/lib/board/home";
 import { MARK_LABEL, RULE_LABEL, RULE_SENTENCE, type HardRule } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
+import { focusWithRing } from "@/lib/board/focus-ring";
 import { RoomAudienceMark } from "@/components/board/audience";
 import { setGroupOpen } from "@/lib/board/group-open";
 
@@ -32,7 +38,7 @@ const RULES = Object.keys(RULE_LABEL) as HardRule[];
  * A group admin marks or removes. A steward upholds or lifts an appeal.
  * Nothing here is ranked.
  */
-export function GroupsView() {
+export function GroupsView({ onSetUp }: { onSetUp?: () => void } = {}) {
   const remote = useBoard((state) => state.remote);
   const home = useBoard((state) => state.home);
   const steward = useBoard((state) => state.steward);
@@ -63,9 +69,15 @@ export function GroupsView() {
             id={openId}
             canDecide={steward || admin}
             onBack={() => setOpenId(null)}
+            onSetUp={onSetUp}
           />
         ) : (
-          <GroupList home={home} canDecide={steward || admin} onOpen={setOpenId} />
+          <GroupList
+            home={home}
+            canDecide={steward || admin}
+            onOpen={setOpenId}
+            onSetUp={onSetUp}
+          />
         )
       ) : (
         <p className="max-w-prose text-base text-muted">
@@ -85,6 +97,96 @@ function FormAlert({ message }: { message: string }) {
   );
 }
 
+/**
+ * Why a section could not load, said inside that section and never as a page alert.
+ * "gate": no authenticator yet; the place's own sentence and a way to turn it on.
+ * "wait": a code is needed or attempts are locked; the server's own sentence.
+ * "error": anything else; plain danger text and Try again.
+ */
+type LoadNote = { kind: "gate" | "wait" | "error"; text: string } | null;
+
+function loadNote(failure: GroupFailure, gateText: string): LoadNote {
+  if (failure.mfa === "enroll") return { kind: "gate", text: gateText };
+  if (failure.mfa === "verify") return { kind: "wait", text: failure.error };
+  return { kind: "error", text: failure.error };
+}
+
+/**
+ * A section's load note. The polite status region stays mounted for as long as the
+ * section is on the page, so a note that appears later is announced. While a retry
+ * is in flight the region is emptied, so a retry that fails again with the same
+ * sentence is announced again. The sentence stays on screen meanwhile (aria-hidden, so
+ * it is not read twice), and Try again stays put, dimmed, so nothing moves under the
+ * pointer and focus is not lost.
+ */
+function SectionNote({
+  note,
+  busy = false,
+  onRetry,
+  onSetUp,
+}: {
+  note: LoadNote;
+  busy?: boolean;
+  onRetry: () => void;
+  onSetUp?: () => void;
+}) {
+  const text = note && !busy ? note.text : "";
+  // "Turn it on under You" switches to You, which takes Groups (and this button) off
+  // the page, so the wait must outlive the button. It still ends on the next click or
+  // key, or when another wait starts.
+  const focusAuthenticator = useFocusAuthenticator();
+  return (
+    <div
+      data-section-note=""
+      className={
+        note
+          ? cn(
+              "flex flex-wrap items-center gap-x-3 text-sm",
+              note.kind === "error" ? "text-danger" : "text-muted",
+            )
+          : "contents"
+      }
+    >
+      <p role="status" aria-live="polite" aria-atomic="true" className={text ? undefined : "sr-only"}>
+        {text}
+      </p>
+      {note && busy ? <span aria-hidden="true">{note.text}</span> : null}
+      {note?.kind === "error" ? (
+        <button
+          type="button"
+          className="min-h-[44px] underline underline-offset-4 aria-disabled:cursor-wait aria-disabled:opacity-60"
+          aria-busy={busy || undefined}
+          aria-disabled={busy || undefined}
+          onClick={() => {
+            if (!busy) onRetry();
+          }}
+        >
+          Try again
+        </button>
+      ) : null}
+      {note?.kind === "gate" ? (
+        <button
+          type="button"
+          className="min-h-[44px] text-fg underline underline-offset-4"
+          onClick={() => {
+            onSetUp?.();
+            focusAuthenticator();
+          }}
+        >
+          {GROUP_SET_UP}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * How long the group page holds Appeals back while the invite list has not answered,
+ * so a gated page does not flash Appeals and then swap it for "Running this group".
+ * After this, Appeals shows on its own, so a hung invite request cannot hide it.
+ */
+const INVITE_GATE_WAIT_MS = 3_000;
+
 const NO_ROOMS: { id: string; name: string }[] = [];
 
 function joinedRooms(home: HomePayload | null): { id: string; name: string }[] {
@@ -97,14 +199,24 @@ function GroupList({
   home,
   canDecide,
   onOpen,
+  onSetUp,
 }: {
   home: HomePayload | null;
   canDecide: boolean;
   onOpen: (id: string) => void;
+  onSetUp?: () => void;
 }) {
   const [groups, setGroups] = useState<GroupSummary[] | null>(null);
   const [requests, setRequests] = useState<GroupRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [requestsNote, setRequestsNote] = useState<LoadNote>(null);
+  // Once the requests section has shown a note it stays, so its status region and
+  // heading are still there after a retry.
+  const [requestsKept, setRequestsKept] = useState(false);
+  const [requestsBusy, setRequestsBusy] = useState(false);
+  const [settled, setSettled] = useState(0);
+  const requestsHeading = useRef<HTMLElement>(null);
+  const focusRequests = useRef(false);
   const [rowError, setRowError] = useState("");
   const [rowId, setRowId] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -115,18 +227,34 @@ function GroupList({
     void (async () => {
       const [listed, asked] = await Promise.all([fetchGroups(), fetchGroupRequests()]);
       if (cancel) return;
+      setRequestsBusy(false);
+      // The page alert is only for the group list itself failing.
       if (!listed.ok) {
+        focusRequests.current = false;
         setLoadError(listed.error);
         return;
       }
+      setLoadError("");
       setGroups(listed.value);
       setRequests(asked.ok ? asked.value : []);
-      setLoadError(asked.ok ? "" : asked.error);
+      // A failed requests load is said inside that section, never as a page alert.
+      setRequestsNote(asked.ok ? null : loadNote(asked, GROUP_REQUESTS_WAIT));
+      if (!asked.ok) setRequestsKept(true);
+      setSettled((value) => value + 1);
     })();
     return () => {
       cancel = true;
     };
   }, [tick]);
+
+  // After a Try again, focus goes to the section heading, not <body>. Try again is only
+  // still there when the retry failed again; any other answer (loaded, the authenticator
+  // gate, a wait) takes it away.
+  useEffect(() => {
+    if (!focusRequests.current) return;
+    focusRequests.current = false;
+    if (requestsNote?.kind !== "error") focusWithRing(requestsHeading.current);
+  }, [settled, requestsNote]);
 
   // Joining takes an invite, accepted on the group's page. Here a member can only leave.
   async function leave(group: GroupSummary) {
@@ -191,8 +319,18 @@ function GroupList({
       <RequestGroup rooms={joinedRooms(home)} onSaved={() => setTick((value) => value + 1)} />
       <RequestDecisions
         requests={requests}
+        note={requestsNote}
+        kept={requestsKept}
+        busy={requestsBusy}
+        headingRef={requestsHeading}
         canDecide={canDecide}
         onSaved={() => setTick((value) => value + 1)}
+        onRetry={() => {
+          focusRequests.current = true;
+          setRequestsBusy(true);
+          setTick((value) => value + 1);
+        }}
+        onSetUp={onSetUp}
       />
     </div>
   );
@@ -280,23 +418,48 @@ function RequestGroup({
 
 function RequestDecisions({
   requests,
+  note,
+  kept,
+  busy,
+  headingRef,
   canDecide,
   onSaved,
+  onRetry,
+  onSetUp,
 }: {
   requests: GroupRequestRow[];
+  note: LoadNote;
+  kept: boolean;
+  busy: boolean;
+  headingRef: RefObject<HTMLElement | null>;
   canDecide: boolean;
   onSaved: () => void;
+  onRetry: () => void;
+  onSetUp?: () => void;
 }) {
   const open = requests.filter((request) => request.status === "open");
-  if (open.length === 0) return null;
+  if (open.length === 0 && !note && !kept) return null;
   return (
     <details open className="max-w-xl rounded-lg border border-line bg-surface p-4">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg">Decide</summary>
-      <ul className="mt-3 flex flex-col gap-4">
-        {open.map((request) => (
-          <RequestRow key={request.id} request={request} canDecide={canDecide} onSaved={onSaved} />
-        ))}
-      </ul>
+      <summary
+        ref={headingRef}
+        className="flex min-h-[44px] cursor-pointer items-center text-lg text-fg"
+      >
+        {canDecide ? "Decide" : "Your requests"}
+      </summary>
+      <div className={note ? "mt-3" : "contents"}>
+        <SectionNote note={note} busy={busy} onRetry={onRetry} onSetUp={onSetUp} />
+      </div>
+      {open.length === 0 && !note ? (
+        <p className="mt-3 text-sm text-muted">No open group requests.</p>
+      ) : null}
+      {open.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-4">
+          {open.map((request) => (
+            <RequestRow key={request.id} request={request} canDecide={canDecide} onSaved={onSaved} />
+          ))}
+        </ul>
+      ) : null}
     </details>
   );
 }
@@ -376,13 +539,29 @@ function GroupDetailView({
   id,
   canDecide,
   onBack,
+  onSetUp,
 }: {
   id: string;
   canDecide: boolean;
   onBack: () => void;
+  onSetUp?: () => void;
 }) {
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [appeals, setAppeals] = useState<GroupAppealRow[]>([]);
+  const [appealsNote, setAppealsNote] = useState<LoadNote>(null);
+  const [appealsKept, setAppealsKept] = useState(false);
+  const [appealsBusy, setAppealsBusy] = useState(false);
+  const [settled, setSettled] = useState(0);
+  const appealsHeading = useRef<HTMLHeadingElement>(null);
+  const focusAppeals = useRef(false);
+  // A Try again that lands on the gate swaps its section for "Running this group".
+  const runningHeading = useRef<HTMLHeadingElement>(null);
+  const focusRunning = useRef(false);
+  // No authenticator yet: invites and appeals give way to one note.
+  // null until the invite list answers, so the invite form never shows and then vanishes.
+  const [invitesGated, setInvitesGated] = useState<boolean | null>(null);
+  // An invite list that hangs (rather than fails) must not hold Appeals back for good.
+  const [gateWaitOver, setGateWaitOver] = useState(false);
   const [error, setError] = useState("");
   const [body, setBody] = useState("");
   const [on, setOn] = useState("");
@@ -399,14 +578,21 @@ function GroupDetailView({
     void (async () => {
       const [loaded, asked] = await Promise.all([fetchGroup(id), fetchGroupAppeals()]);
       if (cancel) return;
+      setAppealsBusy(false);
+      // The page alert is only for the group itself failing to load.
       if (!loaded.ok) {
+        focusAppeals.current = false;
         setError(loaded.error);
         setDetail(null);
         return;
       }
+      setError("");
       setDetail(loaded.value);
       setAppeals(asked.ok ? asked.value.filter((appeal) => appeal.groupId === id) : []);
-      setError(asked.ok ? "" : asked.error);
+      // A failed appeals load is said inside that section, never as a page alert.
+      setAppealsNote(asked.ok ? null : loadNote(asked, GROUP_PAGE_WAIT));
+      if (!asked.ok) setAppealsKept(true);
+      setSettled((value) => value + 1);
     })();
     return () => {
       cancel = true;
@@ -452,6 +638,37 @@ function GroupDetailView({
   const canPost = Boolean(detail && (detail.group.joined || detail.group.admin));
   const canModerate = Boolean(detail && (detail.group.admin || canDecide));
   const openAppeals = appeals.filter((appeal) => appeal.status === "open");
+  const gated =
+    Boolean(detail) &&
+    ((canDecide && appealsNote?.kind === "gate") ||
+      (Boolean(detail?.group.canInvite) && invitesGated === true));
+  // Until the invite list answers, nothing that could give way to the gate note shows.
+  const gateKnown = gated || !detail?.group.canInvite || invitesGated !== null || gateWaitOver;
+  const waitingOnGate = Boolean(detail?.group.canInvite) && invitesGated === null;
+
+  useEffect(() => {
+    if (!waitingOnGate) return;
+    setGateWaitOver(false);
+    const timer = window.setTimeout(() => setGateWaitOver(true), INVITE_GATE_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waitingOnGate, id]);
+
+  // After a Try again on Appeals, focus goes to a heading, not <body>: Appeals when it
+  // loaded or says to wait, "Running this group" when it landed on the gate. Try again
+  // is only still there when the retry failed again.
+  useEffect(() => {
+    if (!focusAppeals.current) return;
+    focusAppeals.current = false;
+    if (appealsNote?.kind === "error") return;
+    focusWithRing(gated ? runningHeading.current : appealsHeading.current);
+  }, [settled, appealsNote, gated]);
+
+  // A Try again on Open invites that landed on the gate: the invite section is gone.
+  useEffect(() => {
+    if (!focusRunning.current || !gated) return;
+    focusRunning.current = false;
+    focusWithRing(runningHeading.current);
+  }, [gated]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -524,9 +741,34 @@ function GroupDetailView({
               ) : null}
             </div>
           )}
-          {detail.group.canInvite ? (
+          {gated ? (
+            <section
+              className="card pc-card flex max-w-xl flex-col gap-3 p-4"
+              aria-labelledby="group-running-heading"
+            >
+              <h3
+                id="group-running-heading"
+                ref={runningHeading}
+                tabIndex={-1}
+                className="focus-target text-xl text-fg"
+              >
+                Running this group
+              </h3>
+              <SectionNote
+                note={{ kind: "gate", text: GROUP_PAGE_WAIT }}
+                onRetry={reload}
+                onSetUp={onSetUp}
+              />
+            </section>
+          ) : detail.group.canInvite ? (
             <div className="card pc-card max-w-xl p-4">
-              <InviteForm groupId={id} />
+              <InviteForm
+                groupId={id}
+                onGate={(isGated, afterRetry) => {
+                  if (isGated && afterRetry) focusRunning.current = true;
+                  setInvitesGated(isGated);
+                }}
+              />
             </div>
           ) : null}
           <ul className="flex max-w-2xl flex-col gap-4">
@@ -554,14 +796,31 @@ function GroupDetailView({
               Older
             </button>
           ) : null}
-          {canDecide && openAppeals.length > 0 ? (
+          {canDecide && !gated && gateKnown && (openAppeals.length > 0 || appealsNote || appealsKept) ? (
             <section className="flex max-w-xl flex-col gap-3">
-              <h3 className="text-2xl text-fg">Appeals</h3>
-              <ul className="flex flex-col gap-4">
-                {openAppeals.map((appeal) => (
-                  <AppealDecision key={appeal.id} appeal={appeal} onChanged={() => void reload()} />
-                ))}
-              </ul>
+              <h3 ref={appealsHeading} tabIndex={-1} className="focus-target text-2xl text-fg">
+                Appeals
+              </h3>
+              <SectionNote
+                note={appealsNote}
+                busy={appealsBusy}
+                onRetry={() => {
+                  focusAppeals.current = true;
+                  setAppealsBusy(true);
+                  reload();
+                }}
+                onSetUp={onSetUp}
+              />
+              {openAppeals.length === 0 && !appealsNote ? (
+                <p className="text-sm text-muted">No open appeals.</p>
+              ) : null}
+              {openAppeals.length > 0 ? (
+                <ul className="flex flex-col gap-4">
+                  {openAppeals.map((appeal) => (
+                    <AppealDecision key={appeal.id} appeal={appeal} onChanged={() => void reload()} />
+                  ))}
+                </ul>
+              ) : null}
             </section>
           ) : null}
         </>
@@ -897,33 +1156,81 @@ function inviteDate(at: number): string {
 }
 
 /** Group admins and stewards invite a member by email, and revoke an open invite. */
-function InviteForm({ groupId }: { groupId: string }) {
+function InviteForm({
+  groupId,
+  onGate,
+}: {
+  groupId: string;
+  /**
+   * Told on each answer whether the list is held back for want of an authenticator,
+   * and whether that answer came from a Try again (so the page can move focus).
+   */
+  onGate?: (gated: boolean, afterRetry: boolean) => void;
+}) {
+  // Nothing renders until the list first answers, so a gated page never flashes the form.
+  const [answered, setAnswered] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
+  const [settled, setSettled] = useState(0);
+  const focusOpen = useRef(false);
   const [invites, setInvites] = useState<GroupInviteRow[] | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [listError, setListError] = useState("");
+  const [listNote, setListNote] = useState("");
+  const [revokeError, setRevokeError] = useState("");
   const [revoking, setRevoking] = useState<GroupInviteRow | null>(null);
   const [tick, setTick] = useState(0);
   const fieldRef = useRef<HTMLInputElement>(null);
   const openRef = useRef<HTMLHeadingElement>(null);
+  const gateRef = useRef(onGate);
+  gateRef.current = onGate;
 
   useEffect(() => {
     let cancel = false;
     void (async () => {
       const loaded = await fetchGroupInvites(groupId);
       if (cancel) return;
-      if (!loaded.ok) {
-        setListError(loaded.error);
+      setListBusy(false);
+      setSettled((value) => value + 1);
+      // No authenticator yet: the group page shows one note instead of this section.
+      const gated = !loaded.ok && loaded.mfa === "enroll";
+      gateRef.current?.(gated, focusOpen.current);
+      if (gated) {
+        focusOpen.current = false;
         return;
       }
+      setAnswered(true);
+      if (!loaded.ok) {
+        // A code or a wait is the server's own quiet sentence; anything else is plain
+        // danger text with Try again. Neither is an alert.
+        if (loaded.mfa) {
+          setListError("");
+          setListNote(loaded.error);
+        } else {
+          setListNote("");
+          setListError(loaded.error);
+        }
+        return;
+      }
+      setListNote("");
+      setListError("");
       setInvites(loaded.value);
     })();
     return () => {
       cancel = true;
     };
   }, [groupId, tick]);
+
+  // After a Try again, focus goes to the Open invites heading, not <body>, unless the
+  // retry failed again and Try again is still there. A wait note also takes Try again
+  // away; the gate takes the whole section away and the page focuses its own note.
+  useEffect(() => {
+    if (!focusOpen.current) return;
+    focusOpen.current = false;
+    if (!listError) focusWithRing(openRef.current);
+  }, [settled, listError]);
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -948,18 +1255,20 @@ function InviteForm({ groupId }: { groupId: string }) {
   async function revoke(invite: GroupInviteRow) {
     if (busy) return;
     setBusy(true);
-    setListError("");
+    setRevokeError("");
     setNote("");
     const saved = await postGroup(`/api/groups/${groupId}/invites/${invite.id}/revoke`, {});
     setBusy(false);
     if (!saved.ok) {
-      setListError(saved.error);
+      setRevokeError(saved.error);
       return;
     }
     setNote("Invite revoked.");
     openRef.current?.focus();
     setTick((value) => value + 1);
   }
+
+  if (!answered) return null;
 
   return (
     <section className="flex max-w-xl flex-col gap-3" aria-labelledby="group-invite-heading">
@@ -998,10 +1307,19 @@ function InviteForm({ groupId }: { groupId: string }) {
       <p role="status" className="text-sm text-muted">
         {note}
       </p>
-      <h3 ref={openRef} tabIndex={-1} className="text-xl text-fg">
+      <h3 ref={openRef} tabIndex={-1} className="focus-target text-xl text-fg">
         Open invites
       </h3>
-      <FormAlert message={listError} />
+      <SectionNote
+        note={listError ? { kind: "error", text: listError } : listNote ? { kind: "wait", text: listNote } : null}
+        busy={listBusy}
+        onRetry={() => {
+          focusOpen.current = true;
+          setListBusy(true);
+          setTick((value) => value + 1);
+        }}
+      />
+      <FormAlert message={revokeError} />
       {invites !== null && invites.length === 0 ? (
         <p className="text-sm text-muted">No open invites.</p>
       ) : null}
