@@ -2,7 +2,8 @@
 export const MEMBERS_ONLY_POST = "Only members of this room can post here.";
 
 /** What a non-member sees in place of the composer and Reply, and in empty room states. */
-export const MEMBERS_ONLY_INVITE = `${MEMBERS_ONLY_POST} Ask a member of the room for an invite.`;
+export const MEMBERS_ONLY_INVITE =
+  "Only members of this room can read and post here. Ask a member of the room for an invite.";
 
 /**
  * Who may post or reply in a room: a member of it (saved it or stood there),

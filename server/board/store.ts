@@ -728,7 +728,12 @@ export async function listBoard(
     }
   }
   const gender = await statedGender(db, userId);
-  const readable = new Set(audience.visible.map((room) => room.id));
+  // A room's posts go to its members, its stewards and admins. Others still see it listed.
+  const readable = new Set(
+    audience.visible
+      .filter((room) => room.member || actor.admin || actor.stewardRooms.includes(room.id))
+      .map((room) => room.id),
+  );
   const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter(
     (room) => readable.has(room.id),
   );
