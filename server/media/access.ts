@@ -1,5 +1,6 @@
 import type { Db } from "../db.ts";
 import { actorRole } from "../board/access.ts";
+import { guardRoomAudience } from "../board/audience.ts";
 import { concealedListing, readRoomListing } from "../board/room-visibility.ts";
 import { openBanOrNone, type OpenBan } from "../board/store.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
@@ -22,8 +23,9 @@ export async function roomExists(db: Db, roomId: string): Promise<boolean> {
 }
 
 /**
- * A member of this room, or the founding admin. An open ban refuses the
- * room even when the membership row is still there. An admin is not exempt.
+ * A member of this room, or the founding admin. A join (room_join) or a
+ * room_member row lets the member in. An open ban refuses the room even when
+ * either row is still there. An admin is not exempt.
  */
 export async function memberOfRoom(
   db: Db,
@@ -32,17 +34,33 @@ export async function memberOfRoom(
   now: Date,
 ): Promise<AccessResult> {
   const listed = await readRoomListing(db, roomId);
-  if (concealedListing(listed, await actorRole(db, userId))) {
+  const actor = await actorRole(db, userId);
+  if (concealedListing(listed, actor)) {
     return { ok: false, status: 404, error: "That room is not here." };
   }
   const ban = await openBanOrNone(db, userId, now, roomId);
   if (ban) return { ok: false, status: 403, error: "banned", ban };
   if (await isAdmin(db, userId)) return { ok: true };
-  const rows = await db.query<{ user_id: string }>(
-    `select user_id from room_member where room_id = $1 and user_id = $2`,
+  const rows = await db.query<{ via: string }>(
+    `select 'stood' as via from room_member where room_id = $1 and user_id = $2
+     union all
+     select 'saved' as via from room_join where room_id = $1 and user_id = $2`,
     [roomId, userId],
   );
-  if (!rows[0]) return { ok: false, status: 403, error: "You have not stood in that room." };
+  if (rows.some((row) => row.via === "stood")) return { ok: true };
+  // A join alone counts as it does in chat: a live member the room's audience still takes.
+  if (!rows[0] || !actor.member) {
+    return { ok: false, status: 403, error: "You have not stood in that room." };
+  }
+  const gate = await guardRoomAudience(db, {
+    userId,
+    roomId,
+    now,
+    path: "read",
+    moderate: true,
+    actor,
+  });
+  if (!gate.ok) return { ok: false, status: gate.status, error: gate.error };
   return { ok: true };
 }
 
