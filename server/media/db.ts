@@ -83,6 +83,26 @@ export async function readMedia(db: Db, id: string): Promise<MediaRow | null> {
   return rows[0] ? asRow(rows[0]) : null;
 }
 
+/**
+ * True while the post is off the board: removed by a steward, deleted by its
+ * author, or its author is deactivated. This reads the post each time, so a
+ * lifted appeal or a reactivation brings the picture back. Do not set
+ * `deleted_at` here. That sends the bytes to the worker sweep, and a later CSAM
+ * hold needs them. A post with no board row is still being written.
+ */
+export async function postIsOffBoard(db: Db, postId: string): Promise<boolean> {
+  if (!postId) return false;
+  const rows = await db.query<{ id: string }>(
+    `select p.id from board_post p
+     left join "user" u on u.id = p.author_user_id
+     where p.id = $1
+       and (p.removed or p.author_deleted_at is not null or u.deactivated_at is not null)
+     limit 1`,
+    [postId],
+  );
+  return Boolean(rows[0]);
+}
+
 export async function userExists(db: Db, id: string): Promise<boolean> {
   const rows = await db.query<{ id: string }>(`select id from "user" where id = $1`, [id]);
   return Boolean(rows[0]);

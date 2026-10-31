@@ -102,6 +102,7 @@ const appTests = [
   "server/media/output.test.ts",
   "server/media/schema.test.ts",
   "server/media/service.test.ts",
+  "server/media/room-access.test.ts",
   "server/media/worker.test.ts",
   "server/media/http.test.ts",
   "server/media/ip.test.ts",

@@ -16,6 +16,7 @@ import {
   markProcessing,
   markReady,
   markRejected,
+  postIsOffBoard,
   readMedia,
   userExists,
 } from "./db.ts";
@@ -161,6 +162,9 @@ export async function readForMember(
   const row = await readMedia(deps.db, id);
   if (!row || row.deleted_at) return { ok: false, status: 404, error: "That file is not here." };
   if (row.post_id && (await postIsHeld(deps.db, row.post_id))) {
+    return { ok: false, status: 404, error: "That file is not here." };
+  }
+  if (await postIsOffBoard(deps.db, row.post_id)) {
     return { ok: false, status: 404, error: "That file is not here." };
   }
   if (row.scope === "room") {
