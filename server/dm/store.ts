@@ -797,17 +797,31 @@ export const BLOCKED = "You cannot message this member.";
 export const ROOM_WAIT = `You can start a conversation with someone from a room after ${ROOM_MESSAGE_WAIT_DAYS} days in it.`;
 export const ROOM_DAILY_LIMIT = `You have started ${ROOM_MESSAGE_DAILY_STARTS} new conversations through your rooms today. Try again tomorrow.`;
 
-/** True when either person has blocked the other. */
-export async function blockedBetween(db: Db, a: string, b: string): Promise<boolean> {
+/** Who has blocked whom between the caller and the other person. One query, whoever did. */
+async function blocksBetween(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+): Promise<{ byCaller: boolean; byOther: boolean }> {
   const rows = await db.query<{ blocker_user_id: string }>(
     `select blocker_user_id from dm_block
      where (blocker_user_id = $1 and blocked_user_id = $2)
-        or (blocker_user_id = $2 and blocked_user_id = $1)
-     limit 1`,
-    [a, b],
+        or (blocker_user_id = $2 and blocked_user_id = $1)`,
+    [callerId, otherUserId],
   );
-  return Boolean(rows[0]);
+  return {
+    byCaller: rows.some((row) => row.blocker_user_id === callerId),
+    byOther: rows.some((row) => row.blocker_user_id === otherUserId),
+  };
 }
+
+/**
+ * SQL: when caller `$1` came into room `m`. room_member has no date
+ * (0004_media.sql), so a room with no room_join row counts from the caller's
+ * account creation: an invitee's account and room_member row are written in one
+ * transaction, so that is the day they came in.
+ */
+const JOINED_AT = `coalesce(j.joined_at, (select u."createdAt" from "user" u where u.id = $1))`;
 
 /**
  * Rooms both people stand in right now: each has a live board membership, has
@@ -822,7 +836,7 @@ async function roomsInCommon(
   otherUserId: string,
   now: Date,
 ): Promise<{ roomId: string; settled: boolean }[]> {
-  const rows = await db.query<{ room_id: string; joined_at: Date | string | null }>(
+  const rows = await db.query<{ room_id: string; joined_at: Date | string }>(
     `with mine as (
        select room_id from room_member where user_id = $1
        union
@@ -833,7 +847,7 @@ async function roomsInCommon(
        union
        select room_id from room_join where user_id = $2
      )
-     select m.room_id, j.joined_at
+     select m.room_id, ${JOINED_AT} as joined_at
      from mine m
      join theirs t on t.room_id = m.room_id
      left join room_join j on j.room_id = m.room_id and j.user_id = $1
@@ -853,10 +867,9 @@ async function roomsInCommon(
   for (const row of rows) {
     if (!standing.has(standingKey(callerId, row.room_id))) continue;
     if (!standing.has(standingKey(otherUserId, row.room_id))) continue;
-    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
     const settled =
       (actor ? stewardsRoom(actor, row.room_id) : false) ||
-      (joined !== null && now.getTime() - joined >= wait);
+      now.getTime() - new Date(row.joined_at).getTime() >= wait;
     shared.push({ roomId: row.room_id, settled });
   }
   return shared;
@@ -877,6 +890,9 @@ export type MessageGate =
  *
  * Every lookup runs before anything is decided, so a refusal for a ban takes
  * the same path as a refusal for a stranger and its timing says nothing.
+ *
+ * The refusal says "blocked" only to the person who did the blocking. Someone
+ * who was blocked gets the words for someone they cannot reach.
  */
 export async function mayMessage(
   db: Db,
@@ -889,30 +905,37 @@ export async function mayMessage(
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
   // Run every lookup first. Nothing below returns until all of them are in.
-  const blocked = await blockedBetween(db, callerId, otherUserId);
+  const blocks = await blocksBetween(db, callerId, otherUserId);
   const callerBan = await openBan(db, callerId, now);
   const otherBan = await openBan(db, otherUserId, now);
   const met = await sharesMeeting(db, callerId, otherUserId, now);
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
 
-  if (blocked) return { ok: false, status: 403, error: BLOCKED };
-  // A board-wide ban on either person stops every route, sending and receiving.
-  // The words are the ones for someone you cannot reach, so nobody learns of
-  // another member's ban. (The DM routes answer the sender's own ban first.)
-  // A revoked or lapsed membership fails inside sharesMeeting and roomsInCommon.
-  if (callerBan || otherBan) return { ok: false, status: 403, error: NOT_REACHABLE };
+  if (blocks.byCaller) return { ok: false, status: 403, error: BLOCKED };
+  // A block by the other person, or a board-wide ban on either person, stops
+  // every route, sending and receiving. The words are the ones for someone you
+  // cannot reach, so nobody learns of a block on them or another member's ban.
+  // (The DM routes answer the sender's own ban first.) A revoked or lapsed
+  // membership fails inside sharesMeeting and roomsInCommon.
+  if (blocks.byOther || callerBan || otherBan)
+    return { ok: false, status: 403, error: NOT_REACHABLE };
   if (met) return { ok: true, via: "meeting" };
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
   if (!options.starting) return { ok: true, via: "room" };
   if (!rooms.some((room) => room.settled)) return { ok: false, status: 403, error: ROOM_WAIT };
+  if ((await roomStartsToday(db, callerId, now)) >= ROOM_MESSAGE_DAILY_STARTS)
+    return { ok: false, status: 429, error: ROOM_DAILY_LIMIT };
+  return { ok: true, via: "room" };
+}
+
+/** Conversations this person started through a room in the last day. */
+async function roomStartsToday(db: Db, callerId: string, now: Date): Promise<number> {
   const started = await db.query<{ count: string }>(
     `select count(*)::text as count from dm_thread
      where opened_by = $1 and opened_via = 'room' and created_at > $2`,
     [callerId, new Date(now.getTime() - DAY_MS)],
   );
-  if (Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS)
-    return { ok: false, status: 429, error: ROOM_DAILY_LIMIT };
-  return { ok: true, via: "room" };
+  return Number(started[0]?.count ?? 0);
 }
 
 /**
@@ -921,7 +944,7 @@ export async function mayMessage(
  * the caller blocked them, they share no room or meeting, or the caller has
  * used today's room starts. A block by the other person is not shown here:
  * the row reads exactly as it would without it, and the server refuses with
- * the same words it uses for any block.
+ * the words for someone you cannot reach.
  *
  * Apart from that block, this is mayMessage for the conversation the button
  * would open: an existing conversation needs a meeting or a room they still
@@ -968,7 +991,7 @@ export async function memberMessageStates(
   const common = await db.query<{
     user_id: string;
     room_id: string;
-    joined_at: Date | string | null;
+    joined_at: Date | string;
   }>(
     `with mine as (
        select room_id from room_member where user_id = $1
@@ -980,7 +1003,7 @@ export async function memberMessageStates(
        union
        select user_id, room_id from room_join where user_id = any ($2::text[])
      )
-     select t.user_id, m.room_id, j.joined_at
+     select t.user_id, m.room_id, ${JOINED_AT} as joined_at
      from mine m
      join theirs t on t.room_id = m.room_id
      left join room_join j on j.room_id = m.room_id and j.user_id = $1
@@ -999,21 +1022,15 @@ export async function memberMessageStates(
   for (const row of common) {
     if (!standing.has(standingKey(callerId, row.room_id))) continue;
     if (!standing.has(standingKey(row.user_id, row.room_id))) continue;
-    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
     const settled =
       (actor ? stewardsRoom(actor, row.room_id) : false) ||
-      (joined !== null && now.getTime() - joined >= wait);
+      now.getTime() - new Date(row.joined_at).getTime() >= wait;
     const list = shared.get(row.user_id) ?? [];
     list.push({ settled });
     shared.set(row.user_id, list);
   }
 
-  const started = await db.query<{ count: string }>(
-    `select count(*)::text as count from dm_thread
-     where opened_by = $1 and opened_via = 'room' and created_at > $2`,
-    [callerId, new Date(now.getTime() - DAY_MS)],
-  );
-  const capped = Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS;
+  const capped = (await roomStartsToday(db, callerId, now)) >= ROOM_MESSAGE_DAILY_STARTS;
 
   for (const other of open) {
     if (metThem.has(other)) {
@@ -1246,14 +1263,42 @@ export async function openThread(
   if (!gate.ok) return fail(gate.status, gate.error);
   if (existing[0])
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
-  const id = randomUUID();
-  await db.query(
-    `insert into dm_thread (
-       id, user_a, user_b, user_a_name, user_b_name, created_at, opened_by, opened_via
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [id, low, high, lowName, highName, now, userId, gate.via],
-  );
-  return { ok: true, value: { id, otherUserId, otherName: other.name } };
+  // The caller's lock makes the daily count and the insert one step, so parallel
+  // opens cannot all pass on the same count. The unique pair decides a race
+  // between the two people, and the second gets the conversation the first made.
+  return commit(db, async (tx) => {
+    const opened = (id: string) => ({
+      ok: true as const,
+      value: { id, otherUserId, otherName: other.name },
+    });
+    const between = () =>
+      tx.query<{ id: string }>(`select id from dm_thread where user_a = $1 and user_b = $2`, [
+        low,
+        high,
+      ]);
+    await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+      `dm-start:${userId}`,
+    ]);
+    const already = await between();
+    if (already[0]) return opened(already[0].id);
+    if (
+      gate.via === "room" &&
+      (await roomStartsToday(tx, userId, now)) >= ROOM_MESSAGE_DAILY_STARTS
+    )
+      return fail(429, ROOM_DAILY_LIMIT);
+    const inserted = await tx.query<{ id: string }>(
+      `insert into dm_thread (
+         id, user_a, user_b, user_a_name, user_b_name, created_at, opened_by, opened_via
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (user_a, user_b) do nothing
+       returning id`,
+      [randomUUID(), low, high, lowName, highName, now, userId, gate.via],
+    );
+    if (inserted[0]) return opened(inserted[0].id);
+    const winner = await between();
+    if (winner[0]) return opened(winner[0].id);
+    return fail(409, "That conversation could not be opened. Try again.");
+  });
 }
 
 export async function listThreads(

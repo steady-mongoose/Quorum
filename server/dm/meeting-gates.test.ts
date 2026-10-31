@@ -198,13 +198,10 @@ for (const side of ["recipient", "sender"] as const) {
       const { anna, ben } = await setup(db);
       if (side === "recipient") await blockMember(db, ben, anna, now);
       else await blockMember(db, anna, ben, now);
-      assert.deepEqual(await mayMessage(db, anna, ben, now), {
-        ok: false,
-        status: 403,
-        error: BLOCKED,
-      });
+      const error = side === "recipient" ? NOT_REACHABLE : BLOCKED;
+      assert.deepEqual(await mayMessage(db, anna, ben, now), { ok: false, status: 403, error });
       const opened = await openThread(db, anna, ben, now);
-      assert.deepEqual(opened.ok ? null : [opened.status, opened.error], [403, BLOCKED]);
+      assert.deepEqual(opened.ok ? null : [opened.status, opened.error], [403, error]);
       assert.deepEqual(await listPeers(db, anna, now), []);
     } finally {
       await close();

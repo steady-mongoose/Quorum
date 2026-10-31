@@ -35,7 +35,7 @@ import {
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
-import { useMessageReach } from "@/components/board/use-message-reach";
+import { forgetMessageReach, useMessageReach } from "@/components/board/use-message-reach";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -407,7 +407,12 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
         {!isHost && card.next ? (
           <RsvpControl card={card} going={going} onToggle={() => rsvp(card.id)} />
         ) : null}
-        <button type="button" className={btnGhost} onClick={() => visited(card.id)} disabled={went}>
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => void visited(card.id).then(forgetMessageReach)}
+          disabled={went}
+        >
           {went ? "You've been" : "I went"}
         </button>
         <MessageHost card={card} {...rest} />
