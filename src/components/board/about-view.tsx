@@ -195,6 +195,10 @@ export function AboutView({
   // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
   const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
   const box = "flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5";
+  // One entry: a card with a gilt head, its name set in the display face.
+  const entry = "flex flex-col gap-2 rounded-md border border-line border-t-gilt bg-raised p-4";
+  const entryName = "font-display text-xl leading-snug text-fg";
+  const entryText = "text-base leading-relaxed text-fg/85";
 
   return (
     <div className="flex flex-col gap-10">
@@ -226,11 +230,11 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <dl className="about-how -mb-4 columns-1 gap-x-8 lg:columns-2">
+            <dl className="about-how -mb-3 columns-1 gap-x-3 lg:columns-2">
               {group.items.map((item) => (
-                <div key={item.title} className="mb-4 flex break-inside-avoid flex-col gap-1">
-                  <dt className="font-semibold text-fg">{item.title}</dt>
-                  <dd className="max-w-prose text-base text-fg/85">{item.text}</dd>
+                <div key={item.title} className={`${entry} mb-3 break-inside-avoid`}>
+                  <dt className={entryName}>{item.title}</dt>
+                  <dd className={entryText}>{item.text}</dd>
                 </div>
               ))}
             </dl>
@@ -240,13 +244,13 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
-        <dl className="grid gap-x-6 gap-y-3 text-base sm:grid-cols-[max-content_1fr]">
+        <dl className="grid gap-3 sm:grid-cols-2">
           {rooms.map((room) => (
-            <div key={room.id} className="contents">
-              <dt className="font-semibold text-fg">
+            <div key={room.id} className={entry}>
+              <dt className={entryName}>
                 {room.name} <RoomAudienceMark audience={room.audience} />
               </dt>
-              <dd className="max-w-prose text-fg/85">{room.what}</dd>
+              <dd className={entryText}>{room.what}</dd>
             </div>
           ))}
         </dl>
@@ -254,11 +258,11 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
-        <dl className="grid gap-x-6 gap-y-3 text-base sm:grid-cols-[max-content_1fr]">
+        <dl className="grid gap-3 sm:grid-cols-2">
           {POST_TYPES.map((type) => (
-            <div key={type.id} className="contents">
-              <dt className="font-semibold text-fg">{type.label}</dt>
-              <dd className="max-w-prose text-fg/85">{type.what}</dd>
+            <div key={type.id} className={entry}>
+              <dt className={entryName}>{type.label}</dt>
+              <dd className={entryText}>{type.what}</dd>
             </div>
           ))}
         </dl>

@@ -41,3 +41,12 @@ test("each About group and list stands in its own box", () => {
   assert.ok(about.includes("<div key={group.heading} className={box}>"));
   assert.equal(about.split("<section className={publicView ? box : listCard}>").length, 3);
 });
+
+test("each About entry stands in its own card with a gilt head", () => {
+  const about = read("../../components/board/about-view.tsx");
+  assert.ok(about.includes("border-t-gilt bg-raised"));
+  assert.ok(about.includes("<div key={room.id} className={entry}>"));
+  assert.ok(about.includes("<div key={type.id} className={entry}>"));
+  assert.ok(about.includes("className={`${entry} mb-3 break-inside-avoid`}"));
+  assert.equal(about.includes('className="contents"'), false);
+});
