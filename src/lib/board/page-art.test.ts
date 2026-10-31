@@ -112,7 +112,9 @@ test("About sets each section plate once, with an on-list credit, and every file
 test("section plates load lazily, hold their space, and data savers skip them", () => {
   const plate = readFileSync(new URL("../../components/board/section-plate.tsx", import.meta.url), "utf8");
   assert.ok(plate.includes(`loading="lazy"`));
-  assert.ok(plate.includes("width={tall ? 600 : 1500}"));
+  assert.ok(plate.includes("width={tall ? 750 : 1500}"));
+  // An upright plate has no width of its own: it fills a phone's box, or its column beside the text.
+  assert.ok(!pageArt.includes("max-width:11rem"));
   assert.ok(pageArt.includes("[data-save-data] .section-plate{display:none}"));
   assert.ok(pageArt.includes("@media (prefers-reduced-data:reduce){.section-plate{display:none}}"));
 });

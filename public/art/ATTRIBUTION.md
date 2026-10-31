@@ -78,7 +78,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 
 Josh, Oct 31: Jesus is never featured, no crop cuts off a head, and each picture matches its section. Every
 plate here is cut from files above and credited under the picture. No new scan and no new licence.
-`section-<key>.webp` is under 90 KB; the sepia plates have their levels lifted so the line work reads at this size.
+`section-<key>.webp` is under 90 KB, the upright ones at their source's full width; the sepia plates have their levels lifted so the line work reads at this size.
 What's in the rooms, The rooms and Kinds of post carry no plate: no work left fits them without repeating one on the page.
 
 | Screen | Work | File | Cut from | Licence |

@@ -142,7 +142,7 @@ const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
   items: HOW.filter((item) => titles.includes(item.title)),
 }));
 
-/** A section's rows and its plate: a band above them, or an upright plate beside them on a wide screen. */
+/** A section's rows and its plate: a band above them, or an upright plate beside them. On a phone it fills the width under them. */
 function WithPlate({ plate, children }: { plate?: SectionPlateId; children: ReactNode }) {
   if (!plate) return children;
   if (!SECTION_PLATE[plate].tall) {
@@ -154,7 +154,7 @@ function WithPlate({ plate, children }: { plate?: SectionPlateId; children: Reac
     );
   }
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_11rem] lg:gap-6">
+    <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem] sm:items-start sm:gap-6">
       {children}
       <SectionPlate plate={plate} />
     </div>
@@ -225,9 +225,9 @@ export function AboutView({
   // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
   const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
   const box = "flex flex-col gap-3 rounded-lg border border-line bg-surface p-3 sm:p-5";
-  // One entry: a full-width row, its name beside the text, a hairline between rows. On a phone, name over text.
+  // One entry: a full-width row, its name beside the text, a hairline between rows. Below desktop, name over text.
   const entry =
-    "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6";
+    "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 lg:grid-cols-[10rem_minmax(0,1fr)] lg:gap-6";
   const entryName = "font-display text-xl leading-snug text-fg";
   const entryText = "flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed text-fg/85";
 
@@ -246,7 +246,7 @@ export function AboutView({
         </p>
       </section>
 
-      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6 sm:p-5">
+      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_13rem] sm:items-center sm:gap-6 sm:p-5">
         <div className="min-w-0">
           <h2 className="text-2xl text-fg">What we stand for</h2>
           <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">

@@ -6,7 +6,6 @@
 .section-plate{margin:0;min-width:0}
 .section-plate img{display:block;width:calc(100% - 6px);height:auto;margin:3px;aspect-ratio:3;object-fit:cover;background:var(--bg);border:1px solid var(--gold);outline:1px solid color-mix(in srgb,var(--gold) 35%,transparent);outline-offset:2px}
 .section-plate figcaption{margin-top:.5rem;color:var(--muted);font-family:var(--font-display);font-variant-caps:all-small-caps;letter-spacing:.06em;font-size:.95rem;line-height:1.25}
-.section-plate--tall{justify-self:center;width:100%;max-width:11rem}
 .section-plate--tall img{aspect-ratio:3/4}
 @media (max-width:40rem){.section-plate:not(.section-plate--tall) img{aspect-ratio:2.4}}
 [data-save-data] .section-plate{display:none}

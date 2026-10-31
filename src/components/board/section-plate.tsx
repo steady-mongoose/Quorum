@@ -7,8 +7,8 @@ export function SectionPlate({ plate }: { plate: SectionPlateId }) {
     <figure className={tall ? "section-plate section-plate--tall" : "section-plate"}>
       <img
         src={`/art/section-${plate}.webp`}
-        width={tall ? 600 : 1500}
-        height={tall ? 800 : 500}
+        width={tall ? 750 : 1500}
+        height={tall ? 1000 : 500}
         alt={alt}
         loading="lazy"
         decoding="async"
