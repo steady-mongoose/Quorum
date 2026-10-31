@@ -9,8 +9,8 @@ import { listDmPeers, recordAttendance, type DmTransport } from "../../src/lib/e
 import { readReach, serverReachReads } from "../../src/lib/board/message-reach-reads.ts";
 
 // QA on #135 (S2): loading a room, Find, a profile or the mailbox must not
-// write attendance. The Message buttons' reads are GETs; only the mailbox
-// opening a conversation records attendance, which replaces the caller's rows.
+// write attendance. The Message buttons' reads are GETs; only the member's own
+// act (tapping "I went", or the mailbox opening by name) records attendance.
 
 async function member(db: Db, name: string): Promise<string> {
   const id = randomUUID();

@@ -215,7 +215,7 @@ type BoardState = {
   ) => Promise<Check>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
-  visited: (id: string) => void;
+  visited: (id: string) => Promise<void>;
   removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Cancel a removal that has not been sent yet and put the card back. */
   undoRemoveCard: (id: string) => boolean;
@@ -1252,12 +1252,26 @@ export const useBoard = create<BoardState>()(
             toggle();
           })();
         },
-        visited: (id) =>
+        visited: async (id) => {
+          const kind = get().cards.find((card) => card.id === id)?.kind;
           patchCard(id, (card) => ({
             ...card,
             unverified: false,
             wentBy: addName(card.wentBy, me()),
-          })),
+          }));
+          if (!get().remote || kind !== "meeting") return;
+          // Signed in, the tap also tells the server. The tap stands whatever it
+          // answers, and the mailbox sends the card again when it opens by name.
+          // The server keeps the card only once a write-up there names this
+          // member; before that it is skipped quietly (recordAttendance).
+          try {
+            const { recordAttendance } = await import("../e2ee/mailbox.ts");
+            const { browserTransport } = await import("../e2ee/browser.ts");
+            await recordAttendance(browserTransport(), [id]);
+          } catch {
+            // Nothing to show: the board already says you went.
+          }
+        },
         removeCard: async (id) => {
           const cards = get().cards;
           const index = cards.findIndex((card) => card.id === id);

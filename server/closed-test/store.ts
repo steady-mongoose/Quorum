@@ -241,6 +241,13 @@ export async function redeemInvite(
              on conflict do nothing`,
             [reserved.room_id, account.id],
           );
+          // The join date starts the wait before messaging through the room.
+          await tx.query(
+            `insert into room_join (user_id, room_id, joined_at)
+             select $1, id, $3 from room where id = $2
+             on conflict do nothing`,
+            [account.id, reserved.room_id, now],
+          );
         }
       }
       return { inviteId: reserved.id, invitedBy: reserved.created_by, userId: account.id };

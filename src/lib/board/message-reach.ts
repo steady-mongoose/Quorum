@@ -41,13 +41,13 @@ export const ROOM_REFUSAL = "You can't message this member right now.";
 
 /**
  * The server has four refusals (server/dm/store.ts): NOT_REACHABLE, the generic
- * one that also covers bans, bars and the audience rule; BLOCKED; ROOM_WAIT;
- * and ROOM_DAILY_LIMIT. Only NOT_REACHABLE is reworded here: when the app
- * believes the two of you share a room, its "message someone in one of your
- * rooms" sentence reads wrong, so say ROOM_REFUSAL instead, which does not say
- * which of the gates behind NOT_REACHABLE refused. Blocked, the wait and the
- * daily limit keep the server's own sentences, as does the plain
- * no-shared-room case.
+ * one that also covers bans, bars, the audience rule and being blocked; BLOCKED,
+ * only for someone you blocked yourself; ROOM_WAIT; and ROOM_DAILY_LIMIT. Only
+ * NOT_REACHABLE is reworded here: when the app believes the two of you share a
+ * room, its "message someone in one of your rooms" sentence reads wrong, so say
+ * ROOM_REFUSAL instead, which does not say which of the gates behind
+ * NOT_REACHABLE refused. Your own block, the wait and the daily limit keep the
+ * server's own sentences, as does the plain no-shared-room case.
  */
 export function refusalText(serverError: string, sharesRoom: boolean): string {
   return sharesRoom && serverError === MESSAGE_RULE ? ROOM_REFUSAL : serverError;

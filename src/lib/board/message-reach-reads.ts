@@ -4,7 +4,8 @@ import { loadRoomMembers, type MemberList } from "./room-members.ts";
 /**
  * The two reads behind the Message buttons. Both are GETs. Loading a room,
  * Find, a profile or the mailbox writes nothing: attendance (POST
- * /api/dm/attendance) is sent only when the mailbox opens a conversation.
+ * /api/dm/attendance) is sent only when the member acts, by tapping "I went"
+ * or by the mailbox opening a conversation by name.
  */
 export type ReachReads = {
   /** A room's member list, or null when it is hidden (404) or did not load. */

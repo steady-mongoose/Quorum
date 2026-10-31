@@ -271,3 +271,155 @@ test("mounting Room, Find, a profile or the mailbox sends only GETs and leaves a
     await close();
   }
 });
+
+test("tapping I went posts that card once, and Message shows without waiting out the cache", async () => {
+  const { db, close } = await openRollCallDb();
+  const realFetch = globalThis.fetch;
+  try {
+    const handler = createApp({
+      db,
+      origins: ["http://localhost"],
+      now: () => new Date(),
+      createAccount: async () => {
+        throw new Error("unused");
+      },
+      signIn: async () => {
+        throw new Error("unused");
+      },
+      readSession: async (headers) => {
+        const found = await db.query(`select id, name, email from "user" where id = $1`, [
+          headers.get("x-user-id"),
+        ]);
+        return found[0] ?? null;
+      },
+      forwardAuth: async () => new Response(null, { status: 404 }),
+    });
+    const member = async (name) => {
+      const id = randomUUID();
+      await db.query(
+        `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+         values ($1, $2, $3, true, now(), now())`,
+        [id, name, `${name.toLowerCase()}-${id.slice(0, 6)}@example.test`],
+      );
+      await db.query(
+        `insert into access_log (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+         values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'For the test.', $4)`,
+        [randomUUID(), id, name, new Date("2026-09-01T00:00:00Z")],
+      );
+      return id;
+    };
+    const host = await member("TestHost");
+    const guest = await member("TestGuest");
+    const postId = randomUUID();
+    const cardId = randomUUID();
+    await db.query(
+      `insert into board_post (id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at)
+       values ($1, 'shop', $2, 'TestHost', 'hosted', 'Test write-up.', $3, $4, now())`,
+      [postId, host, ["TestHost", "TestGuest"], cardId],
+    );
+    await rememberNamedAccounts(db, postId);
+
+    const seen = [];
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(
+        String(input instanceof NativeRequest ? input.url : input),
+        "http://localhost/",
+      );
+      const method = (
+        init?.method ?? (input instanceof NativeRequest ? input.method : "GET")
+      ).toUpperCase();
+      seen.push(`${method} ${url.pathname}`);
+      return handler(
+        new NativeRequest(`http://127.0.0.1:8787${url.pathname}${url.search}`, {
+          method,
+          headers: {
+            origin: "http://localhost",
+            "x-user-id": guest,
+            ...(init?.body ? { "content-type": "application/json" } : {}),
+          },
+          body: init?.body,
+        }),
+      );
+    };
+    useBoard.setState({
+      remote: true,
+      me: "TestGuest",
+      cards: [
+        {
+          id: cardId,
+          room: "shop",
+          kind: "meeting",
+          name: "Test meeting",
+          place: "Hall",
+          time: "Tue 7pm",
+          host: "TestHost",
+          next: "",
+          lastFour: [true, false, false, false],
+          wentBy: ["TestHost"],
+          going: [],
+          pinned: false,
+          unverified: false,
+          firstTimer: false,
+          slots: [],
+          book: "",
+          readBy: "",
+        },
+      ],
+      rooms: ROOMS,
+      posts: [],
+      room: "shop",
+      section: "find",
+    });
+    await act(async () => forgetMessageReach());
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    const session = {
+      ...EMPTY_SERVER_SESSION,
+      configured: true,
+      mode: "live",
+      user: { id: guest, name: "TestGuest", email: "g@example.test" },
+    };
+    const app = router.createRouter({
+      routeTree: router.createRootRoute({
+        component: () =>
+          createElement(SessionContext.Provider, { value: session }, createElement(views.find)),
+      }),
+      history: router.createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    app._rendered ??= [];
+    await app.load();
+    await act(async () => root.render(createElement(router.RouterProvider, { router: app })));
+    const flush = async () => {
+      for (let i = 0; i < 25; i += 1)
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 3)));
+    };
+    await flush();
+    const buttons = () => [...element.querySelectorAll("button")];
+    const named = (text) => buttons().find((button) => button.textContent.trim() === text);
+    assert.equal(named("Message TestHost"), undefined);
+    assert.ok(named("I went"));
+    assert.deepEqual(
+      seen.filter((request) => !request.startsWith("GET ")),
+      [],
+      "nothing was written before the tap",
+    );
+
+    await act(async () => named("I went").click());
+    await flush();
+    assert.deepEqual(
+      seen.filter((request) => !request.startsWith("GET ")),
+      ["POST /api/dm/attendance"],
+    );
+    assert.deepEqual(
+      await db.query(`select meeting_id from dm_attendance where user_id = $1`, [guest]),
+      [{ meeting_id: cardId }],
+    );
+    assert.ok(named("Message TestHost"), "the fresh answer shows the button");
+    await act(async () => root.unmount());
+    element.remove();
+  } finally {
+    globalThis.fetch = realFetch;
+    await close();
+  }
+});
