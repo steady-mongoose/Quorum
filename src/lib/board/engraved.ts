@@ -84,33 +84,28 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
 /**
  * About's section plates, each chosen for what its section says and credited where it stands. Josh's rules:
  * Jesus is never featured, no crop cuts off a head, and no work appears twice on the page.
- * An upright plate stands beside the section's text; the others are bands above it.
+ * Every file is a square, the shape of a social post, so a figure keeps its body, and the page never crops it.
  */
 export const SECTION_PLATE = {
-  harvest: {
-    alt: "A reaper carrying a sheaf of grain home from the field",
-    caption: "Gustave Doré · Ruth and Boaz · 1866",
-    tall: true,
+  crusader: {
+    alt: "A crusader on a rearing horse with his sword raised, a rider behind him carrying a tall cross",
+    caption: "Gustave Doré · The Count of Anjou at the Battle of Mansourah · 1877",
   },
   gathering: {
     alt: "A party of men gathered in their best robes",
     caption: "Albrecht Dürer · The Feast of the Rose Garlands · 1506",
-    tall: true,
   },
   study: {
     alt: "Saint Jerome writing in his room",
     caption: "Albrecht Dürer · Saint Jerome in His Study · 1514",
-    tall: false,
   },
   judgment: {
-    alt: "Solomon on his throne with one hand raised",
+    alt: "Solomon standing with one hand raised",
     caption: "Gustave Doré · The Judgment of Solomon · 1866",
-    tall: false,
   },
   writing: {
     alt: "Erasmus writing at his desk",
     caption: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
-    tall: true,
   },
 } as const;
 

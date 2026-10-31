@@ -77,17 +77,17 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 ### Section plates on About
 
 Josh, Oct 31: Jesus is never featured, no crop cuts off a head, and each picture matches its section. Every
-plate here is cut from files above and credited under the picture. No new scan and no new licence.
-`section-<key>.webp` is under 90 KB, the upright ones at their source's full width; the sepia plates have their levels lifted so the line work reads at this size.
+plate is credited under the picture, is a square under 90 KB, and is never cropped by the page. The sepia plates
+have their levels lifted so the line work reads at this size. Only the crusader is a new scan.
 What's in the rooms, The rooms and Kinds of post carry no plate: no work left fits them without repeating one on the page.
 
-| Screen | Work | File | Cut from | Licence |
+| Screen | Work | File | Source | Licence |
 |---|---|---|---|---|
-| What we stand for | Gustave Doré, *Ruth and Boaz*, 1866: a reaper and his sheaf, honest work. The top of the crop fades into the print's sky, because the print's own top edge runs through two far figures | `section-harvest.webp` | `plate-group-A-2400.webp` | Public domain (artist died 1883) |
+| What we stand for, and the picture a shared link shows (`share-avouch.jpg`, 1200×630 JPEG) | Gustave Doré, *The Count of Anjou at the Battle of Mansourah*, Histoire des croisades, 1877: the whole scene, the knight, his horse and the bearer of a plain cross; toned to sepia. The share image is a wider cut, fading out below the knight | `section-crusader.webp` | https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9_-_Count_of_Anjou_in_the_battle_of_Masouri,_1250.jpg | Public domain (artist died 1883) |
 | Getting in and showing up | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506: the pope's party, people who turned up | `section-gathering.webp` | `plate-groups-A-2400.webp` | Public domain (artist died 1528) |
 | Rooms and groups | Albrecht Dürer, *Saint Jerome in His Study*, 1514: a room; the crucifix on the sill is out of frame | `section-study.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
-| Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866: Solomon only, no sword or child | `section-judgment.webp` | `plate-desk-A.webp` | Public domain (artist died 1883) |
-| Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526: a man writing to someone, for messages and posts | `section-writing.webp` | `plate-messages-A-900.webp` | CC0 (NGA Open Access) |
+| Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526 | `section-writing.webp` | `plate-messages-A-900.webp` | CC0 (NGA Open Access) |
+| Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866: Solomon only, no sword or child | `section-judgment.webp` | `plate-desk-A-900.webp` | Public domain (artist died 1883) |
 
 ### Recut Oct 31: no Jesus, no heads cut
 

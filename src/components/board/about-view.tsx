@@ -19,7 +19,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
 import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
-import { SECTION_PLATE, type SectionPlateId } from "@/lib/board/engraved";
+import type { SectionPlateId } from "@/lib/board/engraved";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -142,25 +142,6 @@ const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
   items: HOW.filter((item) => titles.includes(item.title)),
 }));
 
-/** A section's rows and its plate: a band above them, or an upright plate beside them. On a phone it fills the width under them. */
-function WithPlate({ plate, children }: { plate?: SectionPlateId; children: ReactNode }) {
-  if (!plate) return children;
-  if (!SECTION_PLATE[plate].tall) {
-    return (
-      <>
-        <SectionPlate plate={plate} />
-        {children}
-      </>
-    );
-  }
-  return (
-    <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem] sm:items-start sm:gap-6">
-      {children}
-      <SectionPlate plate={plate} />
-    </div>
-  );
-}
-
 export function AboutView({
   publicView = false,
   onSetUp,
@@ -246,17 +227,15 @@ export function AboutView({
         </p>
       </section>
 
-      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_13rem] sm:items-center sm:gap-6 sm:p-5">
-        <div className="min-w-0">
-          <h2 className="text-2xl text-fg">What we stand for</h2>
-          <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
-            {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
-            log off and go do the work. It is not a replacement for other social media, but a tool to
-            help you get away from the machine. We want to rebuild what our founders assumed and
-            modernity dissolved: the family, the parish, the town, and honest work.
-          </p>
-        </div>
-        <SectionPlate plate="harvest" />
+      <section className="flow-root rounded-lg border border-line bg-surface p-4 sm:p-5">
+        <h2 className="mb-3 text-2xl text-fg">What we stand for</h2>
+        <SectionPlate plate="crusader" />
+        <p className="text-base leading-relaxed text-fg sm:text-lg">
+          {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
+          log off and go do the work. It is not a replacement for other social media, but a tool to
+          help you get away from the machine. We want to rebuild what our founders assumed and
+          modernity dissolved: the family, the parish, the town, and honest work.
+        </p>
       </section>
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>
@@ -264,7 +243,8 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <WithPlate plate={group.plate}>
+            <div className="flow-root">
+              {group.plate ? <SectionPlate plate={group.plate} /> : null}
               <dl>
                 {group.items.map((item) => (
                   <div key={item.title} className={entry}>
@@ -277,7 +257,7 @@ export function AboutView({
                   </div>
                 ))}
               </dl>
-            </WithPlate>
+            </div>
           </div>
         ))}
       </section>
