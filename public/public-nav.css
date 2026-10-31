@@ -1,6 +1,6 @@
-/* public-nav.css: the menu on About, Privacy and Terms (public-nav.tsx). A gilt rule draws itself in, the
-   links rise out of it, and one light glides under them and lights the word above it, like a lamp carried
-   along a shelf. Every movement is opt-in under prefers-reduced-motion:no-preference. */
+/* public-nav.css: the menu on About, Privacy and Terms (public-nav.tsx). A bookmark hangs from the top edge
+   over the page you are on, in the red of the page's large initial, and dips over a link you point at.
+   That is the only movement, and it is opt-in under prefers-reduced-motion:no-preference. */
 .pn{
   position:sticky;top:0;z-index:40;
   padding-top:env(safe-area-inset-top);
@@ -11,7 +11,6 @@
 .pn::after{
   content:"";position:absolute;inset:auto 0 0;height:3px;pointer-events:none;
   border-top:1px solid var(--gold);border-bottom:1px solid color-mix(in srgb,var(--gold) 35%,transparent);
-  transform-origin:center;
 }
 .pn-bar,.pn-sections{width:min(72rem,100%);margin-inline:auto;padding-inline:clamp(.75rem,4vw,4rem)}
 .pn-bar{display:flex;align-items:center;justify-content:space-between;gap:1rem}
@@ -19,29 +18,27 @@
   display:inline-flex;align-items:center;min-height:44px;white-space:nowrap;
   font-family:var(--font-display);font-size:1.5rem;line-height:1;color:var(--color-fg);
 }
-.pn-row{position:relative;display:flex;align-items:stretch;min-width:0}
+.pn-pages{display:flex;min-width:0;overflow:clip}
 .pn-link{
-  position:relative;z-index:1;display:inline-flex;align-items:center;gap:.3rem;
+  position:relative;display:inline-flex;align-items:center;gap:.3rem;
   min-height:44px;padding-inline:.75rem;white-space:nowrap;
   font-family:var(--font-display);font-size:1.125rem;color:color-mix(in srgb,var(--color-fg) 78%,transparent);
 }
-.pn-link[aria-current]{color:var(--gold)}
+.pn-link:hover,.pn-link[aria-current]{color:var(--gold)}
 .pn-back{width:1em;height:1em;flex:none}
-.pn-sections{overflow-x:auto;scrollbar-width:none;padding-bottom:3px}
+/* The bookmark: a notched ribbon, held above the bar until it is wanted. */
+.pn-pages .pn-link{min-height:3.5rem;padding-top:.85rem}
+.pn-pages .pn-link::before{
+  content:"";position:absolute;top:0;left:50%;width:.8rem;height:1.35rem;margin-left:-.4rem;
+  background:var(--accent);clip-path:polygon(0 0,100% 0,100% 100%,50% 76%,0 100%);
+  transform:translateY(-100%);
+}
+.pn-pages .pn-link:hover::before,.pn-pages .pn-link:focus-visible::before{transform:translateY(-52%)}
+.pn-pages .pn-link[aria-current]::before{transform:translateY(-8%)}
+.pn-sections{display:flex;overflow-x:auto;scrollbar-width:none;padding-bottom:3px}
 .pn-sections::-webkit-scrollbar{display:none}
-.pn-sections .pn-link{min-height:44px;font-size:1rem}
-/* The light: a gilt bar on the rule, and the glow it throws up onto the word. */
-.pn-light{
-  position:absolute;left:0;bottom:0;width:var(--pn-w,0);height:2px;opacity:0;pointer-events:none;
-  background:var(--gold);box-shadow:0 0 10px 1px color-mix(in srgb,var(--gold) 70%,transparent);
-  transform:translateX(var(--pn-x,0));
-}
-.pn-light[data-on]{opacity:1}
-.pn-light::before{
-  content:"";position:absolute;inset:auto -12% 0;height:2.5rem;
-  background:radial-gradient(60% 100% at 50% 100%,color-mix(in srgb,var(--gold) 26%,transparent),transparent);
-}
-.pn-sections .pn-light{bottom:3px}
+.pn-sections .pn-link{font-size:1rem}
+.pn-sections .pn-link[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.3em}
 /* html already keeps room for the bar with scroll-padding-top; this adds the gap under it. */
 .pn ~ main h2{scroll-margin-top:2rem}
 
@@ -53,24 +50,6 @@
 
 @media (prefers-reduced-motion:no-preference){
   html:has(.pn){scroll-behavior:smooth}
-  .pn::after{animation:pn-draw .9s cubic-bezier(.22,.8,.3,1) both}
-  .pn-link,.pn-mark{animation:pn-rise .6s cubic-bezier(.22,.8,.3,1) both}
-  .pn-link:nth-of-type(2){animation-delay:.07s}
-  .pn-link:nth-of-type(3){animation-delay:.14s}
-  .pn-link:nth-of-type(4){animation-delay:.21s}
-  .pn-link:nth-of-type(n+5){animation-delay:.28s}
-  /* The left and right edges arrive at different speeds, so the light stretches as it travels. */
-  .pn-light{transition:transform .5s cubic-bezier(.3,1.35,.5,1),width .32s ease-out,opacity .3s}
   .pn-link{transition:color .25s}
-  .pn-back{transition:transform .3s cubic-bezier(.3,1.6,.5,1)}
-  .pn-link:hover .pn-back,.pn-link:focus-visible .pn-back{transform:translateX(-.25rem)}
-  /* A band of gilt passes through the word under the pointer. */
-  .pn-link:hover .pn-word,.pn-link:focus-visible .pn-word{
-    background:linear-gradient(100deg,currentcolor 35%,#fff3cf 50%,currentcolor 65%) 100% 0/250% 100%;
-    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-    animation:pn-gild .8s ease-out both;
-  }
-  @keyframes pn-draw{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
-  @keyframes pn-rise{from{transform:translateY(.6rem);opacity:0}to{transform:none;opacity:1}}
-  @keyframes pn-gild{to{background-position:0 0}}
+  .pn-pages .pn-link::before{transition:transform .42s cubic-bezier(.3,.7,.2,1)}
 }

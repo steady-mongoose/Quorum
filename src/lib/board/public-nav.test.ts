@@ -19,17 +19,18 @@ test("every public document carries the menu, with a way home", () => {
 test("the menu marks where you are for a screen reader", () => {
   assert.ok(nav.includes('aria-current={page.href === pathname ? "page" : undefined}'));
   assert.ok(nav.includes('aria-current={section.id === reading ? "location" : undefined}'));
-  assert.ok(nav.includes('label="On this page"'));
+  assert.ok(nav.includes('aria-label="On this page"'));
 });
 
-test("the light is placed without a style attribute, which the site policy refuses", () => {
-  assert.ok(nav.includes('light.style.setProperty("--pn-x"'));
-  assert.equal(nav.includes("style={"), false);
+test("a bookmark marks the page, and nothing else in the menu moves", () => {
+  assert.ok(css.includes(".pn-pages .pn-link[aria-current]::before{transform"));
+  const moving = css.slice(css.indexOf("@media (prefers-reduced-motion:no-preference)"));
+  assert.equal(moving.includes("@keyframes"), false);
+  assert.equal(nav.includes("style"), false);
 });
 
 test("every movement waits for no-preference, and links stay 44px", () => {
   const still = css.slice(0, css.indexOf("@media (prefers-reduced-motion:no-preference)"));
-  assert.equal(still.includes("animation:"), false);
   assert.equal(still.includes("transition:"), false);
   assert.ok(css.includes("scroll-behavior:smooth"));
   assert.ok(still.includes("min-height:44px"));
