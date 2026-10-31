@@ -37,7 +37,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 /* Every in-flow child of the shell paints above the plate. Fixed and absolute layers keep their own position:
    the skip link (absolute, so it adds no blank line above the header), the incoming-call card and the
    20-minute line (both fixed above the tab bar), and dialogs (top layer). */
-.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet):not(.skip-link):not(.call-rings):not(.session-line):not(dialog){position:relative;z-index:1}
+.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet):not(.skip-link):not(.call-rings):not(.session-line):not(.pn):not(dialog){position:relative;z-index:1}
 [data-section="landing"] .scrim{position:fixed;inset:0;background:var(--scrim);pointer-events:none;z-index:0}
 @media (max-width:640px){
   /* lvh, not vh or dvh: the plate keeps one size while Safari's toolbar collapses, so the art does not rescale mid-scroll. */

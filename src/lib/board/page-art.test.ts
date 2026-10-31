@@ -68,9 +68,9 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   assert.match(doc, /className=\{jerome \? "plate-ground door-ground doc-jerome" : "plate-ground door-ground"\}/);
   assert.match(doc, /aria-label=\{heroLabel\(jerome \? "rooms" : "about"\) \?\? undefined\}/);
   const route = (name: string) => readFileSync(new URL(`../../routes/${name}.tsx`, import.meta.url), "utf8");
-  assert.match(route("privacy"), /<PublicDocument art="jerome">/);
-  assert.match(route("terms"), /<PublicDocument art="jerome">/);
-  assert.match(route("about"), /<PublicDocument wide>/);
+  assert.ok(route("privacy").includes(`<PublicDocument page="/privacy" art="jerome">`));
+  assert.ok(route("terms").includes(`<PublicDocument page="/terms" art="jerome">`));
+  assert.ok(route("about").includes(`<PublicDocument page="/about" wide>`));
   assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
   assert.doesNotMatch(doc, /hero-band/);
 });
