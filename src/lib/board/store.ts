@@ -611,6 +611,12 @@ export const useBoard = create<BoardState>()(
         });
       };
 
+      // The server sends a room's posts only to its members, so joining or leaving changes them.
+      const pullBoard = async () => {
+        const loaded = await (await getBoardClient()).load();
+        if (loaded.ok) applySnapshot(loaded.board);
+      };
+
       const pullHome = async (): Promise<boolean> => {
         const loaded = await (await getBoardClient()).loadHome();
         if (loaded.ok) set({ home: loaded.home });
@@ -1529,6 +1535,7 @@ export const useBoard = create<BoardState>()(
           set({
             rooms: get().rooms.map((room) => (room.id === roomId ? { ...room, joined: true, member: true } : room)),
           });
+          await pullBoard();
           await pullHome();
           return { ok: true };
         },
@@ -1540,6 +1547,7 @@ export const useBoard = create<BoardState>()(
               room.id === roomId ? { ...room, joined: false, member: false } : room,
             ),
           });
+          await pullBoard();
           return saved;
         },
         requestRoom: (input) => placeCall((client) => client.requestRoom(input), false),

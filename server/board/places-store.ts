@@ -901,7 +901,7 @@ export async function savePlace(
 
 /** Rooms are joined by invitation. The refusal a member sees without one. */
 export const ROOM_INVITE_ONLY =
-  "Only members of this room can post here. Ask a member of the room for an invite.";
+  "Only members of this room can read and post here. Ask a member of the room for an invite.";
 
 /**
  * Joining or saving a room needs a live invite to that room: the latest
