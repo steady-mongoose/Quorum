@@ -10,7 +10,7 @@ test("About's How it works flows in two columns, so a long entry leaves no gap b
   const about = source("../../components/board/about-view.tsx");
   // A two-column grid sized each row to its tallest entry: "Church needs" sat
   // beside "Moderation" with a 225px blank under it at desktop width.
-  assert.match(about, /<dl className="about-how columns-1 gap-x-8 lg:columns-2">/);
+  assert.match(about, /<dl className="about-how -mb-4 columns-1 gap-x-8 lg:columns-2">/);
   assert.match(about, /className="mb-4 flex break-inside-avoid flex-col gap-1"/);
   assert.doesNotMatch(about, /<dl className="grid gap-x-8 gap-y-4 lg:grid-cols-2">/);
 });
