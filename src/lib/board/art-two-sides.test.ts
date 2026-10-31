@@ -29,7 +29,7 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.408, 0.287, 0.742, 0.647] },
   },
   "plate-room-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.389, 0.105, 0.821, 0.555] },
+    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.15, 0.555, 0.56, 0.95] },
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
   "plate-groups-A-2400.webp": {
@@ -189,8 +189,7 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "Saint Jerome", box: [2040, 600, 2250, 870], from: 1600 },
   ],
   "plate-room-A-2400.webp": [
-    { who: "Christ", box: [250, 600, 360, 725], from: 1600 },
-    { who: "the woman beside Christ", box: [40, 710, 115, 805], from: 1600 },
+    { who: "the listener at the left", box: [20, 420, 120, 560], from: 1600 },
   ],
   "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1600 }],
 };

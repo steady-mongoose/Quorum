@@ -75,6 +75,23 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   assert.doesNotMatch(doc, /hero-band/);
 });
 
+test("About's plates keep Josh's rules: Jesus is not in them, and each has its section", () => {
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const captions = Object.values(SECTION_PLATE).map((plate) => plate.caption).join(" ");
+  assert.doesNotMatch(captions, /Sermon on the Mount/);
+  for (const [heading, plate] of [
+    ["Getting in and showing up", "gathering"],
+    ["Keeping it clean", "judgment"],
+    ["Talking to people", "writing"],
+  ]) {
+    assert.match(about, new RegExp(`${heading}"[,\\s]*plate: "${plate}"`), heading);
+  }
+  assert.match(about, /<SectionPlate plate="harvest" \/>/);
+  assert.doesNotMatch(captions, /Praying Hands/);
+  const manifest = readFileSync(new URL("./art-two-sides.test.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(manifest, /who: "Christ"/);
+});
+
 test("About sets each section plate once, with an on-list credit, and every file is credited", () => {
   const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
   const credits = readFileSync(new URL("../../../public/art/ATTRIBUTION.md", import.meta.url), "utf8");

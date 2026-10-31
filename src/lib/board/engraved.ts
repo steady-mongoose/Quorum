@@ -81,39 +81,36 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
 
-/** About's section plates, cut from the app's own art. Each is credited where it stands. */
+/**
+ * About's section plates, each chosen for what its section says and credited where it stands. Josh's rules:
+ * Jesus is never featured, no crop cuts off a head, and no work appears twice on the page.
+ * An upright plate stands beside the section's text; the others are bands above it.
+ */
 export const SECTION_PLATE = {
-  week: {
-    alt: "Angels on the stair of Jacob’s ladder",
-    caption: "Gustave Doré · Jacob’s Dream · 1866",
+  harvest: {
+    alt: "A reaper carrying a sheaf of grain home from the field",
+    caption: "Gustave Doré · Ruth and Boaz · 1866",
+    tall: true,
   },
-  groups: {
-    alt: "A crowd gathered around the Virgin and Child",
+  gathering: {
+    alt: "A party of men gathered in their best robes",
     caption: "Albrecht Dürer · The Feast of the Rose Garlands · 1506",
+    tall: true,
   },
-  messages: {
-    alt: "A hand writing at a small desk",
-    caption: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
+  study: {
+    alt: "Saint Jerome writing in his room",
+    caption: "Albrecht Dürer · Saint Jerome in His Study · 1514",
+    tall: false,
   },
-  civic: {
+  judgment: {
     alt: "Solomon on his throne with one hand raised",
     caption: "Gustave Doré · The Judgment of Solomon · 1866",
+    tall: false,
   },
-  group: {
-    alt: "Ruth and Boaz among the reapers, one carrying a sheaf of grain",
-    caption: "Gustave Doré · Ruth and Boaz · 1866",
-  },
-  room: {
-    alt: "Christ seated on a hillside with the listeners around him",
-    caption: "Gustave Doré · The Sermon on the Mount · 1866",
-  },
-  rooms: {
-    alt: "Saint Jerome writing at his desk",
-    caption: "Albrecht Dürer · Saint Jerome in His Study · 1514",
-  },
-  hands: {
-    alt: "A pair of hands in prayer",
-    caption: "Albrecht Dürer · Praying Hands · 1508",
+  writing: {
+    alt: "Erasmus writing at his desk",
+    caption: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
+    tall: true,
   },
 } as const;
 

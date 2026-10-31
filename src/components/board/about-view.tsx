@@ -19,7 +19,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
 import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
-import type { SectionPlateId } from "@/lib/board/engraved";
+import { SECTION_PLATE, type SectionPlateId } from "@/lib/board/engraved";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -117,27 +117,23 @@ const HOW = [
 ];
 
 /**
- * About's How it works, by what a reader wants to know. Every entry in HOW sits in one group, and each
- * group carries the plate of the page it explains.
+ * About's How it works, by what a reader wants to know. Every entry in HOW sits in one group. A group has a
+ * plate only where one fits what it says.
  */
-const HOW_HEADINGS: { heading: string; plate: SectionPlateId; titles: string[] }[] = [
+const HOW_HEADINGS: { heading: string; plate?: SectionPlateId; titles: string[] }[] = [
   {
     heading: "Getting in and showing up",
-    plate: "week",
+    plate: "gathering",
     titles: ["Getting in", "The week", "After a meeting"],
   },
   {
     heading: "Rooms and groups",
-    plate: "groups",
+    plate: "study",
     titles: ["What a room includes", "Members", "Room chat", "Interest groups", "Home"],
   },
-  { heading: "Talking to people", plate: "messages", titles: ["Who can see you", "Posting"] },
-  { heading: "Keeping it clean", plate: "civic", titles: ["Stewards", "Moderation"] },
-  {
-    heading: "What's in the rooms",
-    plate: "group",
-    titles: ["Debates", "Tradesmen", "Church needs"],
-  },
+  { heading: "Talking to people", plate: "writing", titles: ["Who can see you", "Posting"] },
+  { heading: "Keeping it clean", plate: "judgment", titles: ["Stewards", "Moderation"] },
+  { heading: "What's in the rooms", titles: ["Debates", "Tradesmen", "Church needs"] },
 ];
 
 const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
@@ -145,6 +141,25 @@ const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
   plate,
   items: HOW.filter((item) => titles.includes(item.title)),
 }));
+
+/** A section's rows and its plate: a band above them, or an upright plate beside them on a wide screen. */
+function WithPlate({ plate, children }: { plate?: SectionPlateId; children: ReactNode }) {
+  if (!plate) return children;
+  if (!SECTION_PLATE[plate].tall) {
+    return (
+      <>
+        <SectionPlate plate={plate} />
+        {children}
+      </>
+    );
+  }
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_11rem] lg:gap-6">
+      {children}
+      <SectionPlate plate={plate} />
+    </div>
+  );
+}
 
 export function AboutView({
   publicView = false,
@@ -241,7 +256,7 @@ export function AboutView({
             modernity dissolved: the family, the parish, the town, and honest work.
           </p>
         </div>
-        <SectionPlate plate="hands" tall />
+        <SectionPlate plate="harvest" />
       </section>
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>
@@ -249,26 +264,26 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <SectionPlate plate={group.plate} />
-            <dl>
-              {group.items.map((item) => (
-                <div key={item.title} className={entry}>
-                  <dt className={entryName}>{item.title}</dt>
-                  <dd className={entryText}>
-                    {item.text.split("\n").map((paragraph) => (
-                      <p key={paragraph}>{paragraph}</p>
-                    ))}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <WithPlate plate={group.plate}>
+              <dl>
+                {group.items.map((item) => (
+                  <div key={item.title} className={entry}>
+                    <dt className={entryName}>{item.title}</dt>
+                    <dd className={entryText}>
+                      {item.text.split("\n").map((paragraph) => (
+                        <p key={paragraph}>{paragraph}</p>
+                      ))}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </WithPlate>
           </div>
         ))}
       </section>
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
-        <SectionPlate plate="room" />
         <dl>
           {rooms.map((room) => (
             <div key={room.id} className={entry}>
@@ -283,7 +298,6 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
-        <SectionPlate plate="rooms" />
         <dl>
           {POST_TYPES.map((type) => (
             <div key={type.id} className={entry}>

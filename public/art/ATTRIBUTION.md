@@ -65,7 +65,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 |---|---|---|---|
 | This week | Doré, *Jacob's Dream*: Jacob asleep (lower left) | the same plate: the lit top of the ladder and angels | `plate-week-A-2400.webp` |
 | Rooms | Dürer, *Saint Jerome in His Study*: the sleeping lion | the same plate: Jerome at his desk | `plate-rooms-A-2400.webp` |
-| A room | Doré, *The Sermon on the Mount*: Christ and the hillside | the same plate: the listeners, lower right, fading into the ground at the top | `plate-room-A-2400.webp` |
+| A room | Doré, *The Sermon on the Mount*: the seated listeners, lower left | the same plate: the listeners, lower right, fading into the ground at the top | `plate-room-A-2400.webp` |
 | Groups | Dürer, *The Feast of the Rose Garlands*: the pope's party | the same work: the emperor's party | `plate-groups-A-2400.webp` |
 | A group | Doré, *Ruth and Boaz*: the gleaners, left | the same plate: the reapers, right | `plate-group-A-2400.webp` |
 | Find | Bauer, *Princess Tuvstarr*: Tuvstarr at the tarn | the same work: the trees at the far left of the scene | `plate-find-A-2400.webp` |
@@ -76,21 +76,28 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 
 ### Section plates on About
 
-About's sections each carry a plate, cut from files above, and each is credited under the picture. No new
-scan and no new licence. `section-<key>.webp` is 1500×500 (the hands 600×800) and under 90 KB; the sepia plates
-have their levels lifted so the line work reads at this size, and the two grey sources are warmed to match.
-A section uses the plate of the page it explains. One screen shows each work once, beside the door's Martin.
+Josh, Oct 31: Jesus is never featured, no crop cuts off a head, and each picture matches its section. Every
+plate here is cut from files above and credited under the picture. No new scan and no new licence.
+`section-<key>.webp` is under 90 KB; the sepia plates have their levels lifted so the line work reads at this size.
+What's in the rooms, The rooms and Kinds of post carry no plate: no work left fits them without repeating one on the page.
 
 | Screen | Work | File | Cut from | Licence |
 |---|---|---|---|---|
-| Getting in and showing up | Gustave Doré, *Jacob's Dream*, 1866 | `section-week.webp` | `dore-band-A.webp` | Public domain (artist died 1883) |
-| Rooms and groups | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506 | `section-groups.webp` | `plate-groups-A.webp` | Public domain (artist died 1528) |
-| Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526 | `section-messages.webp` | `plate-messages-A.webp` | CC0 (NGA Open Access) |
-| Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866; Solomon only, no sword or child | `section-civic.webp` | `plate-desk-A.webp` | Public domain (artist died 1883) |
-| What's in the rooms | Gustave Doré, *Ruth and Boaz*, 1866 | `section-group.webp` | `plate-group-A.webp` | Public domain (artist died 1883) |
-| The rooms | Gustave Doré, *The Sermon on the Mount*, 1866 | `section-room.webp` | `plate-room-A.webp` | Public domain (artist died 1883) |
-| Kinds of post | Albrecht Dürer, *Saint Jerome in His Study*, 1514 | `section-rooms.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
-| What we stand for | Albrecht Dürer, *Study of an Apostle's Hands (Praying Hands)*, 1508 | `section-hands.webp` | `durer-hands-side-A.webp` | Public domain (artist died 1528) |
+| What we stand for | Gustave Doré, *Ruth and Boaz*, 1866: a reaper and his sheaf, honest work. The top of the crop fades into the print's sky, because the print's own top edge runs through two far figures | `section-harvest.webp` | `plate-group-A-2400.webp` | Public domain (artist died 1883) |
+| Getting in and showing up | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506: the pope's party, people who turned up | `section-gathering.webp` | `plate-groups-A-2400.webp` | Public domain (artist died 1528) |
+| Rooms and groups | Albrecht Dürer, *Saint Jerome in His Study*, 1514: a room; the crucifix on the sill is out of frame | `section-study.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
+| Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866: Solomon only, no sword or child | `section-judgment.webp` | `plate-desk-A.webp` | Public domain (artist died 1883) |
+| Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526: a man writing to someone, for messages and posts | `section-writing.webp` | `plate-messages-A-900.webp` | CC0 (NGA Open Access) |
+
+### Recut Oct 31: no Jesus, no heads cut
+
+`plate-room-A` (all three sizes) shows only the listeners from *The Sermon on the Mount*: Christ and the figures
+around him are out of every crop, and the left panel is the crowd left of them. `plate-groups-A` and its 900px file
+show only the two parties at the sides of *The Feast of the Rose Garlands*: the Virgin and the Child are out.
+`plate-group-A` and `plate-messages-A` are cut from their 2400 files, which keep every head. The 1600
+Messages plate keeps Erasmus alone, so its credit stays true. All four 1600 files set the 16:9 art on the
+dark ground at 1600×1000, so a 16:10 screen shows it whole, and the two recut phone files keep the art inside
+the middle 738px a phone shows. Other screen shapes can still trim an edge figure.
 
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.
