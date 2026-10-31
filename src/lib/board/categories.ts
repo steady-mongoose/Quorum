@@ -247,9 +247,9 @@ export function categoryEngraving(slug: string): CategoryEngraving {
     };
   }
   return {
-    src: "/art/martin-hero-A.webp",
-    image: `${ART_ORIGIN}/art/martin-hero-A.webp`,
-    credit: "John Martin, Paradise Lost: The Creation of Light",
+    src: "/art/martin-joshua-A.webp",
+    image: `${ART_ORIGIN}/art/martin-joshua-A.webp`,
+    credit: "John Martin, Joshua Commanding the Sun to Stand Still, 1827",
   };
 }
 

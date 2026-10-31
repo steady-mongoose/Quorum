@@ -57,9 +57,9 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0, 0.265, 0.325, 0.636] },
   },
   // The door's plate, already 2400 wide: its left and its right half.
-  "martin-hero-A.webp": {
-    left: { artist: "John Martin", work: "The Creation of Light", box: [0, 0, 0.5, 1] },
-    right: { artist: "John Martin", work: "The Creation of Light", box: [0.5, 0, 1, 1] },
+  "martin-joshua-A.webp": {
+    left: { artist: "John Martin", work: "Joshua Commanding the Sun to Stand Still", box: [0, 0, 0.5, 1] },
+    right: { artist: "John Martin", work: "Joshua Commanding the Sun to Stand Still", box: [0.5, 0, 1, 1] },
   },
 };
 
@@ -73,7 +73,7 @@ const PAGES: { name: string; section: string; view?: string; wide: string }[] = 
   { name: "Messages", section: "messages", wide: "plate-messages-A-2400.webp" },
   { name: "You", section: "profile", wide: "plate-you-A-2400.webp" },
   { name: "The desk", section: "civic", wide: "plate-desk-A-2400.webp" },
-  { name: "About", section: "about", wide: "martin-hero-A.webp" },
+  { name: "About", section: "about", wide: "martin-joshua-A.webp" },
 ];
 
 function render(section: string, view: string | undefined, width: number) {

@@ -1,8 +1,8 @@
 # Engraved art
 
 These plates are the hero backgrounds for Avouch Social (issue #36, revision 2).
-Each one is public domain or CC0. Nothing violent or apocalyptic is used.
-Martin's *Creation of Light* appears on the landing page, the sign-in form, the signed-in More / About page, and the public About, Privacy, and Terms band.
+Each one is public domain or CC0. Nothing apocalyptic is used; the only battles are Doré's crusader and Martin's Joshua.
+Martin's *Joshua Commanding the Sun to Stand Still* appears on the landing page, the sign-in form, the signed-in More / About page, and the public About band.
 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
 and palette B, Parchment & Lapis). Luminance is mapped from the ground colour to the
@@ -23,12 +23,12 @@ text is drawn on either.
 | This week, hero band and margin | Gustave Doré, *Jacob's Dream*, Doré's English Bible, 1866 | `dore-band-A.webp`, `dore-band-A-900.webp`, `dore-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:021.Jacob%27s_Dream.jpg | Public domain (artist died 1883) |
 | Rooms, hero band and margin. Messages hero band | Albrecht Dürer, *Saint Jerome in His Study*, 1514, engraving. National Gallery of Art scan, object 6642 | `durer-jerome-band-A.webp`, `durer-jerome-band-A-900.webp`, `durer-jerome-side-A.webp` (palette B: `*-B*`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Saint_Jerome_in_His_Study,_1514,_NGA_6642.jpg | CC0 (NGA Open Access) |
 | Messages, margin column | Albrecht Dürer, *Study of an Apostle's Hands (Praying Hands)*, 1508, brush drawing (Albertina) | `durer-hands-side-A.webp` (palette B: `durer-hands-side-B.webp`) | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_Praying_Hands,_1508_-_Google_Art_Project.jpg | Public domain (artist died 1528) |
-| Landing and sign-in; the public About, Privacy, and Terms band (right half) | John Martin, *Paradise Lost: The Creation of Light*, 1824–27, mezzotint. Cleveland Museum of Art 1983.84 | `martin-hero-A.webp` (palette B: `martin-hero-B.webp`) | https://commons.wikimedia.org/wiki/File:John_Martin_-_Paradise_Lost-_The_Creation_of_Light_-_1983.84_-_Cleveland_Museum_of_Art.tif | CC0 (CMA Open Access) |
+| Landing and sign-in; the public About band | John Martin, *Joshua Commanding the Sun to Stand Still*, 1827, mezzotint and etching. National Gallery of Art 2002.65.3. Trimmed of the paper edge and printed line, and toned to the tones of the plate it replaced | `martin-joshua-A.webp` (palette B: `martin-joshua-B.webp`) | https://commons.wikimedia.org/wiki/File:John_Martin,_Joshua_Commanding_the_Sun_to_Stand_Still,_1827,_NGA_124846.jpg | CC0 (NGA Open Access) |
 
 The off-list works this table used to carry for Find, Groups, You, About, and the desk (Rembrandt,
 Millet, and Durand after Trumbull) were removed in #116: Josh's approved artists are Doré, Martin,
-Dürer, Rackham, and Bauer. The public About, Privacy, and Terms band now uses Martin's *Creation of
-Light* (`martin-hero-A.webp` / `-B`, right half), the door's file; no new file.
+Dürer, Rackham, and Bauer. The public About band uses the door's Martin plate; no new file.
+Martin's *The Creation of Light* was replaced by *Joshua* on Oct 31: Josh wants no image that could be read as Christ.
 
 ## Signed-in plates (inner pages spec v3)
 
@@ -49,7 +49,7 @@ as one family. Printed captions and borders are trimmed off the Doré pages. CSS
 | Find | John Bauer, *Princess Tuvstarr gazing down into the dark waters of the forest tarn*, 1913 | `plate-find-A.webp`, `plate-find-A-900.webp` | https://commons.wikimedia.org/wiki/File:John_Bauer_-_Princess_Tuvstarr_gazing_down_into_the_dark_waters_of_the_forest_tarn._-_Google_Art_Project.jpg | Public domain (artist died 1918) |
 | Messages | Albrecht Dürer, *Erasmus of Rotterdam*, 1526, engraving. National Gallery of Art 6672 | `plate-messages-A.webp`, `plate-messages-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Erasmus_of_Rotterdam,_1526,_NGA_6672.jpg | CC0 (NGA Open Access) |
 | You | Albrecht Dürer, *Self-Portrait at Thirteen*, 1484, silverpoint (Albertina) | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Durer-self-portrait-at-the-age-of-thirteen.jpg | Public domain (artist died 1528) |
-| More / About | John Martin, *The Creation of Light* (the door's plate) | `martin-hero-A.webp` (no new file) | see the landing row above | CC0 (CMA Open Access) |
+| More / About | John Martin, *Joshua Commanding the Sun to Stand Still* (the door's plate) | `martin-joshua-A.webp` (no new file) | see the landing row above | CC0 (NGA Open Access) |
 | The desk | Gustave Doré, *The Judgment of Solomon*, Doré's English Bible, 1866. Cropped to Solomon on the throne and his court; the soldier's sword and the child are in no crop | `plate-desk-A.webp`, `plate-desk-A-900.webp` | https://commons.wikimedia.org/wiki/File:084.The_Judgment_of_Solomon.jpg | Public domain (artist died 1883) |
 
 ### Two sides at 1600px and wider (Josh, Oct 29: art on both sides of the text, never the same picture twice)
@@ -72,7 +72,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 | Messages | Dürer, *Praying Hands*, 1508 | Dürer, *Erasmus of Rotterdam*, 1526 | `plate-messages-A-2400.webp` |
 | You | Dürer, *Self-Portrait at Thirteen*, 1484 | Dürer, *Self-Portrait*, 1500 (Alte Pinakothek), https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_1500_self-portrait_(High_resolution_and_detail).jpg, public domain (artist died 1528) | `plate-you-A-2400.webp` |
 | The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the elders at the far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
-| More / About | Martin, *The Creation of Light* (`martin-hero-A.webp`, already 2400 wide): the left of the plate | its right half | no new file |
+| More / About | Martin, *Joshua Commanding the Sun to Stand Still* (`martin-joshua-A.webp`, already 2400 wide): the left of the plate | its right half | no new file |
 
 ### Section plates on About
 
@@ -85,9 +85,16 @@ What's in the rooms, The rooms and Kinds of post carry no plate: no work left fi
 |---|---|---|---|---|
 | What we stand for, and the picture a shared link shows (`share-avouch.jpg`, 1200×630 JPEG) | Gustave Doré, *The Count of Anjou at the Battle of Mansourah*, Histoire des croisades, 1877: the whole scene, the knight, his horse and the bearer of a plain cross; toned to sepia. The share image is a wider cut, fading out below the knight | `section-crusader.webp` | https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9_-_Count_of_Anjou_in_the_battle_of_Masouri,_1250.jpg | Public domain (artist died 1883) |
 | Getting in and showing up | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506: the pope's party, people who turned up | `section-gathering.webp` | `plate-groups-A-2400.webp` | Public domain (artist died 1528) |
-| Rooms and groups | Albrecht Dürer, *Saint Jerome in His Study*, 1514: a room; the crucifix on the sill is out of frame | `section-study.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
+| Rooms and groups | Albrecht Dürer, *Saint Jerome in His Study*, 1514: a room; the cross on the desk is out of frame | `section-study.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
 | Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526 | `section-writing.webp` | `plate-messages-A-900.webp` | CC0 (NGA Open Access) |
 | Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866: Solomon only, no sword or child | `section-judgment.webp` | `plate-desk-A-900.webp` | Public domain (artist died 1883) |
+
+### Retouched Oct 31: a bare cross
+
+Dürer's *Saint Jerome* has a crucifix on the desk. Josh, Oct 31: a crucifix without Christ on it is fine. In
+`plate-rooms-A`, `plate-rooms-A-900`, `durer-jerome-band-A` and `-B` (with their 900px files) and `durer-jerome-side-A`
+and `-B` the figure is painted out with the wall beside it, so a bare cross stands there. `plate-rooms-A-2400` and
+`section-study` never showed it. Nothing else in those files changed.
 
 ### Recut Oct 31: no Jesus, no heads cut
 

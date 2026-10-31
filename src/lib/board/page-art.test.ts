@@ -33,7 +33,7 @@ test("the public About band is gone (QA #130): About stands on Martin's whole pl
   const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
   assert.doesNotMatch(fluid, /\.hero-band\.category-engraving/);
   assert.equal([...pageArt.matchAll(/url\(/g)].length, 0, "no file of its own");
-  assert.equal(heroLabel("about"), "John Martin, The Creation of Light, 1824–27");
+  assert.equal(heroLabel("about"), "John Martin, Joshua Commanding the Sun to Stand Still, 1827");
 });
 
 test("the off-list works and the old right-margin crops are gone from public/art", () => {
