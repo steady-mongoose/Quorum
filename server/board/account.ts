@@ -4,6 +4,7 @@ import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import { HELD_POST_ERROR } from "../../src/lib/board/account-copy.ts";
 import { actorRole } from "./access.ts";
 import { openBan } from "./store.ts";
+import { openReportOn } from "./report-close.ts";
 
 type Ok<T> = { ok: true; value: T };
 type Err = { ok: false; status: number; error: string };
@@ -29,22 +30,6 @@ async function barredAnywhere(db: Db, userId: string, now: Date): Promise<boolea
     if (await openBan(db, userId, now, row.room_id)) return true;
   }
   return false;
-}
-
-/** The member report queue may not exist yet on this database. */
-async function openReportOn(db: Db, postId: string): Promise<boolean> {
-  const table = await db.query<{ name: string | null }>(
-    `select to_regclass('public.member_report')::text as name`,
-  );
-  if (!table[0]?.name) return false;
-  const rows = await db.query<{ id: string }>(
-    `select id from member_report
-     where status = 'open' and subject_kind = 'post'
-       and (subject_id = $1 or subject_id in (select id from board_post where parent_id = $1))
-     limit 1`,
-    [postId],
-  );
-  return Boolean(rows[0]);
 }
 
 function memberName(name: string): string {

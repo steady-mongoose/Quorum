@@ -237,8 +237,9 @@ test("the week, the door, and the fields use the review's markup", () => {
   assert.match(bits, /export const btn =\n {2}"inline-flex min-h-\[44px\]/);
   assert.match(bits, /inline-flex min-h-\[44px\] shrink-0 items-center/);
   assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
-  const find = source("../../components/board/find-view.tsx");
-  assert.match(find, /inline-flex min-h-\[44px\] cursor-pointer items-center gap-2/);
+  // The roll call picker keeps its 44px target through pill(), checked above.
+  const roll = source("../../components/board/roll-call.tsx");
+  assert.ok(roll.includes(`className={pill(came.includes(name), "cursor-pointer")}`));
   assert.match(bits, /border-line-strong/);
   assert.match(bits, /focus-visible:border-fg/);
   const rooms = source("../../components/board/room-view.tsx");

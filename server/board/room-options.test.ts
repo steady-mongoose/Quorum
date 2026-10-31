@@ -115,7 +115,7 @@ test("a room without roll call refuses a roll; with it, the roll is kept", async
   try {
     const admin = await person(db, "Ada", [["admin", ""]]);
     const host = await person(db, "Hank");
-    await person(db, "Iris");
+    await join(db, await person(db, "Iris"), "shop", 5);
     const refused = await createPost(db, {
       userId: host,
       name: "Hank",

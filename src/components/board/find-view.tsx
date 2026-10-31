@@ -12,6 +12,7 @@ import {
   useCopy,
 } from "@/components/quorum/bits";
 import { GatheringShareControl } from "@/components/board/gathering-share";
+import { RollCallPicker } from "@/components/board/roll-call";
 import { RsvpControl } from "@/components/board/rsvp-control";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -26,6 +27,7 @@ import {
   hostsClear,
   readingLine,
   roomById,
+  roomIncludes,
   todayIso,
   witnessesByTrade,
   type CardKind,
@@ -360,7 +362,9 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
   const [refused, setRefused] = useState<string[]>([]);
   const pagesId = useId();
   const pagesHintId = useId();
-  const room = roomById(card.room);
+  const rooms = useBoard((state) => state.rooms);
+  const room = roomById(card.room, rooms);
+  const rollCall = roomIncludes(room, "roll_call");
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
@@ -442,19 +446,18 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                 event.preventDefault();
                 const happened =
                   (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "no";
-                void closeCard(card.id, happened, nextDate, line, happened ? came : [], pages).then(
-                  (check) => {
-                    if (!check.ok) {
-                      setRefused(check.stops);
-                      return;
-                    }
-                    setClosing(false);
-                    setLine("");
-                    setCame([]);
-                    setPages("");
-                    setRefused([]);
-                  },
-                );
+                const present = happened && rollCall ? came : [];
+                void closeCard(card.id, happened, nextDate, line, present, pages).then((check) => {
+                  if (!check.ok) {
+                    setRefused(check.stops);
+                    return;
+                  }
+                  setClosing(false);
+                  setLine("");
+                  setCame([]);
+                  setPages("");
+                  setRefused([]);
+                });
               }}
             >
               <label className="flex flex-col gap-2 text-sm text-muted">
@@ -488,31 +491,15 @@ function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean }) {
                   ))}
                 </ul>
               ) : null}
-              {admin && card.going.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                  <span>Who came:</span>
-                  {card.going.map((name) => (
-                    <label
-                      key={name}
-                      className={cn(
-                        "inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-md border border-line px-3",
-                        came.includes(name) && "bg-signal text-signal-ink",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={came.includes(name)}
-                        onChange={() =>
-                          setCame(
-                            came.includes(name) ? came.filter((n) => n !== name) : [...came, name],
-                          )
-                        }
-                      />
-                      {name}
-                    </label>
-                  ))}
-                </div>
+              {rollCall ? (
+                <RollCallPicker
+                  room={room}
+                  going={card.going}
+                  came={came}
+                  onToggle={(name) =>
+                    setCame(came.includes(name) ? came.filter((n) => n !== name) : [...came, name])
+                  }
+                />
               ) : null}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <label className="flex flex-col gap-2 text-sm text-muted">

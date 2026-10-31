@@ -76,6 +76,23 @@ export async function loadRoomMembers(
   return list ? { ok: true, list } : { ok: false, error: fallback };
 }
 
+/**
+ * The names a host picks from on a write-up: the room's members, in name order,
+ * and never the host. Upcoming RSVPs stay private, so only an admin gets the
+ * going list merged in.
+ */
+export function rollChoices(input: {
+  members: readonly string[];
+  going: readonly string[];
+  admin: boolean;
+  me: string;
+}): string[] {
+  const names = new Set(input.members);
+  if (input.admin) for (const name of input.going) names.add(name);
+  names.delete(input.me);
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 function isoDay(at: number): string {
   return new Date(at).toISOString().slice(0, 10);
 }

@@ -70,7 +70,7 @@ test("admins get the options menu when setting up and editing a room; the room p
   assert.match(room, /roomIncludes\(meta, "calls"\) && canCall \? <RoomCall/);
   assert.match(room, /roomIncludes\(meta, "chat"\) \? <RoomChat/);
   assert.match(room, /roomIncludes\(meta, "members"\) \? <RoomMembers/);
-  assert.match(room, /\{rollCall \? \(\r?\n\s+<fieldset/);
+  assert.match(room, /\{rollCall \? \(\r?\n\s+<RollCallPicker/);
   assert.match(about, /Roll call is off unless an admin turns it on\./);
 });
 

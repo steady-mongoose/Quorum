@@ -122,7 +122,7 @@ export type Post = {
   on: string;
   /** Hosted: the next date, or empty. */
   next: string;
-  /** Hosted: who came, from the card's going list. They join wentBy. */
+  /** Hosted: who came, from the room's members. They join wentBy. */
   came: string[];
   /** Hosted: one person the host names. Must be on `came`. */
   named: string;
