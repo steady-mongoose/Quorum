@@ -9,7 +9,7 @@ function source(path: string): string {
 test("About's entries are full-width rows, so a long entry never sits beside a short one", () => {
   const about = source("../../components/board/about-view.tsx");
   // Two columns put "Stewards" beside the far longer "Moderation", as a grid or as flowing columns.
-  assert.ok(about.includes("sm:grid-cols-[10rem_minmax(0,1fr)]"));
+  assert.ok(about.includes("lg:grid-cols-[10rem_minmax(0,1fr)]"));
   assert.doesNotMatch(about, /<dl className="[^"]*(columns|grid)/);
   assert.equal(about.split("<dl>").length - 1, 3);
 });

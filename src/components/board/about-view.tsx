@@ -117,27 +117,23 @@ const HOW = [
 ];
 
 /**
- * About's How it works, by what a reader wants to know. Every entry in HOW sits in one group, and each
- * group carries the plate of the page it explains.
+ * About's How it works, by what a reader wants to know. Every entry in HOW sits in one group. A group has a
+ * plate only where one fits what it says.
  */
-const HOW_HEADINGS: { heading: string; plate: SectionPlateId; titles: string[] }[] = [
+const HOW_HEADINGS: { heading: string; plate?: SectionPlateId; titles: string[] }[] = [
   {
     heading: "Getting in and showing up",
-    plate: "week",
+    plate: "gathering",
     titles: ["Getting in", "The week", "After a meeting"],
   },
   {
     heading: "Rooms and groups",
-    plate: "groups",
+    plate: "study",
     titles: ["What a room includes", "Members", "Room chat", "Interest groups", "Home"],
   },
-  { heading: "Talking to people", plate: "messages", titles: ["Who can see you", "Posting"] },
-  { heading: "Keeping it clean", plate: "civic", titles: ["Stewards", "Moderation"] },
-  {
-    heading: "What's in the rooms",
-    plate: "group",
-    titles: ["Debates", "Tradesmen", "Church needs"],
-  },
+  { heading: "Talking to people", plate: "writing", titles: ["Who can see you", "Posting"] },
+  { heading: "Keeping it clean", plate: "judgment", titles: ["Stewards", "Moderation"] },
+  { heading: "What's in the rooms", titles: ["Debates", "Tradesmen", "Church needs"] },
 ];
 
 const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
@@ -210,9 +206,9 @@ export function AboutView({
   // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
   const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
   const box = "flex flex-col gap-3 rounded-lg border border-line bg-surface p-3 sm:p-5";
-  // One entry: a full-width row, its name beside the text, a hairline between rows. On a phone, name over text.
+  // One entry: a full-width row, its name beside the text, a hairline between rows. Below desktop, name over text.
   const entry =
-    "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6";
+    "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 lg:grid-cols-[10rem_minmax(0,1fr)] lg:gap-6";
   const entryName = "font-display text-xl leading-snug text-fg";
   const entryText = "flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed text-fg/85";
 
@@ -231,17 +227,15 @@ export function AboutView({
         </p>
       </section>
 
-      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6 sm:p-5">
-        <div className="min-w-0">
-          <h2 className="text-2xl text-fg">What we stand for</h2>
-          <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
-            {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
-            log off and go do the work. It is not a replacement for other social media, but a tool to
-            help you get away from the machine. We want to rebuild what our founders assumed and
-            modernity dissolved: the family, the parish, the town, and honest work.
-          </p>
-        </div>
-        <SectionPlate plate="hands" tall />
+      <section className="flow-root rounded-lg border border-line bg-surface p-4 sm:p-5">
+        <h2 className="mb-3 text-2xl text-fg">What we stand for</h2>
+        <SectionPlate plate="crusader" />
+        <p className="text-base leading-relaxed text-fg sm:text-lg">
+          {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
+          log off and go do the work. It is not a replacement for other social media, but a tool to
+          help you get away from the machine. We want to rebuild what our founders assumed and
+          modernity dissolved: the family, the parish, the town, and honest work.
+        </p>
       </section>
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>
@@ -249,26 +243,27 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <SectionPlate plate={group.plate} />
-            <dl>
-              {group.items.map((item) => (
-                <div key={item.title} className={entry}>
-                  <dt className={entryName}>{item.title}</dt>
-                  <dd className={entryText}>
-                    {item.text.split("\n").map((paragraph) => (
-                      <p key={paragraph}>{paragraph}</p>
-                    ))}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <div className="flow-root">
+              {group.plate ? <SectionPlate plate={group.plate} /> : null}
+              <dl>
+                {group.items.map((item) => (
+                  <div key={item.title} className={entry}>
+                    <dt className={entryName}>{item.title}</dt>
+                    <dd className={entryText}>
+                      {item.text.split("\n").map((paragraph) => (
+                        <p key={paragraph}>{paragraph}</p>
+                      ))}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         ))}
       </section>
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
-        <SectionPlate plate="room" />
         <dl>
           {rooms.map((room) => (
             <div key={room.id} className={entry}>
@@ -283,7 +278,6 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
-        <SectionPlate plate="rooms" />
         <dl>
           {POST_TYPES.map((type) => (
             <div key={type.id} className={entry}>

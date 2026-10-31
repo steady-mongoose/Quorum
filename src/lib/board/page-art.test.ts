@@ -75,6 +75,23 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   assert.doesNotMatch(doc, /hero-band/);
 });
 
+test("About's plates keep Josh's rules: Jesus is not in them, and each has its section", () => {
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const captions = Object.values(SECTION_PLATE).map((plate) => plate.caption).join(" ");
+  assert.doesNotMatch(captions, /Sermon on the Mount/);
+  for (const [heading, plate] of [
+    ["Getting in and showing up", "gathering"],
+    ["Keeping it clean", "judgment"],
+    ["Talking to people", "writing"],
+  ]) {
+    assert.match(about, new RegExp(`${heading}"[,\\s]*plate: "${plate}"`), heading);
+  }
+  assert.match(about, /<SectionPlate plate="crusader" \/>/);
+  assert.doesNotMatch(captions, /Praying Hands/);
+  const manifest = readFileSync(new URL("./art-two-sides.test.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(manifest, /who: "Christ"/);
+});
+
 test("About sets each section plate once, with an on-list credit, and every file is credited", () => {
   const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
   const credits = readFileSync(new URL("../../../public/art/ATTRIBUTION.md", import.meta.url), "utf8");
@@ -95,7 +112,11 @@ test("About sets each section plate once, with an on-list credit, and every file
 test("section plates load lazily, hold their space, and data savers skip them", () => {
   const plate = readFileSync(new URL("../../components/board/section-plate.tsx", import.meta.url), "utf8");
   assert.ok(plate.includes(`loading="lazy"`));
-  assert.ok(plate.includes("width={tall ? 600 : 1500}"));
+  assert.ok(plate.includes("width={900}") && plate.includes("height={900}"));
+  // One shape, never cropped: it fills a phone and stands beside the text from tablet up.
+  assert.ok(pageArt.includes("aspect-ratio:1;"));
+  assert.ok(!pageArt.includes("object-fit:cover"));
+  assert.ok(pageArt.includes("@media (min-width:40rem){.section-plate{float:right;width:14rem;"));
   assert.ok(pageArt.includes("[data-save-data] .section-plate{display:none}"));
   assert.ok(pageArt.includes("@media (prefers-reduced-data:reduce){.section-plate{display:none}}"));
 });
