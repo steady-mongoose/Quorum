@@ -53,5 +53,5 @@ test("How it works is grouped, and every entry sits in exactly one group", () =>
   assert.equal(titles.length, 15);
   assert.deepEqual([...grouped].sort(), [...titles].sort());
   assert.ok(about.includes(`max-w-prose text-base text-fg/85`));
-  assert.ok(source("../../routes/about.tsx").includes("<PublicDocument wide>"));
+  assert.ok(source("../../routes/about.tsx").includes(`<PublicDocument page="/about" wide>`));
 });

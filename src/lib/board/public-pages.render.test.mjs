@@ -62,7 +62,7 @@ function renderRoute(route) {
 
 function footerLinks() {
   return ["/about", "/privacy", "/terms"].map((href) => {
-    const link = document.querySelector(`a[href="${href}"]`);
+    const link = document.querySelector(`footer a[href="${href}"]`);
     assert.ok(link instanceof HTMLAnchorElement, href);
     assert.match(link.className, /inline-flex/);
     assert.match(link.className, /min-h-\[44px\]/);

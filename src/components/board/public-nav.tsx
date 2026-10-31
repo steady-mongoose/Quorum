@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { useLocation } from "@tanstack/react-router";
 import { APP_NAME } from "@/lib/board/model";
 
 const PAGES = [
@@ -37,8 +36,7 @@ function readSections(): { sections: Section[]; headings: HTMLElement[] } {
  * The menu on About, Privacy and Terms. A bookmark hangs over the page you are on.
  * The row under it moves between this page's sections and follows you as you read.
  */
-export function PublicNav() {
-  const { pathname } = useLocation();
+export function PublicNav({ page }: { page: string }) {
   const [sections, setSections] = useState<Section[]>([]);
   const [reading, setReading] = useState("");
   const sectionRow = useRef<HTMLElement>(null);
@@ -68,7 +66,7 @@ export function PublicNav() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [pathname]);
+  }, []);
 
   // On a phone the section row scrolls sideways: keep the one you are reading in view.
   useEffect(() => {
@@ -89,15 +87,15 @@ export function PublicNav() {
           {APP_NAME}
         </a>
         <nav aria-label="Pages" className="pn-pages">
-          {PAGES.map((page) => (
+          {PAGES.map((item) => (
             <a
-              key={page.href}
-              href={page.href}
+              key={item.href}
+              href={item.href}
               className="pn-link"
-              aria-current={page.href === pathname ? "page" : undefined}
+              aria-current={item.href === page ? "page" : undefined}
             >
-              {page.href === "/" ? <ArrowLeft className="pn-back" aria-hidden="true" /> : null}
-              <span className="pn-word">{page.label}</span>
+              {item.href === "/" ? <ArrowLeft className="pn-back" aria-hidden="true" /> : null}
+              <span className="pn-word">{item.label}</span>
             </a>
           ))}
         </nav>

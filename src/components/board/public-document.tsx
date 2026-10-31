@@ -12,10 +12,12 @@ import { heroLabel } from "@/lib/board/engraved";
  */
 export function PublicDocument({
   children,
+  page,
   art = "martin",
   wide = false,
 }: {
   children: ReactNode;
+  page: string;
   art?: "martin" | "jerome";
   wide?: boolean;
 }) {
@@ -29,7 +31,7 @@ export function PublicDocument({
         aria-label={heroLabel(jerome ? "rooms" : "about") ?? undefined}
       />
       <div className="scrim" aria-hidden="true" />
-      <PublicNav />
+      <PublicNav page={page} />
       <main
         id="main"
         className={`mx-auto w-full ${wide ? "max-w-[72rem]" : "max-w-[64rem]"} min-w-0 px-[clamp(0.75rem,4vw,4rem)] py-[clamp(1.5rem,6vh,4rem)]`}

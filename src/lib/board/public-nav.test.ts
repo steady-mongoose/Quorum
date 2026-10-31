@@ -9,7 +9,7 @@ const doc = read("../../components/board/public-document.tsx");
 const root = read("../../routes/__root.tsx");
 
 test("every public document carries the menu, with a way home", () => {
-  assert.ok(doc.includes("<PublicNav />"));
+  assert.ok(doc.includes("<PublicNav page={page} />"));
   for (const href of ['"/"', '"/about"', '"/privacy"', '"/terms"']) {
     assert.ok(nav.includes(`href: ${href}`), href);
   }
@@ -17,7 +17,7 @@ test("every public document carries the menu, with a way home", () => {
 });
 
 test("the menu marks where you are for a screen reader", () => {
-  assert.ok(nav.includes('aria-current={page.href === pathname ? "page" : undefined}'));
+  assert.ok(nav.includes('aria-current={item.href === page ? "page" : undefined}'));
   assert.ok(nav.includes('aria-current={section.id === reading ? "location" : undefined}'));
   assert.ok(nav.includes('aria-label="On this page"'));
 });
