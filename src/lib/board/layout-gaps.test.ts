@@ -6,13 +6,20 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
-test("About's How it works flows in two columns, so a long entry leaves no gap beside a short one", () => {
+test("About's entries are full-width rows, so a long entry never sits beside a short one", () => {
   const about = source("../../components/board/about-view.tsx");
-  // A two-column grid sized each row to its tallest entry: "Church needs" sat
-  // beside "Moderation" with a 225px blank under it at desktop width.
-  assert.match(about, /<dl className="about-how -mb-4 columns-1 gap-x-8 lg:columns-2">/);
-  assert.match(about, /className="mb-4 flex break-inside-avoid flex-col gap-1"/);
-  assert.doesNotMatch(about, /<dl className="grid gap-x-8 gap-y-4 lg:grid-cols-2">/);
+  // Two columns put "Stewards" beside the far longer "Moderation", as a grid or as flowing columns.
+  assert.ok(about.includes("sm:grid-cols-[10rem_minmax(0,1fr)]"));
+  assert.doesNotMatch(about, /<dl className="[^"]*(columns|grid)/);
+  assert.equal(about.split("<dl>").length - 1, 3);
+});
+
+test("About's Moderation entry reads in paragraphs, with its words unchanged", () => {
+  const about = source("../../components/board/about-view.tsx");
+  assert.ok(about.includes('item.text.split("\\n")'));
+  for (const start of ["A removal bars", "Child sexual abuse material is removed", "Stewards can mark a post", "A steward can mark, remove"]) {
+    assert.ok(about.includes(`\\n${start}`), start);
+  }
 });
 
 test("This week drops its side column when there is no call and no parish need", () => {
