@@ -123,6 +123,19 @@ test("parchment gilt is dark enough to read, and the aside is upright", () => {
   assert.doesNotMatch(aside, /italic/);
 });
 
+test("the door's rule names keep one column, and its rooms stand in even columns", () => {
+  assert.ok(doorTsx.includes('<dl className="door-terms">'));
+  assert.ok(door.includes(".door-terms{grid-template-columns:9.5rem minmax(0,1fr);column-gap:1.5rem}"));
+  assert.ok(door.includes(".door-roomlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));"));
+  assert.ok(door.includes(".door-roomlist{grid-template-columns:repeat(3,minmax(0,1fr))}"));
+});
+
+test("no words sit on the door's ghosted engravings: the art keeps its own part of the card", () => {
+  const flat = door.replace(/\r\n/g, "\n");
+  assert.match(flat, /\.door-week,\.door-rooms\{padding-top:8rem\}\n  \.door-week::after,\.door-rooms::after\{\n    inset:0 0 auto;\n    height:7rem;/);
+  assert.match(flat, /\.door-week,\.door-rooms\{padding-right:calc\(28% \+ 1\.5rem\)\}\n  \.door-week::after,\.door-rooms::after\{\n    inset:0 0 0 auto;\n    width:28%;/);
+});
+
 test("the rooms list is labelled by its heading", () => {
   assert.match(doorTsx, /<h2 id="door-rooms-heading"/);
   assert.match(

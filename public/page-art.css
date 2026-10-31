@@ -1,6 +1,17 @@
 /* No page has a band any more: the signed-in pages stand on one full-bleed plate each (page-craft.css), and
    About, Privacy, Terms, /e and 404 on a whole plate with the door's light (door.css section 7). */
 
+/* A plate set inside a section (section-plate.tsx): the double hairline of the door's frame, its credit under it.
+   Below 640px the band is a little taller, so its figures keep their size. */
+.section-plate{margin:0;min-width:0}
+.section-plate img{display:block;width:calc(100% - 6px);height:auto;margin:3px;aspect-ratio:3;object-fit:cover;background:var(--bg);border:1px solid var(--gold);outline:1px solid color-mix(in srgb,var(--gold) 35%,transparent);outline-offset:2px}
+.section-plate figcaption{margin-top:.5rem;color:var(--muted);font-family:var(--font-display);font-variant-caps:all-small-caps;letter-spacing:.06em;font-size:.95rem;line-height:1.25}
+.section-plate--tall{justify-self:center;width:100%;max-width:11rem}
+.section-plate--tall img{aspect-ratio:3/4}
+@media (max-width:40rem){.section-plate:not(.section-plate--tall) img{aspect-ratio:2.4}}
+[data-save-data] .section-plate{display:none}
+@media (prefers-reduced-data:reduce){.section-plate{display:none}}
+
 /* Data savers skip the page art. prefers-reduced-data ships in no browser, so <html data-save-data> (set from
    navigator.connection.saveData, src/lib/board/save-data.ts) is the real signal. !important because section rules
    outrank the plain reduced-data rule in fluid.css. .margin-art too, should the old margin markup come back. */

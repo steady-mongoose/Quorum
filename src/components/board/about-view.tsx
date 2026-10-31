@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
 import { RoomOptionsMenu } from "@/components/board/room-options-menu";
+import { SectionPlate } from "@/components/board/section-plate";
 import { DEFAULT_ROOM_OPTIONS, type RoomOption } from "@/lib/board/room-options";
 import { isReplacementError } from "@/lib/board/access-rules";
 import { InviteTracker } from "./invite-tracker";
@@ -18,6 +19,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { fetchAccountExport, stepUpMfa } from "@/lib/mfa-api";
 import { RoomsManager } from "@/components/board/rooms-manager";
 import { useFocusAuthenticator } from "@/lib/board/focus-authenticator";
+import type { SectionPlateId } from "@/lib/board/engraved";
 import { AudienceChoice, RoomAudienceMark } from "@/components/board/audience";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -106,7 +108,7 @@ const HOW = [
   },
   {
     title: "Moderation",
-    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. Doxxing means publishing a private person's home address, phone number, or other contact so strangers can find them. A removal bars filing for 30 days. A second removal closes the account. Child sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content. Stewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it. A steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
+    text: "Five things get a post removed: threats of violence, pornography, child sexual abuse material, doxxing, and a post that mocks God or Christ. Doxxing means publishing a private person's home address, phone number, or other contact so strangers can find them.\nA removal bars filing for 30 days. A second removal closes the account.\nChild sexual abuse material is removed at once, the account is banned, and the evidence is held for one year, pending counsel. An admin queue prepares the report for the NCMEC CyberTipline. Josh files that report by hand. The app does not send it, and it never shows the content.\nStewards can mark a post Sloppy, No legs, or Out of scope, with one sentence saying why. A mark dims the post. It does not move it and it does not hide it.\nA steward can mark, remove, or decide an appeal only in a room they steward. The author can appeal a mark or a removal to that room's stewards. The author, the stewards of that room, and an admin can read the appeal.",
   },
   {
     title: "Home",
@@ -114,20 +116,33 @@ const HOW = [
   },
 ];
 
-/** About's How it works, by what a reader wants to know. Every entry in HOW sits in one group. */
-const HOW_HEADINGS: { heading: string; titles: string[] }[] = [
-  { heading: "Getting in and showing up", titles: ["Getting in", "The week", "After a meeting"] },
+/**
+ * About's How it works, by what a reader wants to know. Every entry in HOW sits in one group, and each
+ * group carries the plate of the page it explains.
+ */
+const HOW_HEADINGS: { heading: string; plate: SectionPlateId; titles: string[] }[] = [
+  {
+    heading: "Getting in and showing up",
+    plate: "week",
+    titles: ["Getting in", "The week", "After a meeting"],
+  },
   {
     heading: "Rooms and groups",
+    plate: "groups",
     titles: ["What a room includes", "Members", "Room chat", "Interest groups", "Home"],
   },
-  { heading: "Talking to people", titles: ["Who can see you", "Posting"] },
-  { heading: "Keeping it clean", titles: ["Stewards", "Moderation"] },
-  { heading: "What's in the rooms", titles: ["Debates", "Tradesmen", "Church needs"] },
+  { heading: "Talking to people", plate: "messages", titles: ["Who can see you", "Posting"] },
+  { heading: "Keeping it clean", plate: "civic", titles: ["Stewards", "Moderation"] },
+  {
+    heading: "What's in the rooms",
+    plate: "group",
+    titles: ["Debates", "Tradesmen", "Church needs"],
+  },
 ];
 
-const HOW_GROUPS = HOW_HEADINGS.map(({ heading, titles }) => ({
+const HOW_GROUPS = HOW_HEADINGS.map(({ heading, plate, titles }) => ({
   heading,
+  plate,
   items: HOW.filter((item) => titles.includes(item.title)),
 }));
 
@@ -194,11 +209,12 @@ export function AboutView({
 
   // Signed in, About's lists sit on cards over the plate (Design r131 R4); the public page is unchanged.
   const listCard = "card pc-card flex flex-col gap-4 p-4 sm:p-5";
-  const box = "flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5";
-  // One entry: a card with a gilt head, its name set in the display face.
-  const entry = "flex flex-col gap-2 rounded-md border border-line border-t-gilt bg-raised p-4";
+  const box = "flex flex-col gap-3 rounded-lg border border-line bg-surface p-3 sm:p-5";
+  // One entry: a full-width row, its name beside the text, a hairline between rows. On a phone, name over text.
+  const entry =
+    "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6";
   const entryName = "font-display text-xl leading-snug text-fg";
-  const entryText = "text-base leading-relaxed text-fg/85";
+  const entryText = "flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed text-fg/85";
 
   return (
     <div className="flex flex-col gap-10">
@@ -215,14 +231,17 @@ export function AboutView({
         </p>
       </section>
 
-      <section className="rounded-lg border border-line bg-surface p-4 sm:p-5">
-        <h2 className="text-2xl text-fg">What we stand for</h2>
-        <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
-          {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
-          log off and go do the work. It is not a replacement for other social media, but a tool to
-          help you get away from the machine. We want to rebuild what our founders assumed and
-          modernity dissolved: the family, the parish, the town, and honest work.
-        </p>
+      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6 sm:p-5">
+        <div className="min-w-0">
+          <h2 className="text-2xl text-fg">What we stand for</h2>
+          <p className="mt-3 max-w-[65ch] text-base leading-relaxed text-fg sm:text-lg">
+            {APP_NAME} exists so you can see what is happening in your community, meet face to face, then
+            log off and go do the work. It is not a replacement for other social media, but a tool to
+            help you get away from the machine. We want to rebuild what our founders assumed and
+            modernity dissolved: the family, the parish, the town, and honest work.
+          </p>
+        </div>
+        <SectionPlate plate="hands" tall />
       </section>
 
       <section className={publicView ? "flex flex-col gap-4" : listCard}>
@@ -230,11 +249,16 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <dl className="about-how -mb-3 columns-1 gap-x-3 lg:columns-2">
+            <SectionPlate plate={group.plate} />
+            <dl>
               {group.items.map((item) => (
-                <div key={item.title} className={`${entry} mb-3 break-inside-avoid`}>
+                <div key={item.title} className={entry}>
                   <dt className={entryName}>{item.title}</dt>
-                  <dd className={entryText}>{item.text}</dd>
+                  <dd className={entryText}>
+                    {item.text.split("\n").map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -244,7 +268,8 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>The rooms</h2>
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <SectionPlate plate="room" />
+        <dl>
           {rooms.map((room) => (
             <div key={room.id} className={entry}>
               <dt className={entryName}>
@@ -258,7 +283,8 @@ export function AboutView({
 
       <section className={publicView ? box : listCard}>
         <h2 className={publicView ? "text-2xl text-fg" : "pc-h"}>Kinds of post</h2>
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <SectionPlate plate="rooms" />
+        <dl>
           {POST_TYPES.map((type) => (
             <div key={type.id} className={entry}>
               <dt className={entryName}>{type.label}</dt>

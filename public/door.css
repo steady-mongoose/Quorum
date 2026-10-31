@@ -169,48 +169,67 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   box-shadow:0 0 6px color-mix(in srgb,var(--door-gilt) 60%,transparent);
 }
 .door-term,.door-what{padding-bottom:.55rem;border-bottom:1px solid color-mix(in srgb,var(--door-gilt) 14%,transparent)}
-@media (max-width:639px){.door-term{border-bottom:0;padding-bottom:0}}
+/* A rule's name sits beside its text in a fixed column, so the rows line up. On a phone the name sits over the
+   text, on one left edge. */
+.door-terms{display:grid;row-gap:.6rem}
+@media (min-width:640px){.door-terms{grid-template-columns:9.5rem minmax(0,1fr);column-gap:1.5rem}}
+@media (max-width:639px){.door-term{border-bottom:0;padding-bottom:0}.door-what{padding-left:calc(1.08rem * 1.1)}}
 .contents:last-child > .door-term,.contents:last-child > .door-what{border-bottom:0;padding-bottom:0}
-/* The rooms, each on its own small plate. */
-.door-roomlist{display:flex;flex-wrap:wrap;gap:.5rem;margin:.35rem 0 0;padding:0;list-style:none}
+/* The rooms, each on its own small plate, in even columns. An odd last room takes the whole row. */
+.door-roomlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin:.35rem 0 0;padding:0;list-style:none}
+.door-room:last-child:nth-child(odd){grid-column:1/-1}
+@media (min-width:640px){
+  .door-roomlist{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .door-room:last-child:nth-child(odd){grid-column:auto}
+}
 .door-room{
+  display:flex;align-items:center;justify-content:center;text-align:center;
   font-family:var(--font-display);
   font-variant-caps:all-small-caps;
   font-size:1.05rem;
   letter-spacing:.06em;
-  line-height:1;
+  line-height:1.15;
   color:var(--fg);
-  padding:.45em .7em .5em;
+  padding:.45em .5em .5em;
   border:1px solid color-mix(in srgb,var(--door-gilt) 40%,var(--line));
   border-radius:3px;
   background:linear-gradient(180deg,color-mix(in srgb,var(--door-gilt) 14%,transparent),color-mix(in srgb,var(--door-gilt) 5%,transparent));
   box-shadow:inset 0 1px 0 rgba(240,231,211,.08),0 2px 6px -3px rgba(0,0,0,.7);
-  white-space:nowrap;
 }
 /* The section's own engraving, ghosted into its plate: Doré's ladder under How it works, Dürer's Saint
-   Jerome under The rooms. Tablets get the 900px bands backgrounds.css already names; desktops the side
-   plates. The mask keeps the text's side of the card clear. Phones stay solid. */
+   Jerome under The rooms. Each keeps its own part of the card and the words stop short of it, so no text
+   sits on the art: tablets get the 900px bands backgrounds.css already names, as a strip across the top;
+   desktops the side plates, as a column on the right. Phones stay solid. */
 @media (min-width:640px){
   .door-week::after,.door-rooms::after{
     content:"";
     position:absolute;
-    inset:0;
     pointer-events:none;
-    background:var(--door-ghost) right center/cover no-repeat;
-    opacity:.4;
-    -webkit-mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
-    mask-image:linear-gradient(90deg,transparent 18%,#000 62%);
+    background:var(--door-ghost) center/cover no-repeat;
+    opacity:.5;
     mix-blend-mode:screen;
+  }
+  [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
+}
+@media (min-width:640px) and (max-width:1023px){
+  .door-week,.door-rooms{padding-top:8rem}
+  .door-week::after,.door-rooms::after{
+    inset:0 0 auto;
+    height:7rem;
+    -webkit-mask-image:linear-gradient(#000 45%,transparent);
+    mask-image:linear-gradient(#000 45%,transparent);
   }
   .door-week::after{--door-ghost:var(--art-week-band)}
   .door-rooms::after{--door-ghost:var(--art-rooms-band)}
-  /* Doré's band is bright where the text runs on tablets: keep it fainter there so the rules stay legible. */
-  .door-week::after{opacity:.22}
-  [data-palette="parchment"] .door-week::after,[data-palette="parchment"] .door-rooms::after{mix-blend-mode:multiply;opacity:.45}
 }
 @media (min-width:1024px){
-  .door-week::after,.door-rooms::after{background-size:auto 120%}
-  .door-week::after{opacity:.4}
+  .door-week,.door-rooms{padding-right:calc(28% + 1.5rem)}
+  .door-week::after,.door-rooms::after{
+    inset:0 0 0 auto;
+    width:28%;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);
+    mask-image:linear-gradient(90deg,transparent,#000 40%);
+  }
   .door-week::after{--door-ghost:var(--art-week-side)}
   .door-rooms::after{--door-ghost:var(--art-rooms-side)}
 }

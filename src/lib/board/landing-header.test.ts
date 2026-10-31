@@ -180,7 +180,7 @@ test("the door column starts with the invite line", () => {
   assert.match(css, /html\{[^}]*scroll-padding-top:calc\(var\(--mast-h\) \+ \.5rem\)/);
 });
 
-test("desktop door: frame wraps the grid and The rooms sits under Open the door", () => {
+test("desktop door: frame wraps the grid, and How it works and The rooms each run the full width", () => {
   const door = source("../../components/board/door.tsx");
   const css = source("../../../public/fluid.css");
   for (const name of ["door-main", "door-hero", "door-week", "door-rooms", "door-side"]) {
@@ -195,7 +195,7 @@ test("desktop door: frame wraps the grid and The rooms sits under Open the door"
   );
   const desk = css.slice(css.indexOf("/* Desktop door:"));
   assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
-  assert.match(desk, /grid-template-areas:"hero side" "week side" "week rooms"/);
+  assert.match(desk, /grid-template-areas:"hero side" "week week" "rooms rooms"/);
   assert.match(desk, /\.door-main\{display:contents\}/);
   assert.match(desk, /\.door-rooms\{grid-area:rooms/);
   assert.match(css, /\.door-rooms p\{font-size:0\.95rem;line-height:1\.6\}/);

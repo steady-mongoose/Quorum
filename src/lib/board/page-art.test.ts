@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { artSection, heroLabel } from "./engraved.ts";
+import { artSection, heroLabel, SECTION_PLATE } from "./engraved.ts";
 import type { Section } from "./model.ts";
 
 const pageArt = readFileSync(new URL("../../../public/page-art.css", import.meta.url), "utf8");
@@ -73,6 +73,31 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   assert.ok(route("about").includes(`<PublicDocument page="/about" wide>`));
   assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
   assert.doesNotMatch(doc, /hero-band/);
+});
+
+test("About sets each section plate once, with an on-list credit, and every file is credited", () => {
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const credits = readFileSync(new URL("../../../public/art/ATTRIBUTION.md", import.meta.url), "utf8");
+  const used = [...about.matchAll(/plate(?:: |=)"([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...used].sort(), Object.keys(SECTION_PLATE).sort());
+  const works = Object.values(SECTION_PLATE).map((plate) => plate.caption);
+  assert.equal(new Set(works).size, works.length);
+  for (const [key, plate] of Object.entries(SECTION_PLATE)) {
+    assert.match(plate.caption, ON_LIST, key);
+    assert.ok(plate.alt.length > 0, key);
+    assert.ok(credits.includes(`\`section-${key}.webp\``), key);
+    const file = readFileSync(new URL(`../../../public/art/section-${key}.webp`, import.meta.url));
+    assert.equal(file.subarray(8, 12).toString("ascii"), "WEBP", key);
+    assert.ok(file.length <= 90 * 1024, `${key} is ${file.length} B`);
+  }
+});
+
+test("section plates load lazily, hold their space, and data savers skip them", () => {
+  const plate = readFileSync(new URL("../../components/board/section-plate.tsx", import.meta.url), "utf8");
+  assert.ok(plate.includes(`loading="lazy"`));
+  assert.ok(plate.includes("width={tall ? 600 : 1500}"));
+  assert.ok(pageArt.includes("[data-save-data] .section-plate{display:none}"));
+  assert.ok(pageArt.includes("@media (prefers-reduced-data:reduce){.section-plate{display:none}}"));
 });
 
 test("ATTRIBUTION credits no off-list artist", () => {

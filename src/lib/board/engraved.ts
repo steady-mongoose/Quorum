@@ -81,6 +81,44 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
 
+/** About's section plates, cut from the app's own art. Each is credited where it stands. */
+export const SECTION_PLATE = {
+  week: {
+    alt: "Angels on the stair of Jacob’s ladder",
+    caption: "Gustave Doré · Jacob’s Dream · 1866",
+  },
+  groups: {
+    alt: "A crowd gathered around the Virgin and Child",
+    caption: "Albrecht Dürer · The Feast of the Rose Garlands · 1506",
+  },
+  messages: {
+    alt: "A hand writing at a small desk",
+    caption: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
+  },
+  civic: {
+    alt: "Solomon on his throne with one hand raised",
+    caption: "Gustave Doré · The Judgment of Solomon · 1866",
+  },
+  group: {
+    alt: "Ruth and Boaz among the reapers, one carrying a sheaf of grain",
+    caption: "Gustave Doré · Ruth and Boaz · 1866",
+  },
+  room: {
+    alt: "Christ seated on a hillside with the listeners around him",
+    caption: "Gustave Doré · The Sermon on the Mount · 1866",
+  },
+  rooms: {
+    alt: "Saint Jerome writing at his desk",
+    caption: "Albrecht Dürer · Saint Jerome in His Study · 1514",
+  },
+  hands: {
+    alt: "A pair of hands in prayer",
+    caption: "Albrecht Dürer · Praying Hands · 1508",
+  },
+} as const;
+
+export type SectionPlateId = keyof typeof SECTION_PLATE;
+
 /**
  * From 1600px the Messages and You plates put a second work on the right edge (art-two-sides.test.ts),
  * so their chip names both. Other pages show two parts of one work and keep the one-work chip.
