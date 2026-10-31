@@ -466,7 +466,6 @@ export async function removeChatMessage(
       ],
     );
     if (!message.author_user_id) return { ban: null, siteWide: false };
-    const siteWide = gate.value.admin || reason === "csam";
     const ban = await writeBan(tx, {
       userId: message.author_user_id,
       name: message.author_name,
@@ -476,9 +475,9 @@ export async function removeChatMessage(
       removalId: null,
       removalAlreadyCounted: true,
       now: input.now,
-      roomId: siteWide ? "" : input.roomId,
+      roomId: gate.value.admin || reason === "csam" ? "" : input.roomId,
     });
-    return { ban, siteWide };
+    return { ban, siteWide: ban.siteWide };
   });
   if (!saved) return fail(404, "That message is not here.");
   if (message.author_user_id) {

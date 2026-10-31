@@ -81,9 +81,12 @@ import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink
 import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
+import { RollCallPicker, WhoCame } from "@/components/board/roll-call";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
+
+const NOBODY_GOING: string[] = [];
 
 const ROOM_HEADING_ID = "room-heading";
 const REMOVAL_STATUS_ID = "removal-status";
@@ -454,7 +457,6 @@ function CardSelect({
 function Composer({ me, steward }: { me: string; steward: boolean }) {
   const pagesId = useId();
   const pagesHintId = useId();
-  const admin = useBoard((state) => state.admin);
   const room = useBoard((state) => state.room);
   const posts = useBoard((state) => state.posts);
   const boardCards = useBoard((state) => state.cards);
@@ -749,33 +751,12 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
             {type.closes ? (
               <>
                 {rollCall ? (
-                <fieldset className="flex flex-col gap-2 text-sm text-muted">
-                  <legend>Roll call. Who came, from those who said they would.</legend>
-                  {admin && closing && closing.going.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {closing.going.map((name) => (
-                        <label
-                          key={name}
-                          className={pill(current.came.includes(name), "cursor-pointer")}
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={current.came.includes(name)}
-                            onChange={() => toggleCame(name)}
-                          />
-                          {name}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <span>
-                      {admin
-                        ? "Nobody said they would come. Say how it went and set the next date."
-                        : "Say how it went, and set the next date."}
-                    </span>
-                  )}
-                </fieldset>
+                  <RollCallPicker
+                    room={meta}
+                    going={closing?.going ?? NOBODY_GOING}
+                    came={current.came}
+                    onToggle={toggleCame}
+                  />
                 ) : null}
                 {rollCall && current.came.length > 0 ? (
                   <label className="flex flex-col gap-2 text-sm text-muted">
@@ -936,6 +917,7 @@ const PostCard = memo(function PostCard({
   const now = useNow();
   const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
+  const rollCall = useBoard((state) => roomIncludes(roomById(post.room, state.rooms), "roll_call"));
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
@@ -1043,8 +1025,7 @@ const PostCard = memo(function PostCard({
           ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              {post.came.length > 0 ? `There: ${post.came.join(", ")}. ` : ""}
-              {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
+              <WhoCame post={post} rollCall={rollCall} />
               {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>
           ) : null}

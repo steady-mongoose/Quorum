@@ -9,6 +9,8 @@ import { spawn } from "node:child_process";
 const appTests = [
   "src/lib/board/find-invite.test.ts",
   "server/board/removal-mine.test.ts",
+  "server/board/board-rules.test.ts",
+  "src/lib/board/roll-call.render.test.mjs",
   "server/board/group-invites.test.ts",
   "src/lib/board/rsvp-admin-only.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",

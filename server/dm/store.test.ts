@@ -561,6 +561,10 @@ test("a reused card does not leak attendees, and a came list is not attendance",
         [randomUUID(), id, name],
       );
     }
+    await db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [
+      friend,
+      now,
+    ]);
     const hosted = {
       type: "hosted",
       claim: "The framing night went well and the next one is set.",
@@ -710,6 +714,7 @@ test("a listed name is the account that existed when the host posted", async () 
     const host = await member(db, "Host");
     const willa = await member(db, "Willa");
     const mallory = await member(db, "Mallory");
+    const firstPete = await member(db, "Pete");
     for (const [id, name] of [
       [host, "Host"],
       [willa, "Willa"],
@@ -721,6 +726,12 @@ test("a listed name is the account that existed when the host posted", async () 
          values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
         [randomUUID(), id, name],
       );
+    }
+    for (const id of [willa, firstPete]) {
+      await db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [
+        id,
+        now,
+      ]);
     }
     const posted = await createPost(db, {
       userId: host,
@@ -737,6 +748,7 @@ test("a listed name is the account that existed when the host posted", async () 
       now,
     });
     assert.equal(posted.ok, true);
+    await db.query(`update "user" set name = 'Peter' where id = $1`, [firstPete]);
     await db.query(`update "user" set name = 'Pete' where id = $1`, [mallory]);
     const pete = await member(db, "Pete");
     assert.equal((await recordAttendance(db, mallory, now, ["s-named-night"])).ok, true);
