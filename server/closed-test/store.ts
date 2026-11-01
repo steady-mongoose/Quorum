@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { AGE_INVITE_ERROR, AGE_SIGNUP_ERROR, confirmedAdult } from "../../src/lib/board/age.ts";
+import { countyColumnsReady } from "../board/room-visibility.ts";
 import {
   FOUNDING_ADMIN,
   FOUNDING_ADMIN_NOTE,
@@ -200,6 +201,7 @@ export async function redeemInvite(
   let reservedId = "";
   let invitedBy = "";
   let userId = "";
+  const countiesReady = await countyColumnsReady(db);
   try {
     const saved = await db.transaction(async (tx) => {
       const rows = await tx.query<InviteRecord>(
@@ -247,6 +249,17 @@ export async function redeemInvite(
              select $1, id, $3 from room where id = $2
              on conflict do nothing`,
             [account.id, reserved.room_id, now],
+          );
+        }
+        // A room invite gives the member that room's county. A code with no room leaves
+        // it blank, and the app asks once.
+        if (countiesReady) {
+          await tx.query(
+            `insert into members (user_id, display_name, home_county)
+             select $1, left(coalesce(nullif(trim($2), ''), 'Member'), 80), county_id
+             from room where id = $3
+             on conflict (user_id) do update set home_county = excluded.home_county`,
+            [account.id, name, reserved.room_id],
           );
         }
       }

@@ -21,6 +21,7 @@ import {
   canSeeHiddenRooms,
   listingColumnsReady,
   visibleRoomClause,
+  countyColumnsReady,
 } from "./room-visibility.ts";
 import {
   filterAudience,
@@ -68,6 +69,13 @@ import {
 } from "./room-options.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
+import {
+  COUNTY_REQUIRED,
+  DEFAULT_COUNTY,
+  isCountyId,
+  type CountyId,
+} from "../../src/lib/board/counties.ts";
+import { readHomeCounty } from "./counties.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BAN_MS = 30 * DAY_MS;
@@ -116,6 +124,8 @@ export type BoardRoom = {
   /** What the room includes: roll call, the member list, chat, calls. An admin sets it. */
   options: RoomOption[];
   categoryIds: string[];
+  /** The county this room is in. Exactly one. */
+  countyId: string;
   scopeKind: "topic" | "town" | "congregation" | "region";
   townId: string;
   congregationId: string;
@@ -195,6 +205,10 @@ export type BoardPayload = {
     ban: { until: number; strikes: number; reason: RuleId } | null;
     gender: "man" | "woman" | null;
     genderConfirmed: boolean;
+    /** Null until the member chooses. The app asks once. */
+    homeCounty: CountyId | null;
+    /** False until migration 0051 has run. The app then shows no county controls. */
+    countiesOn: boolean;
   };
   genderPolicy: {
     setBy: "self" | "inviter" | "steward";
@@ -299,6 +313,7 @@ type RoomRow = {
   parish: boolean;
   options?: unknown;
   category_ids?: unknown;
+  county_id?: string;
   scope_kind?: string;
   town_id?: string;
   congregation_id?: string;
@@ -351,6 +366,7 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     // Before migration 0044 the column is not there and every room keeps all four.
     options: row.options === undefined ? [...LEGACY_ROOM_OPTIONS] : roomOptionsFrom(row.options),
     categoryIds: categoryIdsFrom(row.category_ids, row.id),
+    countyId: row.county_id ?? DEFAULT_COUNTY,
     scopeKind: scopeKind(row.scope_kind),
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
@@ -456,8 +472,9 @@ async function roomById(
   const who = typeof viewer === "string" ? { id: viewer, admin: false } : viewer;
   const ready = await listingColumnsReady(db);
   const optionsReady = await optionsColumnReady(db);
+  const countiesReady = await countyColumnsReady(db);
   const rows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""}${countiesReady ? ", county_id" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $2
@@ -712,8 +729,9 @@ export async function listBoard(
     if (concealed[0]) return fail(404, "That room is not here.");
   }
   const optionsReady = await optionsColumnReady(db);
+  const countiesReady = await countyColumnsReady(db);
   const roomRows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""}${countiesReady ? ", county_id" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $1
@@ -945,6 +963,8 @@ export async function listBoard(
         ban: null,
         gender: gender.stated,
         genderConfirmed: gender.confirmed,
+        homeCounty: countiesReady ? await readHomeCounty(db, userId) : null,
+        countiesOn: countiesReady,
       },
       genderPolicy: genderPolicyPayload(),
       rooms,
@@ -2167,6 +2187,8 @@ export async function createRoom(
     name: string;
     what: string;
     categoryIds: string[];
+    /** The one county this room is in. */
+    county?: unknown;
     now: Date;
     audience?: unknown;
     stewardEmail?: string;
@@ -2192,6 +2214,8 @@ export async function createRoom(
     return fail(400, "Say what the room is for, in English.");
   const categoryIds = await checkedCategoryIds(db, input.categoryIds);
   if (!Array.isArray(categoryIds)) return categoryIds;
+  const countiesReady = await countyColumnsReady(db);
+  if (countiesReady && !isCountyId(input.county)) return fail(400, COUNTY_REQUIRED);
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
@@ -2221,6 +2245,9 @@ export async function createRoom(
       );
       if (await optionsColumnReady(tx)) {
         await tx.query(`update room set options = $2 where id = $1`, [id, options]);
+      }
+      if (countiesReady) {
+        await tx.query(`update room set county_id = $2 where id = $1`, [id, input.county]);
       }
       await replaceRoomCategories(tx, id, categoryIds);
       if (audience !== "all") {
@@ -2263,6 +2290,8 @@ export async function updateRoom(
     pinOrder?: number | null;
     /** Only an admin changes what a room includes. */
     options?: unknown;
+    /** Only an admin moves a room to another county. */
+    county?: unknown;
     now: Date;
   },
 ): Promise<Result<BoardRoom>> {
@@ -2307,6 +2336,16 @@ export async function updateRoom(
       return fail(503, "Room options are not set up on this server yet.");
     if (!changing) options = null;
   }
+  let county: CountyId | null = null;
+  if (input.county !== undefined) {
+    if (!isCountyId(input.county)) return fail(400, COUNTY_REQUIRED);
+    if (input.county !== current.countyId) {
+      if (!actor.admin) return fail(403, "Only an admin can move a room to another county.");
+      if (!(await countyColumnsReady(db)))
+        return fail(503, "Counties are not set up on this server yet.");
+      county = input.county;
+    }
+  }
   const nextName = name || current.name;
   const nextWhat = what || current.what;
   if (renaming) {
@@ -2324,6 +2363,7 @@ export async function updateRoom(
     ]);
     if (categoryIds) await replaceRoomCategories(tx, id, categoryIds);
     if (options) await tx.query(`update room set options = $2 where id = $1`, [id, options]);
+    if (county) await tx.query(`update room set county_id = $2 where id = $1`, [id, county]);
   });
   const room = await roomById(db, id, { id: input.userId, admin: actor.admin });
   if (!room) return fail(500, "The room was not saved.");

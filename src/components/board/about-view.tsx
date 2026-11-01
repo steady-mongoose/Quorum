@@ -11,6 +11,8 @@ import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/
 import { DeletionRequestQueue } from "@/components/board/account-removal";
 import { useCategories } from "@/components/board/use-categories";
 import { browseCategories } from "@/lib/board/categories";
+import { COUNTIES, isCountyId, type CountyId } from "@/lib/board/counties";
+import { useCounty } from "@/components/board/use-county";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { ServerInvite } from "@/components/board/server-invite";
 import { DmReportQueue } from "@/components/board/dm-report";
@@ -1125,6 +1127,7 @@ function AdminTools({
     name: string;
     what: string;
     categoryIds: string[];
+    county: CountyId;
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
@@ -1138,6 +1141,8 @@ function AdminTools({
   const [name, setName] = useState("");
   const [what, setWhat] = useState("");
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const viewing = useCounty();
+  const [county, setCounty] = useState<CountyId>(viewing);
   const categories = browseCategories(useCategories(), false);
   const [audience, setAudience] = useState<"all" | "men" | "women">("all");
   const [stewardEmail, setStewardEmail] = useState("");
@@ -1187,6 +1192,22 @@ function AdminTools({
             value={what}
             onChange={(event) => setWhat(event.target.value)}
           />
+        </label>
+        <label className="flex flex-col gap-2 text-sm text-muted sm:col-span-2">
+          County
+          <select
+            className={fieldClass}
+            value={county}
+            onChange={(event) => {
+              if (isCountyId(event.target.value)) setCounty(event.target.value);
+            }}
+          >
+            {COUNTIES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
         </label>
         <fieldset className="flex flex-col gap-1 sm:col-span-2">
           <legend className="text-sm text-muted">Categories</legend>
@@ -1249,6 +1270,7 @@ function AdminTools({
             name,
             what,
             categoryIds,
+            county,
             audience,
             stewardEmail,
             inviterEmail,

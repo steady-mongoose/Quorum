@@ -15,7 +15,8 @@ test("0024 backfills display name from the vouched name, then requires it", asyn
   const dir = new URL("../../migrations/", import.meta.url);
   const names = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
   for (const name of names) {
-    if (name === "0024_member_profile.sql") continue;
+    // 0051 reads the location columns this one adds.
+    if (name === "0024_member_profile.sql" || name === "0051_counties.sql") continue;
     const sql = await readFile(new URL(name, dir), "utf8");
     if (isSkipEmbedded(sql)) continue;
     await pg.exec(sql);
@@ -47,7 +48,12 @@ test("0024 stores a profile scope and refuses a profile gif", async () => {
     new URL("../../migrations/0024_member_profile.sql", import.meta.url),
     "utf8",
   );
-  for (const town of TOWNS) assert.match(sql, new RegExp(`'${town.id}'`));
+  // 0051 replaces this check and is the file that lists Polk.
+  const counties = readFileSync(
+    new URL("../../migrations/0051_counties.sql", import.meta.url),
+    "utf8",
+  );
+  for (const town of TOWNS) assert.match(counties, new RegExp(`'${town.id}'`));
   for (const interest of INTERESTS) assert.match(sql, new RegExp(`'${interest.id}'`));
   const { db, close } = await openTestDb();
   try {

@@ -37,6 +37,8 @@ import {
 } from "@/lib/board/model";
 import { userFacingError } from "@/lib/board/errors";
 import { useBoard } from "@/lib/board/store";
+import { useCounty } from "@/components/board/use-county";
+import { cardsForFind } from "@/lib/board/counties";
 import { forgetMessageReach, useMessageReach } from "@/components/board/use-message-reach";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
@@ -46,9 +48,14 @@ export function FindView() {
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const boardRooms = useBoard((state) => state.rooms);
+  const county = useCounty();
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () =>
+      cardsForFind(boardCards, boardRooms, county).map((card) =>
+        forViewer(card, { admin: viewerAdmin, name: viewerName }),
+      ),
+    [boardCards, boardRooms, county, viewerAdmin, viewerName],
   );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);

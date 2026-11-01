@@ -28,6 +28,7 @@ import {
   saveGathering,
   type StoredGathering,
 } from "./gathering-public.ts";
+import type { CountyId } from "./counties.ts";
 import {
   APP_NAME,
   DAY,
@@ -138,8 +139,20 @@ type BoardState = {
   /** The member row whose Message button takes focus when its room shows again. */
   focusMember: string | null;
   lineDismissedAt: number;
+  /** The county last looked at, on this device. Null means start at home. */
+  county: CountyId | null;
+  /** The county the member chose. Null until they choose. */
+  homeCounty: CountyId | null;
+  /** False on a server without counties yet. */
+  countiesOn: boolean;
+  /** The server's board has loaded at least once this session. */
+  boardLoaded: boolean;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
+  /** Look at a county. Nothing is saved on the server. */
+  setCounty: (county: CountyId) => void;
+  /** Save the member's home county, and look there. */
+  saveHomeCounty: (county: CountyId) => Promise<SaveOutcome>;
   setMe: (me: string) => void;
   setProfile: (patch: Partial<Profile>) => void;
   setDeskOn: (on: boolean) => void;
@@ -167,6 +180,7 @@ type BoardState = {
     name: string;
     what: string;
     categoryIds: string[];
+    county: CountyId;
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
@@ -179,6 +193,7 @@ type BoardState = {
     what?: string;
     pinOrder?: number | null;
     options?: RoomOption[];
+    county?: CountyId;
   }) => Promise<{ ok: boolean; error?: string }>;
   setRoomAudience: (
     roomId: string,
@@ -606,6 +621,9 @@ export const useBoard = create<BoardState>()(
           member: true,
           gender: board.me.gender,
           genderConfirmed: board.me.genderConfirmed,
+          homeCounty: board.me.homeCounty,
+          countiesOn: board.me.countiesOn,
+          boardLoaded: true,
           genderSetBy: board.genderPolicy.setBy,
           genderNeedsConfirmation: board.genderPolicy.requiresConfirmation,
         });
@@ -716,6 +734,10 @@ export const useBoard = create<BoardState>()(
         me: "",
         profile: EMPTY_PROFILE,
         deskOn: false,
+        county: null,
+        homeCounty: null,
+        countiesOn: true,
+        boardLoaded: false,
         viewing: null,
         steward: false,
         admin: false,
@@ -759,6 +781,15 @@ export const useBoard = create<BoardState>()(
         dismissRoomHold: () => {
           const back = get().roomHoldBack;
           set({ roomHold: null, roomHoldBack: null, ...(back ?? {}) });
+        },
+        setCounty: (county) => set({ county }),
+        saveHomeCounty: async (county) => {
+          if (get().remote) {
+            const saved = await (await getBoardClient()).saveCounty(county);
+            if (!saved.ok) return { ok: false, error: saved.error };
+          }
+          set({ homeCounty: county, county });
+          return { ok: true };
         },
         setRoom: (room) => {
           const previous = { section: get().section, room: get().room };
@@ -1465,6 +1496,7 @@ export const useBoard = create<BoardState>()(
                     ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
                     ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
                     ...(input.options && get().admin ? { options: input.options } : {}),
+                    ...(input.county && get().admin ? { countyId: input.county } : {}),
                   }
                 : room,
             );
@@ -1480,6 +1512,7 @@ export const useBoard = create<BoardState>()(
             ...(input.what !== undefined ? { what: input.what } : {}),
             ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
             ...(input.options !== undefined ? { options: input.options } : {}),
+            ...(input.county !== undefined ? { county: input.county } : {}),
           });
           if (!saved.ok) return { ok: false, error: saved.error };
           const rooms = get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room));
@@ -1637,6 +1670,10 @@ export const useBoard = create<BoardState>()(
           setRoomCatalog(ROOMS);
           set({
             remote: false,
+            county: null,
+            homeCounty: null,
+            countiesOn: true,
+            boardLoaded: false,
             admin: false,
             steward: false,
             council: false,
@@ -1725,6 +1762,7 @@ export const useBoard = create<BoardState>()(
         me: state.me,
         profile: state.profile,
         deskOn: state.deskOn,
+        county: state.county,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         posts: state.remote ? [] : state.posts,

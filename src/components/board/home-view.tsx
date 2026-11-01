@@ -5,6 +5,8 @@ import { cn } from "@/lib/cn";
 import type { HomeRequest, HomeSection } from "@/lib/board/home";
 import { useBoard } from "@/lib/board/store";
 import { RoomAudienceMark } from "@/components/board/audience";
+import { useCounty } from "@/components/board/use-county";
+import { countyName, homeForCounty, roomCounty } from "@/lib/board/counties";
 
 type SaveResult = { ok: boolean; error?: string; reloadFailed?: boolean };
 
@@ -59,6 +61,8 @@ export const busyLook = "aria-busy:opacity-75 aria-disabled:not-aria-busy:opacit
  */
 export function HomePanel() {
   const home = useBoard((state) => state.home);
+  const rooms = useBoard((state) => state.rooms);
+  const county = useCounty();
   const setRoom = useBoard((state) => state.setRoom);
   const savePlace = useBoard((state) => state.savePlace);
   const requestRoom = useBoard((state) => state.requestRoom);
@@ -185,7 +189,7 @@ export function HomePanel() {
             approved shows above them with a label.
           </p>
         </div>
-        {home.sections.map((section) => (
+        {homeForCounty(home.sections, rooms, county).map((section) => (
           <HomeSectionBlock
             key={section.tier}
             section={section}
@@ -345,7 +349,7 @@ export function HomePanel() {
             setRequestError("");
             setRequestSent("");
             void settleSave(
-              () => requestRoom({ kind, name, state: stateCode }),
+              () => requestRoom({ kind, name, state: stateCode, county }),
               "Your request was not sent.",
             ).then((result) => {
               requestSendingRef.current = false;
@@ -619,7 +623,8 @@ function RequestRow({
     <article className="rounded-lg border border-line bg-surface p-4">
       <p className="text-sm text-fg">
         {request.name}
-        {request.state ? `, ${request.state}` : ""} · {request.kind} · {request.status}
+        {request.state ? `, ${request.state}` : ""} ·{" "}
+        {countyName(roomCounty(request))} · {request.kind} · {request.status}
       </p>
       <p className="text-[0.8125rem] text-muted">Asked by {request.by}</p>
       {request.note ? <p className="mt-1 text-sm text-muted">{request.note}</p> : null}

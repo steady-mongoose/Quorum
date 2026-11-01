@@ -310,6 +310,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
     await grant(db, josh, "Josh", "member");
     await grant(db, josh, "Josh", "admin");
     const denied = await createRoom(db, {
+      county: "hillsborough",
       userId: maria,
       id: "woodshop",
       name: "Woodshop",
@@ -321,6 +322,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
     if (denied.ok) return;
     assert.equal(denied.status, 403);
     const created = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
       userId: josh,
       id: "woodshop",

@@ -72,6 +72,8 @@ import { CouncilBar } from "@/components/board/council-bar";
 import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
+import { useCounty } from "@/components/board/use-county";
+import { countyName, roomCounty } from "@/lib/board/counties";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { useBoard } from "@/lib/board/store";
 import { useMessageReach } from "@/components/board/use-message-reach";
@@ -106,6 +108,8 @@ export function RoomView() {
   const setRoom = useBoard((state) => state.setRoom);
   const setSection = useBoard((state) => state.setSection);
   const roomsRoute = useRoomsRoute();
+  const county = useCounty();
+  const countiesOn = useBoard((state) => state.countiesOn);
   const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
   const boardCards = useBoard((state) => state.cards);
@@ -257,13 +261,16 @@ export function RoomView() {
         <p id="room-call-status" role="status" className="sr-only" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>
+        <p className="text-sm text-muted">
+          {countiesOn ? `${countyName(roomCounty(meta))} · ` : ""}
+          {categoryNames(roomCategoryIds(meta))}
+        </p>
         <button
           type="button"
           className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
           onClick={() => {
             setSection("rooms");
-            void navigate({ to: "/rooms" });
+            void navigate({ to: "/$county/rooms", params: { county } });
           }}
         >
           All rooms

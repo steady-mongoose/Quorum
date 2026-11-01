@@ -94,6 +94,7 @@ test("only an admin changes what a room includes, and only to known options", as
     const unknown = await updateRoom(db, { userId: admin, id: "shop", options: ["likes"], now });
     assert.equal(unknown.ok ? 0 : unknown.status, 400);
     const badNew = await createRoom(db, {
+      county: "hillsborough",
       userId: admin,
       id: "lathe",
       name: "Lathe Night",

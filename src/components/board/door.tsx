@@ -4,6 +4,7 @@ import { AccountDoor } from "@/components/board/account-door";
 import { LegalFooter } from "@/components/board/legal-footer";
 import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
+import { COUNTY_LINE } from "@/lib/board/counties";
 import { APP_NAME, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
@@ -119,6 +120,7 @@ export function Door() {
                 </>
               )}
             </p>
+            <p className="door-lede max-w-prose">Now in {COUNTY_LINE} counties.</p>
           </section>
 
           <section className="door-week card flex flex-col gap-3 p-6">

@@ -282,6 +282,7 @@ test("admins approve room requests, and home is nearest first", async () => {
     assert.equal(afterPlace.length, before.length);
 
     const russian = await requestRoom(db, {
+      county: "hillsborough",
       userId: maria,
       kind: "town",
       name: "Город",
@@ -290,6 +291,7 @@ test("admins approve room requests, and home is nearest first", async () => {
     });
     assert.equal(russian.ok, false);
     const riverview = await requestRoom(db, {
+      county: "hillsborough",
       userId: maria,
       kind: "town",
       name: "Riverview",
@@ -298,6 +300,7 @@ test("admins approve room requests, and home is nearest first", async () => {
     });
     assert.equal(riverview.ok, false);
     const asked = await requestRoom(db, {
+      county: "hillsborough",
       userId: maria,
       kind: "town",
       name: "Seffner",

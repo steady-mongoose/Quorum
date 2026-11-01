@@ -190,6 +190,7 @@ test("a restricted room is enforced on every path, and a steward override is log
     }
 
     const created = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
       stewardEmail: "helen@example.com",
       inviterEmail: "adam@example.com",
@@ -620,6 +621,7 @@ test("an inviter can set a gender, and confirmation is required only when the po
       [randomUUID(), invitee, inviter],
     );
     const room = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, inviter, new Date("2026-10-01T00:00:00Z"))),
       userId: inviter,
       id: "brothers",
@@ -841,6 +843,7 @@ test("a group follows its room live, and a group with no source room can be set 
     assert.equal(opened.code, undefined);
 
     const room = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, admin, new Date("2026-10-01T00:00:00Z"))),
       userId: admin,
       id: "brothers",
@@ -905,6 +908,7 @@ test("a gathering in a restricted room is not created, read, shared, or attended
       true,
     );
     const room = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, man, new Date("2026-10-01T00:00:00Z"))),
       userId: man,
       id: "sisters",
