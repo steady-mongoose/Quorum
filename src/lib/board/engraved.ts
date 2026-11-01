@@ -42,7 +42,7 @@ const HERO_LABEL: Record<Section, string> = {
   find: "John Bauer, Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn, 1913",
   groups: "Albrecht Dürer, The Feast of the Rose Garlands, 1506",
   profile: "Albrecht Dürer, Self-Portrait at Thirteen, 1484",
-  about: "John Martin, The Creation of Light, 1824–27",
+  about: "John Martin, Joshua Commanding the Sun to Stand Still, 1827",
   civic: "Gustave Doré, The Judgment of Solomon, 1866",
 };
 
@@ -77,7 +77,7 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   find: "John Bauer · Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn · 1913",
   messages: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
   profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484",
-  about: "John Martin · The Creation of Light · 1824–27",
+  about: "John Martin · Joshua Commanding the Sun to Stand Still · 1827",
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
 

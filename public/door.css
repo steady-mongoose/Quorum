@@ -42,8 +42,8 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
   position:absolute;
   inset:-10%;
   pointer-events:none;
-  /* Martin's light breaks in at the left edge of the desktop crop; phones crop to the centre. */
-  --door-light:14% 42%;
+  /* Martin's sun breaks through right of centre on the desktop crop; phones crop to the centre, on its shaft. */
+  --door-light:68% 25%;
   background:
     radial-gradient(46% 40% at var(--door-light),var(--door-glow) 0%,rgba(201,164,92,.55) 34%,transparent 72%);
   mix-blend-mode:screen;
@@ -337,7 +337,7 @@ html:has(> body[data-section="landing"]),html:has(> body[data-section="signin"])
 [data-section="find"] [data-entered]>.plate-ground{--door-light:54% 58%}
 [data-section="messages"] [data-entered]>.plate-ground{--door-light:16% 22%}
 [data-section="civic"] [data-entered]>.plate-ground{--door-light:12% 46%}
-[data-section="about"] [data-entered]>.plate-ground{--door-light:14% 42%}
+[data-section="about"] [data-entered]>.plate-ground{--door-light:68% 25%}
 [data-section="profile"] [data-entered]>.plate-ground{--door-light:12% 46%}
 @media (max-width:640px){
   [data-section="week"] [data-entered]>.plate-ground{--door-light:70% 58%}
