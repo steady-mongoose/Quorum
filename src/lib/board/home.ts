@@ -40,6 +40,7 @@ export type ScopedRoom = {
   regionId: string;
   sortOrder: number;
   audience?: "all" | "men" | "women";
+  countyId?: string;
 };
 
 export type HomeRoomRow = {
@@ -197,7 +198,12 @@ export function orderCouncilPosts<
   return rows;
 }
 
-export type HomeRoom = { id: string; name: string; audience?: "men" | "women" };
+export type HomeRoom = {
+  id: string;
+  name: string;
+  audience?: "men" | "women";
+  countyId?: string;
+};
 export type HomePost = {
   id: string;
   room: string;
@@ -222,6 +228,7 @@ export type HomeRequest = {
   by: string;
   status: "open" | "approved" | "refused";
   note: string;
+  countyId?: string;
 };
 
 export type HomeAccessRow = {
@@ -306,6 +313,7 @@ export function parseHomePayload(value: unknown): HomePayload | null {
         id: entry.id,
         name: entry.name,
         ...(entry.audience === "men" || entry.audience === "women" ? { audience: entry.audience } : {}),
+        ...(typeof entry.countyId === "string" ? { countyId: entry.countyId } : {}),
       });
     }
     sections.push({ tier: row.tier, label: row.label, rooms });
@@ -337,6 +345,7 @@ export function parseHomePayload(value: unknown): HomePayload | null {
         by: entry.by,
         status: entry.status,
         note: typeof entry.note === "string" ? entry.note : "",
+        ...(typeof entry.countyId === "string" ? { countyId: entry.countyId } : {}),
       });
     }
   }

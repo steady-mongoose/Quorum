@@ -24,7 +24,8 @@ import {
 } from "../../src/lib/board/listings.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import { readPublicPage, type PageLookup, type PageRequest } from "./public-fetch.ts";
-import { canSeeHiddenRooms, listingColumnsReady } from "./room-visibility.ts";
+import { canSeeHiddenRooms, countyColumnsReady, listingColumnsReady } from "./room-visibility.ts";
+import { countyFromText } from "../../src/lib/board/counties.ts";
 import { APP_NAME } from "../../src/lib/board/model.ts";
 
 type Fail = { ok: false; status: number; error: string };
@@ -272,6 +273,7 @@ async function writeListings(
     if (seen.has(id)) return fail(400, `${listing.name} is listed twice.`);
     seen.add(id);
   }
+  const countiesReady = await countyColumnsReady(db);
   try {
     const imported = await db.transaction(async (tx) => {
       const order = await tx.query<{ next: number }>(
@@ -308,6 +310,12 @@ async function writeListings(
             listing.county,
           ],
         );
+        if (countiesReady) {
+          await tx.query(`update room set county_id = $2 where id = $1`, [
+            id,
+            countyFromText(listing.county),
+          ]);
+        }
         saved.push({
           id,
           name: listing.name,

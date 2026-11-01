@@ -75,6 +75,7 @@ test("a room is made with its steward, or not at all", async () => {
   const { db, close, josh, tom, ann } = await setup();
   try {
     const bare = await createRoom(db, {
+      county: "hillsborough",
       userId: josh.id,
       categoryIds: ["men"],
       id: "bench",
@@ -86,6 +87,7 @@ test("a room is made with its steward, or not at all", async () => {
     if (!bare.ok) assert.equal(bare.error, NO_STEWARD_ERROR);
 
     const self = await createRoom(db, {
+      county: "hillsborough",
       userId: josh.id,
       categoryIds: ["men"],
       id: "bench",
@@ -100,6 +102,7 @@ test("a room is made with its steward, or not at all", async () => {
     assert.equal(rooms.length, 0, "a refused steward rolls the room back");
 
     const made = await createRoom(db, {
+      county: "hillsborough",
       userId: josh.id,
       categoryIds: ["men"],
       id: "bench",
@@ -120,6 +123,7 @@ test("the last steward cannot be revoked, barred, or leave without a replacement
   const { db, close, josh, tom, ann, sam } = await setup();
   try {
     const made = await createRoom(db, {
+      county: "hillsborough",
       userId: josh.id,
       categoryIds: ["men"],
       id: "bench",
@@ -241,6 +245,7 @@ test("a barred replacement is refused with the reason", async () => {
   const { db, close, josh, tom, ann, sam } = await setup();
   try {
     const made = await createRoom(db, {
+      county: "hillsborough",
       userId: josh.id,
       categoryIds: ["men"],
       id: "bench",

@@ -1,4 +1,5 @@
 import type { BrowseRoom, RoomCategory } from "./categories.ts";
+import type { CountyId } from "./counties.ts";
 import type { HomePayload } from "./home.ts";
 import type { RoomOption } from "./room-options.ts";
 import type {
@@ -25,6 +26,10 @@ export type BoardMe = {
   ban: { until: number; strikes: number; reason: HardRule } | null;
   gender: "man" | "woman" | null;
   genderConfirmed: boolean;
+  /** Null until the member chooses. The app asks once. */
+  homeCounty: CountyId | null;
+  /** False on a server without counties yet. The app then shows no county controls. */
+  countiesOn: boolean;
 };
 
 export type GenderPolicyInfo = {
@@ -39,6 +44,7 @@ export type RoomRequestInput = {
   kind: "town" | "congregation" | "region";
   name: string;
   state: string;
+  county: CountyId;
 };
 
 export type RoomDecisionInput = {
@@ -119,6 +125,7 @@ export type BoardClient = {
     name: string;
     what: string;
     categoryIds: string[];
+    county: CountyId;
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
@@ -132,6 +139,7 @@ export type BoardClient = {
       what?: string;
       pinOrder?: number | null;
       options?: RoomOption[];
+      county?: CountyId;
     },
   ) => Promise<{ ok: true; room: Room } | BoardFailure>;
   listCategories: () => Promise<{ ok: true; categories: RoomCategory[] } | BoardFailure>;
@@ -175,6 +183,7 @@ export type BoardClient = {
   ) => Promise<{ ok: true; appeal: AppealRow; posts: Post[] } | BoardFailure>;
   loadHome: () => Promise<{ ok: true; home: HomePayload } | BoardFailure>;
   savePlace: (input: PlaceInput) => Promise<{ ok: true } | BoardFailure>;
+  saveCounty: (county: CountyId) => Promise<{ ok: true } | BoardFailure>;
   joinRoom: (roomId: string) => Promise<{ ok: true } | BoardFailure>;
   leaveRoom: (roomId: string) => Promise<{ ok: true } | BoardFailure>;
   requestRoom: (input: RoomRequestInput) => Promise<{ ok: true } | BoardFailure>;

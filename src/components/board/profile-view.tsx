@@ -6,6 +6,7 @@ import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
 import { authorName, cardSummary, formatDate, metAt, namedLines } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { HomeCountyField } from "@/components/board/county-step";
 import { useMessageReach } from "@/components/board/use-message-reach";
 import { MfaSettings } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
@@ -149,6 +150,7 @@ export function ProfileView() {
             ) : null}
           </div>
         ) : null}
+        {mine ? <HomeCountyField /> : null}
         {mine ? (
           <section className="mt-4 flex flex-col gap-2">
             <h2 className="text-2xl text-fg">The desk</h2>

@@ -99,6 +99,7 @@ test("closed-test migrations are auth, invites, rate limits, and media", () => {
       "0044_room_options.sql",
       "0045_group_invites.sql",
       "0047_age_attestation.sql",
+      "0051_counties.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
@@ -144,6 +145,17 @@ test("migration 0044 adds room options with roll call off, is owner-approved, an
   assert.ok(sql.includes("options <@ array['roll_call', 'members', 'chat', 'calls']::text[]"));
   assert.equal(/create or replace function/i.test(sql), false);
   assert.equal(/drop table|delete from|update room/i.test(sql), false);
+});
+
+test("migration 0051 adds counties, is owner-approved, deletes nothing, and replaces no function", () => {
+  const sql = readFileSync(join(projectRoot(), "migrations/0051_counties.sql"), "utf8");
+  assert.match(sql, /Numbered 0051/);
+  assert.match(sql, /owner must approve/i);
+  assert.match(sql, /backup/i);
+  assert.ok(sql.includes("create table if not exists county"));
+  assert.ok(sql.includes("add column if not exists home_county text"));
+  assert.equal(/create or replace function/i.test(sql), false);
+  assert.equal(/drop table|delete from|truncate/i.test(sql), false);
 });
 
 test("migration 0045 adds group invites, is owner-approved, and replaces only its own function", () => {

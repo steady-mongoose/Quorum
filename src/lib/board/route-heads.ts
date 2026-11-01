@@ -1,4 +1,5 @@
 import { categoryPreview } from "./categories.ts";
+import { countyName } from "./counties.ts";
 import { APP_NAME } from "./model.ts";
 
 /** The picture a shared link shows: 1200×630 JPEG, the shape and format every platform takes. */
@@ -60,6 +61,29 @@ export function categoryPageMeta(slug: string): RouteMeta[] {
     { name: "description", content: preview.description },
     { name: "robots", content: "noindex" },
     { property: "og:title", content: preview.title },
+    { property: "og:description", content: preview.description },
+    { property: "og:image", content: preview.image },
+    { property: "og:image:alt", content: preview.credit },
+  ];
+}
+
+export function countyRoomsMeta(county: string): RouteMeta[] {
+  const title = `${countyName(county)} rooms`;
+  return [
+    { title: `${title} · Avouch Social` },
+    { property: "og:title", content: title },
+    { name: "robots", content: "noindex" },
+  ];
+}
+
+export function countyCategoryMeta(county: string, slug: string): RouteMeta[] {
+  const preview = categoryPreview(slug);
+  const title = `${preview.title} · ${countyName(county)}`;
+  return [
+    { title: `${title} · Avouch Social` },
+    { name: "description", content: preview.description },
+    { name: "robots", content: "noindex" },
+    { property: "og:title", content: title },
     { property: "og:description", content: preview.description },
     { property: "og:image", content: preview.image },
     { property: "og:image:alt", content: preview.credit },

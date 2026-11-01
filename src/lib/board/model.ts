@@ -89,6 +89,8 @@ export type Room = {
   options?: RoomOption[];
   /** Every category this room is listed in. */
   categoryIds: string[];
+  /** The county this room is in. Missing means the default county. */
+  countyId?: string;
   /** Set when a steward of this room has pinned it. Absent means alphabetical. */
   pinOrder?: number | null;
   /** The signed-in member keeps this room on their list. */

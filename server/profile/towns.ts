@@ -1,17 +1,13 @@
+import { countyName, type CountyId } from "../../src/lib/board/counties.ts";
+
 /**
- * Fixed towns for the three counties Avouch covers, plus Elsewhere.
+ * Fixed towns for the counties Avouch covers, plus Elsewhere.
  * A member picks one of these. The list is not a ranking.
  */
 
-export type CountyId = "hillsborough" | "manatee" | "pinellas";
+export { COUNTIES, countyName, type CountyId } from "../../src/lib/board/counties.ts";
 
 export type Town = { id: string; name: string; county: CountyId };
-
-export const COUNTIES: { id: CountyId; name: string }[] = [
-  { id: "hillsborough", name: "Hillsborough" },
-  { id: "manatee", name: "Manatee" },
-  { id: "pinellas", name: "Pinellas" },
-];
 
 export const ELSEWHERE_ID = "elsewhere";
 
@@ -39,6 +35,23 @@ export const TOWNS: Town[] = [
   { id: "lithia", name: "Lithia", county: "hillsborough" },
   { id: "mango", name: "Mango", county: "hillsborough" },
   { id: "odessa", name: "Odessa", county: "hillsborough" },
+  { id: "lakeland", name: "Lakeland", county: "polk" },
+  { id: "winter-haven", name: "Winter Haven", county: "polk" },
+  { id: "bartow", name: "Bartow", county: "polk" },
+  { id: "auburndale", name: "Auburndale", county: "polk" },
+  { id: "haines-city", name: "Haines City", county: "polk" },
+  { id: "lake-wales", name: "Lake Wales", county: "polk" },
+  { id: "davenport", name: "Davenport", county: "polk" },
+  { id: "mulberry", name: "Mulberry", county: "polk" },
+  { id: "fort-meade", name: "Fort Meade", county: "polk" },
+  { id: "frostproof", name: "Frostproof", county: "polk" },
+  { id: "dundee", name: "Dundee", county: "polk" },
+  { id: "eagle-lake", name: "Eagle Lake", county: "polk" },
+  { id: "lake-alfred", name: "Lake Alfred", county: "polk" },
+  { id: "lake-hamilton", name: "Lake Hamilton", county: "polk" },
+  { id: "polk-city", name: "Polk City", county: "polk" },
+  { id: "highland-park", name: "Highland Park", county: "polk" },
+  { id: "hillcrest-heights", name: "Hillcrest Heights", county: "polk" },
   { id: "bradenton", name: "Bradenton", county: "manatee" },
   { id: "palmetto", name: "Palmetto", county: "manatee" },
   { id: "anna-maria", name: "Anna Maria", county: "manatee" },
@@ -87,10 +100,6 @@ export type StoredLocation = {
   townName: string;
   countyName: string;
 };
-
-export function countyName(id: string): string {
-  return COUNTIES.find((county) => county.id === id)?.name ?? "";
-}
 
 /** A stored pair, Elsewhere, or null when the pair is not on the list. */
 export function storedLocation(county: string, town: string): StoredLocation | null {

@@ -14,11 +14,12 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
+import { countyGroupId, DEFAULT_COUNTY, isCountyId } from "../../src/lib/board/counties.ts";
 import { CODE_ROOM_IDS } from "../../src/lib/board/model.ts";
 import { OBJECT_ID, ROOM_ID } from "../../src/lib/media/limits.ts";
 import { isEnglish, looksLikePorn, looksLikeThreat } from "../../src/lib/board/text.ts";
 import { actorRole, moderationStop, stewardsRoom, type BoardActor } from "./access.ts";
-import { canReadRoom, readRoomListing } from "./room-visibility.ts";
+import { canReadRoom, countyColumnsReady, readRoomListing } from "./room-visibility.ts";
 import { sentenceOrStop } from "./check.ts";
 import { approvedRoomIds } from "./group-rooms.ts";
 import { banOpen } from "./ban.ts";
@@ -44,6 +45,8 @@ export type ThemeGroup = {
   about: string;
   joined: boolean;
   admin: boolean;
+  /** The county this group is in. Exactly one. */
+  countyId?: string;
   audience?: "men" | "women";
   /** True when an approved source room supplies the audience. */
   followsRoom?: boolean;
@@ -424,12 +427,14 @@ export async function listGroups(
 ): Promise<Result<{ groups: ThemeGroup[] }>> {
   const gated = await gate(db, userId, now);
   if (!gated.ok) return gated;
+  const countiesReady = await countyColumnsReady(db);
   const rows = await queryBanTable<{
     id: string;
     name: string;
     about: string;
     audience: string;
     source_room_id: string;
+    county_id?: string;
     joined: unknown;
     admin: unknown;
     invite_from: string | null;
@@ -438,7 +443,7 @@ export async function listGroups(
     ban_until: Date | string | null;
   }>(
     db,
-    `select g.id, g.name, g.about, g.audience, g.source_room_id,
+    `select g.id, g.name, g.about, g.audience, g.source_room_id${countiesReady ? ", g.county_id" : ""},
             exists(select 1 from theme_group_member m where m.group_id = g.id and m.user_id = $1) as joined,
             exists(select 1 from theme_group_admin a where a.group_id = g.id and a.user_id = $1) as admin,
             (select i.by_name from theme_group_invite i
@@ -464,6 +469,7 @@ export async function listGroups(
     inviteFrom: string | null;
     audience: string;
     sourceRoomId: string;
+    countyId: string;
   }> = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -478,6 +484,7 @@ export async function listGroups(
         inviteFrom: row.invite_from,
         audience: row.audience,
         sourceRoomId: row.source_room_id,
+        countyId: row.county_id ?? DEFAULT_COUNTY,
       });
     }
     if (row.ban_reason == null || row.ban_strikes == null || row.ban_until == null) continue;
@@ -508,6 +515,7 @@ export async function listGroups(
         about: group.about,
         joined: group.joined,
         admin: group.admin,
+        countyId: group.countyId,
         ...(group.inviteFrom && !group.joined ? { inviteFrom: group.inviteFrom } : {}),
         ...(group.audience === "men" || group.audience === "women" ? { audience: group.audience } : {}),
       })),
@@ -1220,7 +1228,15 @@ export async function requestGroup(
   }
   const roomBan = await openBan(db, input.userId, input.now, roomId);
   if (roomBan) return fail(403, "banned", roomBan);
-  const groupId = groupIdFor(titled.text);
+  const countiesReady = await countyColumnsReady(db);
+  const home = countiesReady
+    ? await db.query<{ county_id: string }>(`select county_id from room where id = $1`, [roomId])
+    : [];
+  // The same name in another county is its own group. Group ids are global.
+  const groupId = countyGroupId(
+    groupIdFor(titled.text),
+    isCountyId(home[0]?.county_id) ? home[0].county_id : DEFAULT_COUNTY,
+  );
   if (!groupId || !ROOM_ID.test(groupId)) return fail(400, "Name the group.");
   if (await roomIdTaken(db, groupId)) return fail(400, "That name is already a room.");
   if (await groupExists(db, groupId)) return fail(409, "That group is already here.");
@@ -1323,6 +1339,7 @@ export async function decideGroupRequest(
     if (barred) return fail(400, "That account is barred.");
   }
   const who = input.name.trim() || "Steward";
+  const countiesReady = await countyColumnsReady(db);
   try {
     const created = await db.transaction(async (tx) => {
       if (input.decision === "approved") {
@@ -1340,6 +1357,13 @@ export async function decideGroupRequest(
            values ($1, $2, $3, $4, $5, $6)`,
           [request.group_id, request.name, request.about, input.now, audience, request.room_id],
         );
+        if (countiesReady) {
+          await tx.query(
+            `update theme_group set county_id = r.county_id
+             from room r where theme_group.id = $1 and r.id = $2`,
+            [request.group_id, request.room_id],
+          );
+        }
         if (request.by_user_id) {
           await tx.query(
             `insert into theme_group_member (group_id, user_id, joined_at) values ($1, $2, $3)

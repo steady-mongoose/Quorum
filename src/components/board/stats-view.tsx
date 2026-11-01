@@ -152,6 +152,30 @@ export function StatsView({
           />
         }
       />
+      {stats.membersByCounty?.length ? (
+        <ChartCard
+          id="stats-counties"
+          showTable={table}
+          title="Members by county"
+          chart={
+            <HorizontalBars
+              label="Members by home county"
+              summary={seriesSummary(
+                "Members",
+                stats.membersByCounty.map((row) => ({ label: row.label, count: row.count })),
+              )}
+              rows={stats.membersByCounty.map((row) => ({ label: row.label, count: row.count }))}
+            />
+          }
+          table={
+            <CountTable
+              caption="Members by home county"
+              columns={["County", "Members"]}
+              rows={stats.membersByCounty.map((row) => [row.label, cell(row.count)])}
+            />
+          }
+        />
+      ) : null}
       <ChartCard
         id="stats-invites"
         showTable={table}

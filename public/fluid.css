@@ -376,6 +376,17 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   font-size:clamp(1.875rem,0.35rem + 2vw,2.25rem);
   line-height:1;
 }
+.mast-county select{
+  min-height:44px;
+  max-width:100%;
+  border:0;
+  border-radius:3px;
+  background:transparent;
+  color:#bcae94;
+  font-size:0.875rem;
+  cursor:pointer;
+}
+.mast-county select option{color:initial}
 .mast[data-entered="true"] .mast-tagline{
   margin-top:0.25rem;
   font-size:0.875rem;

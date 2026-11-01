@@ -19,14 +19,24 @@ import {
   type BrowseRoom,
   type RoomCategory,
 } from "@/lib/board/categories";
+import {
+  COUNTIES,
+  countyName,
+  inCounty,
+  isCountyId,
+  roomCounty,
+  type CountyId,
+} from "@/lib/board/counties";
 import { todayIso, type Room } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { useCounty } from "@/components/board/use-county";
 import { reloadCategories, useCategories } from "@/components/board/use-categories";
 
 /**
  * Rooms by category. Phone: a sticky chip row, then sections.
  * Desktop: a 14rem sticky list beside a container-sized card grid.
- * /rooms/<slug> is the shareable page for one category. Members only.
+ * /<county>/rooms/<slug> is the shareable page for one category. Members only.
+ * Your rooms are every room you joined, in any county. The rest follow the county.
  * Room cards are not plates, so the hero margin does not stack them.
  */
 export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
@@ -39,7 +49,8 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
   const setRoom = useBoard((state) => state.setRoom);
   const categories = useCategories();
   const today = todayIso();
-  const browseRooms = useMemo(() => {
+  const county = useCounty();
+  const allRooms = useMemo(() => {
     return rooms.map((room) => ({
       id: room.id,
       name: room.name,
@@ -49,11 +60,13 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
       pinOrder: room.pinOrder ?? null,
       joined: room.joined === true,
       ...(room.audience ? { audience: room.audience } : {}),
+      ...(inCounty(room, county) ? {} : { countyLabel: countyName(roomCounty(room)) }),
     }));
-  }, [rooms, cards, today]);
+  }, [rooms, cards, today, county]);
+  const browseRooms = useMemo(() => allRooms.filter((room) => !room.countyLabel), [allRooms]);
   const sections = groupBrowseRooms(categories, browseRooms, focusSlug);
   const parked = hiddenRooms(browseRooms, { admin, stewardRooms });
-  const yours = orderBrowseRooms(browseRooms.filter((room) => room.joined));
+  const yours = orderBrowseRooms(allRooms.filter((room) => room.joined));
   const known = focusSlug ? categoryListed(focusSlug, categories, admin || steward) : true;
   const focus = focusSlug
     ? categories.find((category) => category.slug === focusSlug)
@@ -73,7 +86,9 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
           className={focusSlug ? "flex flex-col gap-2" : "plate plate--hero pc-head flex flex-col gap-2"}
         >
           <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">Find your room</h1>
-          <p className="max-w-prose text-base text-muted">A room can be listed in more than one category.</p>
+          <p className="max-w-prose text-base text-muted">
+            Rooms in {countyName(county)}. A room can be listed in more than one category.
+          </p>
         </section>
       )}
 
@@ -81,7 +96,11 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
         aria-label="Categories"
         className="room-chips sticky z-10 flex gap-2 overflow-x-auto bg-bg py-2 lg:hidden"
       >
-        <CategoryChips categories={browseCategories(categories, false)} focusSlug={focusSlug} />
+        <CategoryChips
+          categories={browseCategories(categories, false)}
+          county={county}
+          focusSlug={focusSlug}
+        />
       </nav>
 
       <div className="room-browse">
@@ -89,7 +108,11 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
           aria-label="Categories"
           className="sticky top-[calc(var(--mast-h)+1rem)] hidden w-[14rem] shrink-0 flex-col gap-1 self-start lg:flex"
         >
-          <CategoryLinks categories={browseCategories(categories, false)} focusSlug={focusSlug} />
+          <CategoryLinks
+            categories={browseCategories(categories, false)}
+            county={county}
+            focusSlug={focusSlug}
+          />
         </nav>
         <div className="room-column flex min-w-0 flex-col gap-8">
           {focusSlug && !known ? (
@@ -155,15 +178,18 @@ function CategoryMast({ category }: { category: RoomCategory }) {
 
 function CategoryChips({
   categories,
+  county,
   focusSlug,
 }: {
   categories: RoomCategory[];
+  county: CountyId;
   focusSlug: string | null;
 }) {
   return (
     <>
       <Link
-        to="/rooms"
+        to="/$county/rooms"
+        params={{ county }}
         aria-current={focusSlug ? undefined : "page"}
         className={pill(!focusSlug)}
       >
@@ -172,8 +198,8 @@ function CategoryChips({
       {categories.map((category) => (
         <Link
           key={category.slug}
-          to="/rooms/$slug"
-          params={{ slug: category.slug }}
+          to="/$county/rooms/$slug"
+          params={{ county, slug: category.slug }}
           aria-current={category.slug === focusSlug ? "page" : undefined}
           className={pill(category.slug === focusSlug)}
         >
@@ -186,18 +212,26 @@ function CategoryChips({
 
 function CategoryLinks({
   categories,
+  county,
   focusSlug,
 }: {
   categories: RoomCategory[];
+  county: CountyId;
   focusSlug: string | null;
 }) {
   return (
     <>
-      <Link to="/rooms" hash="your-rooms" className={pill(false, "justify-start")}>
+      <Link
+        to="/$county/rooms"
+        params={{ county }}
+        hash="your-rooms"
+        className={pill(false, "justify-start")}
+      >
         Your rooms
       </Link>
       <Link
-        to="/rooms"
+        to="/$county/rooms"
+        params={{ county }}
         aria-current={focusSlug ? undefined : "page"}
         className={pill(!focusSlug, "justify-start")}
       >
@@ -206,8 +240,8 @@ function CategoryLinks({
       {categories.map((category) => (
         <Link
           key={category.slug}
-          to="/rooms/$slug"
-          params={{ slug: category.slug }}
+          to="/$county/rooms/$slug"
+          params={{ county, slug: category.slug }}
           aria-current={category.slug === focusSlug ? "page" : undefined}
           className={pill(category.slug === focusSlug, "justify-start")}
         >
@@ -267,6 +301,7 @@ function RoomCard({ room, onOpen }: { room: BrowseRoom; onOpen: (id: string) => 
         {room.joined ? <span className="room-joined-dot" role="img" aria-label="Joined" /> : null}
       </span>
       {labels ? <span className="room-card-meta">{labels}</span> : null}
+      {room.countyLabel ? <span className="room-card-meta">{room.countyLabel}</span> : null}
       {audience ? <span className="room-card-meta">{audience}</span> : null}
       <span className="room-card-what">{room.what}</span>
       {meets ? <span className="room-card-meta">{meets}</span> : null}
@@ -526,6 +561,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
   const [options, setOptions] = useState<RoomOption[]>([
     ...(room.options ?? DEFAULT_ROOM_OPTIONS),
   ]);
+  const [county, setCounty] = useState<CountyId>(roomCounty(room));
   const [error, setError] = useState("");
   const canEdit = admin || stewardRooms.includes(room.id) || (steward && !remote);
   if (!canEdit) return null;
@@ -549,7 +585,7 @@ export function RoomCategoryFields({ room }: { room: Room }) {
           id: room.id,
           categoryIds,
           pinOrder,
-          ...(admin ? { name, what, options } : {}),
+          ...(admin ? { name, what, options, county } : {}),
         }).then((result) => {
           if (!result.ok) setError(result.error ?? "The room was not saved.");
         });
@@ -574,6 +610,22 @@ export function RoomCategoryFields({ room }: { room: Room }) {
               required
               onChange={(event) => setWhat(event.target.value)}
             />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-muted">
+            County
+            <select
+              className={fieldClass}
+              value={county}
+              onChange={(event) => {
+                if (isCountyId(event.target.value)) setCounty(event.target.value);
+              }}
+            >
+              {COUNTIES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
       ) : null}

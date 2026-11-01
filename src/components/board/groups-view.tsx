@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from "rea
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
 import { btnGhost, btnQuiet, btnSignal, fieldClass, Kicker } from "@/components/quorum/bits";
 import { cn } from "@/lib/cn";
+import { useCounty } from "@/components/board/use-county";
+import { countyName, groupsForCounty } from "@/lib/board/counties";
 import {
   fetchGroup,
   fetchGroupAppeals,
@@ -207,6 +209,8 @@ function GroupList({
   onSetUp?: () => void;
 }) {
   const [groups, setGroups] = useState<GroupSummary[] | null>(null);
+  const county = useCounty();
+  const listed = groups === null ? [] : groupsForCounty(groups, county);
   const [requests, setRequests] = useState<GroupRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
   const [requestsNote, setRequestsNote] = useState<LoadNote>(null);
@@ -279,10 +283,12 @@ function GroupList({
     <div className="flex flex-col gap-8">
       <FormAlert message={loadError} />
       {groups === null ? <p className="text-sm text-muted">Loading groups.</p> : null}
-      {groups?.length === 0 ? <p className="text-sm text-muted">No groups yet.</p> : null}
+      {groups !== null && listed.length === 0 ? (
+        <p className="text-sm text-muted">No groups in {countyName(county)} yet.</p>
+      ) : null}
       <h2 className="pc-h">The groups</h2>
       <ul className="grid gap-3 lg:grid-cols-2">
-        {(groups ?? []).map((group) => (
+        {listed.map((group) => (
           <li key={group.id} className="card pc-card p-4">
             <button
               type="button"
