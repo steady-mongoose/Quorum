@@ -121,4 +121,4 @@ RESTORE_DRY_RUN=1 RESTORE_DUMP=/tmp/avouch-test.dump.age \
   ./scripts/restore-from-backup.sh
 ```
 
-The database name must be `test` or end in `_test`. CI runs that rehearsal in a throwaway Postgres container (`scripts/failover-restore-drill.sh`).
+The database name must be `test` or end in `_test`. `pg_restore` on your PATH must be a Postgres 16 client: a newer one stops on `transaction_timeout`. CI runs that rehearsal in a throwaway Postgres container (`scripts/failover-restore-drill.sh`).

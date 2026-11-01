@@ -122,7 +122,9 @@ jobs:
         run: chmod +x scripts/api-image-smoke.sh && ./scripts/api-image-smoke.sh
 
   failover-restore:
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04's apt client is Postgres 16, the same as production. A newer
+    # pg_restore sets transaction_timeout, which a Postgres 16 server rejects.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
