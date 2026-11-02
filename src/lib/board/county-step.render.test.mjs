@@ -162,7 +162,7 @@ async function open(me, status = 200) {
 }
 
 const step = (host) => host.querySelector("h1")?.textContent === "Which county is home?";
-const switcher = (host) => host.querySelector(".mast-county select");
+const switcher = (host) => host.querySelector(".mast-county-button");
 
 test("a member with no county answers once, and the app opens in that county", async () => {
   const host = await open({ homeCounty: null, countiesOn: true });
@@ -179,7 +179,7 @@ test("a member with no county answers once, and the app opens in that county", a
   assert.deepEqual(posted, [{ county: "polk" }]);
   assert.equal(step(host), false, "the question is gone");
   assert.ok(host.querySelector(".topnav"), "the app is open");
-  assert.equal(switcher(host).value, "polk");
+  assert.equal(switcher(host).textContent, "Polk");
   assert.equal(useBoard.getState().homeCounty, "polk");
 });
 
@@ -198,8 +198,52 @@ test("a member with a county is not asked", async () => {
   const host = await open({ homeCounty: "manatee", countiesOn: true });
   await waitFor(() => switcher(host));
   assert.equal(step(host), false);
-  assert.equal(switcher(host).value, "manatee");
+  assert.equal(switcher(host).textContent, "Manatee");
   assert.deepEqual(posted, []);
+});
+
+test("the switcher is the site's own menu: every county reads, the choice saves nothing", async () => {
+  const host = await open({ homeCounty: "manatee", countiesOn: true });
+  await waitFor(() => switcher(host));
+  assert.equal(host.querySelector(".mast-county select"), null, "no browser-drawn list");
+  assert.equal(host.querySelector(".county-menu"), null, "closed until asked");
+
+  await act(async () => switcher(host).click());
+  const menu = host.querySelector("dialog.county-menu");
+  assert.ok(menu?.open, "the menu opens");
+  assert.equal(switcher(host).getAttribute("aria-expanded"), "true");
+  const rows = [...menu.querySelectorAll("button")];
+  assert.deepEqual(
+    rows.map((row) => row.textContent),
+    ["Hillsborough", "Polk", "Manatee", "Pinellas"],
+  );
+  const current = menu.querySelector('[aria-current="true"]');
+  assert.equal(current.textContent, "Manatee");
+  assert.equal(document.activeElement, current, "focus lands on the county in view");
+
+  await act(async () =>
+    current.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+  );
+  assert.equal(document.activeElement.textContent, "Pinellas");
+
+  await act(async () => rows[1].click());
+  assert.equal(host.querySelector(".county-menu"), null, "a choice closes it");
+  assert.equal(switcher(host).textContent, "Polk");
+  assert.equal(document.activeElement, switcher(host), "focus returns to the button");
+  assert.equal(useBoard.getState().county, "polk");
+  assert.equal(useBoard.getState().homeCounty, "manatee", "looking is not moving");
+  assert.deepEqual(posted, []);
+});
+
+test("Escape closes the county menu and changes nothing", async () => {
+  const host = await open({ homeCounty: "manatee", countiesOn: true });
+  await waitFor(() => switcher(host));
+  await act(async () => switcher(host).click());
+  const menu = host.querySelector("dialog.county-menu");
+  await act(async () => menu.dispatchEvent(new Event("cancel", { cancelable: true })));
+  assert.equal(host.querySelector(".county-menu"), null);
+  assert.equal(switcher(host).textContent, "Manatee");
+  assert.equal(document.activeElement, switcher(host));
 });
 
 test("before the migration there is no question and no switcher", async () => {
