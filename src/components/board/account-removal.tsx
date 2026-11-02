@@ -36,7 +36,7 @@ export function AccountRemovalPanel({
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-2xl text-fg">Account</h2>
-      <p className="max-w-prose text-sm text-muted">
+      <p className="text-sm text-muted">
         Deactivation hides your profile and posts. You can turn it back on.
       </p>
       {deactivated ? (
@@ -51,11 +51,11 @@ export function AccountRemovalPanel({
           Deactivate account
         </button>
       )}
-      <p className="max-w-prose text-sm text-muted">
+      <p className="text-sm text-muted">
         A deletion request is queued for an admin and written to the audit log. It does not delete
         the account now.
       </p>
-      <label className="flex max-w-prose flex-col gap-2 text-sm text-muted">
+      <label className="flex flex-col gap-2 text-sm text-muted">
         Note for the admin, optional
         <textarea
           className={cn(fieldClass, "min-h-20")}

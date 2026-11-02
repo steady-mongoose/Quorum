@@ -171,11 +171,11 @@ export function MfaSettings() {
   };
 
   return (
-    <section className="flex w-full flex-col gap-4 rounded-lg border border-line bg-surface p-4 sm:p-5 md:max-w-xl xl:max-w-3xl">
-      <h2 id="authenticator" tabIndex={-1} className="focus-target text-2xl text-fg">
+    <section className="card pc-card flex flex-col gap-3 p-4 sm:p-5">
+      <h2 id="authenticator" tabIndex={-1} className="focus-target self-start text-2xl text-fg">
         Authenticator
       </h2>
-      <p className="max-w-prose text-sm text-muted">
+      <p className="text-sm text-muted">
         Adds a six-digit code from an app on your phone after your password. Owners, admins and
         stewards need it for sensitive actions. Members can turn it on any time.
       </p>
@@ -191,7 +191,7 @@ export function MfaSettings() {
       {!status?.enrolled && !modules && !recovery ? (
         <button
           type="button"
-          className={cn(btnSignal, "w-full sm:w-auto")}
+          className={cn(btnSignal, "w-full sm:w-auto sm:self-start")}
           disabled={pending}
           onClick={() => {
             setError("");
@@ -306,7 +306,7 @@ export function MfaSettings() {
           </label>
           <button
             type="button"
-            className={cn(btnSignal, "w-full sm:w-auto")}
+            className={cn(btnSignal, "w-full sm:w-auto sm:self-start")}
             disabled={!savedCodes}
             onClick={() => {
               setRecovery(null);
@@ -350,7 +350,7 @@ export function MfaSettings() {
               onChange={(event) => setCode(disableCodeInput(event.target.value))}
             />
           </label>
-          <button type="submit" className={cn(btnGhost, "w-full sm:w-auto")} disabled={pending}>
+          <button type="submit" className={cn(btnGhost, "w-full sm:w-auto sm:self-start")} disabled={pending}>
             Turn off authenticator
           </button>
         </form>
