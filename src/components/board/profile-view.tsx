@@ -91,7 +91,7 @@ export function ProfileView() {
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="illum font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
-          <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
+          <p className="text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
@@ -154,7 +154,7 @@ export function ProfileView() {
         {mine ? (
           <section className="mt-4 flex flex-col gap-2">
             <h2 className="text-2xl text-fg">The desk</h2>
-            <p className="max-w-prose text-sm text-muted">
+            <p className="text-sm text-muted">
               Optional: coordinated calls to local officials. It stays off until you turn it on.
               The emblems stay.
             </p>

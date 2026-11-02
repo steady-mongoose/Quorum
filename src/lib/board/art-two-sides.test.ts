@@ -49,8 +49,8 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Albrecht Dürer", work: "Erasmus of Rotterdam", box: [0.202, -0.075, 0.823, 0.6] },
   },
   "plate-you-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.156, -0.28, 1.456, 1.0] },
-    right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [-0.026, -0.037, 0.688, 0.689] },
+    left: { artist: "Gustave Doré", work: "Bohemond Alone Mounts the Rampart of Antioch", box: [0, 0, 0.52, 1] },
+    right: { artist: "Gustave Doré", work: "The Battle of Antioch", box: [0, 0, 1, 1] },
   },
   "plate-desk-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0.338, 0, 0.732, 0.45] },
@@ -150,7 +150,8 @@ test("below 1600px each page keeps its single 1600px plate", () => {
 
 test("the credit chip names both works where the right edge is a second work", () => {
   assert.equal(plateCaptionWide("messages", null), "Albrecht Dürer · Praying Hands · 1508, and Erasmus of Rotterdam · 1526");
-  assert.equal(plateCaptionWide("profile", null), "Albrecht Dürer · Self-Portrait at Thirteen · 1484, and Self-Portrait · 1500");
+  assert.equal(plateCaptionWide("profile", null), "Gustave Doré · Bohemond Alone Mounts the Rampart of Antioch, and The Battle of Antioch · 1877");
+  assert.equal(plateCaption("profile", null), "Gustave Doré · The Battle of Antioch · 1877");
   assert.equal(plateCaptionWide("week", null), null);
   assert.equal(plateCaptionWide("groups", "group"), null);
   assert.equal(plateCaption("messages", null), "Albrecht Dürer · Erasmus of Rotterdam · 1526");
@@ -173,8 +174,9 @@ const HEADER_PX = 115; // the sticky header, measured in the real app at 1600-25
 const HEADS: Record<string, { who: string; box: [number, number, number, number]; from: number }[]> = {
   "plate-messages-A-2400.webp": [{ who: "Erasmus", box: [2020, 210, 2150, 570], from: 1600 }],
   "plate-you-A-2400.webp": [
-    { who: "the boy at thirteen", box: [8, 435, 380, 735], from: 1600 },
-    { who: "Dürer at twenty-eight", box: [2020, 400, 2320, 880], from: 1600 },
+    { who: "Bohemond on the ladder", box: [345, 390, 380, 432], from: 1600 },
+    { who: "the nearest rider", box: [2125, 930, 2160, 985], from: 1600 },
+    { who: "the rider beside him", box: [2212, 915, 2250, 970], from: 1600 },
   ],
   "plate-groups-A-2400.webp": [
     { who: "the man in the black cap (left)", box: [170, 340, 260, 490], from: 1600 },

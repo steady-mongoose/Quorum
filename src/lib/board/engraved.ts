@@ -41,7 +41,7 @@ const HERO_LABEL: Record<Section, string> = {
   messages: "Albrecht Dürer, Saint Jerome in His Study, 1514",
   find: "John Bauer, Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn, 1913",
   groups: "Albrecht Dürer, The Feast of the Rose Garlands, 1506",
-  profile: "Albrecht Dürer, Self-Portrait at Thirteen, 1484",
+  profile: "Gustave Doré, The Battle of Antioch, 1877",
   about: "John Martin, Joshua Commanding the Sun to Stand Still, 1827",
   civic: "Gustave Doré, The Judgment of Solomon, 1866",
 };
@@ -76,7 +76,7 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   group: "Gustave Doré · Ruth and Boaz · 1866",
   find: "John Bauer · Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn · 1913",
   messages: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
-  profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484",
+  profile: "Gustave Doré · The Battle of Antioch · 1877",
   about: "John Martin · Joshua Commanding the Sun to Stand Still · 1827",
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
@@ -117,7 +117,7 @@ export type SectionPlateId = keyof typeof SECTION_PLATE;
  */
 const WIDE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   messages: "Albrecht Dürer · Praying Hands · 1508, and Erasmus of Rotterdam · 1526",
-  profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484, and Self-Portrait · 1500",
+  profile: "Gustave Doré · Bohemond Alone Mounts the Rampart of Antioch, and The Battle of Antioch · 1877",
 };
 
 export function plateCaptionWide(section: ArtSection | null, view: PlateView | null): string | null {

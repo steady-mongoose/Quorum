@@ -1,7 +1,7 @@
 # Engraved art
 
 These plates are the hero backgrounds for Avouch Social (issue #36, revision 2).
-Each one is public domain or CC0. Nothing apocalyptic is used; the only battles are Doré's crusader and Martin's Joshua.
+Each one is public domain or CC0. Nothing apocalyptic is used; the only battles are Doré's crusaders and Martin's Joshua.
 Martin's *Joshua Commanding the Sun to Stand Still* appears on the landing page, the sign-in form, the signed-in More / About page, and the public About band.
 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
@@ -48,7 +48,7 @@ as one family. Printed captions and borders are trimmed off the Doré pages. CSS
 | A group | Gustave Doré, *Ruth and Boaz*, Doré's English Bible, 1866 | `plate-group-A.webp`, `plate-group-A-900.webp` | https://commons.wikimedia.org/wiki/File:069.Ruth_and_Boaz.jpg | Public domain (artist died 1883) |
 | Find | John Bauer, *Princess Tuvstarr gazing down into the dark waters of the forest tarn*, 1913 | `plate-find-A.webp`, `plate-find-A-900.webp` | https://commons.wikimedia.org/wiki/File:John_Bauer_-_Princess_Tuvstarr_gazing_down_into_the_dark_waters_of_the_forest_tarn._-_Google_Art_Project.jpg | Public domain (artist died 1918) |
 | Messages | Albrecht Dürer, *Erasmus of Rotterdam*, 1526, engraving. National Gallery of Art 6672 | `plate-messages-A.webp`, `plate-messages-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Erasmus_of_Rotterdam,_1526,_NGA_6672.jpg | CC0 (NGA Open Access) |
-| You | Albrecht Dürer, *Self-Portrait at Thirteen*, 1484, silverpoint (Albertina) | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Durer-self-portrait-at-the-age-of-thirteen.jpg | Public domain (artist died 1528) |
+| You | Gustave Doré, *The Battle of Antioch*, Histoire des croisades, 1877 | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9-The_Battle_of_Antioch-_Plate_XVIII.jpg | Public domain (artist died 1883) |
 | More / About | John Martin, *Joshua Commanding the Sun to Stand Still* (the door's plate) | `martin-joshua-A.webp` (no new file) | see the landing row above | CC0 (NGA Open Access) |
 | The desk | Gustave Doré, *The Judgment of Solomon*, Doré's English Bible, 1866. Cropped to Solomon on the throne and his court; the soldier's sword and the child are in no crop | `plate-desk-A.webp`, `plate-desk-A-900.webp` | https://commons.wikimedia.org/wiki/File:084.The_Judgment_of_Solomon.jpg | Public domain (artist died 1883) |
 
@@ -70,7 +70,7 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 | A group | Doré, *Ruth and Boaz*: the gleaners, left | the same plate: the reapers, right | `plate-group-A-2400.webp` |
 | Find | Bauer, *Princess Tuvstarr*: Tuvstarr at the tarn | the same work: the trees at the far left of the scene | `plate-find-A-2400.webp` |
 | Messages | Dürer, *Praying Hands*, 1508 | Dürer, *Erasmus of Rotterdam*, 1526 | `plate-messages-A-2400.webp` |
-| You | Dürer, *Self-Portrait at Thirteen*, 1484 | Dürer, *Self-Portrait*, 1500 (Alte Pinakothek), https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_1500_self-portrait_(High_resolution_and_detail).jpg, public domain (artist died 1528) | `plate-you-A-2400.webp` |
+| You | Doré, *Bohemond Alone Mounts the Rampart of Antioch*, Histoire des croisades, 1877, https://commons.wikimedia.org/wiki/File:Gustave_dore_crusades_bohemond_alone_mounts_the_rampart_of_antioch.jpg, public domain (artist died 1883): the tower and Bohemond only. The crowd is taken into the dark, because a hooded man in a white robe stands in it who could be read as Christ | Doré, *The Battle of Antioch*, 1877: the whole plate. They replaced Dürer's self-portraits on Nov 2: Josh, many people would assume the 1500 portrait was Jesus, and he wants crusader art here | `plate-you-A-2400.webp` |
 | The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the elders at the far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
 | More / About | Martin, *Joshua Commanding the Sun to Stand Still* (`martin-joshua-A.webp`, already 2400 wide): the left of the plate | its right half | no new file |
 
