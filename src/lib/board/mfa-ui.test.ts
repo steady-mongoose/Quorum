@@ -69,7 +69,8 @@ test("the authenticator banner follows the server's enroll phase, with no app-si
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   // The server sends "enroll" only to owners, admins and stewards (server/mfa/policy.ts).
-  assert.match(app, /\{entered && server\.mfa === "enroll" \?/);
+  // It waits for inside: You, where it leads, sits behind the county question.
+  assert.match(app, /\{inside && server\.mfa === "enroll" \?/);
   assert.doesNotMatch(app, /moderator && server\.mfa/);
 });
 
