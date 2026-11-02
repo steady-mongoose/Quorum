@@ -65,6 +65,27 @@ test("authenticator code fields take six digits and the start button hides while
   assert.match(banner, /before you moderate, grant a role, approve a reset, or export/);
 });
 
+test("the QR code has its quiet zone and one path, and refuses a bad shape", async () => {
+  const { QR_QUIET_ZONE, qrMark } = await import("./qr-mark.ts");
+  assert.equal(QR_QUIET_ZONE, 4);
+  const modules = Array.from({ length: 21 }, () => Array.from({ length: 21 }, () => 0));
+  modules[0]![0] = 1;
+  modules[20]![20] = 1;
+  assert.deepEqual(qrMark(modules), { size: 29, path: "M4 4h1v1h-1zM24 24h1v1h-1z" });
+  assert.equal(qrMark([[1]]), null);
+  assert.equal(qrMark(Array.from({ length: 21 }, () => [1])), null);
+});
+
+test("the authenticator setup sits beside the QR code on a wider screen", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
+  assert.match(ui, /flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6/);
+  // A column stretches its buttons even with sm:w-auto, so these have to say so.
+  assert.match(ui, /btnGhost, "min-h-\[44px\] w-full sm:w-auto sm:self-start"/);
+  assert.match(ui, /btnSignal, "w-full sm:w-auto sm:self-start"/);
+  assert.match(ui, /shapeRendering="crispEdges"/);
+});
+
 test("the authenticator banner follows the server's enroll phase, with no app-side role check", async () => {
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
