@@ -72,6 +72,9 @@ const MEMBER_ROUTES: Array<[string, RegExp]> = [
   // confirmation, so an admin or steward with no authenticator yet must be
   // able to send it, or they can never reach the setup.
   ["POST", /^\/api\/age\/confirm$/],
+  // The county question comes next, also before You, for the same reason. It
+  // only writes the member's own home county.
+  ["POST", /^\/api\/county$/],
   ["POST", new RegExp(`^/api/rooms/${ROOM}/(posts|join|leave|chat)$`)],
   ["POST", new RegExp(`^/api/posts/${ID}/(replies|revise|close|appeal)$`)],
   ["POST", new RegExp(`^/api/group-posts/${ID}/appeal$`)],

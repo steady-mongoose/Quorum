@@ -140,13 +140,13 @@ async function waitFor(ok, ms = 3000) {
   while (!ok() && Date.now() < end) await act(async () => new Promise((r) => setTimeout(r, 10)));
 }
 
-async function open(me, status = 200) {
+async function open(me, status = 200, session = {}) {
   localStorage.clear();
   useBoard.getState().disconnectRemote();
   useBoard.setState({ section: "week", me: "", member: false, remote: false, boardError: "" });
   routes = {
     "/api/health": [200, { ok: true }],
-    "/api/auth/get-session": [200, { user: USER }],
+    "/api/auth/get-session": [200, { user: USER, ...session }],
     "/api/calls/status": [200, { enabled: false, record: false }],
     "/api/board": status === 200 ? [200, board(me)] : [status, { error: "The board did not load." }],
     "/api/county": [200, { county: "polk" }],
@@ -192,6 +192,17 @@ test("a refused save keeps the question up and says so", async () => {
   await waitFor(() => host.querySelector('[role="alert"]'));
   assert.match(host.querySelector('[role="alert"]').textContent, /not saved/);
   assert.equal(step(host), true);
+});
+
+test("an admin with no authenticator answers first, then gets Set it up", async () => {
+  const host = await open({ homeCounty: null, countiesOn: true, admin: true }, 200, { mfa: "enroll" });
+  await waitFor(() => step(host));
+  assert.equal(host.querySelector(".mfa-banner"), null, "no button that cannot open You yet");
+
+  const polk = [...host.querySelectorAll("main button")].find((b) => b.textContent === "Polk");
+  await act(async () => polk.click());
+  await waitFor(() => switcher(host));
+  assert.ok(host.querySelector(".mfa-banner"), "the setup is one click away");
 });
 
 test("a member with a county is not asked", async () => {

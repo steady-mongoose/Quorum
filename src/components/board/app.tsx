@@ -301,7 +301,7 @@ function BoardShell({
     </>
   ) : (
     <>
-      {entered && server.mfa === "enroll" ? (
+      {inside && server.mfa === "enroll" ? (
         <MfaBanner onSetUp={() => openSection("profile")} />
       ) : null}
       {ageDue ? <AgeStep /> : null}
