@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { btnGhost, btnSignal, fieldClass } from "@/components/quorum/bits";
+import { qrMark } from "@/lib/board/qr-mark";
 import { cn } from "@/lib/cn";
 import { useServerSession } from "@/lib/server-session-state";
 import { HEADING_FOCUS_RING, PanelNote, usePanelRetry } from "@/components/board/panel-note";
@@ -19,25 +20,18 @@ import {
 } from "@/lib/mfa-api";
 
 function QrMark({ modules }: { modules: number[][] }) {
-  const size = modules.length;
-  if (size < 21 || size > 177) return null;
-  const cells = [];
-  for (let y = 0; y < size; y += 1) {
-    const row = modules[y];
-    if (!row || row.length !== size) return null;
-    for (let x = 0; x < size; x += 1) {
-      if (row[x] === 1) cells.push(<rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" />);
-    }
-  }
+  const mark = qrMark(modules);
+  if (!mark) return null;
   return (
     <svg
-      viewBox={`0 0 ${size} ${size}`}
+      viewBox={`0 0 ${mark.size} ${mark.size}`}
       role="img"
       aria-label="Authenticator QR code"
-      className="h-auto w-full max-w-[17.5rem]"
+      shapeRendering="crispEdges"
+      className="h-auto w-full max-w-[17.5rem] shrink-0 self-center rounded-md sm:w-64 sm:self-start"
     >
-      <rect width={size} height={size} className="fill-parchment" />
-      <g className="fill-ink">{cells}</g>
+      <rect width={mark.size} height={mark.size} className="fill-parchment" />
+      <path d={mark.path} className="fill-ink" />
     </svg>
   );
 }
@@ -217,57 +211,59 @@ export function MfaSettings() {
         </button>
       ) : null}
       {modules && !status?.enrolled ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
           <QrMark modules={modules} />
-          <p className="text-sm text-muted">Can't scan? Enter this key in your app:</p>
-          <p className="break-all font-mono text-base tracking-wider text-fg select-all">
-            {secret.match(/.{1,4}/g)?.join(" ")}
-          </p>
-          <button
-            type="button"
-            className={cn(btnGhost, "min-h-[44px] w-full sm:w-auto")}
-            onClick={() => void copyValue(secret)}
-          >
-            Copy key
-          </button>
-          <label className="flex flex-col gap-2 text-sm text-muted">
-            Code from the app
-            <input
-              className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
-              value={code}
-              inputMode="numeric"
-              maxLength={6}
-              pattern="[0-9]*"
-              autoComplete="one-time-code"
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-            />
-          </label>
-          <button
-            type="button"
-            className={cn(btnSignal, "w-full sm:w-auto")}
-            disabled={pending}
-            onClick={() => {
-              setError("");
-              setPending(true);
-              void confirmMfaEnroll(code).then((result) => {
-                setPending(false);
-                if (!result.ok) {
-                  setError(result.message);
-                  return;
-                }
-                setSavedCodes(false);
-                setCopied("");
-                setRecovery(result.value.recoveryCodes);
-                setModules(null);
-                setSecret("");
-                setCode("");
-                refresh();
-                void refreshPhase();
-              });
-            }}
-          >
-            Confirm code
-          </button>
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <p className="text-sm text-muted">Can't scan? Enter this key in your app:</p>
+            <p className="font-mono text-base tracking-wider text-fg select-all">
+              {secret.match(/.{1,4}/g)?.join(" ")}
+            </p>
+            <button
+              type="button"
+              className={cn(btnGhost, "min-h-[44px] w-full sm:w-auto sm:self-start")}
+              onClick={() => void copyValue(secret)}
+            >
+              Copy key
+            </button>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              Code from the app
+              <input
+                className={cn(fieldClass, "min-h-[44px] font-mono tracking-widest")}
+                value={code}
+                inputMode="numeric"
+                maxLength={6}
+                pattern="[0-9]*"
+                autoComplete="one-time-code"
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              />
+            </label>
+            <button
+              type="button"
+              className={cn(btnSignal, "w-full sm:w-auto sm:self-start")}
+              disabled={pending}
+              onClick={() => {
+                setError("");
+                setPending(true);
+                void confirmMfaEnroll(code).then((result) => {
+                  setPending(false);
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setSavedCodes(false);
+                  setCopied("");
+                  setRecovery(result.value.recoveryCodes);
+                  setModules(null);
+                  setSecret("");
+                  setCode("");
+                  refresh();
+                  void refreshPhase();
+                });
+              }}
+            >
+              Confirm code
+            </button>
+          </div>
         </div>
       ) : null}
       {recovery ? (
