@@ -1,0 +1,10 @@
+# Text files are stored with LF, and checked out with LF on every machine, Windows too. CI, the server and the
+# Docker images all read LF. A CRLF checkout (core.autocrlf) breaks a shell script copied into an image, and the
+# tests that read source files.
+* text=auto eol=lf
+
+*.webp binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 function source(path: string): string {
-  return readFileSync(new URL(path, import.meta.url), "utf8");
+  return readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 test("authenticator screens use the plate, 44px targets, and no inline script", () => {
@@ -57,11 +57,11 @@ test("authenticator screens use the plate, 44px targets, and no inline script", 
 
 test("authenticator code fields take six digits and the start button hides while codes show", async () => {
   const { readFileSync } = await import("node:fs");
-  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.equal(ui.split('maxLength={6}\n').length - 1 >= 2, true);
   assert.equal(ui.split('pattern="[0-9]*"\n').length - 1 >= 2, true);
   assert.match(ui, /!status\?\.enrolled && !modules && !recovery \?/);
-  const banner = readFileSync(new URL("../../components/board/mfa-banner.tsx", import.meta.url), "utf8");
+  const banner = readFileSync(new URL("../../components/board/mfa-banner.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(banner, /before you moderate, grant a role, approve a reset, or export/);
 });
 
@@ -78,7 +78,7 @@ test("the QR code has its quiet zone and one path, and refuses a bad shape", asy
 
 test("the authenticator setup sits beside the QR code on a wider screen", async () => {
   const { readFileSync } = await import("node:fs");
-  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../../components/board/mfa-ui.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(ui, /flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6/);
   // A column stretches its buttons even with sm:w-auto, so these have to say so.
   assert.match(ui, /btnGhost, "min-h-\[44px\] w-full sm:w-auto sm:self-start"/);
@@ -88,7 +88,7 @@ test("the authenticator setup sits beside the QR code on a wider screen", async 
 
 test("the authenticator banner follows the server's enroll phase, with no app-side role check", async () => {
   const { readFileSync } = await import("node:fs");
-  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   // The server sends "enroll" only to owners, admins and stewards (server/mfa/policy.ts).
   // It waits for inside: You, where it leads, sits behind the county question.
   assert.match(app, /\{inside && server\.mfa === "enroll" \?/);
@@ -97,7 +97,7 @@ test("the authenticator banner follows the server's enroll phase, with no app-si
 
 test("Join the call uses the server's rule: room member or this room's steward", async () => {
   const { readFileSync } = await import("node:fs");
-  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8");
+  const room = readFileSync(new URL("../../components/board/room-view.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(room, /roomIncludes\(meta, "calls"\) && canCall \? <RoomCall roomId=\{room\} \/>/);
   const { canJoinRoomCall } = await import("./member-gate.ts");
   // A site admin who is not in the room: the server answers 403, so no button.

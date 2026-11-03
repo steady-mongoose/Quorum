@@ -16,8 +16,8 @@ function slice(text: string, start: string, end: string) {
 }
 
 test("coturn is a calls profile that docker compose up does not start", () => {
-  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
-  const script = readFileSync(join(root, "deploy/coturn.sh"), "utf8");
+  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8").replace(/\r\n/g, "\n");
+  const script = readFileSync(join(root, "deploy/coturn.sh"), "utf8").replace(/\r\n/g, "\n");
   assert.match(compose, /Not started by `docker compose up`/);
   assert.match(compose, /these calls are not recorded/);
   assert.equal(compose.includes("image: livekit"), false);
@@ -53,12 +53,12 @@ test("coturn is a calls profile that docker compose up does not start", () => {
 });
 
 test("call membership is a read, and the module does not write the room tables", () => {
-  const membership = readFileSync(join(root, "server/calls/membership.ts"), "utf8");
+  const membership = readFileSync(join(root, "server/calls/membership.ts"), "utf8").replace(/\r\n/g, "\n");
   assert.match(membership, /select .stood. as via from room_member where room_id/);
   assert.equal(/insert into|update |delete from/i.test(membership), false);
-  const routes = readFileSync(join(root, "server/calls/routes.ts"), "utf8");
+  const routes = readFileSync(join(root, "server/calls/routes.ts"), "utf8").replace(/\r\n/g, "\n");
   assert.match(routes, /record: false/);
   assert.equal(routes.includes("record: true"), false);
-  const migrations = readFileSync(join(root, "scripts/migration-plan.test.mjs"), "utf8");
+  const migrations = readFileSync(join(root, "scripts/migration-plan.test.mjs"), "utf8").replace(/\r\n/g, "\n");
   assert.equal(migrations.includes("0009"), false);
 });

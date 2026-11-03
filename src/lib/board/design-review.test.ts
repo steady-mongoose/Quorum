@@ -13,7 +13,7 @@ import { dayHeading, localCalendarIso, meetingDates, shiftLocalDate } from "./we
 process.env.TZ = "America/New_York";
 
 function source(path: string): string {
-  return readFileSync(new URL(path, import.meta.url), "utf8");
+  return readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 function channel(value: number): number {

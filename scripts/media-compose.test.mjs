@@ -27,7 +27,7 @@ function listUnder(text, key) {
 
 test("ffmpeg runs in a container with no network, and the worker does not load the full env", () => {
   const root = projectRoot();
-  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
+  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8").replace(/\r\n/g, "\n");
   const sandbox = slice(compose, "  media-sandbox:", "  media-proxy:");
   assert.match(sandbox, /network_mode: none/);
   assert.equal(sandbox.includes("unshare"), false);
@@ -57,12 +57,12 @@ test("ffmpeg runs in a container with no network, and the worker does not load t
   assert.match(worker, /\/control\/worker-ready/);
   assert.equal(compose.includes("EGRESS_ALLOW_HOST"), false);
   assert.equal(compose.includes("media-work:"), false);
-  const override = readFileSync(join(root, "deploy/docker-compose.media-test.yml"), "utf8");
+  const override = readFileSync(join(root, "deploy/docker-compose.media-test.yml"), "utf8").replace(/\r\n/g, "\n");
   assert.match(override, /EGRESS_ALLOW_HOST/);
   assert.match(override, /EGRESS_ALLOW_PORT/);
-  const smoke = readFileSync(join(root, "scripts/media-compose-smoke.sh"), "utf8");
+  const smoke = readFileSync(join(root, "scripts/media-compose-smoke.sh"), "utf8").replace(/\r\n/g, "\n");
   assert.match(smoke, /docker-compose\.media-test\.yml/);
-  const readme = readFileSync(join(root, "deploy/README.md"), "utf8");
+  const readme = readFileSync(join(root, "deploy/README.md"), "utf8").replace(/\r\n/g, "\n");
   assert.match(readme, /log_statement` at `none/);
   assert.match(readme, /log_min_duration_statement/);
   assert.match(compose, /internal: true/);
@@ -70,7 +70,7 @@ test("ffmpeg runs in a container with no network, and the worker does not load t
   assert.equal(postgres.includes("ports:"), false);
   const api = slice(compose, "  api:", "  caddy:");
   assert.equal(api.includes("\n    ports:"), false);
-  const dockerfile = readFileSync(join(root, "deploy/Dockerfile"), "utf8");
+  const dockerfile = readFileSync(join(root, "deploy/Dockerfile"), "utf8").replace(/\r\n/g, "\n");
   assert.match(dockerfile, /ffmpeg=7:5\.1\.9-0\+deb12u1/);
   assert.match(dockerfile, /FROM app AS media/);
   const appStage = dockerfile.slice(0, dockerfile.indexOf("FROM app AS media"));

@@ -85,27 +85,27 @@ test("a refusal for someone in a shared room says so plainly and names no reason
 });
 
 test("the app's refusal sentence is still the server's NOT_REACHABLE text", () => {
-  const server = readFileSync(new URL("../../../server/dm/store.ts", import.meta.url), "utf8");
+  const server = readFileSync(new URL("../../../server/dm/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const match = /export const NOT_REACHABLE =\s*"([^"]+)"/.exec(server);
   assert.equal(match?.[1], MESSAGE_RULE);
 });
 
 test("no app code recomputes the reply rule", () => {
   const root = new URL("../../", import.meta.url);
-  const files: string[] = [];
+  const files: URL[] = [];
   const walk = (dir: URL) => {
     for (const name of readdirSync(dir)) {
       const url = new URL(name, dir);
       if (statSync(url).isDirectory()) walk(new URL(`${name}/`, dir));
-      else if (/\.tsx?$/.test(name) && !/\.test\./.test(name)) files.push(url.pathname);
+      else if (/\.tsx?$/.test(name) && !/\.test\./.test(name)) files.push(url);
     }
   };
   walk(root);
   for (const file of files) {
-    const source = readFileSync(file, "utf8");
-    assert.doesNotMatch(source, /\bstoodWith\b|\bmessageableNames\b/, file);
+    const source = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+    assert.doesNotMatch(source, /\bstoodWith\b|\bmessageableNames\b/, file.pathname);
   }
-  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = store.indexOf("openDm: (other)");
   const openDm = store.slice(start, store.indexOf("sendDm:", start));
   assert.match(openDm, /!get\(\)\.remote && !localReach/);
@@ -143,7 +143,7 @@ test("a block or unblock tells every screen to refetch", () => {
   const hook = readFileSync(
     new URL("../../components/board/use-message-reach.ts", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   const forget = hook.slice(hook.indexOf("export function forgetMessageReach"));
   assert.match(forget.slice(0, forget.indexOf("\n}")), /reachVersion\.bump\(\)/);
   assert.match(hook, /useSyncExternalStore\(reachVersion\.subscribe/);
@@ -152,7 +152,7 @@ test("a block or unblock tells every screen to refetch", () => {
   const mailbox = readFileSync(
     new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   assert.equal((mailbox.match(/forgetMessageReach\(\);/g) ?? []).length, 2);
 });
 
@@ -160,15 +160,15 @@ test("loading a room, Find or a profile only reads; attendance is written only w
   const hook = readFileSync(
     new URL("../../components/board/use-message-reach.ts", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   assert.doesNotMatch(hook, /recordAttendance|\.post\(|method:\s*"(POST|PUT|PATCH|DELETE)"/);
-  const reads = readFileSync(new URL("./message-reach-reads.ts", import.meta.url), "utf8");
+  const reads = readFileSync(new URL("./message-reach-reads.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.doesNotMatch(reads, /recordAttendance|\.post\(|method:\s*"(POST|PUT|PATCH|DELETE)"/);
   assert.match(hook, /readReach\(.*cachedReads\(\)\)/);
-  const client = readFileSync(new URL("../e2ee/mailbox.ts", import.meta.url), "utf8");
+  const client = readFileSync(new URL("../e2ee/mailbox.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const peersCall = client.slice(client.indexOf("export async function listDmPeers"));
   assert.match(peersCall.slice(0, peersCall.indexOf("\n}")), /transport\.get\("\/api\/dm\/peers"\)/);
-  const members = readFileSync(new URL("./room-members.ts", import.meta.url), "utf8");
+  const members = readFileSync(new URL("./room-members.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const load = members.slice(members.indexOf("export async function loadRoomMembers"));
   assert.doesNotMatch(load.slice(0, load.indexOf("\n}")), /method:\s*"(POST|PUT|PATCH|DELETE)"/);
   // The one app caller of the attendance write is the mailbox's open-a-conversation effect.
@@ -179,7 +179,7 @@ test("loading a room, Find or a profile only reads; attendance is written only w
       const url = new URL(name, dir);
       if (statSync(url).isDirectory()) walk(new URL(`${name}/`, dir));
       else if (/\.tsx?$/.test(name) && !/\.test\./.test(name)) {
-        if (/recordAttendance\(transport/.test(readFileSync(url, "utf8"))) callers.push(name);
+        if (/recordAttendance\(transport/.test(readFileSync(url, "utf8").replace(/\r\n/g, "\n"))) callers.push(name);
       }
     }
   };
@@ -188,7 +188,7 @@ test("loading a room, Find or a profile only reads; attendance is written only w
   const mailbox = readFileSync(
     new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   const effect = mailbox.slice(mailbox.indexOf("if (!me || !vault || vault.userId !== me.id || !openThread) return;"));
   assert.ok(effect.indexOf("recordAttendance(transport") > 0);
   assert.ok(effect.indexOf("recordAttendance(transport") < effect.indexOf("[openThread, me?.id"));
@@ -198,10 +198,10 @@ test("Design: the refusal is an alert in body ink, and Find waits for the answer
   const mailbox = readFileSync(
     new URL("../../components/board/encrypted-mailbox.tsx", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   assert.match(mailbox, /<p role="alert" className="text-sm text-fg">\s*\{refused\}\s*<\/p>/);
   assert.match(mailbox, /setRefused\(refusalText\(opened\.message, sharesRoom\)\)/);
-  const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8");
+  const find = readFileSync(new URL("../../components/board/find-view.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(find, /card\.firstTimer && peers\.loaded/);
 });
 

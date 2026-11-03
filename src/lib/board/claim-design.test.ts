@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 function source(path: string): string {
-  return readFileSync(new URL(path, import.meta.url), "utf8");
+  return readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 const queue = source("../../components/board/claims-queue.tsx");

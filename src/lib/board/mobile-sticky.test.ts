@@ -4,7 +4,7 @@ import test from "node:test";
 import { KEYBOARD_MIN_PX, MAST_SELECTOR, MAST_VAR, keyboardOpen, mastHeightValue } from "./mast-height.ts";
 
 function source(path: string): string {
-  return readFileSync(new URL(path, import.meta.url), "utf8");
+  return readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 const fluid = source("../../../public/fluid.css");
 const backgrounds = source("../../../public/backgrounds.css");

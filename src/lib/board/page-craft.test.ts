@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import { Window } from "happy-dom";
 import { plateCaption, plateView } from "./engraved.ts";
 
-const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
+const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const craft = read("public/page-craft.css");
 const root = read("src/routes/__root.tsx");
 /** The public sheets in the order __root.tsx links them. */
