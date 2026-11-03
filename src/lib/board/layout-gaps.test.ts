@@ -36,3 +36,33 @@ test("This week drops its side column when there is no call and no parish need",
   assert.match(aside, /\{deskOn \? <TheCall \/> : null\}/);
   assert.match(aside, /A parish needs/);
 });
+
+test("About's plate groups give the plate its own column, so no entry is squeezed beside it (Josh, Nov 3)", () => {
+  const about = source("../../components/board/about-view.tsx");
+  const css = source("../../../public/page-art.css");
+  assert.match(about, /<div className=\{group\.plate \? "how-body" : "flow-root"\}>/);
+  assert.match(about, /className=\{group\.plate \? entryStacked : entry\}/);
+  // The name sits over its text beside a plate; the lists with no plate keep the name beside the text.
+  assert.match(about, /const entryStacked =\s*"flex flex-col gap-1 border-t/);
+  assert.match(css, /\.how-body\{display:grid;grid-template-columns:minmax\(0,1fr\) 13rem;/);
+  assert.match(css, /\.how-body>\.section-plate\{grid-column:2;grid-row:1;float:none;/);
+  // With the plate skipped for data savers, no empty column is left.
+  assert.match(css, /\[data-save-data\] \.how-body\{display:block\}/);
+});
+
+test("the category editor is one aligned row per category, folded on a card, on All rooms only (Josh, Nov 3)", () => {
+  const browse = source("../../components/board/room-browse.tsx");
+  const editor = browse.slice(browse.indexOf("function CategoryEditor"), browse.indexOf("export function RoomCategoryFields"));
+  assert.match(browse, /\{admin && remote && focusSlug === null \? <CategoryEditor/);
+  assert.match(editor, /<details className="card pc-card p-4 sm:p-5">/);
+  assert.match(editor, /Edit categories/);
+  // A fixed button column, so Uncategorized (no Remove) lines up with the rest; Order beside Name on a phone.
+  assert.match(editor, /grid-cols-\[minmax\(0,1fr\)_5rem\] items-end/);
+  assert.match(editor, /sm:grid-cols-\[minmax\(0,1fr\)_5rem_minmax\(11rem,auto\)\]/);
+  assert.match(editor, /col-span-2 flex flex-wrap gap-2 sm:col-span-1/);
+  assert.match(editor, /sm:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)_auto\] sm:items-end/);
+  // Short buttons on screen; the category's name stays in each button's accessible name.
+  assert.match(editor, /aria-label=\{`Save \$\{category\.name\}`\}/);
+  assert.match(editor, /aria-label=\{`Remove \$\{category\.name\}`\}/);
+  assert.doesNotMatch(editor, /Save \{category\.name\}|Remove \{category\.name\}/);
+});

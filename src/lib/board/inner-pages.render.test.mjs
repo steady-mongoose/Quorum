@@ -166,13 +166,13 @@ test("the credit chip is real text naming the plate, Groups and a group included
       useBoard.setState({ section: "groups", browsing: true });
     });
     await frames();
-    assert.equal(chip()?.textContent, "Plate: Albrecht Dürer · The Feast of the Rose Garlands · 1506");
+    assert.equal(chip()?.textContent, "Plate: Gustave Doré · The Crusaders’ War Machinery · 1877");
     await act(async () => setGroupOpen(true));
     await frames();
     assert.equal(chip()?.textContent, "Plate: Gustave Doré · Ruth and Boaz · 1866");
     await act(async () => setGroupOpen(false));
     await frames();
-    assert.equal(chip()?.textContent, "Plate: Albrecht Dürer · The Feast of the Rose Garlands · 1506");
+    assert.equal(chip()?.textContent, "Plate: Gustave Doré · The Crusaders’ War Machinery · 1877");
   } finally {
     await page.unmount();
     setGroupOpen(false);

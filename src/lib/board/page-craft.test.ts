@@ -72,7 +72,7 @@ test("every plate the sheet names is in public/art, Groups and a group included"
     if (url.endsWith("-900.webp")) assert.ok(readFileSync(file).length < 52 * 1024, url);
   }
   const attribution = read("public/art/ATTRIBUTION.md");
-  assert.match(attribution, /plate-groups-A\.webp.*Feast_of_Rose_Garlands/);
+  assert.match(attribution, /plate-groups-A\.webp.*crusaders_war_machinery/);
   assert.match(attribution, /plate-group-A\.webp.*069\.Ruth_and_Boaz/);
   assert.equal(render({ section: "groups" }).ground.backgroundImage, 'url("/art/plate-groups-A.webp")');
   assert.equal(
@@ -218,7 +218,7 @@ test("the shell renders the plate for every section, and the credit names it", (
   assert.equal(plateCaption("rooms", "room"), "Gustave Doré · The Sermon on the Mount · 1866");
   assert.equal(plateCaption("civic", null), "Gustave Doré · The Judgment of Solomon · 1866");
   assert.equal(plateCaption("about", null), "John Martin · Joshua Commanding the Sun to Stand Still · 1827");
-  assert.equal(plateCaption("groups", null), "Albrecht Dürer · The Feast of the Rose Garlands · 1506");
+  assert.equal(plateCaption("groups", null), "Gustave Doré · The Crusaders’ War Machinery · 1877");
   assert.equal(plateCaption("groups", "group"), "Gustave Doré · Ruth and Boaz · 1866");
   assert.equal(plateCaption("landing", null), null);
   assert.equal(plateCaption("signin", null), null);

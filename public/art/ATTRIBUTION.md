@@ -1,7 +1,7 @@
 # Engraved art
 
 These plates are the hero backgrounds for Avouch Social (issue #36, revision 2).
-Each one is public domain or CC0. Nothing apocalyptic is used; the only battles are Doré's crusaders and Martin's Joshua.
+Each one is public domain or CC0. Nothing apocalyptic is used; the only battles are Doré's crusaders and Martin's Joshua. No plate shows a nude.
 Martin's *Joshua Commanding the Sun to Stand Still* appears on the landing page, the sign-in form, the signed-in More / About page, and the public About band.
 
 The files in this folder are the Design Critic's duotone WebPs (palette A, Ink & Bone,
@@ -44,9 +44,9 @@ as one family. Printed captions and borders are trimmed off the Doré pages. CSS
 | This week | Gustave Doré, *Jacob's Dream*, Doré's English Bible, 1866 | `plate-week-A.webp`, `plate-week-A-900.webp` | https://commons.wikimedia.org/wiki/File:021.Jacob%27s_Dream.jpg | Public domain (artist died 1883) |
 | Rooms | Albrecht Dürer, *Saint Jerome in His Study*, 1514, engraving. National Gallery of Art 6642 | `plate-rooms-A.webp`, `plate-rooms-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Saint_Jerome_in_His_Study,_1514,_NGA_6642.jpg | CC0 (NGA Open Access) |
 | A room | Gustave Doré, *The Sermon on the Mount*, Doré's English Bible, 1866 | `plate-room-A.webp`, `plate-room-A-900.webp` | https://commons.wikimedia.org/wiki/File:Dore_Bible_Sermon_on_the_Mount.jpg | Public domain (artist died 1883) |
-| Groups | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506, oil on panel (National Gallery Prague); toned to sepia monochrome like the others | `plate-groups-A.webp`, `plate-groups-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer_-_Feast_of_Rose_Garlands_-_Google_Art_Project.jpg | Public domain (artist died 1528) |
+| Groups | Gustave Doré, *The Crusaders' War Machinery*, Histoire des croisades, 1877: the whole plate | `plate-groups-A.webp`, `plate-groups-A-900.webp` | https://commons.wikimedia.org/wiki/File:Gustave_dore_crusades_the_crusaders_war_machinery.jpg | Public domain (artist died 1883) |
 | A group | Gustave Doré, *Ruth and Boaz*, Doré's English Bible, 1866 | `plate-group-A.webp`, `plate-group-A-900.webp` | https://commons.wikimedia.org/wiki/File:069.Ruth_and_Boaz.jpg | Public domain (artist died 1883) |
-| Find | John Bauer, *Princess Tuvstarr gazing down into the dark waters of the forest tarn*, 1913 | `plate-find-A.webp`, `plate-find-A-900.webp` | https://commons.wikimedia.org/wiki/File:John_Bauer_-_Princess_Tuvstarr_gazing_down_into_the_dark_waters_of_the_forest_tarn._-_Google_Art_Project.jpg | Public domain (artist died 1918) |
+| Find | Gustave Doré, *A Friendly Tournament*, Histoire des croisades, 1877: the whole plate | `plate-find-A.webp`, `plate-find-A-900.webp` | https://commons.wikimedia.org/wiki/File:Gustave_dore_crusades_a_friendly_tournament.jpg | Public domain (artist died 1883) |
 | Messages | Albrecht Dürer, *Erasmus of Rotterdam*, 1526, engraving. National Gallery of Art 6672 | `plate-messages-A.webp`, `plate-messages-A-900.webp` | https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer,_Erasmus_of_Rotterdam,_1526,_NGA_6672.jpg | CC0 (NGA Open Access) |
 | You | Gustave Doré, *The Battle of Antioch*, Histoire des croisades, 1877 | `plate-you-A.webp`, `plate-you-A-900.webp` | https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9-The_Battle_of_Antioch-_Plate_XVIII.jpg | Public domain (artist died 1883) |
 | More / About | John Martin, *Joshua Commanding the Sun to Stand Still* (the door's plate) | `martin-joshua-A.webp` (no new file) | see the landing row above | CC0 (NGA Open Access) |
@@ -66,9 +66,9 @@ fails if any screen at 1600, 1920 or 2560 shows the same file or panel twice, or
 | This week | Doré, *Jacob's Dream*: Jacob asleep (lower left) | the same plate: the lit top of the ladder and angels | `plate-week-A-2400.webp` |
 | Rooms | Dürer, *Saint Jerome in His Study*: the sleeping lion | the same plate: Jerome at his desk | `plate-rooms-A-2400.webp` |
 | A room | Doré, *The Sermon on the Mount*: the seated listeners, lower left | the same plate: the listeners, lower right, fading into the ground at the top | `plate-room-A-2400.webp` |
-| Groups | Dürer, *The Feast of the Rose Garlands*: the pope's party | the same work: the emperor's party | `plate-groups-A-2400.webp` |
+| Groups | Doré, *Troubadours Sing the Glories of the Crusades*, 1877, https://commons.wikimedia.org/wiki/File:Gustave_dore_crusades_troubadours_singing_the_glories_of_the_crusades.jpg, public domain: the whole plate | Doré, *The Crusaders' War Machinery*, 1877: the whole plate | `plate-groups-A-2400.webp` |
 | A group | Doré, *Ruth and Boaz*: the gleaners, left | the same plate: the reapers, right | `plate-group-A-2400.webp` |
-| Find | Bauer, *Princess Tuvstarr*: Tuvstarr at the tarn | the same work: the trees at the far left of the scene | `plate-find-A-2400.webp` |
+| Find | Doré, *The Crusaders Cross Mount Taurus*, 1877, https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9_-_The_Crusaders_Cross_Mount_Taurus.jpg, public domain: the climbers. A man lying at the foot of the slope is taken into the dark | Doré, *A Friendly Tournament*, 1877: the whole plate | `plate-find-A-2400.webp` |
 | Messages | Dürer, *Praying Hands*, 1508 | Dürer, *Erasmus of Rotterdam*, 1526 | `plate-messages-A-2400.webp` |
 | You | Doré, *Bohemond Alone Mounts the Rampart of Antioch*, Histoire des croisades, 1877, https://commons.wikimedia.org/wiki/File:Gustave_dore_crusades_bohemond_alone_mounts_the_rampart_of_antioch.jpg, public domain (artist died 1883): the tower and Bohemond only. The crowd is taken into the dark, because a hooded man in a white robe stands in it who could be read as Christ | Doré, *The Battle of Antioch*, 1877: the whole plate. They replaced Dürer's self-portraits on Nov 2: Josh, many people would assume the 1500 portrait was Jesus, and he wants crusader art here | `plate-you-A-2400.webp` |
 | The desk | Doré, *The Judgment of Solomon*: Solomon on the throne | the same plate: the elders at the far left of the scene; no sword or child | `plate-desk-A-2400.webp` |
@@ -84,7 +84,7 @@ What's in the rooms, The rooms and Kinds of post carry no plate: no work left fi
 | Screen | Work | File | Source | Licence |
 |---|---|---|---|---|
 | What we stand for, and the picture a shared link shows (`share-avouch.jpg`, 1200×630 JPEG) | Gustave Doré, *The Count of Anjou at the Battle of Mansourah*, Histoire des croisades, 1877: the whole scene, the knight, his horse and the bearer of a plain cross; toned to sepia. The share image is a wider cut, fading out below the knight | `section-crusader.webp` | https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9_-_Count_of_Anjou_in_the_battle_of_Masouri,_1250.jpg | Public domain (artist died 1883) |
-| Getting in and showing up | Albrecht Dürer, *The Feast of the Rose Garlands*, 1506: the pope's party, people who turned up | `section-gathering.webp` | `plate-groups-A-2400.webp` | Public domain (artist died 1528) |
+| Getting in and showing up | Gustave Doré, *Troubadours Sing the Glories of the Crusades*, 1877: the lower half of the plate, everyone who came to listen, the singers and the harper | `section-gathering.webp` | the Commons scan in the Groups row above | Public domain (artist died 1883) |
 | Rooms and groups | Albrecht Dürer, *Saint Jerome in His Study*, 1514: a room; the cross on the desk is out of frame | `section-study.webp` | `durer-jerome-band-A.webp` | CC0 (NGA Open Access) |
 | Talking to people | Albrecht Dürer, *Erasmus of Rotterdam*, 1526 | `section-writing.webp` | `plate-messages-A-900.webp` | CC0 (NGA Open Access) |
 | Keeping it clean | Gustave Doré, *The Judgment of Solomon*, 1866: Solomon only, no sword or child | `section-judgment.webp` | `plate-desk-A-900.webp` | Public domain (artist died 1883) |
@@ -99,13 +99,21 @@ and `-B` the figure is painted out with the wall beside it, so a bare cross stan
 ### Recut Oct 31: no Jesus, no heads cut
 
 `plate-room-A` (all three sizes) shows only the listeners from *The Sermon on the Mount*: Christ and the figures
-around him are out of every crop, and the left panel is the crowd left of them. `plate-groups-A` and its 900px file
-show only the two parties at the sides of *The Feast of the Rose Garlands*: the Virgin and the Child are out.
+around him are out of every crop, and the left panel is the crowd left of them. (The Groups plate recut that day
+was retired on Nov 3; see below.)
 `plate-group-A` and `plate-messages-A` are cut from their 2400 files, which keep every head. The 1600
 Messages plate keeps Erasmus alone, so its credit stays true. All four 1600 files set the 16:9 art on the
 dark ground at 1600×1000, so a 16:10 screen shows it whole, and the two recut phone files keep the art inside
 the middle 738px a phone shows. Other screen shapes can still trim an edge figure.
 
+### Retired Nov 3: no nude art
+
+Josh, Nov 3: no prominently featured nude art, male or female. Bauer's *Princess Tuvstarr* (Find) is a nude girl, and
+Dürer's *Feast of the Rose Garlands* (Groups, and About's Getting in square) has naked cherubs and the Christ Child.
+All three are replaced by clothed Doré crusade plates; Bauer no longer appears in the app. Before using a plate,
+check every figure for nudity as well as for Christ and cut heads, including cherubs and children.
+
+Rejected: Doré's *The Order of Chivalry* (a crucified Christ on the wall).
 Rejected: the MFAH photograph of Martin's *Adam and Eve, the Morning Hymn* is CC BY-SA 4.0, not public domain or CC0. None of Martin's destruction scenes are used.
 Rejected: Jost Amman's *Der Schreiner* (1568) for Groups. The Wellcome scan is CC BY 4.0, and the public-domain scans are about 500 px wide, too small without upscaling.
 

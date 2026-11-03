@@ -155,8 +155,8 @@ export function ProfileView() {
           <section className="mt-4 flex flex-col gap-2">
             <h2 className="text-2xl text-fg">The desk</h2>
             <p className="text-sm text-muted">
-              Optional: coordinated calls to local officials. It stays off until you turn it on.
-              The emblems stay.
+              Coordinated calls to local officials. It is on unless you turn it off. The emblems
+              stay.
             </p>
             <label className="inline-flex min-h-[44px] items-center gap-3 text-sm text-fg">
               <input
