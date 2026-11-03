@@ -20,6 +20,9 @@ const execFileAsync = promisify(execFile);
 const DUMP = "closed-test dump bytes\n";
 const skipWithoutAge = ageInstalled() ? false : "age-keygen is not installed";
 
+// These run the production shell scripts, which only ever run on Linux. Windows cannot exec a .sh file.
+const posixOnly = process.platform === "win32" ? "runs a Linux shell script" : false;
+
 function writeCommands(root) {
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -172,7 +175,7 @@ test("credentials upload the ciphertext with object lock and without printing th
   assert.equal(log.includes(secret), false);
 });
 
-test("a failed backup pings the health-check URL and a blank URL stays quiet", async () => {
+test("a failed backup pings the health-check URL and a blank URL stays quiet", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-backup-"));
   const bin = writeCommands(root);
   const curlLog = join(root, "curl.log");

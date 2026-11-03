@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,10 @@ import {
 } from "./ffmpeg.ts";
 import { MediaReject } from "./errors.ts";
 import { assertKeptJpeg, assertKeptMp4 } from "./output.ts";
+
+// CI and the server always have ffmpeg, so there a missing one still fails. Only a Windows desk without it skips.
+const noFfmpeg =
+  process.platform === "win32" && spawnSync("ffmpeg", ["-version"]).error ? "ffmpeg is not installed" : false;
 
 function ftyp(): Uint8Array {
   const bytes = new Uint8Array(16);
@@ -259,7 +264,7 @@ test("a video codec outside the allowlist is refused", async () => {
   );
 });
 
-test("a transcode drops chapters, data, and subtitles", async () => {
+test("a transcode drops chapters, data, and subtitles", { skip: noFfmpeg }, async () => {
   const version = await spawnCommand("ffmpeg", ["-version"], 5_000);
   assert.equal(version.missing, undefined);
   assert.equal(version.code, 0);
@@ -395,7 +400,7 @@ function realPng(): Buffer {
   ]);
 }
 
-test("a png is re-encoded with the pipe demuxer", async () => {
+test("a png is re-encoded with the pipe demuxer", { skip: noFfmpeg }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "avouch-png-"));
   try {
     const input = join(dir, "in.png");

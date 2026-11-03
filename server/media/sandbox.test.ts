@@ -19,10 +19,10 @@ import {
 test("the sandbox cannot write the worker control file", () => {
   const ready = sandboxReadyPath("/jobs");
   const control = workerReadyPath("/control");
-  assert.equal(ready, "/jobs/sandbox-ready");
-  assert.equal(control, "/control/worker-ready");
-  assert.equal(ready.startsWith("/control"), false);
-  assert.equal(control.startsWith("/jobs"), false);
+  assert.equal(ready, join("/jobs", "sandbox-ready"));
+  assert.equal(control, join("/control", "worker-ready"));
+  assert.equal(ready.startsWith(join("/control")), false);
+  assert.equal(control.startsWith(join("/jobs")), false);
 });
 
 test("ffmpeg's environment is PATH and nothing else", () => {

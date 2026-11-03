@@ -86,7 +86,7 @@ test("room chat has no Join button; a non-member sees the invite line", () => {
   const source = readFileSync(
     new URL("../../src/components/board/room-chat.tsx", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   assert.doesNotMatch(source, /Join this room/);
   assert.doesNotMatch(source, /joinRoom\(/);
   assert.match(source, /note === NOT_IN_ROOM \? MEMBERS_ONLY_INVITE : note/);
