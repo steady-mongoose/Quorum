@@ -6,6 +6,8 @@ Avouch Social is a social network built around showing up. It holds where a smal
 
 Quorum (below) is the engine of The County room. A campaign is one demand on one office in one hour; while its window is open it is **this week's call** on the front page, and every call, letter, or visit logged on the desk files in The County as a **Did**: an act, a date, one proof.
 
+How the app looks, and Josh's rules for its art, are in [DESIGN.md](DESIGN.md). Read it before changing anything people see.
+
 ## Get it running
 
 You need [Node.js](https://nodejs.org/) 22.6 or newer and Git. Then, in a terminal:
