@@ -32,17 +32,19 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.15, 0.555, 0.56, 0.95] },
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
+  // Nov 3: no nude art, male or female. Dürer's Rose Garlands had naked cherubs; both sides are now clothed Doré.
   "plate-groups-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0, 0.29, 0.361, 0.89] },
-    right: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0.639, 0.24, 1.0, 0.84] },
+    left: { artist: "Gustave Doré", work: "Troubadours Sing the Glories of the Crusades", box: [0, 0, 1, 1] },
+    right: { artist: "Gustave Doré", work: "The Crusaders' War Machinery", box: [0, 0, 1, 1] },
   },
   "plate-group-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "Ruth and Boaz", box: [0, 0.225, 0.492, 0.775] },
     right: { artist: "Gustave Doré", work: "Ruth and Boaz", box: [0.508, 0.225, 1, 0.775] },
   },
+  // Nov 3: Bauer's Tuvstarr is a nude girl, so Find stands on Doré's crusaders instead.
   "plate-find-A-2400.webp": {
-    left: { artist: "John Bauer", work: "Princess Tuvstarr", box: [0.36, 0.275, 0.754, 0.825] },
-    right: { artist: "John Bauer", work: "Princess Tuvstarr", box: [0, 0.25, 0.358, 0.75] },
+    left: { artist: "Gustave Doré", work: "The Crusaders Cross Mount Taurus", box: [0, 0, 1, 0.86] },
+    right: { artist: "Gustave Doré", work: "A Friendly Tournament", box: [0, 0, 1, 1] },
   },
   "plate-messages-A-2400.webp": {
     left: { artist: "Albrecht Dürer", work: "Praying Hands", box: [0.138, 0.1, 0.862, 0.8] },
@@ -154,6 +156,10 @@ test("the credit chip names both works where the right edge is a second work", (
   assert.equal(plateCaption("profile", null), "Gustave Doré · The Battle of Antioch · 1877");
   assert.equal(plateCaptionWide("week", null), null);
   assert.equal(plateCaptionWide("groups", "group"), null);
+  assert.equal(plateCaptionWide("groups", null), "Gustave Doré · Troubadours Sing the Glories of the Crusades, and The Crusaders’ War Machinery · 1877");
+  assert.equal(plateCaption("groups", null), "Gustave Doré · The Crusaders’ War Machinery · 1877");
+  assert.equal(plateCaptionWide("find", null), "Gustave Doré · The Crusaders Cross Mount Taurus, and A Friendly Tournament · 1877");
+  assert.equal(plateCaption("find", null), "Gustave Doré · A Friendly Tournament · 1877");
   assert.equal(plateCaption("messages", null), "Albrecht Dürer · Erasmus of Rotterdam · 1526");
   const wide = render("messages", undefined, 1920);
   assert.deepEqual([wide.narrow, wide.wide], ["none", "block"]);
@@ -179,8 +185,13 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "the rider beside him", box: [2212, 915, 2250, 970], from: 1600 },
   ],
   "plate-groups-A-2400.webp": [
-    { who: "the man in the black cap (left)", box: [170, 340, 260, 490], from: 1600 },
-    { who: "the man in the black cap (right)", box: [2030, 500, 2140, 620], from: 1600 },
+    { who: "the standing lady among the listeners", box: [280, 490, 335, 545], from: 1600 },
+    { who: "the man at the engine's wheel", box: [2035, 935, 2080, 985], from: 1600 },
+  ],
+  "plate-find-A-2400.webp": [
+    { who: "the climber at the top left", box: [180, 370, 225, 415], from: 1600 },
+    { who: "the knight in the round helmet", box: [2045, 795, 2095, 850], from: 1600 },
+    { who: "the standing man in the turban", box: [2315, 630, 2370, 720], from: 1600 },
   ],
   "plate-desk-A-2400.webp": [
     { who: "the woman in the turban", box: [130, 400, 230, 560], from: 1600 },
@@ -244,6 +255,17 @@ for (const [vw, vh] of [[1600, 900], [1700, 956], [1920, 1080], [2560, 1440]] as
     }
   });
 }
+
+test("no page stands on a nude (Josh, Nov 3: none, male or female)", () => {
+  // Bauer's Tuvstarr is a nude girl; Dürer's Rose Garlands has naked cherubs and the Child.
+  const NUDE = /Tuvstarr|Rose Garlands/;
+  for (const [file, { left, right }] of Object.entries(PLATES)) {
+    assert.doesNotMatch(left.work, NUDE, file);
+    assert.doesNotMatch(right.work, NUDE, file);
+  }
+  assert.doesNotMatch(read("src/lib/board/engraved.ts"), NUDE);
+  assert.doesNotMatch(read("public/art/ATTRIBUTION.md").split("### Retired")[0], NUDE);
+});
 
 test("every wide plate's heads are on the manifest's two-sided list", () => {
   for (const f of Object.keys(HEADS)) assert.ok(PLATES[f], f);

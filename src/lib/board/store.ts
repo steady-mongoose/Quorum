@@ -84,7 +84,7 @@ type BoardState = {
   founded: boolean;
   me: string;
   profile: Profile;
-  /** The desk is opt-in. Off until this member turns it on. */
+  /** The desk is on until this member turns it off (Josh, Nov 3). It shows only in its county. */
   deskOn: boolean;
   /** Whose profile is open. */
   viewing: string | null;
@@ -393,6 +393,8 @@ export function migrateBoardStorage(persisted: unknown, version: number): object
     saved = { ...saved, markLog: markLog.map((row) => ({ ...row, reason: row.reason ?? "" })) };
   }
   if (version < 7) saved = dropSampleWeek(saved);
+  // Nov 3: the desk is on by default again. Saves from when it was opt-in hold the old default, so turn it on.
+  if (version < 8) saved = { ...saved, deskOn: true };
   return saved;
 }
 
@@ -733,7 +735,7 @@ export const useBoard = create<BoardState>()(
         founded: false,
         me: "",
         profile: EMPTY_PROFILE,
-        deskOn: false,
+        deskOn: true,
         county: null,
         homeCounty: null,
         countiesOn: true,
@@ -1753,7 +1755,7 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: "the-board-v1",
-      version: 7,
+      version: 8,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,

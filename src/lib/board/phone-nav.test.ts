@@ -188,10 +188,10 @@ test("the phone bar and the sheet use the agreed names and the 44px floor", () =
   assert.match(tabs, /moreSheetDismisses/);
   assert.match(tabs, /minHeight: `max\(\$\{TOUCH_MIN_PX\}px, \$\{MORE_ROW_PX\}px\)`/);
   assert.equal(tabs.includes("badge"), false);
-  assert.match(profile, /Optional: coordinated calls to local officials\./);
+  assert.match(profile, /Coordinated calls to local officials\. It is on unless you turn it off\./);
   assert.match(profile, /Show The desk/);
   assert.match(profile, /min-h-\[44px\]/);
-  assert.match(store, /deskOn: false/);
+  assert.match(store, /deskOn: true,\r?\n\s+county: null/);
   assert.match(store, /deskOn: state\.deskOn/);
   assert.match(app, /<AppealMark \/>/);
   assert.equal(app.includes('size="header"'), false);

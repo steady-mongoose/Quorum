@@ -211,6 +211,10 @@ export function AboutView({
   // One entry: a full-width row, its name beside the text, a hairline between rows. Below desktop, name over text.
   const entry =
     "grid gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0 lg:grid-cols-[10rem_minmax(0,1fr)] lg:gap-6";
+  // Beside a section plate the plate takes its own column (.how-body), so the name sits over the text and the text
+  // keeps the full width that is left (Josh, Nov 3: the text was squeezed between the names and the plate).
+  const entryStacked =
+    "flex flex-col gap-1 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0";
   const entryName = "font-display text-xl leading-snug text-fg";
   const entryText = "flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed text-fg/85";
 
@@ -245,11 +249,11 @@ export function AboutView({
         {HOW_GROUPS.map((group) => (
           <div key={group.heading} className={box}>
             <h3 className="font-display text-xl text-fg">{group.heading}</h3>
-            <div className="flow-root">
+            <div className={group.plate ? "how-body" : "flow-root"}>
               {group.plate ? <SectionPlate plate={group.plate} /> : null}
               <dl>
                 {group.items.map((item) => (
-                  <div key={item.title} className={entry}>
+                  <div key={item.title} className={group.plate ? entryStacked : entry}>
                     <dt className={entryName}>{item.title}</dt>
                     <dd className={entryText}>
                       {item.text.split("\n").map((paragraph) => (

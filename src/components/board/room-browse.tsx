@@ -157,7 +157,7 @@ export function RoomBrowse({ focusSlug }: { focusSlug: string | null }) {
               </div>
             </section>
           ) : null}
-          {admin && remote ? <CategoryEditor categories={categories} /> : null}
+          {admin && remote && focusSlug === null ? <CategoryEditor categories={categories} /> : null}
         </div>
       </div>
     </div>
@@ -170,7 +170,7 @@ function CategoryMast({ category }: { category: RoomCategory }) {
     <div>
       <section className="plate plate--hero pc-head flex flex-col gap-2">
         <h1 className="font-display text-4xl text-balance text-fg lg:text-5xl">{category.name}</h1>
-        <p className="max-w-prose text-sm text-muted">{category.description}</p>
+        <p className="max-w-prose text-base text-muted">{category.description}</p>
       </section>
     </div>
   );
@@ -401,18 +401,25 @@ function CategoryEditor({ categories }: { categories: RoomCategory[] }) {
     reloadCategories();
   };
 
+  // Admins only, on All rooms, folded shut so the rooms come first. On a card, so the page's backing for loose
+  // text does not shrink each row to its own width. One row per category: name, order, then its two buttons.
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="font-display text-2xl text-fg">Categories</h2>
-      <p className="max-w-prose text-sm text-muted">
-        Category is where a room is listed. Who may enter is set by the room&apos;s audience.
-      </p>
-      <ul className="flex flex-col gap-3">
-        {categories.map((category) => {
-          const draft = draftFor(category);
-          return (
-            <li key={category.slug} className="flex flex-col gap-2 border-b border-line pb-3">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_6rem]">
+    <details className="card pc-card p-4 sm:p-5">
+      <summary className="flex min-h-[44px] cursor-pointer items-center font-display text-2xl text-fg">
+        Edit categories
+      </summary>
+      <div className="mt-3 flex flex-col gap-4">
+        <p className="max-w-prose text-sm text-muted">
+          Category is where a room is listed. Who may enter is set by the room&apos;s audience.
+        </p>
+        <ul className="flex flex-col">
+          {categories.map((category) => {
+            const draft = draftFor(category);
+            return (
+              <li
+                key={category.slug}
+                className="grid grid-cols-[minmax(0,1fr)_5rem] items-end gap-2 border-t border-line py-3 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_5rem_minmax(11rem,auto)] sm:gap-3"
+              >
                 <label className="flex flex-col gap-1 text-sm text-muted">
                   Name
                   <input
@@ -440,110 +447,112 @@ function CategoryEditor({ categories }: { categories: RoomCategory[] }) {
                     }
                   />
                 </label>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={btnGhost}
-                  onClick={() => {
-                    setError("");
-                    setNotice("");
-                    const sortOrder = Number(draft.sortOrder);
-                    if (!Number.isInteger(sortOrder)) {
-                      setError("Give the category a place in the list.");
-                      return;
-                    }
-                    void getBoardClient().then(async (client) => {
-                      const result = await client.updateCategory(category.slug, {
-                        name: draft.name,
-                        sortOrder,
-                      });
-                      if (!result.ok) {
-                        setError(result.error);
-                        return;
-                      }
-                      markSaved();
-                    });
-                  }}
-                >
-                  Save {category.name}
-                </button>
-                {category.slug === UNCATEGORIZED_SLUG ? null : (
+                <div className="col-span-2 flex flex-wrap gap-2 sm:col-span-1">
                   <button
                     type="button"
                     className={btnGhost}
+                    aria-label={`Save ${category.name}`}
                     onClick={() => {
                       setError("");
                       setNotice("");
+                      const sortOrder = Number(draft.sortOrder);
+                      if (!Number.isInteger(sortOrder)) {
+                        setError("Give the category a place in the list.");
+                        return;
+                      }
                       void getBoardClient().then(async (client) => {
-                        const removed = await client.deleteCategory(category.slug);
-                        if (!removed.ok) {
-                          setError(removed.error);
+                        const result = await client.updateCategory(category.slug, {
+                          name: draft.name,
+                          sortOrder,
+                        });
+                        if (!result.ok) {
+                          setError(result.error);
                           return;
                         }
                         markSaved();
                       });
                     }}
                   >
-                    Remove {category.name}
+                    Save
                   </button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      <form
-        className="grid gap-2 sm:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError("");
-          setNotice("");
-          void getBoardClient().then(async (client) => {
-            const result = await client.createCategory({ slug, name });
-            if (!result.ok) {
-              setError(result.error);
-              return;
-            }
-            setSlug("");
-            setName("");
-            markSaved();
-          });
-        }}
-      >
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          New slug
-          <input
-            className={fieldClass}
-            value={slug}
-            required
-            onChange={(event) => setSlug(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          New name
-          <input
-            className={fieldClass}
-            value={name}
-            required
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <button type="submit" className={btnSignal}>
-          Add category
-        </button>
-      </form>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p role="status" className="text-sm text-muted">
-          {notice}
-        </p>
-      ) : null}
-    </section>
+                  {category.slug === UNCATEGORIZED_SLUG ? null : (
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      aria-label={`Remove ${category.name}`}
+                      onClick={() => {
+                        setError("");
+                        setNotice("");
+                        void getBoardClient().then(async (client) => {
+                          const removed = await client.deleteCategory(category.slug);
+                          if (!removed.ok) {
+                            setError(removed.error);
+                            return;
+                          }
+                          markSaved();
+                        });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <form
+          className="grid gap-2 border-t border-line pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end sm:gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setError("");
+            setNotice("");
+            void getBoardClient().then(async (client) => {
+              const result = await client.createCategory({ slug, name });
+              if (!result.ok) {
+                setError(result.error);
+                return;
+              }
+              setSlug("");
+              setName("");
+              markSaved();
+            });
+          }}
+        >
+          <label className="flex flex-col gap-1 text-sm text-muted">
+            New slug
+            <input
+              className={fieldClass}
+              value={slug}
+              required
+              onChange={(event) => setSlug(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-muted">
+            New name
+            <input
+              className={fieldClass}
+              value={name}
+              required
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <button type="submit" className={btnSignal}>
+            Add category
+          </button>
+        </form>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        {notice ? (
+          <p role="status" className="text-sm text-muted">
+            {notice}
+          </p>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
