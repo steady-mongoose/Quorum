@@ -1033,7 +1033,12 @@ export function StewardDateControl({ card }: { card: MeetingCard }) {
         void changeDate(card.id, next).then((result) => {
           setSaving(false);
           if (result.ok) {
-            setStatus(`Date changed to ${formatDate(next)}. The host will see it on the card.`);
+            // A special event's host and everyone going get an email (Josh via CoS, Oct 30 2:35 PM ET).
+            setStatus(
+              isSpecial(card)
+                ? `Date changed to ${formatDate(next)}. The host and everyone going have been told.`
+                : `Date changed to ${formatDate(next)}. The host will see it on the card.`,
+            );
           } else {
             setValue(before);
             setError(result.error);

@@ -1342,7 +1342,7 @@ test("Design L3: a refused tick (or untick) goes back to what it was and says wh
 
 test("Design L4: before 0050 a gathering added with the box ticked is kept, shown as not special, with the not-ready line", async () => {
   const net = saveAnswers((body) =>
-    json(200, { gathering: { id: body.id, special: false }, notice: "Special events are not ready yet. Try again later." }),
+    json(200, { gathering: { id: body.id, special: false }, notice: "Your gathering is saved. Special events aren't ready yet, so it isn't marked special. Try again later." }),
   );
   try {
     setBoardClient(stubClient());
@@ -1354,7 +1354,7 @@ test("Design L4: before 0050 a gathering added with the box ticked is kept, show
     assert.equal(net.saves[0]?.special, true);
     assert.equal(added.name, "Lifts", "the gathering is kept");
     assert.equal(added.special, false);
-    assert.equal(useBoard.getState().specialRefused[added.id], "Special events are not ready yet. Try again later.");
+    assert.equal(useBoard.getState().specialRefused[added.id], "Your gathering is saved. Special events aren't ready yet, so it isn't marked special. Try again later.");
     assert.equal(useBoard.getState().boardError, "");
   } finally {
     net.restore();

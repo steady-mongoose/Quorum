@@ -376,7 +376,7 @@ test("Design M1: the steward date control: label, aria-disabled guard, 'Save new
       await act(async () => save.click());
       assert.deepEqual(calls, [["0123456789abcdef01234567", "2026-11-07"]]);
       const status = row.host.querySelector('form [role="status"]');
-      assert.equal(status?.textContent, `Date changed to ${formatDate("2026-11-07")}. The host will see it on the card.`);
+      assert.equal(status?.textContent, `Date changed to ${formatDate("2026-11-07")}. The host will see it on the card.`, "not special: no email");
       assert.equal(row.host.querySelector('form [role="alert"]'), null);
     } finally {
       await row.unmount();
@@ -398,6 +398,26 @@ test("Design M1: the steward date control: label, aria-disabled guard, 'Save new
     }
   } finally {
     useBoard.setState({ changeDate, stewardRooms: [] });
+  }
+});
+
+test("Josh 2:35 PM: on a special event the steward's status line says the host and everyone going get an email", async () => {
+  const changeDate = useBoard.getState().changeDate;
+  useBoard.setState({ changeDate: async () => ({ ok: true }) });
+  try {
+    const view = await mount(createElement(StewardDateControl, { card: card({ special: true, next: "2026-10-31" }) }));
+    try {
+      await typeDate(view.host.querySelector('input[type="date"]'), "2026-11-07");
+      await act(async () => buttonNamed(view.host, "Save new date").click());
+      assert.equal(
+        view.host.querySelector('[role="status"]')?.textContent,
+        `Date changed to ${formatDate("2026-11-07")}. The host and everyone going have been told.`,
+      );
+    } finally {
+      await view.unmount();
+    }
+  } finally {
+    useBoard.setState({ changeDate });
   }
 });
 
@@ -484,10 +504,10 @@ test("Design L1, L2: the special-event box in the add form and on the card is 44
 });
 
 test("Design L3, L4: a refused or not-ready tick shows role=alert on the card, and the status line stays quiet", async () => {
-  useBoard.setState({ specialRefused: { "0123456789abcdef01234567": "Special events are not ready yet. Try again later." } });
+  useBoard.setState({ specialRefused: { "0123456789abcdef01234567": "Your gathering is saved. Special events aren't ready yet, so it isn't marked special. Try again later." } });
   const view = await mount(createElement(SpecialEventToggle, { card: hostCard({ special: false }) }));
   try {
-    assert.equal(view.host.querySelector('[role="alert"]')?.textContent, "Special events are not ready yet. Try again later.");
+    assert.equal(view.host.querySelector('[role="alert"]')?.textContent, "Your gathering is saved. Special events aren't ready yet, so it isn't marked special. Try again later.");
     assert.equal(view.host.querySelector('input[type="checkbox"]').checked, false);
   } finally {
     await view.unmount();

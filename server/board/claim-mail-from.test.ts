@@ -128,3 +128,16 @@ test("a malformed RESEND_CLAIM_FROM uses the noreply default and warns at startu
   warnInvalidClaimFrom({ RESEND_CLAIM_FROM: CLAIM }, (m) => quiet.push(m));
   assert.equal(quiet.length, 0);
 });
+
+test("an optional HTML part rides along with the text; mail without one sends text only", async () => {
+  const env = { RESEND_API_KEY: "re_test" };
+  const bodies: Record<string, unknown>[] = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response("{}", { status: 200 });
+  };
+  await sendTextEmail({ ...mail, html: "<p>t</p>" }, { env, fetch: fetchImpl }, claimFromAddress(env));
+  await sendTextEmail(mail, { env, fetch: fetchImpl }, claimFromAddress(env));
+  assert.deepEqual([bodies[0]?.text, bodies[0]?.html], ["t", "<p>t</p>"]);
+  assert.equal("html" in bodies[1]!, false);
+});

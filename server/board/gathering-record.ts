@@ -3,6 +3,7 @@ import { canReadRoom, isPublicRoomStatus, readRoomListing } from "./room-visibil
 import { guardRoomAudience, roomAudience } from "./audience.ts";
 import { openBan } from "./store.ts";
 import type { Db } from "../db.ts";
+import { sendDateChangeMail, type DateChange, type DateMailDeps } from "./date-mail.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   acceptPublicGathering,
@@ -129,7 +130,7 @@ export const GATHERING_0050_COLUMNS = `coalesce((to_jsonb(g) ->> 'special')::boo
 export const GATHERING_IS_SPECIAL = `coalesce((to_jsonb(g) ->> 'special')::boolean, false)`;
 
 /** The refusal for setting "special" before 0050 is applied. */
-export const SPECIAL_NOT_READY = "Special events are not ready yet. Try again later.";
+export const SPECIAL_NOT_READY = "Your gathering is saved. Special events aren't ready yet, so it isn't marked special. Try again later.";
 /** Only the host ticks or unticks "This is a special event" (Josh via CoS, Oct 30 12:47 PM ET). */
 export const SPECIAL_HOST_ONLY = "Only the host can say whether this is a special event.";
 
@@ -205,7 +206,9 @@ export async function saveGathering(
     special?: unknown;
     now: Date;
   },
-): Promise<{ ok: true; gathering: GatheringRecord; notice?: string } | Fail> {
+  /** The steward date-change email's transport (tests pass a mock). */
+  mail: DateMailDeps = {},
+): Promise<{ ok: true; gathering: GatheringRecord; notice?: string; mailed?: Promise<number> } | Fail> {
   if (!isGatheringId(input.id)) return fail(404, "Not found.");
   /** Saved, but the "special" tick was not (0050 not applied yet). */
   let notice = "";
@@ -231,6 +234,7 @@ export async function saveGathering(
   if (!fields.ok) return fields;
 
   const existing = await loadRow(db, id);
+  let dateChange: Omit<DateChange, "title" | "newDate" | "shared"> | null = null;
   if (existing) {
     if (await hidden(db, existing, input.now)) return fail(404, "Not found.");
     const existingRoom = await readRoomListing(db, existing.room_id);
@@ -263,6 +267,19 @@ export async function saveGathering(
     // Before 0050 the rest of the edit is saved; only the tick is dropped,
     // and the answer says so (Design 5716107154 L4).
     if (changesSpecial && !ready) notice = SPECIAL_NOT_READY;
+    // A steward who is not the host changed the date of a special event:
+    // the host and everyone going get an email once it is saved (Josh via CoS, 2:35 PM ET).
+    if (!host && ready && existing.special && existing.gather_on !== fields.gathering.date) {
+      dateChange = {
+        gatheringId: id,
+        oldDate: existing.gather_on,
+        roomId,
+        movedFrom: [...(existing.moved_from ?? []), ...(existing.room_id !== roomId ? [existing.room_id] : [])],
+        hostId: existing.host_user_id,
+        stewardId: input.userId,
+        now: input.now,
+      };
+    }
     // Unticking "special" deletes nothing: RSVPs, attendance and write-up
     // came lists stay, read only while the gathering is special
     // (GATHERING_IS_SPECIAL), so a re-tick brings them back (Josh via Design,
@@ -342,7 +359,12 @@ export async function saveGathering(
   }
   const saved = await loadRow(db, id);
   if (!saved) return fail(404, "Not found.");
-  return { ok: true, gathering: toRecord(saved, input.userId), ...(notice ? { notice } : {}) };
+  // After the edit is saved and outside any transaction; the answer does not wait for it.
+  const mailed =
+    dateChange && saved.special && saved.gather_on !== dateChange.oldDate
+      ? sendDateChangeMail(db, { ...dateChange, title: saved.title, newDate: saved.gather_on, shared: saved.shared }, mail)
+      : undefined;
+  return { ok: true, gathering: toRecord(saved, input.userId), ...(notice ? { notice } : {}), ...(mailed ? { mailed } : {}) };
 }
 
 /**
