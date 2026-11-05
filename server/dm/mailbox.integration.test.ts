@@ -40,6 +40,13 @@ async function member(db: Db, name: string): Promise<string> {
      values ($1, $2, $3, true, now(), now())`,
     [id, name, `${name}-${id}@example.com`],
   );
+  // A live board membership: messaging needs one on both sides, as rooms do.
+  await db.query(
+    `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', now() - interval '30 days')`,
+    [randomUUID(), id, name],
+  );
   return id;
 }
 

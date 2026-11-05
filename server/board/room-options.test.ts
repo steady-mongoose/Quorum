@@ -94,6 +94,7 @@ test("only an admin changes what a room includes, and only to known options", as
     const unknown = await updateRoom(db, { userId: admin, id: "shop", options: ["likes"], now });
     assert.equal(unknown.ok ? 0 : unknown.status, 400);
     const badNew = await createRoom(db, {
+      county: "hillsborough",
       userId: admin,
       id: "lathe",
       name: "Lathe Night",
@@ -115,7 +116,7 @@ test("a room without roll call refuses a roll; with it, the roll is kept", async
   try {
     const admin = await person(db, "Ada", [["admin", ""]]);
     const host = await person(db, "Hank");
-    await person(db, "Iris");
+    await join(db, await person(db, "Iris"), "shop", 5);
     const refused = await createPost(db, {
       userId: host,
       name: "Hank",

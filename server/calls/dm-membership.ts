@@ -35,8 +35,8 @@ export async function dmCallMember(
   try {
     const ban = await openBanOrNone(db, userId, now);
     if (ban) return { kind: "banned", ban };
-    const theirs = await openBanOrNone(db, other, now);
-    if (theirs) return { kind: "outsider" };
+    // The other person's ban, revoked membership or bar is inside mayMessage,
+    // which runs the same lookups whoever fails.
     if (!other || !(await mayMessage(db, userId, other, now)).ok) return { kind: "outsider" };
     return { kind: "member" };
   } catch {

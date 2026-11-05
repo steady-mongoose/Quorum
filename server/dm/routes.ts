@@ -204,11 +204,14 @@ export async function handleDm(
     await sweepIfDue(deps.db, deps.now());
     return await dispatch(deps, request, url, session.id);
   } catch (error) {
-    const status =
-      error && typeof error === "object" && "status" in error ? Number(error.status) : 400;
     if (error instanceof SyntaxError) return json(400, { error: "Send JSON." });
-    const message = error instanceof Error ? error.message : "Send JSON.";
-    if (status === 413 || status === 400) return json(status, { error: message });
+    if (error instanceof URIError) return json(400, { error: "That address is not valid." });
+    // Only readJson's own refusals carry a status and words for the member.
+    // Anything else, a Postgres error's text included, is a server fault.
+    const status =
+      error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+    if ((status === 413 || status === 400) && error instanceof Error)
+      return json(status, { error: error.message });
     throw error;
   }
 }
@@ -377,7 +380,7 @@ async function dispatch(
   }
 
   if (path === "/api/dm/peers" && method === "GET") {
-    return json(200, { peers: await listPeers(deps.db, userId) });
+    return json(200, { peers: await listPeers(deps.db, userId, deps.now()) });
   }
 
   if (path === "/api/dm/members" && method === "GET") {

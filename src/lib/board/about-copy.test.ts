@@ -37,7 +37,21 @@ test("the door and About describe messaging the way the server enforces it", () 
   assert.match(dmCopy, /Only people from the same meeting can see your profile\./);
 });
 
-test("the About rule list lowercases only the first letter, so God and Christ keep their capitals", () => {
-  assert.equal(about.includes("RULE_LABEL[rule].toLowerCase()"), false);
-  assert.match(about, /return label\.charAt\(0\)\.toLowerCase\(\) \+ label\.slice\(1\);/);
+test("the door and About keep rooms and interest groups apart", () => {
+  assert.equal(door.includes("One group each"), false);
+  assert.ok(door.includes(`term: "One place each"`));
+  assert.ok(door.includes(`term: "Interest groups"`));
+  assert.ok(about.includes(`title: "Interest groups"`));
+});
+
+test("How it works is grouped, and every entry sits in exactly one group", () => {
+  const titles = [...about.slice(about.indexOf("const HOW = ["), about.indexOf("const HOW_HEADINGS")).matchAll(/title: "([^"]+)"/g)].map((match) => match[1]);
+  const groups = about.slice(about.indexOf("const HOW_HEADINGS"), about.indexOf("const HOW_GROUPS"));
+  const grouped = [...groups.matchAll(/titles: \[([^\]]+)\]/g)].flatMap((match) =>
+    [...match[1].matchAll(/"([^"]+)"/g)].map((name) => name[1]),
+  );
+  assert.equal(titles.length, 15);
+  assert.deepEqual([...grouped].sort(), [...titles].sort());
+  assert.ok(about.includes(`text-base leading-relaxed text-fg/85"`));
+  assert.ok(source("../../routes/about.tsx").includes(`<PublicDocument page="/about" wide>`));
 });

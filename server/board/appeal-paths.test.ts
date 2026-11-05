@@ -37,7 +37,7 @@ test("the marked member, not only a steward, gets the mark appeal form", () => {
   const room = readFileSync(
     new URL("../../src/components/board/room-view.tsx", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   const stewardBlock = room.indexOf("      {steward ? (\n        <div");
   const form = room.indexOf("{mine && appealing ? (");
   assert.ok(stewardBlock > 0);

@@ -3,6 +3,7 @@
 
 import { isIP } from "node:net";
 import { ROOM_ID } from "../media/limits.ts";
+import { COUNTY_REQUIRED, countyFromText } from "./counties.ts";
 import { blockedAddress, normalizedHost, pagePort, rebindingHost } from "./public-page.ts";
 import { isEnglish } from "./text.ts";
 
@@ -108,6 +109,7 @@ function listingFrom(
   if (!town.ok) return town;
   const county = textField(record.county, "County");
   if (!county.ok) return county;
+  if (!countyFromText(county.text)) return { ok: false, error: COUNTY_REQUIRED };
   const category = textField(record.category, "Category");
   if (!category.ok) return category;
   const source = acceptSourceUrl(record.source_url ?? record.sourceUrl);

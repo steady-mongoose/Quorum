@@ -56,7 +56,6 @@ import {
   roomIncludes,
   shelfFor,
   sortRoom,
-  messageableNames,
   todayIso,
   typeMeta,
   typesFor,
@@ -76,8 +75,11 @@ import { CouncilBar } from "@/components/board/council-bar";
 import { sendReport } from "@/lib/board/report-api";
 import { RoomBrowse, RoomCategoryFields } from "@/components/board/room-browse";
 import { useRoomsRoute } from "@/components/board/rooms-route";
+import { useCounty } from "@/components/board/use-county";
+import { countyName, roomCounty } from "@/lib/board/counties";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
 import { forgetSavedClose, savedCloseNames, useBoard } from "@/lib/board/store";
+import { useMessageReach } from "@/components/board/use-message-reach";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
 import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink";
@@ -86,9 +88,13 @@ import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
 import { rollCallFor, rollKey, toggleRoll, whoCameSavedLine, type RollPerson } from "@/lib/board/rsvp-api";
 import { roleCounts } from "@/lib/board/rsvp-rules";
+import { RollCallPicker } from "@/components/board/roll-call";
+import { isGatheringId } from "@/lib/board/public-gathering";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
+
+const NOBODY_GOING: string[] = [];
 
 const ROOM_HEADING_ID = "room-heading";
 const REMOVAL_STATUS_ID = "removal-status";
@@ -108,6 +114,8 @@ export function RoomView() {
   const setRoom = useBoard((state) => state.setRoom);
   const setSection = useBoard((state) => state.setSection);
   const roomsRoute = useRoomsRoute();
+  const county = useCounty();
+  const countiesOn = useBoard((state) => state.countiesOn);
   const navigate = useNavigate();
   const posts = useBoard((state) => state.posts);
   const boardCards = useBoard((state) => state.cards);
@@ -143,10 +151,7 @@ export function RoomView() {
 
   const feed = useMemo(() => sortRoom(posts, room), [posts, room]);
   const replies = useMemo(() => repliesByParent(posts), [posts]);
-  const peers = useMemo(
-    () => messageableNames(me, cards, posts, rooms),
-    [me, cards, posts, rooms],
-  );
+  const reach = useMessageReach([room]);
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const shelf = useMemo(
     () => shelfFor(room, cards, witnessesByTrade(posts, cards), today),
@@ -271,13 +276,16 @@ export function RoomView() {
         <p id="room-call-status" role="status" className="sr-only" />
         <RoomAudienceMark audience={meta.audience} />
         <p className="max-w-prose text-base text-muted">{meta.what}</p>
-        <p className="text-sm text-muted">{categoryNames(roomCategoryIds(meta))}</p>
+        <p className="text-sm text-muted">
+          {countiesOn ? `${countyName(roomCounty(meta))} · ` : ""}
+          {categoryNames(roomCategoryIds(meta))}
+        </p>
         <button
           type="button"
           className="inline-flex min-h-[44px] items-center self-start text-sm font-semibold text-signal underline"
           onClick={() => {
             setSection("rooms");
-            void navigate({ to: "/rooms" });
+            void navigate({ to: "/$county/rooms", params: { county } });
           }}
         >
           All rooms
@@ -366,7 +374,7 @@ export function RoomView() {
                 card={post.cardId ? cardById.get(post.cardId) : undefined}
                 trade={post.tradeId ? cardById.get(post.tradeId) : undefined}
                 mine={post.author === me}
-                canMessage={peers.has(post.author)}
+                canMessage={reach.canMessage(post.author)}
                 steward={steward && tools}
                 seesWhoCame={roleCounts(viewerAdmin) && viewerRooms.includes(room)}
                 canPost={canPost}
@@ -625,6 +633,13 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
       send();
     }
   };
+  /** Any card that is not a server gathering: names from the room's members. */
+  const toggleCameName = (name: string) => {
+    const came = current.came.includes(name)
+      ? current.came.filter((item) => item !== name)
+      : [...current.came, name];
+    patch({ came, named: came.includes(current.named) ? current.named : "" });
+  };
   const toggleCame = (person: RollPerson) => {
     const next = toggleRoll(roll, cameKeys, person);
     setRollPicks({ cardId: current.cardId, keys: next.keys });
@@ -793,6 +808,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
             {type.closes ? (
               <>
                 {rollCall ? (
+                closing && isGatheringId(closing.id) ? (
                 <fieldset className="flex flex-col gap-2 text-sm text-muted">
                   <legend>Roll call. Who came, from those who said they would.</legend>
                   {/* Always mounted, as in Find, so the lock is announced (Design #126 L2). */}
@@ -824,6 +840,14 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                     </span>
                   )}
                 </fieldset>
+                ) : (
+                  <RollCallPicker
+                    room={meta}
+                    going={closing?.going ?? NOBODY_GOING}
+                    came={current.came}
+                    onToggle={toggleCameName}
+                  />
+                )
                 ) : null}
                 {rollCall && cameNames.length > 0 ? (
                   <label className="flex flex-col gap-2 text-sm text-muted">
@@ -988,6 +1012,7 @@ const PostCard = memo(function PostCard({
   const now = useNow();
   const postWhen = post.on ? formatDate(post.on) : now ? formatWhen(post.at, now.getTime()) : "";
   const remote = useBoard((state) => state.remote);
+  const rollCall = useBoard((state) => roomIncludes(roomById(post.room, state.rooms), "roll_call"));
   const removals = useBoard((state) => state.removals);
   const reply = useBoard((state) => state.reply);
   const revise = useBoard((state) => state.revise);
@@ -1095,8 +1120,12 @@ const PostCard = memo(function PostCard({
           ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              {cameText(post.came, post.youCame === true, mine || seesWhoCame)}
-              {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
+              {rollCall ? (
+                <>
+                  {cameText(post.came, post.youCame === true, mine || seesWhoCame)}
+                  {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
+                </>
+              ) : null}
               {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>
           ) : null}
@@ -1118,7 +1147,11 @@ const PostCard = memo(function PostCard({
 
       <div className="mt-3 flex flex-wrap gap-2">
         {!canPost ? (
-          <MemberGate allowed={false}>{null}</MemberGate>
+          // Its own line, so the buttons below never share it and the card
+          // keeps its height when "Message X" appears.
+          <div className="basis-full">
+            <MemberGate allowed={false}>{null}</MemberGate>
+          </div>
         ) : replying ? (
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <input

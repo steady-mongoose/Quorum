@@ -34,6 +34,7 @@ function client(over: Partial<BoardClient> = {}): BoardClient {
     appointSteward: idle,
     loadHome: idle,
     savePlace: idle,
+    saveCounty: idle,
     joinRoom: idle,
     leaveRoom: idle,
     requestRoom: idle,
@@ -453,8 +454,11 @@ test("storage migrations chain: v5 and v6 sample weeks are dropped, real boards 
   assert.equal(v6Sample.me, undefined);
   assert.equal(v6Sample.room, "county");
 
-  const v7 = { me: "Maria", posts: [{}] };
-  assert.equal(migrateBoardStorage(v7, 7), v7);
+  // v8: the desk is on by default again, so an opt-in era save that holds the old off turns it on.
+  const v7 = { me: "Maria", posts: [{}], deskOn: false };
+  assert.deepEqual(migrateBoardStorage(v7, 7), { me: "Maria", posts: [{}], deskOn: true });
+  const v8 = { me: "Maria", posts: [{}], deskOn: false };
+  assert.equal(migrateBoardStorage(v8, 8), v8);
   assert.deepEqual(migrateBoardStorage({ me: "x" }, 4), {});
 });
 
@@ -492,6 +496,8 @@ test("a live board keeps the server home order", async () => {
       ban: null,
       gender: null,
       genderConfirmed: false,
+      homeCounty: null,
+      countiesOn: true,
     },
     genderPolicy: { setBy: "self", requiresConfirmation: false, changeBy: "admin" },
     rooms: [],
@@ -891,7 +897,7 @@ test("a banned member still sees the status of their own appeal", async () => {
   assert.equal(useBoard.getState().appeals[0]?.decision, "uphold");
 });
 
-test("the desk stays off until the member turns it on", () => {
+test("the desk is on until the member turns it off, and off keeps it out of reach", () => {
   reset();
   useBoard.setState({ deskOn: false, section: "rooms" });
   assert.equal(useBoard.getState().deskOn, false);

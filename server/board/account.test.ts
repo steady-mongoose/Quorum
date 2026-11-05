@@ -186,6 +186,7 @@ test("deactivation hides posts until the member turns it back on", async () => {
     await user(db, josh, "Josh", "josh@example.com");
     await grant(db, maria, "Maria", "member");
     await grant(db, josh, "Josh", "member");
+    await db.query(`insert into room_member (room_id, user_id) values ('shop', $1)`, [josh]);
     const posted = await createPost(db, {
       userId: maria,
       name: "Maria",

@@ -100,6 +100,8 @@ export type StatsPayload = {
     steady: ShownCount | null;
   };
   roomsByCategory: CategoryCount[];
+  /** Members by home county. Small counts are hidden the same way as categories. */
+  membersByCounty?: CategoryCount[];
   funnel: FunnelStep[];
   alerts: StatsAlerts;
   features: FeatureUse[];
@@ -357,6 +359,7 @@ export function endpointGroup(pathname: string): string | null {
     pathname.startsWith("/api/appeals/") ||
     pathname === "/api/home" ||
     pathname === "/api/place" ||
+    pathname === "/api/county" ||
     pathname === "/api/room-requests" ||
     pathname.startsWith("/api/room-requests/") ||
     pathname === "/api/zips" ||
@@ -470,6 +473,9 @@ export function toStatsCsv(stats: StatsPayload): string {
   }
   for (const row of stats.roomsByCategory) {
     lines.push(csvLine(["categories", "", "rooms", row.label, row.count]));
+  }
+  for (const row of stats.membersByCounty ?? []) {
+    lines.push(csvLine(["counties", "", "members", row.label, row.count]));
   }
   for (const step of stats.funnel) {
     lines.push(csvLine(["funnel", "", step.id, step.label, step.count]));

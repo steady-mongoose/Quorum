@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import { Window } from "happy-dom";
 import { plateCaption, plateView } from "./engraved.ts";
 
-const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
+const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const craft = read("public/page-craft.css");
 const root = read("src/routes/__root.tsx");
 /** The public sheets in the order __root.tsx links them. */
@@ -72,7 +72,7 @@ test("every plate the sheet names is in public/art, Groups and a group included"
     if (url.endsWith("-900.webp")) assert.ok(readFileSync(file).length < 52 * 1024, url);
   }
   const attribution = read("public/art/ATTRIBUTION.md");
-  assert.match(attribution, /plate-groups-A\.webp.*Feast_of_Rose_Garlands/);
+  assert.match(attribution, /plate-groups-A\.webp.*crusaders_war_machinery/);
   assert.match(attribution, /plate-group-A\.webp.*069\.Ruth_and_Boaz/);
   assert.equal(render({ section: "groups" }).ground.backgroundImage, 'url("/art/plate-groups-A.webp")');
   assert.equal(
@@ -159,7 +159,7 @@ test("motion plays once, in 5 s or less, only for no-preference", () => {
 test("the door keeps its own plate and scrim: the signed-in rules do not reach it", () => {
   for (const section of ["landing", "signin"]) {
     const door = render({ section, entered: false });
-    assert.equal(door.ground.backgroundImage, 'url("/art/martin-hero-A.webp")', section);
+    assert.equal(door.ground.backgroundImage, 'url("/art/martin-joshua-A.webp")', section);
     assert.notEqual(door.ground.animation, "pc-settle 4.5s cubic-bezier(.22,.61,.36,1) 1 both");
     assert.equal(/rgba\(20,\s?16,\s?12,\s?\.?0?\.62\)/.test(door.scrim.backgroundImage), false, section);
   }
@@ -217,8 +217,8 @@ test("the shell renders the plate for every section, and the credit names it", (
   assert.equal(plateCaption("week", null), "Gustave Doré · Jacob’s Dream · 1866");
   assert.equal(plateCaption("rooms", "room"), "Gustave Doré · The Sermon on the Mount · 1866");
   assert.equal(plateCaption("civic", null), "Gustave Doré · The Judgment of Solomon · 1866");
-  assert.equal(plateCaption("about", null), "John Martin · The Creation of Light · 1824–27");
-  assert.equal(plateCaption("groups", null), "Albrecht Dürer · The Feast of the Rose Garlands · 1506");
+  assert.equal(plateCaption("about", null), "John Martin · Joshua Commanding the Sun to Stand Still · 1827");
+  assert.equal(plateCaption("groups", null), "Gustave Doré · The Crusaders’ War Machinery · 1877");
   assert.equal(plateCaption("groups", "group"), "Gustave Doré · Ruth and Boaz · 1866");
   assert.equal(plateCaption("landing", null), null);
   assert.equal(plateCaption("signin", null), null);

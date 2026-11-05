@@ -14,6 +14,8 @@ export type GroupSummary = {
   /** The inviter's name while this member holds an open invite. */
   inviteFrom?: string;
   audience?: "men" | "women";
+  /** The county this group is in. Missing means the default county. */
+  countyId?: string;
 };
 
 export type GroupPostRow = {
@@ -146,6 +148,7 @@ function summary(value: unknown): GroupSummary | null {
     name,
     about,
     joined: row.joined,
+    ...(typeof row.countyId === "string" ? { countyId: row.countyId } : {}),
     admin: row.admin,
     ...(typeof row.inviteFrom === "string" && row.inviteFrom.length <= 200 && row.inviteFrom.trim()
       ? { inviteFrom: row.inviteFrom }

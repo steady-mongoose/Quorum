@@ -1,6 +1,6 @@
 import { ADMIN_NO_NAMES, RSVP_SPECIAL_ONLY, roleCounts } from "../../src/lib/board/rsvp-rules.ts";
 import { randomUUID } from "node:crypto";
-import { autoCloseReports } from "./report-close.ts";
+import { autoCloseReports, openReportOn } from "./report-close.ts";
 import { setImmediate } from "node:timers";
 import type { Db } from "../db.ts";
 import { isUniqueViolation } from "../db.ts";
@@ -22,6 +22,7 @@ import {
   canSeeHiddenRooms,
   listingColumnsReady,
   visibleRoomClause,
+  countyColumnsReady,
 } from "./room-visibility.ts";
 import {
   filterAudience,
@@ -66,11 +67,19 @@ import {
   LEGACY_ROOM_OPTIONS,
   optionsColumnReady,
   parseRoomOptions,
+  roomHas,
   roomOptionsFrom,
   type RoomOption,
 } from "./room-options.ts";
 import { queryBanTable } from "./ban-check.ts";
 import { ruleId, type RuleId } from "./rule.ts";
+import {
+  COUNTY_REQUIRED,
+  DEFAULT_COUNTY,
+  isCountyId,
+  type CountyId,
+} from "../../src/lib/board/counties.ts";
+import { readHomeCounty } from "./counties.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BAN_MS = 30 * DAY_MS;
@@ -79,6 +88,8 @@ const CLOSED_MS = 100 * 365 * DAY_MS;
 const RULE_ERROR =
   "Name the rule: threat, pornography, child sexual abuse material, doxxing, or mocking God or Christ.";
 const MARK_ERROR = "A mark is sloppy, No legs, or out of scope.";
+export const REPORTED_REVISE_ERROR =
+  "This post has an open report and cannot be revised until a steward looks at it.";
 
 export type BoardPost = {
   id: string;
@@ -119,6 +130,8 @@ export type BoardRoom = {
   /** What the room includes: roll call, the member list, chat, calls. An admin sets it. */
   options: RoomOption[];
   categoryIds: string[];
+  /** The county this room is in. Exactly one. */
+  countyId: string;
   scopeKind: "topic" | "town" | "congregation" | "region";
   townId: string;
   congregationId: string;
@@ -198,6 +211,10 @@ export type BoardPayload = {
     ban: { until: number; strikes: number; reason: RuleId } | null;
     gender: "man" | "woman" | null;
     genderConfirmed: boolean;
+    /** Null until the member chooses. The app asks once. */
+    homeCounty: CountyId | null;
+    /** False until migration 0051 has run. The app then shows no county controls. */
+    countiesOn: boolean;
   };
   genderPolicy: {
     setBy: "self" | "inviter" | "steward";
@@ -302,6 +319,7 @@ type RoomRow = {
   parish: boolean;
   options?: unknown;
   category_ids?: unknown;
+  county_id?: string;
   scope_kind?: string;
   town_id?: string;
   congregation_id?: string;
@@ -354,6 +372,7 @@ function toRoom(row: RoomRow, viewer?: { id: string; admin: boolean }): BoardRoo
     // Before migration 0044 the column is not there and every room keeps all four.
     options: row.options === undefined ? [...LEGACY_ROOM_OPTIONS] : roomOptionsFrom(row.options),
     categoryIds: categoryIdsFrom(row.category_ids, row.id),
+    countyId: row.county_id ?? DEFAULT_COUNTY,
     scopeKind: scopeKind(row.scope_kind),
     townId: row.town_id ?? "",
     congregationId: row.congregation_id ?? "",
@@ -441,10 +460,17 @@ function toPost(row: PostRow, media: BoardPost["media"] = [], viewer?: CameViewe
   };
 }
 
-async function withCouncil(db: Db, post: BoardPost): Promise<BoardPost> {
-  const marks = await councilMarks(db, [post.id]);
-  const council = marks.get(post.id);
-  return council ? { ...post, council } : post;
+/** A room that does not take roll shows nobody who came. The stored names stay. */
+function withoutRoll(post: BoardPost): BoardPost {
+  return { ...post, came: [], named: "" };
+}
+
+/** One post as a member gets it back: the room's roll rule, then any council mark. */
+async function shownPost(db: Db, post: BoardPost): Promise<BoardPost> {
+  const shown = (await roomHas(db, post.room, "roll_call")) ? post : withoutRoll(post);
+  const marks = await councilMarks(db, [shown.id]);
+  const council = marks.get(shown.id);
+  return council ? { ...shown, council } : shown;
 }
 
 const ROOM_COLUMNS = `id, name, what, takes, steward_takes, card_kinds, card_noun, requires_next_date, parish,
@@ -461,8 +487,9 @@ async function roomById(
   const who = typeof viewer === "string" ? { id: viewer, admin: false } : viewer;
   const ready = await listingColumnsReady(db);
   const optionsReady = await optionsColumnReady(db);
+  const countiesReady = await countyColumnsReady(db);
   const rows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""}${countiesReady ? ", county_id" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $2
@@ -535,6 +562,28 @@ export async function openBanOrNone(
   roomId = "",
 ): Promise<OpenBan | null> {
   return openBan(db, userId, now, roomId);
+}
+
+/** The names on a roll call who are not in the room. The host may name themselves. */
+async function namesOutsideRoom(
+  db: Db,
+  roomId: string,
+  came: string[],
+  host: string,
+): Promise<string[]> {
+  const others = came.filter((name) => name !== host);
+  if (others.length === 0) return [];
+  const rows = await db.query<{ name: string }>(
+    `select u.name from "user" u
+     where u.name = any ($2::text[])
+       and (
+         exists (select 1 from room_join j where j.room_id = $1 and j.user_id = u.id)
+         or exists (select 1 from room_member m where m.room_id = $1 and m.user_id = u.id)
+       )`,
+    [roomId, others],
+  );
+  const members = new Set(rows.map((row) => row.name));
+  return others.filter((name) => !members.has(name));
 }
 
 function names(value: unknown): string[] {
@@ -695,8 +744,9 @@ export async function listBoard(
     if (concealed[0]) return fail(404, "That room is not here.");
   }
   const optionsReady = await optionsColumnReady(db);
+  const countiesReady = await countyColumnsReady(db);
   const roomRows = await db.query<RoomRow>(
-    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""},
+    `select ${ROOM_COLUMNS}${ready ? LISTING_COLUMNS : ""}${optionsReady ? ", options" : ""}${countiesReady ? ", county_id" : ""},
             exists (
               select 1 from room_join j
               where j.room_id = room.id and j.user_id = $1
@@ -743,7 +793,12 @@ export async function listBoard(
     }
   }
   const gender = await statedGender(db, userId);
-  const readable = new Set(audience.visible.map((room) => room.id));
+  // A room's posts go to its members, its stewards and admins. Others still see it listed.
+  const readable = new Set(
+    audience.visible
+      .filter((room) => room.member || actor.admin || actor.stewardRooms.includes(room.id))
+      .map((room) => room.id),
+  );
   const targets = (query.room ? rooms.filter((room) => room.id === query.room) : rooms).filter(
     (room) => readable.has(room.id),
   );
@@ -763,7 +818,15 @@ export async function listBoard(
     ...(await cameViewer(db, userId, actor)),
     namedIn: await namedIn(db, userId, postRows.map((row) => row.id), now),
   };
-  const ordered = orderPosts(postRows.map((row) => toPost(row, pictures.get(row.id) ?? [], sight)));
+  const rollOff = new Set(
+    targets.filter((room) => !room.options.includes("roll_call")).map((room) => room.id),
+  );
+  const ordered = orderPosts(
+    postRows.map((row) => {
+      const post = toPost(row, pictures.get(row.id) ?? [], sight);
+      return rollOff.has(post.room) ? withoutRoll(post) : post;
+    }),
+  );
   const councils = await councilMarks(
     db,
     ordered.map((post) => post.id),
@@ -919,6 +982,8 @@ export async function listBoard(
         ban: null,
         gender: gender.stated,
         genderConfirmed: gender.confirmed,
+        homeCounty: countiesReady ? await readHomeCounty(db, userId) : null,
+        countiesOn: countiesReady,
       },
       genderPolicy: genderPolicyPayload(),
       rooms,
@@ -988,6 +1053,41 @@ export async function listBoard(
   };
 }
 
+/** SQL: the removal with this id was not lifted on appeal. A lift keeps the removal's row. */
+const NOT_LIFTED = (removalId: string) => `not exists (
+  select 1 from board_appeal a
+  where a.kind = 'removal' and a.decision = 'lift' and a.target_id = ${removalId}
+)`;
+
+/**
+ * Hard removals that still stand against this person, posts and room chat
+ * together. An empty room id counts every room.
+ */
+async function standingRemovals(tx: Db, userId: string, roomId = ""): Promise<number> {
+  const posts = await tx.query<{ id: string }>(
+    `select r.id from board_removal r
+     join board_post p on p.id = r.post_id
+     where r.author_user_id = $1 and ($2::text = '' or p.room_id = $2)
+       and ${NOT_LIFTED("r.id")}`,
+    [userId, roomId],
+  );
+  const lines = (await roomChatReady(tx))
+    ? await tx.query<{ id: string }>(
+        `select id from room_chat_removal
+         where author_user_id = $1 and ($2::text = '' or room_id = $2)`,
+        [userId, roomId],
+      )
+    : [];
+  return posts.length + lines.length;
+}
+
+/** One bar decision at a time per person, so two removals at once both count. */
+async function lockBans(tx: Db, userId: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+    `board-ban:${userId}`,
+  ]);
+}
+
 export async function writeBan(
   tx: Db,
   input: {
@@ -998,7 +1098,12 @@ export async function writeBan(
     byName: string;
     removalId: string | null;
     now: Date;
-    /** Empty is site-wide. A room id bars that room only. Strikes stay in that scope. */
+    /**
+     * Empty is site-wide. A room id bars that room only. A hard removal counts
+     * across every room and room chat: the second one that stands closes the
+     * account site-wide, whatever this says. A manual bar stays in this scope,
+     * and so do its strikes.
+     */
     roomId: string;
     /**
      * The new hard removal is already stored. A room chat line sets this
@@ -1006,34 +1111,20 @@ export async function writeBan(
      */
     removalAlreadyCounted?: boolean;
   },
-): Promise<BanEntry> {
+): Promise<BanEntry & { siteWide: boolean }> {
+  await lockBans(tx, input.userId);
+  const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
+  const standing = await standingRemovals(tx, input.userId);
+  const roomId = fromRemoval && standing >= 2 ? "" : input.roomId;
   const prior = await queryBanTable<{ strikes: number }>(
     tx,
-    `select strikes from board_ban
-     where user_id = $1 and room_id = $2
-     order by created_at desc limit 1`,
-    [input.userId, input.roomId],
+    `select strikes from board_ban b
+     where b.user_id = $1 and b.room_id = $2 and ${NOT_LIFTED("b.removal_id")}
+     order by b.created_at desc limit 1`,
+    [input.userId, roomId],
   );
-  const removals = input.roomId
-    ? await tx.query<{ id: string }>(
-        `select r.id from board_removal r
-         join board_post p on p.id = r.post_id
-         where r.author_user_id = $1 and p.room_id = $2`,
-        [input.userId, input.roomId],
-      )
-    : await tx.query<{ id: string }>(`select id from board_removal where author_user_id = $1`, [
-        input.userId,
-      ]);
-  const chatRemovals = (await roomChatReady(tx))
-    ? await tx.query<{ id: string }>(
-        input.roomId
-          ? `select id from room_chat_removal where author_user_id = $1 and room_id = $2`
-          : `select id from room_chat_removal where author_user_id = $1`,
-        input.roomId ? [input.userId, input.roomId] : [input.userId],
-      )
-    : [];
-  const counted = Math.max(Number(prior[0]?.strikes ?? 0), removals.length + chatRemovals.length);
-  const fromRemoval = input.removalId != null || input.removalAlreadyCounted === true;
+  const inScope = roomId ? await standingRemovals(tx, input.userId, roomId) : standing;
+  const counted = Math.max(Number(prior[0]?.strikes ?? 0), inScope);
   const strikes = fromRemoval ? Math.max(counted, 1) : counted + 1;
   const until = new Date(
     input.now.getTime() + (input.reason === "csam" || strikes >= 2 ? CLOSED_MS : BAN_MS),
@@ -1053,7 +1144,7 @@ export async function writeBan(
       strikes,
       until,
       input.removalId,
-      input.roomId,
+      roomId,
       input.now,
     ],
   );
@@ -1067,7 +1158,53 @@ export async function writeBan(
     until: until.getTime(),
     strikes,
     at: input.now.getTime(),
+    siteWide: roomId === "",
   };
+}
+
+/**
+ * A closure rests on two removals that stand. When a lift leaves fewer, each
+ * closure a removal wrote comes down: one whose own removal was lifted ends
+ * now, and one whose removal stands becomes that removal's 30-day room bar. A
+ * room chat bar has no removal id, so it is matched to its line by the time
+ * they share. CSAM and manual bars stay.
+ */
+async function reopenClosure(tx: Db, userId: string, now: Date): Promise<void> {
+  await lockBans(tx, userId);
+  if ((await standingRemovals(tx, userId)) >= 2) return;
+  const closures = await queryBanTable<{
+    id: string;
+    created_at: Date | string;
+    post_room: string | null;
+    lifted: boolean;
+  }>(
+    tx,
+    `select b.id, b.created_at, p.room_id as post_room, not ${NOT_LIFTED("b.removal_id")} as lifted
+     from board_ban b
+     left join board_removal r on r.id = b.removal_id
+     left join board_post p on p.id = r.post_id
+     where b.user_id = $1 and b.room_id = '' and b.strikes >= 2 and b.reason <> 'csam'`,
+    [userId],
+  );
+  const chatReady = await roomChatReady(tx);
+  for (const closure of closures) {
+    const lines =
+      closure.post_room === null && chatReady
+        ? await tx.query<{ room_id: string }>(
+            `select room_id from room_chat_removal
+             where author_user_id = $1 and created_at = $2 limit 1`,
+            [userId, closure.created_at],
+          )
+        : [];
+    const roomId = closure.post_room ?? lines[0]?.room_id;
+    if (!roomId) continue;
+    const until = closure.lifted ? now : new Date(atMs(closure.created_at) + BAN_MS);
+    await tx.query(`update board_ban set room_id = $2, strikes = 1, until_at = $3 where id = $1`, [
+      closure.id,
+      roomId,
+      until,
+    ]);
+  }
 }
 
 export async function createPost(
@@ -1154,6 +1291,11 @@ export async function createPost(
     room: rulesOf(room),
   });
   if (stops.length > 0) return fail(400, stops[0] ?? "That post was not filed.", stops);
+  const outside = await namesOutsideRoom(db, room.id, came, input.name.trim() || "Member");
+  if (outside[0]) {
+    const stop = `${outside[0]} is not a member of this room.`;
+    return fail(400, stop, [stop]);
+  }
   const subjectRaw = field(input.body, "subject").trim();
   let subject: "candidate" | "business" | null = null;
   if (subjectRaw) {
@@ -1270,7 +1412,7 @@ export async function createPost(
     });
     return {
       ok: true,
-      value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+      value: await shownPost(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
     };
   } catch (error) {
     if (error instanceof Stop) return fail(error.status, error.message, error.stops);
@@ -1389,7 +1531,7 @@ export async function replyToPost(
   await standInRoom(db, input.userId, parent.room_id);
   return {
     ok: true,
-    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+    value: await shownPost(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
   };
 }
 
@@ -1410,6 +1552,7 @@ export async function revisePost(
   if (await openBan(db, input.userId, input.now, post.room_id))
     return fail(403, "This account cannot post right now.");
   if (post.author_user_id !== input.userId) return fail(403, "Only the author can revise a post.");
+  if (await openReportOn(db, post.id)) return fail(409, REPORTED_REVISE_ERROR);
   const room = await roomById(db, post.room_id);
   if (!room || !canReadRoom(room.status, actor)) return fail(404, "That post is not here.");
   const blocked = await audienceBlock(db, {
@@ -1420,14 +1563,16 @@ export async function revisePost(
     actor,
   });
   if (blocked) return blocked;
+  // A revision changes the words only. Names stored before roll went off are not refiled.
+  const rollCall = room.options.includes("roll_call");
   const stops = contentStops({
     type: post.type,
     claim: input.claim,
     reason: input.reason,
     on: post.on_date,
     next: post.next_date,
-    came: textList(post.came),
-    named: post.named,
+    came: rollCall ? textList(post.came) : [],
+    named: rollCall ? post.named : "",
     author: post.author_name,
     attested: true,
     mediaCount: 0,
@@ -1446,7 +1591,7 @@ export async function revisePost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
+      post: await shownPost(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
       mark: null,
     },
   };
@@ -1486,7 +1631,7 @@ export async function closeAsked(
   if (!row) return fail(404, "That question is not here.");
   return {
     ok: true,
-    value: await withCouncil(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
+    value: await shownPost(db, toPost(row, [], await cameViewerFor(db, input.userId, actor, row.id, input.now))),
   };
 }
 
@@ -1562,7 +1707,7 @@ export async function markPost(
   return {
     ok: true,
     value: {
-      post: await withCouncil(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
+      post: await shownPost(db, toPost(saved, [], await cameViewerFor(db, input.userId, actor, saved.id, input.now))),
       row: {
         id,
         room: post.room_id,
@@ -1669,7 +1814,6 @@ export async function removePost(
           input.now,
         ],
       );
-      const siteWide = actor.admin || reason === "csam";
       return writeBan(tx, {
         userId: post.author_user_id,
         name: post.author_name,
@@ -1678,14 +1822,14 @@ export async function removePost(
         byName: by,
         removalId,
         now: input.now,
-        roomId: siteWide ? "" : post.room_id,
+        roomId: actor.admin || reason === "csam" ? "" : post.room_id,
       });
     });
     // The save committed. Drop the rollback list so a later error cannot delete the evidence.
     heldKeys.length = 0;
     await dropObjectKeys(input.store ?? null, publicKeys);
     console.log(JSON.stringify({ event: "post-removed", postId: post.id, reason }));
-    if (actor.admin || reason === "csam") evictCallMember(post.author_user_id);
+    if (ban.siteWide) evictCallMember(post.author_user_id);
     else
       evictCallMember(post.author_user_id, [
         post.room_id,
@@ -2085,6 +2229,9 @@ export async function decideAppeal(
          where id = $1 and decision is null`,
         [appeal.id, input.decision, sentence.text, input.userId, by, input.now],
       );
+      if (input.decision === "lift" && appeal.kind === "removal") {
+        await reopenClosure(tx, appeal.author_user_id, input.now);
+      }
       if (input.decision !== "lift") return [];
       return tx.query<PostRow>(
         `select ${POST_RETURNING} from board_post where id = $1 or parent_id = $1`,
@@ -2108,11 +2255,15 @@ export async function decideAppeal(
       ...(await cameViewer(db, input.userId, actor)),
       namedIn: await namedIn(db, input.userId, posts.map((post) => post.id)),
     };
+    const rollCall = await roomHas(db, appeal.room_id, "roll_call");
     return {
       ok: true,
       value: {
         appeal: appealFrom(row),
-        posts: posts.map((post) => toPost(post, pictures.get(post.id) ?? [], sight)),
+        posts: posts.map((post) => {
+          const shown = toPost(post, pictures.get(post.id) ?? [], sight);
+          return rollCall ? shown : withoutRoll(shown);
+        }),
       },
     };
   } catch (error) {
@@ -2173,6 +2324,8 @@ export async function createRoom(
     name: string;
     what: string;
     categoryIds: string[];
+    /** The one county this room is in. */
+    county?: unknown;
     now: Date;
     audience?: unknown;
     stewardEmail?: string;
@@ -2198,6 +2351,8 @@ export async function createRoom(
     return fail(400, "Say what the room is for, in English.");
   const categoryIds = await checkedCategoryIds(db, input.categoryIds);
   if (!Array.isArray(categoryIds)) return categoryIds;
+  const countiesReady = await countyColumnsReady(db);
+  if (countiesReady && !isCountyId(input.county)) return fail(400, COUNTY_REQUIRED);
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
@@ -2227,6 +2382,9 @@ export async function createRoom(
       );
       if (await optionsColumnReady(tx)) {
         await tx.query(`update room set options = $2 where id = $1`, [id, options]);
+      }
+      if (countiesReady) {
+        await tx.query(`update room set county_id = $2 where id = $1`, [id, input.county]);
       }
       await replaceRoomCategories(tx, id, categoryIds);
       if (audience !== "all") {
@@ -2269,6 +2427,8 @@ export async function updateRoom(
     pinOrder?: number | null;
     /** Only an admin changes what a room includes. */
     options?: unknown;
+    /** Only an admin moves a room to another county. */
+    county?: unknown;
     now: Date;
   },
 ): Promise<Result<BoardRoom>> {
@@ -2314,6 +2474,16 @@ export async function updateRoom(
       return fail(503, "Room options are not set up on this server yet.");
     if (!changing) options = null;
   }
+  let county: CountyId | null = null;
+  if (input.county !== undefined) {
+    if (!isCountyId(input.county)) return fail(400, COUNTY_REQUIRED);
+    if (input.county !== current.countyId) {
+      if (!actor.admin) return fail(403, "Only an admin can move a room to another county.");
+      if (!(await countyColumnsReady(db)))
+        return fail(503, "Counties are not set up on this server yet.");
+      county = input.county;
+    }
+  }
   const nextName = name || current.name;
   const nextWhat = what || current.what;
   if (renaming) {
@@ -2331,6 +2501,7 @@ export async function updateRoom(
     ]);
     if (categoryIds) await replaceRoomCategories(tx, id, categoryIds);
     if (options) await tx.query(`update room set options = $2 where id = $1`, [id, options]);
+    if (county) await tx.query(`update room set county_id = $2 where id = $1`, [id, county]);
   });
   const room = await roomById(db, id, { id: input.userId, admin: actor.admin });
   if (!room) return fail(500, "The room was not saved.");

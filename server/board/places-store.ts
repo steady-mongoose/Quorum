@@ -4,6 +4,7 @@ import { queryBanTable } from "./ban-check.ts";
 import { banOpen } from "./ban.ts";
 import { ruleId, type RuleId } from "./rule.ts";
 import { categoryForScope } from "../../src/lib/board/categories.ts";
+import { COUNTY_REQUIRED, DEFAULT_COUNTY, isCountyId } from "../../src/lib/board/counties.ts";
 import { ROOM_ID } from "../../src/lib/media/limits.ts";
 import {
   planAdminGrant,
@@ -50,6 +51,7 @@ import {
   canSeeHiddenRooms,
   listingColumnsReady,
   visibleRoomClause,
+  countyColumnsReady,
 } from "./room-visibility.ts";
 import { filterAudience, guardRoomAudience, includeInCatalog } from "./audience.ts";
 
@@ -584,6 +586,7 @@ type ScopeRow = {
   sort_order: number | string;
   status?: string;
   audience?: string | null;
+  county_id?: string;
 };
 
 function toScoped(row: ScopeRow): ScopedRoom {
@@ -600,14 +603,16 @@ function toScoped(row: ScopeRow): ScopedRoom {
     regionId: row.region_id,
     sortOrder: Number(row.sort_order),
     audience: row.audience === "men" || row.audience === "women" ? row.audience : "all",
+    countyId: row.county_id ?? DEFAULT_COUNTY,
   };
 }
 
 async function loadRooms(db: Db, seeHidden = true): Promise<ScopedRoom[]> {
   const ready = await listingColumnsReady(db);
+  const countiesReady = await countyColumnsReady(db);
   const rows = await db.query<ScopeRow>(
     `select id, name, scope_kind, town_id, congregation_id, region_id, sort_order, audience
-            ${ready ? ", status" : ""}
+            ${ready ? ", status" : ""}${countiesReady ? ", county_id" : ""}
      from room where name <> '' and ${visibleRoomClause(ready, "1")}
      order by sort_order asc, id asc`,
     ready ? [seeHidden] : [],
@@ -797,6 +802,7 @@ export async function listHome(
       .map((row) => ({
         id: row.room.id,
         name: row.room.name,
+        countyId: row.room.countyId ?? DEFAULT_COUNTY,
         ...(row.room.audience === "men" || row.room.audience === "women"
           ? { audience: row.room.audience }
           : {}),
@@ -804,6 +810,7 @@ export async function listHome(
     if (tierRooms.length === 0) continue;
     sections.push({ tier, label: HOME_SECTION_LABEL[tier], rooms: tierRooms });
   }
+  const countiesReady = await countyColumnsReady(db);
   const requestRows = await db.query<{
     id: string;
     kind: string;
@@ -813,14 +820,15 @@ export async function listHome(
     status: string;
     note: string;
     by_user_id: string | null;
+    county_id?: string;
   }>(
     actor.admin
-      ? `select id, kind, name, state, by_name, status, note, by_user_id
+      ? `select id, kind, name, state, by_name, status, note, by_user_id${countiesReady ? ", county_id" : ""}
          from room_request
          where status = 'open' or by_user_id = $1
          order by at desc, id desc
          limit 40`
-      : `select id, kind, name, state, by_name, status, note, by_user_id
+      : `select id, kind, name, state, by_name, status, note, by_user_id${countiesReady ? ", county_id" : ""}
          from room_request where by_user_id = $1
          order by at desc, id desc
          limit 40`,
@@ -838,6 +846,7 @@ export async function listHome(
       by: row.by_name,
       status: row.status,
       note: row.note,
+      countyId: row.county_id ?? DEFAULT_COUNTY,
     });
   }
   let accessLog: HomeAccessRow[] = [];
@@ -901,7 +910,7 @@ export async function savePlace(
 
 /** Rooms are joined by invitation. The refusal a member sees without one. */
 export const ROOM_INVITE_ONLY =
-  "Only members of this room can post here. Ask a member of the room for an invite.";
+  "Only members of this room can read and post here. Ask a member of the room for an invite.";
 
 /**
  * Joining or saving a room needs a live invite to that room: the latest
@@ -1045,13 +1054,15 @@ export async function joinRoom(
 
 export async function requestRoom(
   db: Db,
-  input: { userId: string; kind: string; name: string; state: string; now: Date },
+  input: { userId: string; kind: string; name: string; state: string; county?: string; now: Date },
 ): Promise<PlaceResult<{ id: string }>> {
   const actor = await actorRole(db, input.userId);
   if (!actor.member) return fail(403, "A member asks for a room.");
   if (await openBan(db, input.userId, input.now)) return fail(403, "banned");
   const who = await personById(db, input.userId);
   if (!who) return fail(403, "A member asks for a room.");
+  const countiesReady = await countyColumnsReady(db);
+  if (countiesReady && !isCountyId(input.county)) return fail(400, COUNTY_REQUIRED);
   const rooms = await loadRooms(db);
   const open = await db.query<{
     kind: string;
@@ -1095,6 +1106,9 @@ export async function requestRoom(
         input.now,
       ],
     );
+    if (countiesReady) {
+      await db.query(`update room_request set county_id = $2 where id = $1`, [id, input.county]);
+    }
   } catch (error) {
     if (isUniqueViolation(error)) return fail(409, "That place already has an open request.");
     throw error;
@@ -1206,6 +1220,7 @@ export async function decideRoom(
   const order = await db.query<{ next: number }>(
     `select coalesce(max(sort_order), 0) + 1 as next from room`,
   );
+  const countiesReady = await countyColumnsReady(db);
   try {
     await db.transaction(async (tx) => {
       if (kind === "town") {
@@ -1245,6 +1260,13 @@ export async function decideRoom(
           kind === "region" ? request.region_id : "",
         ],
       );
+      if (countiesReady) {
+        await tx.query(
+          `update room set county_id = q.county_id
+           from room_request q where room.id = $1 and q.id = $2`,
+          [roomId, request.id],
+        );
+      }
       await tx.query(
         `insert into room_categories (room_id, category_id) values ($1, $2) on conflict do nothing`,
         [roomId, categoryForScope(kind)],

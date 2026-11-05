@@ -8,6 +8,9 @@ import { promisify } from "node:util";
 import { projectRoot } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
+
+// These run the production shell scripts, which only ever run on Linux. Windows cannot exec a .sh file.
+const posixOnly = process.platform === "win32" ? "runs a Linux shell script" : false;
 const PASSWORD = "super-secret-seat";
 
 function fakeDocker(bin, log) {
@@ -38,7 +41,7 @@ exit "\${SEED_EXIT:-0}"
   return log;
 }
 
-test("the seed passes BOOTSTRAP_* with exec -e and does not put the password on the command line", async () => {
+test("the seed passes BOOTSTRAP_* with exec -e and does not put the password on the command line", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -78,7 +81,7 @@ test("the seed passes BOOTSTRAP_* with exec -e and does not put the password on 
   assert.match(stored, /^POSTGRES_PASSWORD=db$/m);
 });
 
-test("a clean run does not edit .env or recreate the api, and a re-run still does not", async () => {
+test("a clean run does not edit .env or recreate the api, and a re-run still does not", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -115,7 +118,7 @@ test("a clean run does not edit .env or recreate the api, and a re-run still doe
   assert.equal(trace.split("---").filter((part) => part.includes("exec")).length, 2);
 });
 
-test("a clean re-run that finds Josh already seated exits 0 and does not recreate the api", async () => {
+test("a clean re-run that finds Josh already seated exits 0 and does not recreate the api", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -146,7 +149,7 @@ test("a clean re-run that finds Josh already seated exits 0 and does not recreat
   assert.equal(trace.includes("\nup\n"), false);
 });
 
-test("a leftover password that is still set does not recreate the api", async () => {
+test("a leftover password that is still set does not recreate the api", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -193,7 +196,7 @@ async function shellSupportsPipefail(shell) {
   );
 }
 
-test("pipefail is turned on only when the shell supports it", async () => {
+test("pipefail is turned on only when the shell supports it", { skip: posixOnly }, async () => {
   const script = readFileSync(join(projectRoot(), "scripts/seed-owner.sh"), "utf8");
   assert.match(script, /if \(set -o pipefail\) 2>\/dev\/null; then/);
   const probe = [
@@ -212,7 +215,7 @@ test("pipefail is turned on only when the shell supports it", async () => {
   }
 });
 
-test("without a terminal the seed refuses to run when BOOTSTRAP_* is unset", async () => {
+test("without a terminal the seed refuses to run when BOOTSTRAP_* is unset", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -232,7 +235,7 @@ test("without a terminal the seed refuses to run when BOOTSTRAP_* is unset", asy
   assert.equal(readFileSync(log, "utf8"), "");
 });
 
-test("a terminal prompt does not echo the password and still uses exec -e", async () => {
+test("a terminal prompt does not echo the password and still uses exec -e", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");
@@ -285,7 +288,7 @@ sys.exit(0 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0 else 1)
   assert.equal(readFileSync(envFile, "utf8").includes("s3cret horse"), false);
 });
 
-test("Ctrl-C during the hidden password prompt restores terminal echo", async () => {
+test("Ctrl-C during the hidden password prompt restores terminal echo", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-seed-"));
   const bin = join(root, "bin");
   const log = join(root, "docker.log");

@@ -28,6 +28,7 @@ import {
   type StatsTile,
   type TotalWeek,
 } from "../../src/lib/board/stats.ts";
+import { COUNTIES } from "../../src/lib/board/counties.ts";
 import { addUtcDays, asCount, isoDate, utcDate } from "./dates.ts";
 
 type Stored = { date: string; metric: string; dimension: string; count: number };
@@ -96,6 +97,7 @@ export async function readStats(
   const funnel = asOf
     ? await funnelOf(db, addUtcDays(asOf, -(filter.days - 1)), asOf)
     : emptyFunnel();
+  const membersByCounty = await countiesOf(db);
 
   return {
     asOf,
@@ -108,6 +110,7 @@ export async function readStats(
     roll,
     rooms,
     roomsByCategory,
+    membersByCounty,
     funnel,
     alerts: await alertsOf(db),
     features: features.rows,
@@ -600,6 +603,9 @@ const ROOM_CATEGORY: Record<string, string> = {
   "valrico-town": "civic",
   "tampa-town": "civic",
   county: "county",
+  "county-polk": "county",
+  "county-manatee": "county",
+  "county-pinellas": "county",
   "region-hillsborough": "county",
 };
 
@@ -743,6 +749,28 @@ async function categoriesOf(
     );
   }
   return bars.filter((bar) => bar.id === category);
+}
+
+/** Members by the county they chose. Before 0051 there is nothing to show. */
+async function countiesOf(db: Db): Promise<CategoryCount[]> {
+  if (!(await columnExists(db, "members", "home_county"))) return [];
+  const rows = await db.query<{ home_county: string; count: unknown }>(
+    `select m.home_county, count(*)::int as count
+     from members m
+     join "user" u on u.id = m.user_id
+     where m.home_county is not null and u.deactivated_at is null
+     group by m.home_county`,
+  );
+  const counts = new Map(rows.map((row) => [row.home_county, Number(row.count)]));
+  const parts = protectBreakdown(
+    COUNTIES.map((county) => counts.get(county.id) ?? 0),
+    CATEGORY_RULE,
+  );
+  return COUNTIES.map((county, index) => ({
+    id: county.id,
+    label: county.name,
+    count: parts.parts[index] ?? ("<5" as const),
+  }));
 }
 
 function resolveCategory(

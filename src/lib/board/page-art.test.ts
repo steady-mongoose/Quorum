@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { artSection, heroLabel } from "./engraved.ts";
+import { artSection, heroLabel, SECTION_PLATE } from "./engraved.ts";
 import type { Section } from "./model.ts";
 
 const pageArt = readFileSync(new URL("../../../public/page-art.css", import.meta.url), "utf8");
@@ -33,7 +33,7 @@ test("the public About band is gone (QA #130): About stands on Martin's whole pl
   const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
   assert.doesNotMatch(fluid, /\.hero-band\.category-engraving/);
   assert.equal([...pageArt.matchAll(/url\(/g)].length, 0, "no file of its own");
-  assert.equal(heroLabel("about"), "John Martin, The Creation of Light, 1824–27");
+  assert.equal(heroLabel("about"), "John Martin, Joshua Commanding the Sun to Stand Still, 1827");
 });
 
 test("the off-list works and the old right-margin crops are gone from public/art", () => {
@@ -68,11 +68,57 @@ test("About, Privacy, and Terms stand on a whole plate, not a band: Martin for A
   assert.match(doc, /className=\{jerome \? "plate-ground door-ground doc-jerome" : "plate-ground door-ground"\}/);
   assert.match(doc, /aria-label=\{heroLabel\(jerome \? "rooms" : "about"\) \?\? undefined\}/);
   const route = (name: string) => readFileSync(new URL(`../../routes/${name}.tsx`, import.meta.url), "utf8");
-  assert.match(route("privacy"), /<PublicDocument art="jerome">/);
-  assert.match(route("terms"), /<PublicDocument art="jerome">/);
-  assert.match(route("about"), /<PublicDocument>/);
+  assert.ok(route("privacy").includes(`<PublicDocument page="/privacy" art="jerome">`));
+  assert.ok(route("terms").includes(`<PublicDocument page="/terms" art="jerome">`));
+  assert.ok(route("about").includes(`<PublicDocument page="/about" wide>`));
   assert.match(doc, /<div className="scrim" aria-hidden="true" \/>/);
   assert.doesNotMatch(doc, /hero-band/);
+});
+
+test("About's plates keep Josh's rules: Jesus is not in them, and each has its section", () => {
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const captions = Object.values(SECTION_PLATE).map((plate) => plate.caption).join(" ");
+  assert.doesNotMatch(captions, /Sermon on the Mount/);
+  for (const [heading, plate] of [
+    ["Getting in and showing up", "gathering"],
+    ["Keeping it clean", "judgment"],
+    ["Talking to people", "writing"],
+  ]) {
+    assert.match(about, new RegExp(`${heading}"[,\\s]*plate: "${plate}"`), heading);
+  }
+  assert.match(about, /<SectionPlate plate="crusader" \/>/);
+  assert.doesNotMatch(captions, /Praying Hands/);
+  const manifest = readFileSync(new URL("./art-two-sides.test.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(manifest, /who: "Christ"/);
+});
+
+test("About sets each section plate once, with an on-list credit, and every file is credited", () => {
+  const about = readFileSync(new URL("../../components/board/about-view.tsx", import.meta.url), "utf8");
+  const credits = readFileSync(new URL("../../../public/art/ATTRIBUTION.md", import.meta.url), "utf8");
+  const used = [...about.matchAll(/plate(?:: |=)"([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...used].sort(), Object.keys(SECTION_PLATE).sort());
+  const works = Object.values(SECTION_PLATE).map((plate) => plate.caption);
+  assert.equal(new Set(works).size, works.length);
+  for (const [key, plate] of Object.entries(SECTION_PLATE)) {
+    assert.match(plate.caption, ON_LIST, key);
+    assert.ok(plate.alt.length > 0, key);
+    assert.ok(credits.includes(`\`section-${key}.webp\``), key);
+    const file = readFileSync(new URL(`../../../public/art/section-${key}.webp`, import.meta.url));
+    assert.equal(file.subarray(8, 12).toString("ascii"), "WEBP", key);
+    assert.ok(file.length <= 90 * 1024, `${key} is ${file.length} B`);
+  }
+});
+
+test("section plates load lazily, hold their space, and data savers skip them", () => {
+  const plate = readFileSync(new URL("../../components/board/section-plate.tsx", import.meta.url), "utf8");
+  assert.ok(plate.includes(`loading="lazy"`));
+  assert.ok(plate.includes("width={900}") && plate.includes("height={900}"));
+  // One shape, never cropped: it fills a phone and stands beside the text from tablet up.
+  assert.ok(pageArt.includes("aspect-ratio:1;"));
+  assert.ok(!pageArt.includes("object-fit:cover"));
+  assert.ok(pageArt.includes("@media (min-width:40rem){.section-plate{float:right;width:14rem;"));
+  assert.ok(pageArt.includes("[data-save-data] .section-plate{display:none}"));
+  assert.ok(pageArt.includes("@media (prefers-reduced-data:reduce){.section-plate{display:none}}"));
 });
 
 test("ATTRIBUTION credits no off-list artist", () => {

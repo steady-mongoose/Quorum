@@ -49,3 +49,15 @@ test("Caddy limits the closed-test POSTs and is built with the rate limit module
   assert.match(workflow, /api-image:/);
   assert.match(workflow, /scripts\/api-image-smoke\.sh/);
 });
+
+test("the failover drill restores with the same Postgres major as production", () => {
+  const root = projectRoot();
+  const workflow = readFileSync(join(root, ".github/workflows/test.yml"), "utf8").replace(/\r\n/g, "\n");
+  const job = workflow.slice(workflow.indexOf("  failover-restore:"), workflow.indexOf("  frontend-auth:"));
+  assert.match(job, /runs-on: ubuntu-24\.04/);
+  assert.match(job, /apt-install\.sh age postgresql-client/);
+  const compose = readFileSync(join(root, "deploy/docker-compose.yml"), "utf8");
+  assert.match(compose, /image: postgres:16-bookworm/);
+  const drill = readFileSync(join(root, "scripts/failover-restore-drill.sh"), "utf8");
+  assert.match(drill, /postgres:16-bookworm/);
+});

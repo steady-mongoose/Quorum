@@ -162,7 +162,7 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(browse, /No rooms here yet\. Ask a steward to open one\./);
   assert.match(browse, /aria-label="Joined"/);
   assert.match(browse, /Who may enter is set by the room/);
-  assert.match(browse, /to="\/rooms"/);
+  assert.match(browse, /to="\/\$county\/rooms"/);
   assert.match(browse, /aria-label="Categories"/);
   assert.match(browse, /aria-current=/);
   assert.equal(/\bplate\b/.test(card), false);

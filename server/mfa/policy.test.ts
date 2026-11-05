@@ -60,6 +60,11 @@ test("enrollment is allowed during the grace period and the hall is not", () => 
   assert.equal(privilegedPath("/api/board", "GET"), false);
 });
 
+test("the county question is a member route, so setup under You stays reachable", () => {
+  assert.equal(privilegedPath("/api/county", "POST"), false);
+  assert.equal(privilegedPath("/api/county", "GET"), true);
+});
+
 test("privileged is deny by default: moderation reads, PUT/PATCH and unknown routes are gated", () => {
   for (const [method, path] of [
     ["DELETE", "/api/gatherings/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],

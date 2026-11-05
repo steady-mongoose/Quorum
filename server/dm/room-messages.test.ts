@@ -199,17 +199,14 @@ test("a block stops messages both ways, from a room or a meeting, until it is li
 
     assert.equal((await blockMember(db, anna, ben, now)).ok, true);
     assert.equal((await blockMember(db, anna, ben, now)).ok, true, "blocking twice is fine");
-    for (const [from, to] of [
-      [anna, ben],
-      [ben, anna],
+    // Anna blocked: she is told so. Ben gets the words for someone he cannot reach.
+    for (const [from, to, error] of [
+      [anna, ben, BLOCKED],
+      [ben, anna, NOT_REACHABLE],
     ] as const) {
-      assert.deepEqual(await mayMessage(db, from, to, now), {
-        ok: false,
-        status: 403,
-        error: BLOCKED,
-      });
+      assert.deepEqual(await mayMessage(db, from, to, now), { ok: false, status: 403, error });
       const opened = await openThread(db, from, to, now);
-      assert.deepEqual(opened.ok ? null : [opened.status, opened.error], [403, BLOCKED]);
+      assert.deepEqual(opened.ok ? null : [opened.status, opened.error], [403, error]);
     }
     assert.deepEqual(await listPeers(db, anna), []);
     assert.deepEqual(await listPeers(db, ben), []);
@@ -252,7 +249,7 @@ test("the member list offers Message where the server would allow it, and hides 
     // Dee blocked Anna: the button stays; the server refuses when she opens it.
     assert.equal(states.get(dee), "open");
     const refused = await openThread(db, anna, dee, now);
-    assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [403, BLOCKED]);
+    assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [403, NOT_REACHABLE]);
 
     // A member who has not posted gets the button like anyone else; nothing here reads posts.
     // New to the room: the wait line, not a button.

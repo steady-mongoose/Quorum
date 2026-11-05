@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { markSaveData } from "./save-data.ts";
 
-const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8");
+const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const backgrounds = readFileSync(
   new URL("../../../public/backgrounds.css", import.meta.url),
   "utf8",
-);
-const root = readFileSync(new URL("../../routes/__root.tsx", import.meta.url), "utf8");
-const doorTsx = readFileSync(new URL("../../components/board/door.tsx", import.meta.url), "utf8");
+).replace(/\r\n/g, "\n");
+const root = readFileSync(new URL("../../routes/__root.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const doorTsx = readFileSync(new URL("../../components/board/door.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 /** The body of the last `@media (prefers-reduced-motion:reduce){…}` block in a sheet. */
 function lastReduceBlock(css: string): string {
@@ -123,6 +123,19 @@ test("parchment gilt is dark enough to read, and the aside is upright", () => {
   assert.doesNotMatch(aside, /italic/);
 });
 
+test("the door's rule names keep one column, and its rooms stand in even columns", () => {
+  assert.ok(doorTsx.includes('<dl className="door-terms">'));
+  assert.ok(door.includes(".door-terms{grid-template-columns:9.5rem minmax(0,1fr);column-gap:1.5rem}"));
+  assert.ok(door.includes(".door-roomlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));"));
+  assert.ok(door.includes(".door-roomlist{grid-template-columns:repeat(3,minmax(0,1fr))}"));
+});
+
+test("no words sit on the door's ghosted engravings: the art keeps its own part of the card", () => {
+  const flat = door.replace(/\r\n/g, "\n");
+  assert.match(flat, /\.door-week,\.door-rooms\{padding-top:8rem\}\n  \.door-week::after,\.door-rooms::after\{\n    inset:0 0 auto;\n    height:7rem;/);
+  assert.match(flat, /\.door-week,\.door-rooms\{padding-right:calc\(28% \+ 1\.5rem\)\}\n  \.door-week::after,\.door-rooms::after\{\n    inset:0 0 0 auto;\n    width:28%;/);
+});
+
 test("the rooms list is labelled by its heading", () => {
   assert.match(doorTsx, /<h2 id="door-rooms-heading"/);
   assert.match(
@@ -225,7 +238,7 @@ test("public pages stand on the door's plate, and data savers still get none", (
   assert.match(door, /@media \(prefers-reduced-data:reduce\)\{\.plate-ground\.door-ground\{background-image:none;animation:none\}\}/);
   const save = door.indexOf("[data-save-data] .plate-ground.door-ground");
   assert.ok(save > door.indexOf(".plate-ground.door-ground{background:"), "the data-saver rule comes after the plate");
-  const src = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const src = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
   for (const [name, file] of [
     ["PublicDocument", src("../../components/board/public-document.tsx")],
     ["PublicGatheringFrame", src("../../components/board/public-gathering-view.tsx")],
@@ -311,16 +324,16 @@ test("Privacy and Terms stand on Dürer's Saint Jerome, with its own light; Abou
   for (const f of ["plate-rooms-A.webp", "plate-rooms-A-900.webp", "plate-rooms-A-2400.webp"]) {
     assert.ok(readFileSync(new URL(`../../../public/art/${f}`, import.meta.url)).length > 0, f);
   }
-  const notFound = readFileSync(new URL("../../components/not-found.tsx", import.meta.url), "utf8");
+  const notFound = readFileSync(new URL("../../components/not-found.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.doesNotMatch(notFound, /doc-jerome/);
 });
 
 test("the app /e card is as wide as the server one", () => {
-  const gathering = readFileSync(new URL("../../../public/gathering.css", import.meta.url), "utf8");
+  const gathering = readFileSync(new URL("../../../public/gathering.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.ok(gathering.includes(".gathering-page .shell-body > main { width: min(1088px, 100%); margin-inline: auto; }"));
 });
 
 test("QA #130: at 320 the edge tabs keep their whole focus ring", () => {
-  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  const fluid = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.ok(fluid.includes(".tabbar button:focus-visible{outline-offset:-3px}"));
 });

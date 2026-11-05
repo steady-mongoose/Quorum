@@ -4,6 +4,7 @@ import { AccountDoor } from "@/components/board/account-door";
 import { LegalFooter } from "@/components/board/legal-footer";
 import { codeFromSearch } from "@/lib/board/invite-entry";
 import { cn } from "@/lib/cn";
+import { COUNTY_LINE } from "@/lib/board/counties";
 import { APP_NAME, formatDate } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
 import { useServerSession } from "@/lib/server-session-state";
@@ -35,7 +36,7 @@ const HOW = [
 /** How rooms work. */
 const ROOMS = [
   {
-    term: "One group each",
+    term: "One place each",
     what: "A room is one church, shop, club, or county. Its posts are shown only to the room's members, its steward, and the admins. A host can choose to share a gathering by link.",
   },
   {
@@ -46,11 +47,15 @@ const ROOMS = [
     term: "A steward",
     what: "Every room has a steward who keeps it on track and removes posts that break the rules.",
   },
+  {
+    term: "Interest groups",
+    what: "Groups sit beside the rooms, for interests like carpentry, gardening, and brewing. A member asks from a room, a steward of that room approves it, and you join by invite.",
+  },
 ];
 
 function Terms({ rows }: { rows: { term: string; what: string }[] }) {
   return (
-    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
+    <dl className="door-terms">
       {rows.map((row) => (
         <div key={row.term} className="contents">
           <dt className="door-term">{row.term}</dt>
@@ -115,6 +120,7 @@ export function Door() {
                 </>
               )}
             </p>
+            <p className="door-lede max-w-prose">Now in {COUNTY_LINE} counties.</p>
           </section>
 
           <section className="door-week card flex flex-col gap-3 p-6">

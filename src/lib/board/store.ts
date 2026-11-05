@@ -102,6 +102,7 @@ import {
   type RollPerson,
   type RsvpFail,
 } from "./rsvp-api.ts";
+import type { CountyId } from "./counties.ts";
 import {
   APP_NAME,
   DAY,
@@ -118,7 +119,7 @@ import {
   newCard,
   newPost,
   setRoomCatalog,
-  messageableNames,
+  localReach,
   threadIdFor,
   todayIso,
   type AppealDecision,
@@ -157,7 +158,7 @@ type BoardState = {
   founded: boolean;
   me: string;
   profile: Profile;
-  /** The desk is opt-in. Off until this member turns it on. */
+  /** The desk is on until this member turns it off (Josh, Nov 3). It shows only in its county. */
   deskOn: boolean;
   /** Whose profile is open. */
   viewing: string | null;
@@ -231,8 +232,20 @@ type BoardState = {
    * Shown on the card as role=alert; the box is reverted.
    */
   specialRefused: Record<string, string>;
+  /** The county last looked at, on this device. Null means start at home. */
+  county: CountyId | null;
+  /** The county the member chose. Null until they choose. */
+  homeCounty: CountyId | null;
+  /** False on a server without counties yet. */
+  countiesOn: boolean;
+  /** The server's board has loaded at least once this session. */
+  boardLoaded: boolean;
   setSection: (section: Section) => void;
   setRoom: (room: RoomId) => void;
+  /** Look at a county. Nothing is saved on the server. */
+  setCounty: (county: CountyId) => void;
+  /** Save the member's home county, and look there. */
+  saveHomeCounty: (county: CountyId) => Promise<SaveOutcome>;
   setMe: (me: string) => void;
   setProfile: (patch: Partial<Profile>) => void;
   setDeskOn: (on: boolean) => void;
@@ -261,6 +274,7 @@ type BoardState = {
     name: string;
     what: string;
     categoryIds: string[];
+    county: CountyId;
     audience?: "all" | "men" | "women";
     stewardEmail?: string;
     inviterEmail?: string;
@@ -273,6 +287,7 @@ type BoardState = {
     what?: string;
     pinOrder?: number | null;
     options?: RoomOption[];
+    county?: CountyId;
   }) => Promise<{ ok: boolean; error?: string }>;
   setRoomAudience: (
     roomId: string,
@@ -326,8 +341,12 @@ type BoardState = {
   ) => Promise<{ ok: true } | { ok: false; stops: string[] }>;
   /** "I'll be there." Names, never a count. */
   rsvp: (id: string) => void;
-  /** "I've been": only the card's host or the room's steward (not an admin as an admin). Anyone else's tap does nothing. */
-  visited: (id: string) => void;
+  /**
+   * "I've been". A gathering: only the card's host or the room's steward (not an
+   * admin as an admin); anyone else's tap does nothing. A DM meeting card: the
+   * member's own tap, also told to the server (#138).
+   */
+  visited: (id: string) => Promise<void>;
   removeCard: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Cancel a removal that has not been sent yet and put the card back. */
   undoRemoveCard: (id: string) => boolean;
@@ -490,6 +509,8 @@ export function migrateBoardStorage(persisted: unknown, version: number): object
     saved = { ...saved, markLog: markLog.map((row) => ({ ...row, reason: row.reason ?? "" })) };
   }
   if (version < 7) saved = dropSampleWeek(saved);
+  // Nov 3: the desk is on by default again. Saves from when it was opt-in hold the old default, so turn it on.
+  if (version < 8) saved = { ...saved, deskOn: true };
   return saved;
 }
 
@@ -888,9 +909,18 @@ export const useBoard = create<BoardState>()(
           member: true,
           gender: board.me.gender,
           genderConfirmed: board.me.genderConfirmed,
+          homeCounty: board.me.homeCounty,
+          countiesOn: board.me.countiesOn,
+          boardLoaded: true,
           genderSetBy: board.genderPolicy.setBy,
           genderNeedsConfirmation: board.genderPolicy.requiresConfirmation,
         });
+      };
+
+      // The server sends a room's posts only to its members, so joining or leaving changes them.
+      const pullBoard = async () => {
+        const loaded = await (await getBoardClient()).load();
+        if (loaded.ok) applySnapshot(loaded.board);
       };
 
       const pullHome = async (): Promise<boolean> => {
@@ -991,7 +1021,11 @@ export const useBoard = create<BoardState>()(
         founded: false,
         me: "",
         profile: EMPTY_PROFILE,
-        deskOn: false,
+        deskOn: true,
+        county: null,
+        homeCounty: null,
+        countiesOn: true,
+        boardLoaded: false,
         viewing: null,
         steward: false,
         admin: false,
@@ -1041,6 +1075,15 @@ export const useBoard = create<BoardState>()(
         dismissRoomHold: () => {
           const back = get().roomHoldBack;
           set({ roomHold: null, roomHoldBack: null, ...(back ?? {}) });
+        },
+        setCounty: (county) => set({ county }),
+        saveHomeCounty: async (county) => {
+          if (get().remote) {
+            const saved = await (await getBoardClient()).saveCounty(county);
+            if (!saved.ok) return { ok: false, error: saved.error };
+          }
+          set({ homeCounty: county, county });
+          return { ok: true };
         },
         setRoom: (room) => {
           const previous = { section: get().section, room: get().room };
@@ -1682,8 +1725,31 @@ export const useBoard = create<BoardState>()(
             }
           })();
         },
-        visited: (id) => {
+        visited: async (id) => {
           const card = get().cards.find((item) => item.id === id);
+          // A special event's host or steward marks who came (#126, below). Any
+          // other meeting card: the member's own tap, which also confirms the
+          // meeting for messaging once a write-up names them (#134, #138).
+          if (card?.kind === "meeting" && !marksCame(card)) {
+            patchCard(id, (item) => ({
+              ...item,
+              unverified: false,
+              wentBy: addName(item.wentBy, me()),
+            }));
+            if (!get().remote) return;
+            // Signed in, the tap also tells the server. The tap stands whatever it
+            // answers, and the mailbox sends the card again when it opens by name.
+            // The server keeps the card only once a write-up there names this
+            // member; before that it is skipped quietly (recordAttendance).
+            try {
+              const { recordAttendance } = await import("../e2ee/mailbox.ts");
+              const { browserTransport } = await import("../e2ee/browser.ts");
+              await recordAttendance(browserTransport(), [id]);
+            } catch {
+              // Nothing to show: the board already says you went.
+            }
+            return;
+          }
           // Only the host or the room's steward marks who came; an admin as an
           // admin does not (Oct 30). See marksCame above.
           if (!card || !marksCame(card)) return;
@@ -1820,7 +1886,11 @@ export const useBoard = create<BoardState>()(
           })),
         openDm: (other) => {
           const name = other.trim();
-          if (!messageableNames(me(), get().cards, get().posts, get().rooms).has(name)) return;
+          if (!name || name === me()) return;
+          // Signed in, the server decides when the conversation opens (the mailbox
+          // asks it). On the demo board the demo rule decides here.
+          if (!get().remote && !localReach(me(), get().cards, get().posts, get().rooms).has(name))
+            return;
           const id = threadIdFor(me(), name);
           const threads = get().threads.some((thread) => thread.id === id)
             ? get().threads
@@ -1853,7 +1923,7 @@ export const useBoard = create<BoardState>()(
           const name = member.name.trim();
           if (!name || name === me()) return;
           // On this device the room's posts decide who you may write to.
-          if (!get().remote && !messageableNames(me(), get().cards, get().posts, get().rooms).has(name))
+          if (!get().remote && !localReach(me(), get().cards, get().posts, get().rooms).has(name))
             return;
           const id = threadIdFor(me(), name);
           const threads = get().threads.some((thread) => thread.id === id)
@@ -1905,6 +1975,7 @@ export const useBoard = create<BoardState>()(
                     ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
                     ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
                     ...(input.options && get().admin ? { options: input.options } : {}),
+                    ...(input.county && get().admin ? { countyId: input.county } : {}),
                   }
                 : room,
             );
@@ -1920,6 +1991,7 @@ export const useBoard = create<BoardState>()(
             ...(input.what !== undefined ? { what: input.what } : {}),
             ...(input.pinOrder !== undefined ? { pinOrder: input.pinOrder } : {}),
             ...(input.options !== undefined ? { options: input.options } : {}),
+            ...(input.county !== undefined ? { county: input.county } : {}),
           });
           if (!saved.ok) return { ok: false, error: saved.error };
           const rooms = get().rooms.map((room) => (room.id === saved.room.id ? saved.room : room));
@@ -1989,6 +2061,7 @@ export const useBoard = create<BoardState>()(
           set({
             rooms: get().rooms.map((room) => (room.id === roomId ? { ...room, joined: true, member: true } : room)),
           });
+          await pullBoard();
           await pullHome();
           return { ok: true };
         },
@@ -2000,6 +2073,7 @@ export const useBoard = create<BoardState>()(
               room.id === roomId ? { ...room, joined: false, member: false } : room,
             ),
           });
+          await pullBoard();
           return saved;
         },
         requestRoom: (input) => placeCall((client) => client.requestRoom(input), false),
@@ -2080,6 +2154,10 @@ export const useBoard = create<BoardState>()(
           setRoomCatalog(ROOMS);
           set({
             remote: false,
+            county: null,
+            homeCounty: null,
+            countiesOn: true,
+            boardLoaded: false,
             admin: false,
             steward: false,
             council: false,
@@ -2164,7 +2242,7 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: "the-board-v1",
-      version: 7,
+      version: 8,
       skipHydration: true,
       partialize: (state) => ({
         room: state.room,
@@ -2173,6 +2251,7 @@ export const useBoard = create<BoardState>()(
         me: state.me,
         profile: state.profile,
         deskOn: state.deskOn,
+        county: state.county,
         steward: state.steward,
         lineDismissedAt: state.lineDismissedAt,
         rsvpMovedFor: state.rsvpMovedFor,

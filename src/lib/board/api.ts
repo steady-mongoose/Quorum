@@ -1,6 +1,7 @@
 import { apiFetch } from "../api-base.ts";
 import { LEGACY_ROOM_OPTIONS, roomOptionsFrom } from "./room-options.ts";
 import { categoryForRoom, type BrowseRoom, type RoomCategory } from "./categories.ts";
+import { isCountyId } from "./counties.ts";
 import { userFacingError } from "../user-facing-error.ts";
 import { isHardRule, isMarkValue } from "./text.ts";
 import type {
@@ -201,6 +202,7 @@ function roomFrom(value: unknown): Room | null {
     // An older server sends no options; it still takes roll everywhere.
     options: Array.isArray(row.options) ? roomOptionsFrom(row.options) : [...LEGACY_ROOM_OPTIONS],
     categoryIds: categoryIdsFrom(row, row.id),
+    ...(isCountyId(row.countyId) ? { countyId: row.countyId } : {}),
     pinOrder:
       typeof row.pinOrder === "number" && Number.isInteger(row.pinOrder) ? row.pinOrder : null,
     joined: row.joined === true,
@@ -407,6 +409,8 @@ export function parseBoard(json: unknown): BoardSnapshot | null {
       ban,
       gender: who.gender === "man" || who.gender === "woman" ? who.gender : null,
       genderConfirmed: who.genderConfirmed === true,
+      homeCounty: isCountyId(who.homeCounty) ? who.homeCounty : null,
+      countiesOn: who.countiesOn === true,
     },
     genderPolicy: genderPolicyFrom(body.genderPolicy),
     rooms,
@@ -624,6 +628,11 @@ export const apiBoardClient: BoardClient = {
   async savePlace(input) {
     const response = await send("/api/place", input);
     if (!response.ok) return homeFailure(response.json, "Your place was not saved.");
+    return { ok: true };
+  },
+  async saveCounty(county) {
+    const response = await send("/api/county", { county });
+    if (!response.ok) return failure(response.json, "Your county was not saved.");
     return { ok: true };
   },
   async joinRoom(roomId) {

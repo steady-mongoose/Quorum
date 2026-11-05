@@ -58,7 +58,7 @@ export function parseMemberList(value: unknown): MemberList | null {
 
 export async function loadRoomMembers(
   roomId: string,
-): Promise<{ ok: true; list: MemberList } | { ok: false; error: string }> {
+): Promise<{ ok: true; list: MemberList } | { ok: false; error: string; status?: number }> {
   const fallback = "The member list did not load.";
   const response = await apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members`, {
     method: "GET",
@@ -70,10 +70,27 @@ export async function loadRoomMembers(
       json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string"
         ? (json as { error: string }).error
         : fallback;
-    return { ok: false, error: userFacingError(raw, fallback) };
+    return { ok: false, error: userFacingError(raw, fallback), status: response.status };
   }
   const list = parseMemberList(json);
   return list ? { ok: true, list } : { ok: false, error: fallback };
+}
+
+/**
+ * The names a host picks from on a write-up: the room's members, in name order,
+ * and never the host. Upcoming RSVPs stay private, so only an admin gets the
+ * going list merged in.
+ */
+export function rollChoices(input: {
+  members: readonly string[];
+  going: readonly string[];
+  admin: boolean;
+  me: string;
+}): string[] {
+  const names = new Set(input.members);
+  if (input.admin) for (const name of input.going) names.add(name);
+  names.delete(input.me);
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 function isoDay(at: number): string {

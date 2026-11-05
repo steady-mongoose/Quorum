@@ -1,4 +1,5 @@
 import { listAdminRooms, moveRoom } from "./rooms-admin.ts";
+import { saveHomeCounty } from "./counties.ts";
 import { BOARD_READ_LIMIT, BOARD_WRITE_LIMIT, consumeLimit } from "../rate-limit.ts";
 import { CLIENT_IP_HEADER, rateLimitIp } from "../proxy.ts";
 import type { Db } from "../db.ts";
@@ -248,6 +249,7 @@ export async function handleBoard(
     Boolean(roomAudience && request.method === "POST") ||
     Boolean(roomMembers && request.method === "GET") ||
     (url.pathname === "/api/place" && request.method === "POST") ||
+    (url.pathname === "/api/county" && request.method === "POST") ||
     (url.pathname === "/api/room-requests" && request.method === "POST") ||
     (url.pathname === "/api/zips" && request.method === "POST") ||
     (url.pathname === "/api/access" && request.method === "POST") ||
@@ -524,6 +526,7 @@ export async function handleBoard(
         name: stringField(body, "name"),
         what: stringField(body, "what"),
         categoryIds: categoryIdsField(body).categoryIds ?? [],
+        county: body.county,
         audience: body.audience,
         stewardEmail: stringField(body, "stewardEmail"),
         inviterEmail: stringField(body, "inviterEmail"),
@@ -560,6 +563,7 @@ export async function handleBoard(
           ...(typeof body.what === "string" ? { what: body.what } : {}),
           ...pinField(body),
           ...(body.options !== undefined ? { options: body.options } : {}),
+          ...(body.county !== undefined ? { county: body.county } : {}),
           now,
         }),
       );
@@ -664,6 +668,17 @@ export async function handleBoard(
       );
     }
 
+    if (url.pathname === "/api/county") {
+      return fromResult(
+        200,
+        await saveHomeCounty(deps.db, {
+          userId: session.id,
+          county: stringField(body, "county"),
+          now,
+        }),
+      );
+    }
+
     if (url.pathname === "/api/room-requests") {
       return fromResult(
         201,
@@ -672,6 +687,7 @@ export async function handleBoard(
           kind: stringField(body, "kind"),
           name: stringField(body, "name"),
           state: stringField(body, "state"),
+          county: stringField(body, "county"),
           now,
         }),
       );

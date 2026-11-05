@@ -376,6 +376,56 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   font-size:clamp(1.875rem,0.35rem + 2vw,2.25rem);
   line-height:1;
 }
+.mast-county-button{
+  display:inline-flex;
+  align-items:center;
+  gap:0.25rem;
+  min-height:44px;
+  max-width:100%;
+  padding:0;
+  border:0;
+  border-radius:3px;
+  background:transparent;
+  color:#bcae94;
+  font-size:0.875rem;
+  cursor:pointer;
+}
+.mast-county-button:hover{color:var(--gold)}
+.mast-county-button[aria-expanded="true"] svg{transform:rotate(180deg)}
+/* JS sets top and left under the button. */
+.county-menu{
+  position:fixed;
+  inset:auto;
+  width:min(14rem,calc(100vw - 16px));
+  margin:0;
+  padding:6px;
+  border:1px solid var(--gold);
+  border-radius:8px;
+  background:var(--surface);
+  color:var(--fg);
+  box-shadow:0 12px 32px rgb(0 0 0 / 0.5);
+}
+.county-menu::backdrop{background:transparent}
+.county-menu ul{list-style:none;margin:0;padding:0}
+.county-menu button{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  width:100%;
+  min-height:44px;
+  padding:0 12px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:var(--muted);
+  font-family:var(--font-display);
+  font-size:1.125rem;
+  text-align:left;
+  cursor:pointer;
+}
+.county-menu button:hover,.county-menu button:focus-visible{background:var(--card-raised);color:var(--fg)}
+.county-menu button[aria-current="true"]{color:var(--fg)}
+.county-menu button svg{color:var(--gold)}
 .mast[data-entered="true"] .mast-tagline{
   margin-top:0.25rem;
   font-size:0.875rem;
@@ -399,18 +449,20 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 #open-the-door,#sign-in{scroll-margin-top:.5rem}
 /* The door column starts with Invite only, rather than sitting in the vertical centre. */
 .door-columns{align-items:start}
-/* Desktop door: the art and the page-height gold frame wrap the whole door grid, and "The rooms" sits under
-   Open the door so both columns end together. Phones keep the DOM order (hero, week, rooms, door). */
+/* Desktop door: the art and the page-height gold frame wrap the whole door grid. The welcome and Open the door
+   stand side by side, and How it works and The rooms each run the full width under them, so no column ends short.
+   Phones keep the DOM order (hero, week, rooms, door). */
 @media (min-width:1024px){
   body:has(.door-columns){position:relative}
   body:has(.door-columns) .plate-ground{position:absolute;inset:0;height:auto;margin-bottom:0;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
   body:has(.door-columns) .scrim{position:absolute}
-  .door-columns{grid-template-areas:"hero side" "week side" "week rooms";grid-template-rows:auto 1fr auto;row-gap:2rem}
+  .door-columns{grid-template-areas:"hero side" "week week" "rooms rooms";grid-template-rows:auto;row-gap:2rem}
   .door-main{display:contents}
   .door-side{grid-area:side;position:static;align-self:start}
-  .door-hero{grid-area:hero;align-self:start}
+  .door-hero{grid-area:hero;align-self:stretch}
   .door-week{grid-area:week;align-self:start}
   .door-rooms{grid-area:rooms;align-self:start}
 }
 /* The rooms list on the door reads at body size. */
 .door-rooms p{font-size:0.95rem;line-height:1.6}
+.door-what{max-width:70ch}

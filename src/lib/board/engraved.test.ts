@@ -27,7 +27,8 @@ test("the engraved stylesheet stays under 3 KB gzipped", () => {
 });
 
 test("Martin is only the landing and the sign-in plate", () => {
-  assert.match(css, /--art-landing:url\("\/art\/martin-hero-A\.webp"\)/);
+  assert.match(css, /--art-landing:url\("\/art\/martin-joshua-A\.webp"\)/);
+  assert.equal(css.includes("martin-hero"), false);
   assert.match(css, /\[data-section="landing"\],\[data-section="signin"\]\{background:var\(--bg\)\}/);
   assert.match(
     css,

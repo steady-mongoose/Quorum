@@ -33,13 +33,21 @@ import {
 
 const TEXT = "The framing night is Thursday, bring the saw.";
 
-async function member(db: Db, name: string): Promise<string> {
+async function member(db: Db, name: string, granted = true): Promise<string> {
   const id = randomUUID();
   await db.query(
     `insert into "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
      values ($1, $2, $3, true, now(), now())`,
     [id, name, `${name}-${id}@example.com`],
   );
+  // A live board membership: messaging needs one on both sides, as rooms do.
+  if (granted)
+    await db.query(
+      `insert into access_log
+     (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+     values ($1, $2, $3, 'member', '', 'grant', 'test', 'test', 'test', 'Granted for the test.', now() - interval '30 days')`,
+      [randomUUID(), id, name],
+    );
   return id;
 }
 
@@ -353,9 +361,12 @@ test("a claimed meeting id is not attendance, and peers do not reveal who went",
       [carol, now],
     );
     assert.deepEqual(await listPeers(db, carol), []);
+    // Attendance is add-only: an empty list removes nothing, so the invented
+    // row stays. It still grants nothing: no write-up names Carol.
     assert.equal((await recordAttendance(db, carol, now)).ok, true);
     const invented = await db.query(`select meeting_id from dm_attendance where user_id = $1`, [carol]);
-    assert.equal(invented.length, 0);
+    assert.equal(invented.length, 1);
+    assert.deepEqual(await listPeers(db, carol), []);
     assert.equal((await openThread(db, carol, alice, now)).ok, false);
 
     await meet(db, [alice, bob]);
@@ -550,6 +561,10 @@ test("a reused card does not leak attendees, and a came list is not attendance",
         [randomUUID(), id, name],
       );
     }
+    await db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [
+      friend,
+      now,
+    ]);
     const hosted = {
       type: "hosted",
       claim: "The framing night went well and the next one is set.",
@@ -699,6 +714,7 @@ test("a listed name is the account that existed when the host posted", async () 
     const host = await member(db, "Host");
     const willa = await member(db, "Willa");
     const mallory = await member(db, "Mallory");
+    const firstPete = await member(db, "Pete");
     for (const [id, name] of [
       [host, "Host"],
       [willa, "Willa"],
@@ -710,6 +726,12 @@ test("a listed name is the account that existed when the host posted", async () 
          values ($1, $2, $3, 'member', 'grant', 'test', 'test', 'test', 'Granted for the test.')`,
         [randomUUID(), id, name],
       );
+    }
+    for (const id of [willa, firstPete]) {
+      await db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', $2)`, [
+        id,
+        now,
+      ]);
     }
     const posted = await createPost(db, {
       userId: host,
@@ -726,6 +748,7 @@ test("a listed name is the account that existed when the host posted", async () 
       now,
     });
     assert.equal(posted.ok, true);
+    await db.query(`update "user" set name = 'Peter' where id = $1`, [firstPete]);
     await db.query(`update "user" set name = 'Pete' where id = $1`, [mallory]);
     const pete = await member(db, "Pete");
     assert.equal((await recordAttendance(db, mallory, now, ["s-named-night"])).ok, true);
@@ -752,13 +775,13 @@ test("existing hosted posts are named when the private-message migration runs", 
     const now = new Date("2026-10-19T12:00:00Z");
     const earlier = new Date("2026-10-19T11:00:00Z");
     const later = new Date("2026-10-20T12:00:00Z");
-    const host = await member(db, "Host");
-    const willa = await member(db, "Willa");
-    const firstBob = await member(db, "Bob");
-    const secondBob = await member(db, "Bob");
-    const peteThen = await member(db, "Pete");
-    const mallory = await member(db, "Mallory");
-    const peteNow = await member(db, "Pete");
+    const host = await member(db, "Host", false);
+    const willa = await member(db, "Willa", false);
+    const firstBob = await member(db, "Bob", false);
+    const secondBob = await member(db, "Bob", false);
+    const peteThen = await member(db, "Pete", false);
+    const mallory = await member(db, "Mallory", false);
+    const peteNow = await member(db, "Pete", false);
     const grant = async (userId: string, name: string, at: Date) => {
       await db.query(
         `insert into access_log
@@ -767,6 +790,7 @@ test("existing hosted posts are named when the private-message migration runs", 
         [randomUUID(), userId, name, at],
       );
     };
+    await grant(host, "Host", earlier);
     await grant(willa, "Willa", earlier);
     await grant(firstBob, "Bob", earlier);
     await grant(secondBob, "Bob", earlier);

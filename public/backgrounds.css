@@ -6,7 +6,7 @@
   --gold:#c9a45c; --focus:#8f6f2f; --accent:#b4483e;      /* oxblood, lightened for dark ground */
   --btn-bg:#f0e7d3; --btn-ink:#14100c;
   --scrim:linear-gradient(90deg,rgba(20,16,12,0) 0%,rgba(20,16,12,.55) 45%,rgba(20,16,12,.88) 70%);
-  --art-landing:url("/art/martin-hero-A.webp");
+  --art-landing:url("/art/martin-joshua-A.webp");
   --art-week-band:url("/art/dore-band-A.webp"); --art-week-side:url("/art/dore-side-A.webp");
   --art-rooms-band:url("/art/durer-jerome-band-A.webp"); --art-rooms-side:url("/art/durer-jerome-side-A.webp");
   --art-messages-side:url("/art/durer-hands-side-A.webp");
@@ -22,7 +22,7 @@
   --gold:#8f6f2f; --focus:#8f6f2f; --accent:#24467d;     /* lapis */
   --btn-bg:#24467d; --btn-ink:#fffaf0;
   --scrim:linear-gradient(90deg,rgba(236,226,204,0) 0%,rgba(236,226,204,.6) 45%,rgba(236,226,204,.9) 70%);
-  --art-landing:url("/art/martin-hero-B.webp");
+  --art-landing:url("/art/martin-joshua-B.webp");
   --art-week-band:url("/art/dore-band-B.webp"); --art-week-side:url("/art/dore-side-B.webp");
   --art-rooms-band:url("/art/durer-jerome-band-B.webp"); --art-rooms-side:url("/art/durer-jerome-side-B.webp");
   --art-messages-side:url("/art/durer-hands-side-B.webp");
@@ -33,7 +33,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 [data-section="landing"],[data-section="signin"]{background:var(--bg)}
 .plate-ground{position:sticky;top:0;height:100lvh;margin-bottom:-100lvh;z-index:0;pointer-events:none}
 [data-section="landing"] .plate-ground,[data-section="signin"] .plate-ground{background:var(--art-landing) center 30%/cover no-repeat}
-.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet):not(.skip-link):not(.call-rings):not(.session-line):not(dialog){position:relative;z-index:1}
+.shell>*:not(.plate-ground):not(.scrim):not(.top):not(.tabbar):not(.more-sheet):not(.skip-link):not(.call-rings):not(.session-line):not(.pn):not(dialog){position:relative;z-index:1}
 [data-section="landing"] .scrim{position:fixed;inset:0;background:var(--scrim);pointer-events:none;z-index:0}
 @media (max-width:640px){
   [data-section="landing"] .plate-ground{height:62lvh;margin-bottom:-62lvh;background-size:auto 62lvh;background-position:center top}

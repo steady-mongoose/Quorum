@@ -246,7 +246,7 @@ test("joining a room needs an invite to it; stewards and admins are exempt; leav
     assert.deepEqual(refused.ok ? null : [refused.status, refused.error], [403, ROOM_INVITE_ONLY]);
     assert.equal(
       ROOM_INVITE_ONLY,
-      "Only members of this room can post here. Ask a member of the room for an invite.",
+      "Only members of this room can read and post here. Ask a member of the room for an invite.",
     );
 
     const invited = await person(db, "Invited", [
@@ -368,6 +368,60 @@ test("an exempt post never puts an admin or steward in the room or opens chat an
       now: later,
     });
     assert.equal(after.ok, false);
+  } finally {
+    await close();
+  }
+});
+
+test("a room's posts reach its members, its stewards and admins, not every member", async () => {
+  const { db, close } = await openTestDb();
+  try {
+    const author = await person(db, "Author", [
+      ["member", ""],
+      ["member", "shop"],
+    ]);
+    const outsider = await person(db, "Outsider");
+    const steward = await person(db, "Steward", [
+      ["member", ""],
+      ["steward", "shop"],
+    ]);
+    const admin = await person(db, "Admin", [["admin", ""]]);
+    assert.equal((await joinRoom(db, { userId: author, roomId: "shop", now })).ok, true);
+    const post = await createPost(db, {
+      userId: author,
+      name: "Author",
+      roomId: "shop",
+      body: did,
+      now,
+    });
+    assert.equal(post.ok, true);
+    if (!post.ok) return;
+    const reply = await replyToPost(db, {
+      userId: author,
+      name: "Author",
+      postId: post.value.id,
+      claim: "They cut clean now.",
+      now,
+    });
+    assert.equal(reply.ok, true);
+
+    const reads = async (userId: string, room?: string) => {
+      const board = await listBoard(db, userId, now, room ? { room } : {});
+      assert.equal(board.ok, true);
+      return board.ok ? board.value : null;
+    };
+    for (const room of [undefined, "shop"]) {
+      const shut = await reads(outsider, room);
+      assert.equal(shut?.posts.length, 0);
+      assert.equal(shut?.marks.length, 0);
+      assert.ok(shut?.rooms.some((item) => item.id === "shop"), "the room stays listed");
+      for (const reader of [author, steward, admin]) {
+        assert.equal((await reads(reader, room))?.posts.length, 2);
+      }
+    }
+
+    assert.equal((await joinRoom(db, { userId: author, roomId: "shop", now, leave: true })).ok, true);
+    assert.equal((await reads(author))?.posts.length, 0);
   } finally {
     await close();
   }

@@ -54,11 +54,11 @@ const composer = () =>
     createElement("button", { type: "button" }, "Reply"),
   );
 
-test("the line is the server's 403 text plus the invite wording", () => {
+test("the server's 403 text, and the invite line that also covers reading", () => {
   assert.equal(MEMBERS_ONLY_POST, "Only members of this room can post here.");
   assert.equal(
     MEMBERS_ONLY_INVITE,
-    "Only members of this room can post here. Ask a member of the room for an invite.",
+    "Only members of this room can read and post here. Ask a member of the room for an invite.",
   );
 });
 

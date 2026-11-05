@@ -29,37 +29,39 @@ const PLATES: Record<string, { left: Panel; right: Panel }> = {
     right: { artist: "Albrecht Dürer", work: "Saint Jerome in His Study", box: [0.408, 0.287, 0.742, 0.647] },
   },
   "plate-room-A-2400.webp": {
-    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.389, 0.105, 0.821, 0.555] },
+    left: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.15, 0.555, 0.56, 0.95] },
     right: { artist: "Gustave Doré", work: "The Sermon on the Mount", box: [0.627, 0.55, 0.973, 0.91] },
   },
+  // Nov 3: no nude art, male or female. Dürer's Rose Garlands had naked cherubs; both sides are now clothed Doré.
   "plate-groups-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0, 0.29, 0.361, 0.89] },
-    right: { artist: "Albrecht Dürer", work: "The Feast of the Rose Garlands", box: [0.639, 0.24, 1.0, 0.84] },
+    left: { artist: "Gustave Doré", work: "Troubadours Sing the Glories of the Crusades", box: [0, 0, 1, 1] },
+    right: { artist: "Gustave Doré", work: "The Crusaders' War Machinery", box: [0, 0, 1, 1] },
   },
   "plate-group-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "Ruth and Boaz", box: [0, 0.225, 0.492, 0.775] },
     right: { artist: "Gustave Doré", work: "Ruth and Boaz", box: [0.508, 0.225, 1, 0.775] },
   },
+  // Nov 3: Bauer's Tuvstarr is a nude girl, so Find stands on Doré's crusaders instead.
   "plate-find-A-2400.webp": {
-    left: { artist: "John Bauer", work: "Princess Tuvstarr", box: [0.36, 0.275, 0.754, 0.825] },
-    right: { artist: "John Bauer", work: "Princess Tuvstarr", box: [0, 0.25, 0.358, 0.75] },
+    left: { artist: "Gustave Doré", work: "The Crusaders Cross Mount Taurus", box: [0, 0, 1, 0.86] },
+    right: { artist: "Gustave Doré", work: "A Friendly Tournament", box: [0, 0, 1, 1] },
   },
   "plate-messages-A-2400.webp": {
     left: { artist: "Albrecht Dürer", work: "Praying Hands", box: [0.138, 0.1, 0.862, 0.8] },
     right: { artist: "Albrecht Dürer", work: "Erasmus of Rotterdam", box: [0.202, -0.075, 0.823, 0.6] },
   },
   "plate-you-A-2400.webp": {
-    left: { artist: "Albrecht Dürer", work: "Self-Portrait at Thirteen", box: [0.156, -0.28, 1.456, 1.0] },
-    right: { artist: "Albrecht Dürer", work: "Self-Portrait, 1500", box: [-0.026, -0.037, 0.688, 0.689] },
+    left: { artist: "Gustave Doré", work: "Bohemond Alone Mounts the Rampart of Antioch", box: [0, 0, 0.52, 1] },
+    right: { artist: "Gustave Doré", work: "The Battle of Antioch", box: [0, 0, 1, 1] },
   },
   "plate-desk-A-2400.webp": {
     left: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0.338, 0, 0.732, 0.45] },
     right: { artist: "Gustave Doré", work: "The Judgment of Solomon", box: [0, 0.265, 0.325, 0.636] },
   },
   // The door's plate, already 2400 wide: its left and its right half.
-  "martin-hero-A.webp": {
-    left: { artist: "John Martin", work: "The Creation of Light", box: [0, 0, 0.5, 1] },
-    right: { artist: "John Martin", work: "The Creation of Light", box: [0.5, 0, 1, 1] },
+  "martin-joshua-A.webp": {
+    left: { artist: "John Martin", work: "Joshua Commanding the Sun to Stand Still", box: [0, 0, 0.5, 1] },
+    right: { artist: "John Martin", work: "Joshua Commanding the Sun to Stand Still", box: [0.5, 0, 1, 1] },
   },
 };
 
@@ -73,7 +75,7 @@ const PAGES: { name: string; section: string; view?: string; wide: string }[] = 
   { name: "Messages", section: "messages", wide: "plate-messages-A-2400.webp" },
   { name: "You", section: "profile", wide: "plate-you-A-2400.webp" },
   { name: "The desk", section: "civic", wide: "plate-desk-A-2400.webp" },
-  { name: "About", section: "about", wide: "martin-hero-A.webp" },
+  { name: "About", section: "about", wide: "martin-joshua-A.webp" },
 ];
 
 function render(section: string, view: string | undefined, width: number) {
@@ -150,9 +152,14 @@ test("below 1600px each page keeps its single 1600px plate", () => {
 
 test("the credit chip names both works where the right edge is a second work", () => {
   assert.equal(plateCaptionWide("messages", null), "Albrecht Dürer · Praying Hands · 1508, and Erasmus of Rotterdam · 1526");
-  assert.equal(plateCaptionWide("profile", null), "Albrecht Dürer · Self-Portrait at Thirteen · 1484, and Self-Portrait · 1500");
+  assert.equal(plateCaptionWide("profile", null), "Gustave Doré · Bohemond Alone Mounts the Rampart of Antioch, and The Battle of Antioch · 1877");
+  assert.equal(plateCaption("profile", null), "Gustave Doré · The Battle of Antioch · 1877");
   assert.equal(plateCaptionWide("week", null), null);
   assert.equal(plateCaptionWide("groups", "group"), null);
+  assert.equal(plateCaptionWide("groups", null), "Gustave Doré · Troubadours Sing the Glories of the Crusades, and The Crusaders’ War Machinery · 1877");
+  assert.equal(plateCaption("groups", null), "Gustave Doré · The Crusaders’ War Machinery · 1877");
+  assert.equal(plateCaptionWide("find", null), "Gustave Doré · The Crusaders Cross Mount Taurus, and A Friendly Tournament · 1877");
+  assert.equal(plateCaption("find", null), "Gustave Doré · A Friendly Tournament · 1877");
   assert.equal(plateCaption("messages", null), "Albrecht Dürer · Erasmus of Rotterdam · 1526");
   const wide = render("messages", undefined, 1920);
   assert.deepEqual([wide.narrow, wide.wide], ["none", "block"]);
@@ -173,12 +180,18 @@ const HEADER_PX = 115; // the sticky header, measured in the real app at 1600-25
 const HEADS: Record<string, { who: string; box: [number, number, number, number]; from: number }[]> = {
   "plate-messages-A-2400.webp": [{ who: "Erasmus", box: [2020, 210, 2150, 570], from: 1600 }],
   "plate-you-A-2400.webp": [
-    { who: "the boy at thirteen", box: [8, 435, 380, 735], from: 1600 },
-    { who: "Dürer at twenty-eight", box: [2020, 400, 2320, 880], from: 1600 },
+    { who: "Bohemond on the ladder", box: [345, 390, 380, 432], from: 1600 },
+    { who: "the nearest rider", box: [2125, 930, 2160, 985], from: 1600 },
+    { who: "the rider beside him", box: [2212, 915, 2250, 970], from: 1600 },
   ],
   "plate-groups-A-2400.webp": [
-    { who: "the man in the black cap (left)", box: [170, 340, 260, 490], from: 1600 },
-    { who: "the man in the black cap (right)", box: [2030, 500, 2140, 620], from: 1600 },
+    { who: "the standing lady among the listeners", box: [280, 490, 335, 545], from: 1600 },
+    { who: "the man at the engine's wheel", box: [2035, 935, 2080, 985], from: 1600 },
+  ],
+  "plate-find-A-2400.webp": [
+    { who: "the climber at the top left", box: [180, 370, 225, 415], from: 1600 },
+    { who: "the knight in the round helmet", box: [2045, 795, 2095, 850], from: 1600 },
+    { who: "the standing man in the turban", box: [2315, 630, 2370, 720], from: 1600 },
   ],
   "plate-desk-A-2400.webp": [
     { who: "the woman in the turban", box: [130, 400, 230, 560], from: 1600 },
@@ -189,8 +202,7 @@ const HEADS: Record<string, { who: string; box: [number, number, number, number]
     { who: "Saint Jerome", box: [2040, 600, 2250, 870], from: 1600 },
   ],
   "plate-room-A-2400.webp": [
-    { who: "Christ", box: [250, 600, 360, 725], from: 1600 },
-    { who: "the woman beside Christ", box: [40, 710, 115, 805], from: 1600 },
+    { who: "the listener at the left", box: [20, 420, 120, 560], from: 1600 },
   ],
   "plate-week-A-2400.webp": [{ who: "Jacob", box: [230, 420, 380, 520], from: 1600 }],
 };
@@ -243,6 +255,17 @@ for (const [vw, vh] of [[1600, 900], [1700, 956], [1920, 1080], [2560, 1440]] as
     }
   });
 }
+
+test("no page stands on a nude (Josh, Nov 3: none, male or female)", () => {
+  // Bauer's Tuvstarr is a nude girl; Dürer's Rose Garlands has naked cherubs and the Child.
+  const NUDE = /Tuvstarr|Rose Garlands/;
+  for (const [file, { left, right }] of Object.entries(PLATES)) {
+    assert.doesNotMatch(left.work, NUDE, file);
+    assert.doesNotMatch(right.work, NUDE, file);
+  }
+  assert.doesNotMatch(read("src/lib/board/engraved.ts"), NUDE);
+  assert.doesNotMatch(read("public/art/ATTRIBUTION.md").split("### Retired")[0], NUDE);
+});
 
 test("every wide plate's heads are on the manifest's two-sided list", () => {
   for (const f of Object.keys(HEADS)) assert.ok(PLATES[f], f);

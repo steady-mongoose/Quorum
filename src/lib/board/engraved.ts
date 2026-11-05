@@ -39,10 +39,10 @@ const HERO_LABEL: Record<Section, string> = {
   week: "Gustave Doré, Jacob’s Dream, 1866",
   rooms: "Albrecht Dürer, Saint Jerome in His Study, 1514",
   messages: "Albrecht Dürer, Saint Jerome in His Study, 1514",
-  find: "John Bauer, Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn, 1913",
-  groups: "Albrecht Dürer, The Feast of the Rose Garlands, 1506",
-  profile: "Albrecht Dürer, Self-Portrait at Thirteen, 1484",
-  about: "John Martin, The Creation of Light, 1824–27",
+  find: "Gustave Doré, A Friendly Tournament, 1877",
+  groups: "Gustave Doré, The Crusaders’ War Machinery, 1877",
+  profile: "Gustave Doré, The Battle of Antioch, 1877",
+  about: "John Martin, Joshua Commanding the Sun to Stand Still, 1827",
   civic: "Gustave Doré, The Judgment of Solomon, 1866",
 };
 
@@ -72,22 +72,54 @@ const PLATE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   week: "Gustave Doré · Jacob’s Dream · 1866",
   rooms: "Albrecht Dürer · Saint Jerome in His Study · 1514",
   room: "Gustave Doré · The Sermon on the Mount · 1866",
-  groups: "Albrecht Dürer · The Feast of the Rose Garlands · 1506",
+  groups: "Gustave Doré · The Crusaders’ War Machinery · 1877",
   group: "Gustave Doré · Ruth and Boaz · 1866",
-  find: "John Bauer · Princess Tuvstarr Gazing Down into the Dark Waters of the Forest Tarn · 1913",
+  find: "Gustave Doré · A Friendly Tournament · 1877",
   messages: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
-  profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484",
-  about: "John Martin · The Creation of Light · 1824–27",
+  profile: "Gustave Doré · The Battle of Antioch · 1877",
+  about: "John Martin · Joshua Commanding the Sun to Stand Still · 1827",
   civic: "Gustave Doré · The Judgment of Solomon · 1866",
 };
 
 /**
- * From 1600px the Messages and You plates put a second work on the right edge (art-two-sides.test.ts),
+ * About's section plates, each chosen for what its section says and credited where it stands. Josh's rules:
+ * Jesus is never featured, no crop cuts off a head, and no work appears twice on the page.
+ * Every file is a square, the shape of a social post, so a figure keeps its body, and the page never crops it.
+ */
+export const SECTION_PLATE = {
+  crusader: {
+    alt: "A crusader on a rearing horse with his sword raised, a rider behind him carrying a tall cross",
+    caption: "Gustave Doré · The Count of Anjou at the Battle of Mansourah · 1877",
+  },
+  gathering: {
+    alt: "Knights, ladies and children gathered under the trees to hear two singers and a harper",
+    caption: "Gustave Doré · Troubadours Sing the Glories of the Crusades · 1877",
+  },
+  study: {
+    alt: "Saint Jerome writing in his room",
+    caption: "Albrecht Dürer · Saint Jerome in His Study · 1514",
+  },
+  judgment: {
+    alt: "Solomon standing with one hand raised",
+    caption: "Gustave Doré · The Judgment of Solomon · 1866",
+  },
+  writing: {
+    alt: "Erasmus writing at his desk",
+    caption: "Albrecht Dürer · Erasmus of Rotterdam · 1526",
+  },
+} as const;
+
+export type SectionPlateId = keyof typeof SECTION_PLATE;
+
+/**
+ * From 1600px the Messages, You, Groups and Find plates show a different work on each edge (art-two-sides.test.ts),
  * so their chip names both. Other pages show two parts of one work and keep the one-work chip.
  */
 const WIDE_CAPTION: Partial<Record<Section | PlateView, string>> = {
   messages: "Albrecht Dürer · Praying Hands · 1508, and Erasmus of Rotterdam · 1526",
-  profile: "Albrecht Dürer · Self-Portrait at Thirteen · 1484, and Self-Portrait · 1500",
+  profile: "Gustave Doré · Bohemond Alone Mounts the Rampart of Antioch, and The Battle of Antioch · 1877",
+  groups: "Gustave Doré · Troubadours Sing the Glories of the Crusades, and The Crusaders’ War Machinery · 1877",
+  find: "Gustave Doré · The Crusaders Cross Mount Taurus, and A Friendly Tournament · 1877",
 };
 
 export function plateCaptionWide(section: ArtSection | null, view: PlateView | null): string | null {

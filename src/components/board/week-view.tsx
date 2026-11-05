@@ -24,6 +24,8 @@ import { RsvpControl } from "@/components/board/rsvp-control";
 import { isSpecial } from "@/lib/board/rsvp-rules";
 import { armRoom, clearChipNames, withViewTransition } from "@/lib/board/motion";
 import { useBoard } from "@/lib/board/store";
+import { useCounty } from "@/components/board/use-county";
+import { cardsForWeek, deskShown } from "@/lib/board/counties";
 import { useQuorum } from "@/lib/quorum/store";
 import { formatWindow, officeById, telHref, windowStatus } from "@/lib/quorum/model";
 
@@ -39,21 +41,26 @@ export function WeekView() {
   const viewerHosts = useBoard((state) => state.rsvpHosts);
   const viewerById = useBoard((state) => state.remote);
   const viewerRooms = useBoard((state) => state.stewardRooms);
+  const rooms = useBoard((state) => state.rooms);
+  const county = useCounty();
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, {
+    () =>
+      cardsForWeek(boardCards, rooms, county).map((card) =>
+        forViewer(card, {
           admin: viewerAdmin,
           name: viewerName,
           hosts: viewerHosts,
           byId: viewerById,
           stewardRooms: viewerRooms,
-        })),
-    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
+        }),
+      ),
+    [boardCards, rooms, county, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const posts = useBoard((state) => state.posts);
   const me = useBoard((state) => authorName(state.me));
   const setSection = useBoard((state) => state.setSection);
   const navigate = useNavigate();
-  const deskOn = useBoard((state) => state.deskOn);
+  const deskOn = deskShown(useBoard((state) => state.deskOn), county);
   const justCleared = useBoard((state) => state.undoClear !== null);
   const today = todayIso();
   const week = useMemo(
@@ -94,7 +101,7 @@ export function WeekView() {
                 className="text-signal underline"
                 onClick={() => {
                   setSection("rooms");
-                  void navigate({ to: "/rooms" });
+                  void navigate({ to: "/$county/rooms", params: { county } });
                 }}
               >
                 Look in the rooms

@@ -241,6 +241,16 @@ test("an unconfirmed admin with no authenticator can confirm their age, then rea
     const body = (await session.json()) as { ageConfirmed?: boolean; mfa?: string };
     assert.equal(body.ageConfirmed, true);
     assert.equal(body.mfa, "enroll");
+
+    // The county question comes next, and the setup on You sits behind it too.
+    const county = await call("/api/county", { method: "POST", body: JSON.stringify({ county: "polk" }) });
+    assert.equal(county.status, 200);
+    const home = await db.query<{ home_county: string | null }>(
+      `select home_county from members where user_id = $1`,
+      [id],
+    );
+    assert.equal(home[0]?.home_county, "polk");
+
     const start = await call("/api/mfa/enroll/start", { method: "POST", body: JSON.stringify({ kind: "totp" }) });
     assert.notEqual(start.status, 403);
     const startError = await errorOf(start);

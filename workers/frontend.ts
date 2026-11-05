@@ -16,6 +16,9 @@ import { isGatheringId, publicGatheringHtml } from "../src/lib/board/public-gath
  * Scripts come only from this site, plus the Cloudflare Insights beacon the
  * edge injects. The build moves the shell's inline boot scripts into files
  * (scripts/externalize-inline-scripts.mjs) because inline scripts are refused.
+ * 'wasm-unsafe-eval' lets libsodium compile its WebAssembly for message
+ * encryption. Without it libsodium falls back to far slower code. It does not
+ * allow JavaScript eval.
  * Objects come only from this site. Styles and fonts also allow
  * the typefaces the shell already loads. Trusted Types are not required:
  * React writes the page without a policy, and turning the requirement on
@@ -24,7 +27,7 @@ import { isGatheringId, publicGatheringHtml } from "../src/lib/board/public-gath
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' https://static.cloudflareinsights.com",
+  "script-src 'self' https://static.cloudflareinsights.com 'wasm-unsafe-eval'",
   "style-src 'self'",
   "font-src 'self'",
   "img-src 'self' data: blob:",

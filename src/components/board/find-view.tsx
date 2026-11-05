@@ -12,6 +12,7 @@ import {
   useCopy,
 } from "@/components/quorum/bits";
 import { GatheringShareControl } from "@/components/board/gathering-share";
+import { RollCallPicker } from "@/components/board/roll-call";
 import { RsvpControl } from "@/components/board/rsvp-control";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
@@ -27,7 +28,6 @@ import {
   readingLine,
   roomById,
   roomIncludes,
-  stoodWith,
   todayIso,
   witnessesByTrade,
   type CardKind,
@@ -62,6 +62,10 @@ import {
 import { focusWithRing } from "@/lib/board/focus-ring";
 import { userFacingError } from "@/lib/board/errors";
 import { forgetSavedClose, savedClose, useBoard } from "@/lib/board/store";
+import { useCounty } from "@/components/board/use-county";
+import { cardsForFind } from "@/lib/board/counties";
+import { forgetMessageReach, useMessageReach } from "@/components/board/use-message-reach";
+import { isGatheringId } from "@/lib/board/public-gathering";
 import { scrollRestoredCard } from "@/lib/board/scroll-card";
 import { OWNER_THEME, themeById, themeVars } from "@/lib/board/themes";
 import { NeedCard } from "@/components/board/week-view";
@@ -73,15 +77,20 @@ export function FindView() {
   const viewerHosts = useBoard((state) => state.rsvpHosts);
   const viewerById = useBoard((state) => state.remote);
   const viewerRooms = useBoard((state) => state.stewardRooms);
+  const boardRooms = useBoard((state) => state.rooms);
+  const county = useCounty();
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, {
+    () =>
+      cardsForFind(boardCards, boardRooms, county).map((card) =>
+        forViewer(card, {
           admin: viewerAdmin,
           name: viewerName,
           hosts: viewerHosts,
           byId: viewerById,
           stewardRooms: viewerRooms,
-        })),
-    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
+        }),
+      ),
+    [boardCards, boardRooms, county, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const posts = useBoard((state) => state.posts);
   const scrollCardId = useBoard((state) => state.scrollCardId);
@@ -89,7 +98,14 @@ export function FindView() {
   const steward = useBoard((state) => state.steward);
 
   const witnesses = useMemo(() => witnessesByTrade(posts, cards), [posts, cards]);
-  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  const joined = useBoard((state) => state.rooms);
+  // Hosts' rooms you are in: their member lists carry the server's answer.
+  const hostRooms = useMemo(() => {
+    const mine = new Set(joined.filter((room) => room.joined).map((room) => room.id));
+    return [...new Set(cards.map((card) => card.room))].filter((id) => mine.has(id));
+  }, [joined, cards]);
+  const reach = useMessageReach(hostRooms);
+  const peers = useMemo(() => ({ has: reach.canMessage, loaded: reach.loaded }), [reach]);
   const clear = useMemo(() => hostsClear(posts), [posts]);
   const groups = useMemo(() => {
     const out = {
@@ -200,7 +216,8 @@ type RowProps = {
   card: MeetingCard;
   me: string;
   steward: boolean;
-  peers: Set<string>;
+  /** Whether the server (or, on the demo board, the demo rule) lets you message them. */
+  peers: { has: (name: string) => boolean; loaded: boolean };
   clear: Map<string, boolean>;
   onRemove: (card: MeetingCard) => void;
 };
@@ -311,7 +328,8 @@ function MessageHost({ card, me, peers }: Pick<RowProps, "card" | "me" | "peers"
       </button>
     );
   }
-  return card.firstTimer ? (
+  // Only once the server has answered, so the hint does not show and then turn into a button.
+  return card.firstTimer && peers.loaded ? (
     <span className="self-center text-[13px] text-muted">
       After you have been once, you can message the host.
     </span>
@@ -635,10 +653,10 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
     if (closing) lineInput.current?.focus();
   }, [closing]);
   const pagesHintId = useId();
-  const room = roomById(card.room);
-  // A room with roll off has no Who came section (QA r5707425337).
-  // Only a room whose options are known and leave roll out; the server refuses names there anyway.
-  const rollOn = !(room.id === card.room && room.options && !roomIncludes(room, "roll_call"));
+  const rooms = useBoard((state) => state.rooms);
+  const room = roomById(card.room, rooms);
+  // A room with roll off has no Who came section (QA r5707425337); the server strips names there too.
+  const rollOn = roomIncludes(room, "roll_call");
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
@@ -722,8 +740,21 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
             aria-describedby={wentReason ? wentReasonId : undefined}
             onClick={() => {
               if (!canSayWent) return;
-              visited(card.id);
+              void visited(card.id).then(forgetMessageReach);
             }}
+          >
+            {went ? "You've been" : "I went"}
+          </button>
+        ) : null}
+        {/* Any other meeting card (not a special event's host or steward
+            marking): the member's own "I went", which also confirms the
+            meeting for messaging (#134, #138). The host counts already. */}
+        {!showWent && !isHost ? (
+          <button
+            type="button"
+            className={cn(btnGhost, "min-h-[44px]")}
+            onClick={() => void visited(card.id).then(forgetMessageReach)}
+            disabled={went}
           >
             {went ? "You've been" : "I went"}
           </button>
@@ -775,9 +806,9 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
                   happened,
                   nextDate,
                   line,
-                  happened ? came : [],
+                  happened && rollOn ? came : [],
                   pages,
-                  happened ? cameIds : [],
+                  happened && rollOn ? cameIds : [],
                 ).then(
                   (check) => {
                     if (!check.ok) {
@@ -857,7 +888,7 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
                   ))}
                 </ul>
               ) : null}
-              {takesRoll(card) && rollOn && started && roll.length > 0 && !whoSaved ? (
+              {isGatheringId(card.id) ? (takesRoll(card) && rollOn && started && roll.length > 0 && !whoSaved ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>Who came:</span>
                   {roll.map((person, index) => (
@@ -884,6 +915,15 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
                     </label>
                   ))}
                 </div>
+              ) : null) : rollOn ? (
+                <RollCallPicker
+                  room={room}
+                  going={card.going}
+                  came={came}
+                  onToggle={(name) =>
+                    setCame(came.includes(name) ? came.filter((n) => n !== name) : [...came, name])
+                  }
+                />
               ) : null}
               <p role="status" className={cn("text-sm text-fg", !dropped && "sr-only")}>
                 {dropped}

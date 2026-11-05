@@ -1,5 +1,10 @@
 import { categoryPreview } from "./categories.ts";
+import { countyName } from "./counties.ts";
 import { APP_NAME } from "./model.ts";
+
+/** The picture a shared link shows: 1200×630 JPEG, the shape and format every platform takes. */
+const SHARE_IMAGE = "https://avouchsocial.com/art/share-avouch.jpg";
+const SHARE_ALT = "A crusader with his sword raised, from Gustave Doré's History of the Crusades";
 
 const DESCRIPTION =
   "Your church, your shop, your county. Where a small set of people meet, what they did, and what the parish needs this week. The County room runs on Quorum.";
@@ -23,9 +28,16 @@ export function rootMeta(): RouteMeta[] {
     { property: "og:site_name", content: APP_NAME },
     { property: "og:description", content: DESCRIPTION },
     { property: "og:type", content: "website" },
-    { name: "twitter:card", content: "summary" },
+    { property: "og:image", content: SHARE_IMAGE },
+    { property: "og:image:type", content: "image/jpeg" },
+    { property: "og:image:width", content: "1200" },
+    { property: "og:image:height", content: "630" },
+    { property: "og:image:alt", content: SHARE_ALT },
+    { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:title", content: APP_NAME },
     { name: "twitter:description", content: DESCRIPTION },
+    { name: "twitter:image", content: SHARE_IMAGE },
+    { name: "twitter:image:alt", content: SHARE_ALT },
     { name: "theme-color", content: "#14100c" },
   ];
 }
@@ -49,6 +61,29 @@ export function categoryPageMeta(slug: string): RouteMeta[] {
     { name: "description", content: preview.description },
     { name: "robots", content: "noindex" },
     { property: "og:title", content: preview.title },
+    { property: "og:description", content: preview.description },
+    { property: "og:image", content: preview.image },
+    { property: "og:image:alt", content: preview.credit },
+  ];
+}
+
+export function countyRoomsMeta(county: string): RouteMeta[] {
+  const title = `${countyName(county)} rooms`;
+  return [
+    { title: `${title} · Avouch Social` },
+    { property: "og:title", content: title },
+    { name: "robots", content: "noindex" },
+  ];
+}
+
+export function countyCategoryMeta(county: string, slug: string): RouteMeta[] {
+  const preview = categoryPreview(slug);
+  const title = `${preview.title} · ${countyName(county)}`;
+  return [
+    { title: `${title} · Avouch Social` },
+    { name: "description", content: preview.description },
+    { name: "robots", content: "noindex" },
+    { property: "og:title", content: title },
     { property: "og:description", content: preview.description },
     { property: "og:image", content: preview.image },
     { property: "og:image:alt", content: preview.credit },

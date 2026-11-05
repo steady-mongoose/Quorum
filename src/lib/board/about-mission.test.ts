@@ -20,3 +20,14 @@ test("What we stand for carries the mission statement", () => {
     ),
   );
 });
+
+test("the removal rules appear once, under Moderation, and doxxing stays defined", () => {
+  assert.equal(prose.split("Five things get a post removed").length - 1, 1);
+  assert.ok(!prose.includes("Removed for:"));
+  assert.ok(!prose.includes("RULE_SENTENCE"));
+  assert.ok(
+    prose.includes(
+      "Doxxing means publishing a private person's home address, phone number, or other contact so strangers can find them.",
+    ),
+  );
+});

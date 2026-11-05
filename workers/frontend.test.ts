@@ -23,6 +23,9 @@ test("the shell is served with a strict content security policy", async () => {
   assert.match(policy, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
   assert.match(policy, /connect-src [^;]*https:\/\/cloudflareinsights\.com/);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  // libsodium compiles WebAssembly. JavaScript eval stays refused.
+  assert.match(policy, /script-src [^;]*'wasm-unsafe-eval'/);
+  assert.equal(policy.replaceAll("'wasm-unsafe-eval'", "").includes("unsafe-eval"), false);
 });
 
 test("every method on /api and /api/* returns JSON 503", async () => {

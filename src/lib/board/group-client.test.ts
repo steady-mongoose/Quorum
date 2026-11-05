@@ -94,9 +94,9 @@ test("a group page keeps post order and the admin names in the order given", () 
 });
 
 test("group controls meet the review: 44px, alerts, equal appeal buttons", () => {
-  const view = readFileSync(new URL("../../components/board/groups-view.tsx", import.meta.url), "utf8");
-  const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8");
-  const bits = readFileSync(new URL("../../components/quorum/bits.tsx", import.meta.url), "utf8");
+  const view = readFileSync(new URL("../../components/board/groups-view.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const week = readFileSync(new URL("../../components/board/week-view.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const bits = readFileSync(new URL("../../components/quorum/bits.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(week, /inline-flex min-h-\[44px\] items-center rounded-sm bg-raised px-3/);
   assert.match(bits, /export const btn =\n {2}"inline-flex min-h-\[44px\]/);
   assert.match(view, /min-h-\[44px\]/);
@@ -207,6 +207,6 @@ test("groupFailure reads the server's sentence from error, then message, then fa
 });
 
 test("the enroll fallback is the server's own authenticator wording", () => {
-  const store = readFileSync(new URL("../../../server/mfa/store.ts", import.meta.url), "utf8");
+  const store = readFileSync(new URL("../../../server/mfa/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.ok(store.includes(`"${GROUP_MFA_NEEDED}"`));
 });

@@ -569,7 +569,7 @@ test("a 403 age_required from any route brings the step back; other answers do n
   assert.equal(parseAgeConfirmed({ user: {}, ageConfirmed: true }), true);
   assert.equal(parseAgeConfirmed({ user: {} }), true);
   assert.equal(parseAgeConfirmed(null), true);
-  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(app, /const ageDue = server\.mode === "live" && Boolean\(server\.user\) && !server\.ageConfirmed;/);
   assert.match(app, /\{ageDue \? <AgeStep \/> : null\}/);
   assert.match(app, /\{!entered && !ageDue && <Door \/>\}/);
@@ -644,7 +644,7 @@ function ruleBody(css, selector) {
 }
 
 test(".check-gilt is pinned: gilt box, fill, invalid border, team ring, and the system box in forced colors", () => {
-  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const base = ruleBody(css, ".check-gilt");
   assert.match(base, /appearance: none;/);
   assert.match(base, /border: 2px solid var\(--color-line-strong, #8a7a62\);/);
@@ -666,7 +666,7 @@ test(".check-gilt is pinned: gilt box, fill, invalid border, team ring, and the 
 });
 
 test("the phone tab bar height is defined for things that must clear it", () => {
-  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const phone = css.indexOf("@media (max-width:767px){\n  /* The tab bar");
   assert.ok(phone > -1);
   assert.match(css.slice(phone, phone + 200), /:root\{--tabbar-h:57px\}/);

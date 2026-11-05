@@ -293,7 +293,7 @@ test("a steward mark keeps the post up, and a hard removal bars the account", as
       body: did,
       now: new Date(later.getTime() + 40 * 24 * 60 * 60 * 1000),
     });
-    assert.equal(countyAfter.ok, true);
+    assert.equal(countyAfter.ok, false, "a second removal closes the whole account");
   } finally {
     await close();
   }
@@ -310,6 +310,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
     await grant(db, josh, "Josh", "member");
     await grant(db, josh, "Josh", "admin");
     const denied = await createRoom(db, {
+      county: "hillsborough",
       userId: maria,
       id: "woodshop",
       name: "Woodshop",
@@ -321,6 +322,7 @@ test("room creation is admin only, and a one-step steward appointment is refused
     if (denied.ok) return;
     assert.equal(denied.status, 403);
     const created = await createRoom(db, {
+      county: "hillsborough",
       ...(await firstSteward(db, josh, new Date("2026-10-01T00:00:00Z"))),
       userId: josh,
       id: "woodshop",
@@ -1771,8 +1773,8 @@ test("a steward sees removals and bans only in rooms they steward", async () => 
     });
     assert.equal(removed.ok, true);
     const county = await createPost(db, {
-      userId: maria,
-      name: "Maria",
+      userId: ruth,
+      name: "Ruth",
       roomId: "county",
       body: { ...did, claim: "Called the county office about the agenda." },
       now,
@@ -1787,8 +1789,8 @@ test("a steward sees removals and bans only in rooms they steward", async () => 
     });
     assert.equal(stood.ok, true);
     const line = await sendChat(db, {
-      userId: maria,
-      name: "Maria",
+      userId: ruth,
+      name: "Ruth",
       roomId: "county",
       text: "The agenda packet is on the county site.",
       now,

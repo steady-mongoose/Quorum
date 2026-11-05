@@ -9,6 +9,9 @@ import { projectRoot } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
 
+// These run the production shell scripts, which only ever run on Linux. Windows cannot exec a .sh file.
+const posixOnly = process.platform === "win32" ? "runs a Linux shell script" : false;
+
 /**
  * The clear test deletes every "rateLimit" row. Only a database named "test",
  * or whose name ends in "_test", is eligible. A substring such as "latest"
@@ -25,7 +28,7 @@ function isClearTestDatabase(value) {
   return name === "test" || name.endsWith("_test");
 }
 
-test("clearing a limit deletes the normalized email and not the typed alias", async () => {
+test("clearing a limit deletes the normalized email and not the typed alias", { skip: posixOnly }, async () => {
   const root = mkdtempSync(join(tmpdir(), "avouch-clear-"));
   const bin = join(root, "bin");
   const log = join(root, "psql.log");

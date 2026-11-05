@@ -4,8 +4,10 @@ import { AccountRemoval } from "@/components/board/account-removal";
 import { btnQuiet, fieldClass, Kicker } from "@/components/quorum/bits";
 import { FIELD_HINT } from "@/lib/board/field-hints";
 import { cn } from "@/lib/cn";
-import { authorName, cardSummary, formatDate, namedLines, stoodWith } from "@/lib/board/model";
+import { authorName, cardSummary, formatDate, metAt, namedLines } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
+import { HomeCountyField } from "@/components/board/county-step";
+import { useMessageReach } from "@/components/board/use-message-reach";
 import { MfaSettings } from "@/components/board/mfa-ui";
 import { useServerSession } from "@/lib/server-session-state";
 
@@ -62,9 +64,14 @@ export function ProfileView() {
   const name = viewing?.trim() || me;
   const mine = name === me;
 
-  const peers = useMemo(() => stoodWith(me, cards, posts), [me, cards, posts]);
+  // The profile gate is a meeting together, as the page says. Replies do not count.
+  const peers = useMemo(() => metAt(me, cards), [me, cards]);
   const allowed = mine || peers.has(name);
-  const theirs = useMemo(() => stoodWith(name, cards, posts), [name, cards, posts]);
+  const theirs = useMemo(() => metAt(name, cards), [name, cards]);
+  const joinedRooms = useBoard((state) => state.rooms);
+  const reach = useMessageReach(
+    joinedRooms.filter((room) => room.joined).map((room) => room.id),
+  );
   const hosts = cards.filter((card) => card.host === name && card.kind !== "trade" && card.kind !== "need");
   const named = useMemo(() => namedLines(name, posts), [name, posts]);
 
@@ -84,7 +91,7 @@ export function ProfileView() {
         <Kicker>{mine ? "You" : "Profile"}</Kicker>
         <h1 className="illum font-display text-4xl text-fg lg:text-5xl">{name}</h1>
         {mine ? (
-          <p className="max-w-prose text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
+          <p className="text-sm text-muted">Your household, church, and trade. Only people who have been to the same meeting as you can see this page; to everyone else you are a name.</p>
         ) : null}
         {mine ? (
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
@@ -143,12 +150,13 @@ export function ProfileView() {
             ) : null}
           </div>
         ) : null}
+        {mine ? <HomeCountyField /> : null}
         {mine ? (
           <section className="mt-4 flex flex-col gap-2">
             <h2 className="text-2xl text-fg">The desk</h2>
-            <p className="max-w-prose text-sm text-muted">
-              Optional: coordinated calls to local officials. It stays off until you turn it on.
-              The emblems stay.
+            <p className="text-sm text-muted">
+              Coordinated calls to local officials. It is on unless you turn it off. The emblems
+              stay.
             </p>
             <label className="inline-flex min-h-[44px] items-center gap-3 text-sm text-fg">
               <input
@@ -161,7 +169,7 @@ export function ProfileView() {
             </label>
           </section>
         ) : null}
-        {!mine ? (
+        {!mine && reach.canMessage(name) ? (
           <button type="button" className={btnQuiet + " self-start px-0"} onClick={() => openDm(name)}>
             <MessageSquare className="size-4" aria-hidden="true" />
             Message {name}

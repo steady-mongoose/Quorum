@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { actorRole, stewardsRoom } from "../board/access.ts";
+import { actorRoles, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
-import { requireRoomMember, roomStandings, standingKey } from "../chat/store.ts";
+import { roomStandings, standingKey } from "../chat/store.ts";
+import { canReadRoom, listingColumnsReady } from "../board/room-visibility.ts";
+import { banOpen } from "../board/ban.ts";
+import { openBan } from "../board/store.ts";
+import { queryBanTable } from "../board/ban-check.ts";
+import { GENDER_POLICY, audienceDecision, parseAudience, parseGender } from "../gender-policy.ts";
 import { isUniqueViolation, type Db } from "../db.ts";
 import { OBJECT_ID } from "../../src/lib/media/limits.ts";
 import {
@@ -455,7 +460,7 @@ const REAL_MEETINGS = `
     order by p.card_id, p.created_at asc, p.id asc
   ),
   host_cards as (
-    select f.meeting_id, f.host_id
+    select f.meeting_id, f.host_id, f.room_id
     from first_host f
     join room r on r.id = f.room_id
     where f.removed = false
@@ -463,7 +468,7 @@ const REAL_MEETINGS = `
       and 'meeting' = any (r.card_kinds)
   ),
   named_accounts as (
-    select distinct h.meeting_id, h.host_id, n.user_id
+    select distinct h.meeting_id, h.host_id, h.room_id, n.user_id
     from host_cards h
     join board_post p
       on p.card_id = h.meeting_id
@@ -476,10 +481,10 @@ const REAL_MEETINGS = `
 
 const VERIFIED_ATTENDANCE = `
   ${REAL_MEETINGS}
-  select h.host_id as user_id, h.meeting_id
+  select h.host_id as user_id, h.meeting_id, h.room_id
   from host_cards h
   union
-  select n.user_id, n.meeting_id
+  select n.user_id, n.meeting_id, n.room_id
   from named_accounts n
   join dm_attendance att on att.user_id = n.user_id and att.meeting_id = n.meeting_id
   where n.user_id <> n.host_id
@@ -497,6 +502,24 @@ const CONFIRMABLE = `
 `;
 
 const ATTENDANCE_CARD_CAP = 40;
+
+/**
+ * Attendance can be confirmed only for a write-up from the last 12 months, the
+ * same window as the RSVP/attendance retention (RSVP_RETENTION_MONTHS,
+ * writeUpWithin and rsvpCutoff in #126's server/board/rsvp-retention.ts, which
+ * is not on the-board yet). Without it, an add-only record would let a device
+ * re-send a meeting the purge had already aged out.
+ */
+const ATTENDANCE_RETENTION_MONTHS = 12;
+
+function attendanceCutoff(now: Date): Date {
+  const cutoff = new Date(now.getTime());
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - ATTENDANCE_RETENTION_MONTHS);
+  return cutoff;
+}
+
+/** SQL: a hosted write-up `p` dated on or after the cutoff (its date, or when it was filed). */
+const WRITE_UP_WITHIN = `(case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= $4 else p.created_at >= $5 end)`;
 
 /** Resolve the names on a hosted post to accounts that exist right now. */
 export async function rememberNamedAccounts(db: Db, postId: string): Promise<void> {
@@ -517,6 +540,14 @@ export async function rememberNamedAccounts(db: Db, postId: string): Promise<voi
   );
 }
 
+/**
+ * Confirm the meetings you went to. Add-only: the cards sent are added (a card
+ * already recorded stays as it was) and nothing is removed, so a device that
+ * shows fewer "went" cards, or an empty list, never drops earlier rows. Only
+ * cards you can confirm, from a write-up in the last 12 months, are stored;
+ * older ones are skipped quietly like any card you cannot confirm. A card in a
+ * room you cannot read refuses the whole request.
+ */
 export async function recordAttendance(
   db: Db,
   userId: string,
@@ -547,54 +578,211 @@ export async function recordAttendance(
       }
     }
   }
-  await db.query(`delete from dm_attendance where user_id = $1`, [userId]);
   if (requested.length === 0) return { ok: true, value: null };
+  const cutoff = attendanceCutoff(now);
   await db.query(
     `insert into dm_attendance (user_id, meeting_id, recorded_at)
      select $1, allowed.meeting_id, $2
      from (${CONFIRMABLE}) allowed
-     where allowed.meeting_id = any($3::text[])`,
-    [userId, now, requested],
+     where allowed.meeting_id = any($3::text[])
+       and exists (
+         select 1 from board_post p
+         where p.card_id = allowed.meeting_id
+           and p.type = 'hosted'
+           and p.removed = false
+           and ${WRITE_UP_WITHIN}
+       )
+     on conflict (user_id, meeting_id) do nothing`,
+    [userId, now, requested, cutoff.toISOString().slice(0, 10), cutoff],
   );
   return { ok: true, value: null };
 }
 
-export async function listPeers(db: Db, userId: string): Promise<{ id: string; name: string }[]> {
-  const rows = await db.query<{ id: string; name: string }>(
-    `select distinct peer.id, peer.name
+/**
+ * Which of these people may message through a meeting held in that room right
+ * now: a live board membership (actorRoles(...).member, the shared-room route's
+ * test), the room still named and readable to them (canReadRoom, so a room
+ * moved to draft or unclaimed counts only for a steward or an admin, as on the
+ * shared-room route), no open bar on the board or in that room, and the room's
+ * audience lets them in. These are the gates the shared-room route applies
+ * through roomStandings, without its "has joined the room" step, because
+ * someone the host named need not have joined. Keys are standingKey(user, room).
+ * The queries are the same whoever fails, so the answer's timing does not say
+ * which gate it was.
+ */
+async function meetingStandings(
+  db: Db,
+  userIds: string[],
+  roomIds: string[],
+  now: Date,
+): Promise<Set<string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const rooms = [...new Set(roomIds.filter(Boolean))];
+  const standing = new Set<string>();
+  // No room is not a shortcut: sharesMeeting asks with no rooms when there was
+  // no meeting, and runs the same lookups as a gated refusal (QA F1 S4 on #134).
+  if (ids.length === 0) return standing;
+
+  const actors = await actorRoles(db, ids);
+  const ready = await listingColumnsReady(db);
+  // One read for the room's name, status and audience.
+  const listings = await db.query<{ id: string; name: string; status?: string; audience: string }>(
+    ready
+      ? `select id, name, status, audience from room where id = any ($1::text[])`
+      : `select id, name, audience from room where id = any ($1::text[])`,
+    [rooms],
+  );
+  const listed = new Map(
+    listings.map((row) => [row.id, { name: row.name, status: row.status ?? "active" }]),
+  );
+
+  const bans = await queryBanTable<{
+    user_id: string;
+    room_id: string;
+    strikes: number;
+    until_at: Date | string;
+    reason: string;
+  }>(
+    db,
+    `select user_id, room_id, strikes, until_at, reason from board_ban
+     where user_id = any ($1::text[]) and (room_id = '' or room_id = any ($2::text[]))`,
+    [ids, rooms],
+  );
+  const barred = new Set<string>();
+  for (const row of bans) {
+    const until = new Date(row.until_at).getTime();
+    const open = banOpen(
+      { reason: row.reason, strikes: Number(row.strikes), until },
+      now.getTime(),
+    );
+    if (open) barred.add(standingKey(row.user_id, row.room_id));
+  }
+
+  const audienceOf = new Map(
+    listings.map((row) => [row.id, parseAudience(row.audience) ?? "all"]),
+  );
+  const genders = new Map<string, { stated: ReturnType<typeof parseGender>; confirmed: boolean }>();
+  // Read whatever the audiences are, so an audience room is not told apart by timing.
+  {
+    const stated = await db.query<{
+      user_id: string;
+      gender: string | null;
+      gender_confirmed_at: Date | string | null;
+    }>(
+      `select user_id, gender, gender_confirmed_at from members where user_id = any ($1::text[])`,
+      [ids],
+    );
+    for (const row of stated) {
+      if (genders.has(row.user_id)) continue;
+      genders.set(row.user_id, {
+        stated: parseGender(row.gender),
+        confirmed: Boolean(row.gender_confirmed_at),
+      });
+    }
+  }
+
+  for (const userId of ids) {
+    const actor = actors.get(userId);
+    if (!actor?.member) continue;
+    if (barred.has(standingKey(userId, ""))) continue;
+    for (const roomId of rooms) {
+      const room = listed.get(roomId);
+      if (!room || !room.name || !canReadRoom(room.status, actor)) continue;
+      if (barred.has(standingKey(userId, roomId))) continue;
+      const audience = audienceOf.get(roomId) ?? "all";
+      if (audience !== "all") {
+        const gender = genders.get(userId) ?? { stated: null, confirmed: false };
+        const decision = audienceDecision(
+          { audience, stated: gender.stated, confirmed: gender.confirmed, canModerate: false },
+          GENDER_POLICY,
+        );
+        if (!decision.allow) continue;
+      }
+      standing.add(standingKey(userId, roomId));
+    }
+  }
+  return standing;
+}
+
+/**
+ * The people the caller has a verified meeting with that still counts: both
+ * pass meetingStandings for the room the meeting was held in. Limit to
+ * `others` when given.
+ */
+async function metPeople(
+  db: Db,
+  callerId: string,
+  now: Date,
+  others: string[] | null = null,
+  sameSteps = false,
+): Promise<Set<string>> {
+  const met = new Set<string>();
+  if (!callerId || (others !== null && others.length === 0)) return met;
+  const rows = await db.query<{ user_id: string; room_id: string }>(
+    `select distinct theirs.user_id, mine.room_id
      from (${VERIFIED_ATTENDANCE}) mine
      join (${VERIFIED_ATTENDANCE}) theirs
        on theirs.meeting_id = mine.meeting_id and theirs.user_id <> mine.user_id
-     join "user" peer on peer.id = theirs.user_id
      where mine.user_id = $1
+       and ($2::text[] is null or theirs.user_id = any ($2::text[]))`,
+    [callerId, others],
+  );
+  if (rows.length === 0) {
+    // One pair's answer (sharesMeeting, behind every refusal): never met runs
+    // the same standing lookups as a met pair that a gate refuses, so the
+    // refusal's timing does not say which it was. Lists skip this fixed cost.
+    if (sameSteps) await meetingStandings(db, [callerId, ...(others ?? [])], [], now);
+    return met;
+  }
+  const standing = await meetingStandings(
+    db,
+    [callerId, ...rows.map((row) => row.user_id)],
+    rows.map((row) => row.room_id),
+    now,
+  );
+  for (const row of rows) {
+    if (!standing.has(standingKey(callerId, row.room_id))) continue;
+    if (!standing.has(standingKey(row.user_id, row.room_id))) continue;
+    met.add(row.user_id);
+  }
+  return met;
+}
+
+export async function listPeers(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<{ id: string; name: string }[]> {
+  const met = [...(await metPeople(db, userId, now))];
+  if (met.length === 0) return [];
+  const rows = await db.query<{ id: string; name: string }>(
+    `select peer.id, peer.name
+     from "user" peer
+     where peer.id = any ($2::text[])
        and not exists (
          select 1 from dm_block b
          where (b.blocker_user_id = $1 and b.blocked_user_id = peer.id)
             or (b.blocker_user_id = peer.id and b.blocked_user_id = $1)
        )
      order by peer.name, peer.id`,
-    [userId],
+    [userId, met],
   );
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
+/**
+ * A verified meeting together that still counts: neither is barred on the
+ * board or in the meeting's room, and that room's audience lets both in.
+ */
 export async function sharesMeeting(
   db: Db,
   callerId: string,
   otherUserId: string,
+  now: Date = new Date(),
 ): Promise<boolean> {
   if (!callerId || !otherUserId) return false;
   if (callerId === otherUserId) return true;
-  const rows = await db.query<{ meeting_id: string }>(
-    `select mine.meeting_id
-     from (${VERIFIED_ATTENDANCE}) mine
-     join (${VERIFIED_ATTENDANCE}) theirs
-       on theirs.meeting_id = mine.meeting_id and theirs.user_id = $2
-     where mine.user_id = $1
-     limit 1`,
-    [callerId, otherUserId],
-  );
-  return Boolean(rows[0]);
+  return (await metPeople(db, callerId, now, [otherUserId], true)).has(otherUserId);
 }
 
 /** A member who joined a room this recently cannot start a conversation through it. */
@@ -609,22 +797,38 @@ export const BLOCKED = "You cannot message this member.";
 export const ROOM_WAIT = `You can start a conversation with someone from a room after ${ROOM_MESSAGE_WAIT_DAYS} days in it.`;
 export const ROOM_DAILY_LIMIT = `You have started ${ROOM_MESSAGE_DAILY_STARTS} new conversations through your rooms today. Try again tomorrow.`;
 
-/** True when either person has blocked the other. */
-export async function blockedBetween(db: Db, a: string, b: string): Promise<boolean> {
+/** Who has blocked whom between the caller and the other person. One query, whoever did. */
+async function blocksBetween(
+  db: Db,
+  callerId: string,
+  otherUserId: string,
+): Promise<{ byCaller: boolean; byOther: boolean }> {
   const rows = await db.query<{ blocker_user_id: string }>(
     `select blocker_user_id from dm_block
      where (blocker_user_id = $1 and blocked_user_id = $2)
-        or (blocker_user_id = $2 and blocked_user_id = $1)
-     limit 1`,
-    [a, b],
+        or (blocker_user_id = $2 and blocked_user_id = $1)`,
+    [callerId, otherUserId],
   );
-  return Boolean(rows[0]);
+  return {
+    byCaller: rows.some((row) => row.blocker_user_id === callerId),
+    byOther: rows.some((row) => row.blocker_user_id === otherUserId),
+  };
 }
 
 /**
- * Rooms both people stand in right now: each has joined, neither is barred, and
- * the room's audience lets both in. Settled means the caller may start a
- * conversation through that room: a steward of it, or three days since joining.
+ * SQL: when caller `$1` came into room `m`. room_member has no date
+ * (0004_media.sql), so a room with no room_join row counts from the caller's
+ * account creation: an invitee's account and room_member row are written in one
+ * transaction, so that is the day they came in.
+ */
+const JOINED_AT = `coalesce(j.joined_at, (select u."createdAt" from "user" u where u.id = $1))`;
+
+/**
+ * Rooms both people stand in right now: each has a live board membership, has
+ * joined, can read the room, is not barred, and the room's audience lets both
+ * in (roomStandings, which matches requireRoomMember). Settled means the caller
+ * may start a conversation through that room: a steward of it, or three days
+ * since joining. A fixed number of queries, whoever fails.
  */
 async function roomsInCommon(
   db: Db,
@@ -632,7 +836,7 @@ async function roomsInCommon(
   otherUserId: string,
   now: Date,
 ): Promise<{ roomId: string; settled: boolean }[]> {
-  const rows = await db.query<{ room_id: string; joined_at: Date | string | null }>(
+  const rows = await db.query<{ room_id: string; joined_at: Date | string }>(
     `with mine as (
        select room_id from room_member where user_id = $1
        union
@@ -643,23 +847,29 @@ async function roomsInCommon(
        union
        select room_id from room_join where user_id = $2
      )
-     select m.room_id, j.joined_at
+     select m.room_id, ${JOINED_AT} as joined_at
      from mine m
      join theirs t on t.room_id = m.room_id
      left join room_join j on j.room_id = m.room_id and j.user_id = $1
      order by m.room_id`,
     [callerId, otherUserId],
   );
-  if (rows.length === 0) return [];
-  const actor = await actorRole(db, callerId);
+  // Read standings even with no room in common, so this costs the same either way.
+  const { standing, actors } = await roomStandings(
+    db,
+    [callerId, otherUserId],
+    rows.map((row) => row.room_id),
+    now,
+  );
+  const actor = actors.get(callerId);
   const wait = ROOM_MESSAGE_WAIT_DAYS * DAY_MS;
   const shared: { roomId: string; settled: boolean }[] = [];
   for (const row of rows) {
-    if (!(await requireRoomMember(db, callerId, row.room_id, now)).ok) continue;
-    if (!(await requireRoomMember(db, otherUserId, row.room_id, now)).ok) continue;
-    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
+    if (!standing.has(standingKey(callerId, row.room_id))) continue;
+    if (!standing.has(standingKey(otherUserId, row.room_id))) continue;
     const settled =
-      stewardsRoom(actor, row.room_id) || (joined !== null && now.getTime() - joined >= wait);
+      (actor ? stewardsRoom(actor, row.room_id) : false) ||
+      now.getTime() - new Date(row.joined_at).getTime() >= wait;
     shared.push({ roomId: row.room_id, settled });
   }
   return shared;
@@ -670,10 +880,19 @@ export type MessageGate =
   | { ok: false; status: number; error: string };
 
 /**
- * Whether the caller may message the other member. A block either way stops it.
- * A verified meeting together allows it. Otherwise a room both stand in allows
- * it; starting a new conversation that way also needs three days in the room
- * and stays under five starts a day.
+ * Whether the caller may message the other member. A block either way stops it,
+ * as does a board-wide ban on either of them or either one's board membership
+ * having lapsed or been revoked. A verified meeting together allows it while
+ * both are live members, neither is barred from the meeting's room, that room
+ * is still readable to both, and its audience lets both in. Otherwise a room
+ * both stand in allows it; starting a new conversation that way also needs
+ * three days in the room and stays under five starts a day.
+ *
+ * Every lookup runs before anything is decided, so a refusal for a ban takes
+ * the same path as a refusal for a stranger and its timing says nothing.
+ *
+ * The refusal says "blocked" only to the person who did the blocking. Someone
+ * who was blocked gets the words for someone they cannot reach.
  */
 export async function mayMessage(
   db: Db,
@@ -685,21 +904,38 @@ export async function mayMessage(
   if (!callerId || !otherUserId) return { ok: false, status: 403, error: NOT_REACHABLE };
   // Your own devices: a new device claims keys for the account it belongs to.
   if (callerId === otherUserId) return { ok: true, via: "self" };
-  if (await blockedBetween(db, callerId, otherUserId))
-    return { ok: false, status: 403, error: BLOCKED };
-  if (await sharesMeeting(db, callerId, otherUserId)) return { ok: true, via: "meeting" };
+  // Run every lookup first. Nothing below returns until all of them are in.
+  const blocks = await blocksBetween(db, callerId, otherUserId);
+  const callerBan = await openBan(db, callerId, now);
+  const otherBan = await openBan(db, otherUserId, now);
+  const met = await sharesMeeting(db, callerId, otherUserId, now);
   const rooms = await roomsInCommon(db, callerId, otherUserId, now);
+
+  if (blocks.byCaller) return { ok: false, status: 403, error: BLOCKED };
+  // A block by the other person, or a board-wide ban on either person, stops
+  // every route, sending and receiving. The words are the ones for someone you
+  // cannot reach, so nobody learns of a block on them or another member's ban.
+  // (The DM routes answer the sender's own ban first.) A revoked or lapsed
+  // membership fails inside sharesMeeting and roomsInCommon.
+  if (blocks.byOther || callerBan || otherBan)
+    return { ok: false, status: 403, error: NOT_REACHABLE };
+  if (met) return { ok: true, via: "meeting" };
   if (rooms.length === 0) return { ok: false, status: 403, error: NOT_REACHABLE };
   if (!options.starting) return { ok: true, via: "room" };
   if (!rooms.some((room) => room.settled)) return { ok: false, status: 403, error: ROOM_WAIT };
+  if ((await roomStartsToday(db, callerId, now)) >= ROOM_MESSAGE_DAILY_STARTS)
+    return { ok: false, status: 429, error: ROOM_DAILY_LIMIT };
+  return { ok: true, via: "room" };
+}
+
+/** Conversations this person started through a room in the last day. */
+async function roomStartsToday(db: Db, callerId: string, now: Date): Promise<number> {
   const started = await db.query<{ count: string }>(
     `select count(*)::text as count from dm_thread
      where opened_by = $1 and opened_via = 'room' and created_at > $2`,
     [callerId, new Date(now.getTime() - DAY_MS)],
   );
-  if (Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS)
-    return { ok: false, status: 429, error: ROOM_DAILY_LIMIT };
-  return { ok: true, via: "room" };
+  return Number(started[0]?.count ?? 0);
 }
 
 /**
@@ -708,7 +944,7 @@ export async function mayMessage(
  * the caller blocked them, they share no room or meeting, or the caller has
  * used today's room starts. A block by the other person is not shown here:
  * the row reads exactly as it would without it, and the server refuses with
- * the same words it uses for any block.
+ * the words for someone you cannot reach.
  *
  * Apart from that block, this is mayMessage for the conversation the button
  * would open: an existing conversation needs a meeting or a room they still
@@ -749,21 +985,13 @@ export async function memberMessageStates(
     threads.map((row) => (row.user_a === callerId ? row.user_b : row.user_a)),
   );
 
-  const met = await db.query<{ user_id: string }>(
-    `select distinct theirs.user_id
-     from (${VERIFIED_ATTENDANCE}) mine
-     join (${VERIFIED_ATTENDANCE}) theirs
-       on theirs.meeting_id = mine.meeting_id and theirs.user_id = any ($2::text[])
-     where mine.user_id = $1`,
-    [callerId, open],
-  );
-  const metThem = new Set(met.map((row) => row.user_id));
+  const metThem = await metPeople(db, callerId, now, open);
 
   // Rooms the caller and each of them are both in, with the caller's join date.
   const common = await db.query<{
     user_id: string;
     room_id: string;
-    joined_at: Date | string | null;
+    joined_at: Date | string;
   }>(
     `with mine as (
        select room_id from room_member where user_id = $1
@@ -775,7 +1003,7 @@ export async function memberMessageStates(
        union
        select user_id, room_id from room_join where user_id = any ($2::text[])
      )
-     select t.user_id, m.room_id, j.joined_at
+     select t.user_id, m.room_id, ${JOINED_AT} as joined_at
      from mine m
      join theirs t on t.room_id = m.room_id
      left join room_join j on j.room_id = m.room_id and j.user_id = $1
@@ -794,21 +1022,15 @@ export async function memberMessageStates(
   for (const row of common) {
     if (!standing.has(standingKey(callerId, row.room_id))) continue;
     if (!standing.has(standingKey(row.user_id, row.room_id))) continue;
-    const joined = row.joined_at == null ? null : new Date(row.joined_at).getTime();
     const settled =
       (actor ? stewardsRoom(actor, row.room_id) : false) ||
-      (joined !== null && now.getTime() - joined >= wait);
+      now.getTime() - new Date(row.joined_at).getTime() >= wait;
     const list = shared.get(row.user_id) ?? [];
     list.push({ settled });
     shared.set(row.user_id, list);
   }
 
-  const started = await db.query<{ count: string }>(
-    `select count(*)::text as count from dm_thread
-     where opened_by = $1 and opened_via = 'room' and created_at > $2`,
-    [callerId, new Date(now.getTime() - DAY_MS)],
-  );
-  const capped = Number(started[0]?.count ?? 0) >= ROOM_MESSAGE_DAILY_STARTS;
+  const capped = (await roomStartsToday(db, callerId, now)) >= ROOM_MESSAGE_DAILY_STARTS;
 
   for (const other of open) {
     if (metThem.has(other)) {
@@ -1041,14 +1263,42 @@ export async function openThread(
   if (!gate.ok) return fail(gate.status, gate.error);
   if (existing[0])
     return { ok: true, value: { id: existing[0].id, otherUserId, otherName: other.name } };
-  const id = randomUUID();
-  await db.query(
-    `insert into dm_thread (
-       id, user_a, user_b, user_a_name, user_b_name, created_at, opened_by, opened_via
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [id, low, high, lowName, highName, now, userId, gate.via],
-  );
-  return { ok: true, value: { id, otherUserId, otherName: other.name } };
+  // The caller's lock makes the daily count and the insert one step, so parallel
+  // opens cannot all pass on the same count. The unique pair decides a race
+  // between the two people, and the second gets the conversation the first made.
+  return commit(db, async (tx) => {
+    const opened = (id: string) => ({
+      ok: true as const,
+      value: { id, otherUserId, otherName: other.name },
+    });
+    const between = () =>
+      tx.query<{ id: string }>(`select id from dm_thread where user_a = $1 and user_b = $2`, [
+        low,
+        high,
+      ]);
+    await tx.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+      `dm-start:${userId}`,
+    ]);
+    const already = await between();
+    if (already[0]) return opened(already[0].id);
+    if (
+      gate.via === "room" &&
+      (await roomStartsToday(tx, userId, now)) >= ROOM_MESSAGE_DAILY_STARTS
+    )
+      return fail(429, ROOM_DAILY_LIMIT);
+    const inserted = await tx.query<{ id: string }>(
+      `insert into dm_thread (
+         id, user_a, user_b, user_a_name, user_b_name, created_at, opened_by, opened_via
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (user_a, user_b) do nothing
+       returning id`,
+      [randomUUID(), low, high, lowName, highName, now, userId, gate.via],
+    );
+    if (inserted[0]) return opened(inserted[0].id);
+    const winner = await between();
+    if (winner[0]) return opened(winner[0].id);
+    return fail(409, "That conversation could not be opened. Try again.");
+  });
 }
 
 export async function listThreads(

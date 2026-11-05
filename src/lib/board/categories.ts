@@ -58,7 +58,7 @@ export const UNCATEGORIZED_SLUG = "uncategorized";
  * Philosophy & Discussion: Debate Night, Literary Society, and the co-op.
  * Businesses: the shop rooms.
  * Civic: Dispatch and the town rooms.
- * County: The County and the Hillsborough region room.
+ * County: each county's County room and the Hillsborough region room.
  * Men's and Women's have no rooms.
  */
 export const ROOM_CATEGORY: Readonly<Record<string, string>> = {
@@ -81,6 +81,9 @@ export const ROOM_CATEGORY: Readonly<Record<string, string>> = {
   "valrico-town": "civic",
   "tampa-town": "civic",
   county: "county",
+  "county-polk": "county",
+  "county-manatee": "county",
+  "county-pinellas": "county",
   "region-hillsborough": "county",
 };
 
@@ -247,9 +250,9 @@ export function categoryEngraving(slug: string): CategoryEngraving {
     };
   }
   return {
-    src: "/art/martin-hero-A.webp",
-    image: `${ART_ORIGIN}/art/martin-hero-A.webp`,
-    credit: "John Martin, Paradise Lost: The Creation of Light",
+    src: "/art/martin-joshua-A.webp",
+    image: `${ART_ORIGIN}/art/martin-joshua-A.webp`,
+    credit: "John Martin, Joshua Commanding the Sun to Stand Still, 1827",
   };
 }
 
@@ -277,6 +280,8 @@ export type BrowseRoom = {
   pinOrder?: number | null;
   joined?: boolean;
   audience?: string;
+  /** Set on a joined room shown from another county. */
+  countyLabel?: string;
 };
 
 export type BrowseSection = {

@@ -7,13 +7,24 @@ function missingColumn(error: unknown): boolean {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
   if (code === "42703") return true;
   const message = error instanceof Error ? error.message : "";
-  return /column ["']?status["']? does not exist/i.test(message);
+  return /column ["']?(status|county_id)["']? does not exist/i.test(message);
 }
 
 /** True once migration 0020 has added room.status. Older databases have no listings. */
 export async function listingColumnsReady(db: Db): Promise<boolean> {
   try {
     await db.query(`select status from room limit 0`);
+    return true;
+  } catch (error) {
+    if (missingColumn(error)) return false;
+    throw error;
+  }
+}
+
+/** True once migration 0051 has run. Before it, every room is in the default county. */
+export async function countyColumnsReady(db: Db): Promise<boolean> {
+  try {
+    await db.query(`select county_id from room limit 0`);
     return true;
   } catch (error) {
     if (missingColumn(error)) return false;

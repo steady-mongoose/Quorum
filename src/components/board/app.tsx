@@ -24,6 +24,17 @@ import {
 } from "@/lib/board/store";
 import { useQuorum } from "@/lib/quorum/store";
 import { APP_NAME, TAGLINE, type Section } from "@/lib/board/model";
+import {
+  countyDue,
+  currentCounty,
+  deskShown,
+  isCountyId,
+  roomCounty,
+  roomsAddress,
+  type CountyId,
+} from "@/lib/board/counties";
+import { CountyStep } from "@/components/board/county-step";
+import { CountySwitch } from "@/components/board/county-switch";
 import { AboutView } from "@/components/board/about-view";
 import { watchInviteHash } from "@/lib/board/invite-hash";
 import { ConfirmDialog } from "@/components/board/confirm-dialog";
@@ -79,24 +90,39 @@ function BoardSkeleton() {
   );
 }
 
-export function BoardApp({ categorySlug }: { categorySlug?: string | null } = {}) {
-  const route = categorySlug === undefined ? null : { slug: categorySlug };
+export function BoardApp({
+  categorySlug,
+  county,
+}: { categorySlug?: string | null; county?: string } = {}) {
+  const route = categorySlug === undefined ? null : { slug: categorySlug, county: county ?? null };
   return (
     <ServerSessionProvider>
       <RoomsRouteProvider value={route}>
-        <BoardShell categorySlug={categorySlug} />
+        <BoardShell categorySlug={categorySlug} routeCounty={county} />
       </RoomsRouteProvider>
     </ServerSessionProvider>
   );
 }
 
-function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
+function BoardShell({
+  categorySlug,
+  routeCounty,
+}: {
+  categorySlug?: string | null;
+  routeCounty?: string;
+}) {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
   const setRoom = useBoard((state) => state.setRoom);
   const navigate = useNavigate();
   const onRoomsRoute = categorySlug !== undefined;
-  const deskOn = useBoard((state) => state.deskOn);
+  const chosenCounty = useBoard((state) => state.county);
+  const homeCounty = useBoard((state) => state.homeCounty);
+  const countiesOn = useBoard((state) => state.countiesOn);
+  const boardLoaded = useBoard((state) => state.boardLoaded);
+  const setCounty = useBoard((state) => state.setCounty);
+  const county = currentCounty({ routeCounty, chosen: chosenCounty, homeCounty });
+  const deskOn = deskShown(useBoard((state) => state.deskOn), county);
   const view = useBoard((state) => state.view);
   const me = useBoard((state) => state.me);
   const member = useBoard((state) => state.member);
@@ -118,6 +144,9 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
+  // Everyone chooses a county before the app opens. A room invite has already chosen.
+  const countyStep = entered && !busy && countyDue({ boardLoaded, countiesOn, homeCounty });
+  const inside = entered && !countyStep;
   // A conversation opened from a member list shows on the rooms page itself, so
   // the address stays /rooms (or /rooms/<category>) and Back returns to the room.
   const memberConversation = useBoard(keepsRoomsPage) && section === "messages";
@@ -207,6 +236,17 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     setSection("rooms");
   }, [categorySlug, setSection]);
 
+  useEffect(() => {
+    if (isCountyId(routeCounty)) setCounty(routeCounty);
+  }, [routeCounty, setCounty]);
+
+  // An old /rooms address opens the same page in the member's county, once that is known.
+  useEffect(() => {
+    if (!onRoomsRoute || routeCounty !== undefined || !inside || busy) return;
+    if (server.mode === "live" && !boardLoaded) return;
+    void navigate(roomsAddress(county, categorySlug ?? null, true));
+  }, [onRoomsRoute, routeCounty, inside, busy, server.mode, boardLoaded, county, categorySlug, navigate]);
+
   // A rooms page shows Rooms, or a conversation opened from a room's member
   // list. When an action elsewhere moves the board (open a profile, all
   // messages), leave the rooms page so it shows.
@@ -228,11 +268,20 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     }
     if (id === "rooms") {
       setSection("rooms");
-      void navigate({ to: "/rooms" });
+      void navigate(roomsAddress(county, null));
       return;
     }
     setSection(id);
     if (onRoomsRoute) void navigate({ to: "/" });
+  };
+
+  const switchCounty = (next: CountyId) => {
+    setCounty(next);
+    if (shown === "rooms") setSection("rooms");
+    // On a rooms page the address holds the county, so it has to change too.
+    if (shown === "rooms" || onRoomsRoute) {
+      void navigate(roomsAddress(next, onRoomsRoute ? (categorySlug ?? null) : null));
+    }
   };
 
   const focusDoorField = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -252,19 +301,20 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
     </>
   ) : (
     <>
-      {entered && server.mfa === "enroll" ? (
+      {inside && server.mfa === "enroll" ? (
         <MfaBanner onSetUp={() => openSection("profile")} />
       ) : null}
       {ageDue ? <AgeStep /> : null}
+      {countyStep ? <CountyStep /> : null}
       {!entered && !ageDue && <Door />}
-      {entered && shown === "week" && <WeekView />}
-      {entered && shown === "rooms" && <RoomView />}
-      {entered && shown === "groups" && <GroupsView onSetUp={() => openSection("profile")} />}
-      {entered && shown === "find" && <FindView />}
-      {entered && shown === "civic" && deskOn && <QuorumPanel />}
-      {entered && shown === "messages" && <DmView />}
-      {entered && shown === "profile" && <ProfileView />}
-      {entered && shown === "about" && <AboutView onSetUp={() => openSection("profile")} />}
+      {inside && shown === "week" && <WeekView />}
+      {inside && shown === "rooms" && <RoomView />}
+      {inside && shown === "groups" && <GroupsView onSetUp={() => openSection("profile")} />}
+      {inside && shown === "find" && <FindView />}
+      {inside && shown === "civic" && deskOn && <QuorumPanel />}
+      {inside && shown === "messages" && <DmView />}
+      {inside && shown === "profile" && <ProfileView />}
+      {inside && shown === "about" && <AboutView onSetUp={() => openSection("profile")} />}
     </>
   );
 
@@ -280,7 +330,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           onGo={(roomId) => {
             setSection("rooms");
             setRoom(roomId as Parameters<typeof setRoom>[0]);
-            void navigate({ to: "/rooms" }).then(() =>
+            const ringing = useBoard.getState().rooms.find((room) => room.id === roomId);
+            void navigate(roomsAddress(ringing ? roomCounty(ringing) : county, null)).then(() =>
               requestAnimationFrame(() =>
                 focusRoomCall(1000, Date.now(), document.activeElement, true),
               ),
@@ -305,10 +356,11 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
               <p className="mast-name">{APP_NAME}</p>
               {/* Signed in, the nav fills the bar and the one-line tagline was cut off, so it shows only at the door. */}
               {entered ? null : <p className="mast-tagline">{TAGLINE}</p>}
+              {inside && countiesOn ? <CountySwitch county={county} onChange={switchCounty} /> : null}
             </div>
           </div>
           <div className="mast-actions">
-            {entered ? (
+            {inside ? (
               <div className="topnav">
                 <IconNav
                   className="flex-nowrap gap-1"
@@ -328,7 +380,7 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
                   />
                 </IconNav>
               </div>
-            ) : ageDue ? null : (
+            ) : ageDue || countyStep ? null : (
               <a
                 className="mast-door"
                 href={signingIn ? "#sign-in" : "#open-the-door"}
@@ -433,8 +485,8 @@ function BoardShell({ categorySlug }: { categorySlug?: string | null }) {
           {wideCaption && !busy ? <p className="pc-credit pc-wide">Plates: {wideCaption}</p> : null}
         </main>
       </div>
-      {entered ? <SessionLine /> : null}
-      {entered ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
+      {inside ? <SessionLine /> : null}
+      {inside ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
       <ConfirmDialog
         open={confirmSignOut}
         title="Sign out"
