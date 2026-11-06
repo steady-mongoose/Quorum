@@ -503,19 +503,19 @@ function AdminListsCard({ onSetUp }: { onSetUp?: () => void }) {
   return (
     <section
       aria-labelledby="admin-lists-heading"
-      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5"
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-4 sm:p-5"
     >
       <h2 id="admin-lists-heading" className="text-2xl text-fg">
         Admin lists
       </h2>
-      <p className="max-w-prose text-sm text-muted">
+      <p className="min-w-0 max-w-prose text-sm text-muted">
         Deletion requests, authenticator resets, the room list, message reports, and the invite list
         wait until you turn on an authenticator.
       </p>
-      <p>
+      <p className="min-w-0">
         <button
           type="button"
-          className="min-h-[44px] text-fg underline underline-offset-4"
+          className="min-h-[44px] min-w-0 text-left text-fg underline underline-offset-4"
           onClick={() => {
             onSetUp?.();
             focusAuthenticator();

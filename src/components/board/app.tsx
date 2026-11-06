@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
@@ -64,6 +64,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
+import { enteredHintDecision, sawEnteredHint, writeEnteredCookie } from "@/lib/board/entered-hint";
 import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
@@ -76,6 +77,38 @@ const ICONS = {
   profile: User,
   about: BookOpen,
 } satisfies Record<Section, typeof CalendarDays>;
+
+/** The cookie keeps the signed-in shell until the saved board and the session agree. */
+function useInitialEntered(): { active: boolean; saw: boolean; hydrated: boolean } {
+  // Render tests mount BoardShell outside the router. The hook still runs.
+  const router = useRouter({ warn: false });
+  const match = router?.stores.getMatchStore("__root__").get();
+  const routeHint = Boolean(
+    match && typeof match.context === "object" && match.context && "enteredHint" in match.context
+      ? (match.context as { enteredHint?: boolean }).enteredHint
+      : false,
+  );
+  const [saw] = useState(
+    sawEnteredHint({
+      routeHint,
+      staticSpa: import.meta.env?.VITE_STATIC_SPA === "true",
+      ssr: Boolean(import.meta.env?.SSR),
+      cookie: typeof document === "undefined" ? "" : document.cookie,
+    }),
+  );
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    void Promise.all([useBoard.persist.rehydrate(), useQuorum.persist.rehydrate()]).finally(() => {
+      setHydrated(true);
+    });
+  }, []);
+  return { active: !hydrated && saw, saw, hydrated };
+}
+
+function effectiveEntered(ageDue: boolean, signed: boolean, initialEntered: boolean): boolean {
+  if (ageDue) return false;
+  return signed || initialEntered;
+}
 
 function BoardSkeleton() {
   return (
@@ -136,14 +169,41 @@ function BoardShell({
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
+  const initialEntered = useInitialEntered();
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   // A member whose account predates the 18+ check confirms once before the app.
   const ageDue = server.mode === "live" && Boolean(server.user) && !server.ageConfirmed;
-  const entered = !ageDue && (server.mode === "live" ? Boolean(server.user) || localEntry : member);
+  // While the session is still loading, only the cookie may show the signed-in
+  // shell. Saved membership is not a session, so an expired login must not
+  // paint it again on the next visit.
+  const signed =
+    server.mode === "pending"
+      ? false
+      : server.mode === "live"
+        ? Boolean(server.user) || localEntry
+        : member;
+  const entered = effectiveEntered(
+    ageDue,
+    signed,
+    initialEntered.active || (server.mode === "pending" && initialEntered.saw),
+  );
+  useEffect(() => {
+    const next = enteredHintDecision({
+      hydrated: initialEntered.hydrated,
+      mode: server.mode,
+      configured: server.configured,
+      user: Boolean(server.user),
+      localEntry,
+      member,
+    });
+    if (next === null) return;
+    writeEnteredCookie(next);
+  }, [initialEntered.hydrated, server.mode, server.configured, server.user, localEntry, member]);
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
-  const busy = waiting || boardLoading;
+  // A returning member already has a shell. The short skeleton would shift the page when the board arrives.
+  const busy = (waiting || boardLoading) && !initialEntered.saw;
   // Everyone chooses a county before the app opens. A room invite has already chosen.
   const countyStep = entered && !busy && countyDue({ boardLoaded, countiesOn, homeCounty });
   const inside = entered && !countyStep;
@@ -170,11 +230,6 @@ function BoardShell({
   usePlateView(plate);
   // The Rooms chip row and anchor scrolling sit flush under the sticky header at its real height.
   useMastHeight();
-
-  useEffect(() => {
-    void useBoard.persist.rehydrate();
-    void useQuorum.persist.rehydrate();
-  }, []);
 
   useEffect(() => {
     if (!undoClear) {
