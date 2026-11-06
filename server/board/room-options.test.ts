@@ -345,7 +345,7 @@ for (const dropDmLinks of [true, false]) {
         [old.ok ? old.value.id : ""],
       );
       assert.equal(links[0]?.n, dropDmLinks ? 0 : 2);
-      // The switch moves only the DM links (DM eligibility: rsvp.test.ts QA N3/N4).
+      // The switch moves only the DM links (DM eligibility: rsvp-reviews.test.ts QA N3/N4).
     } finally {
       await close();
     }
