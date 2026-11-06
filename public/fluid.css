@@ -348,9 +348,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   min-width:0;
   max-width:100%;
 }
-.topnav{max-width:100%;overflow-x:auto}
-.topnav :is(a, button):focus-visible { outline-offset: -2px; }
-
+.topnav{max-width:calc(100% + 8px);padding:4px;margin:-4px;overflow-x:auto}
 .mast-door{
   display:inline-flex;
   align-items:center;
