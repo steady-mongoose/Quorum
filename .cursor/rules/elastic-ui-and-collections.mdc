@@ -1,0 +1,70 @@
+---
+description: Frontend gate for intrinsic elastic layouts (zero overflow, zero squish) and reactive collection ergonomics on Avouch directories and admin tables with more than 6 items, with a Belonging Moat carve-out for social member surfaces.
+globs: ["**/*.tsx", "**/*.ts", "**/*.css", "**/*.html"]
+alwaysApply: false
+---
+
+# Elastic UI and reactive collections (Avouch / Quorum)
+
+Apply this gate to every change under `src/routes`, `src/components`, and shared presentation styles that people see. A server or PGLite/Postgres module that matches the glob but does not render UI does not need layout classes.
+
+Use `DESIGN.md` tokens only (Ink & Bone / Parchment & Lapis semantic CSS variables in `src/styles.css` and `public/backgrounds.css`). Never introduce raw hex literals in components or CSS. Keep the five-artist sepia engraving rules and the existing `art-two-sides.test.ts` / `page-art.test.ts` invariants intact.
+
+Check the result at **320px, 390px, 768px, and 1280px**, and again at **125% root zoom**. The page passes only when nothing overflows and nothing is squished at those widths.
+
+## 1. Intrinsic and elastic layouts
+
+Zero overflow. Zero squish.
+
+- Size reusable cards, split panes, and toolbars with `@container` (`container-type: inline-size`). Step layouts with container widths (`@sm`, `@md`, `cqw`) rather than assuming `window.innerWidth` equals available space.
+- Put `min-w-0` (`min-width: 0`) on flex children. Put `minmax(0, 1fr)` on CSS grid text tracks. A track of `1fr` without the `0` minimum can overflow.
+- Put `shrink-0 whitespace-nowrap` on buttons, pills, badges, and timestamps. If a row cannot hold them, `flex-wrap` those items onto their own row. Do not let a long title crush sibling controls into a 1-word-per-line vertical stack.
+- Use `overflow-wrap: anywhere` (or intentional `line-clamp-*` with accessible full text) on long tokens, invite codes, URLs, emails, and IDs so they wrap inside their cell. Prefer the property (or `[overflow-wrap:anywhere]`) over `break-all` on ordinary words.
+- Use `clamp(min, preferred, max)` for display headings and callouts. Use `tabular-nums` (`font-variant-numeric: tabular-nums`) on counts, dates, times, and table columns so digits align and do not jitter during reactive updates.
+- Size type and spacing in `rem`. Use `100dvh` plus `env(safe-area-inset-*)` for full-height shells. Never set a fixed `px` height on a container that holds text.
+- Interactive touch targets are at least **44×44px** on mobile and tablet viewports (`320px`, `390px`, `768px`). Padding counts. Icon-only controls need a hit area that meets that size, not just a 16px glyph. Standalone header/footer/door nav pills, theme toggles, and CTA buttons/links count; inline prose `<a>` links inside paragraphs follow body line height.
+- Wide tables collapse cleanly. Prefer an `@container` card or expandable-row layout. If the table must stay a table, wrap it in an explicit horizontal scroller with a sticky primary column. The acceptance check is `document.documentElement.scrollWidth <= window.innerWidth` across `320x568`, `390x844`, `768x1024`, `1280x800`, and `125%` root font-size zoom. No page-level horizontal scroll.
+
+## 2. Belonging Moat vs. reactive collections
+
+### Carved-out social member surfaces (Belonging Moat)
+
+These surfaces stay chronological or scheduled. They **forbid** popularity scores, likes, reshares, streaks, public attendee/RSVP headcounts, and algorithmic ranking:
+
+- `This week` (`src/components/board/week-view.tsx` and related home surfaces)
+- Room feeds and group discussions
+- Direct messages
+- Gathering cards shown to ordinary members
+
+Do not add search/sort/facet chrome that implies vanity ranking on these surfaces. Keep calm parish/hall order: time, schedule, or host-set order only.
+
+### Operational directories, finders, steward queues, and admin tables (`> 6` items)
+
+When a directory, finder, steward queue, or admin table/log can show **more than 6 items**, it ships with all of the following out of the box:
+
+Examples: `Find` directory/gatherings finder, `Rooms` directory, county/church/place finders, steward queues, `admin` stats/queues/audit logs (`src/routes/admin`, desk queues).
+
+1. **Search.** Instant and case-insensitive across visible text, tags, and IDs. A one-click `Clear` control. A live count in the exact form `Showing X of Y` (X = rows after search and filters, Y = rows before them).
+2. **Sort.** Typed multi-state sort: `asc` then `desc`. Set `aria-sort` (`ascending` / `descending` / `none`) on the sorted column. Compare numbers numerically, dates by timestamp, and text with `Intl.Collator(undefined, { numeric: true, sensitivity: "base" })`. Sort only non-vanity operational fields (name, date, county, role, status). Do not sort by popularity, likes, or engagement.
+3. **Facets.** Filter chips for key states, categories, or roles. On routed views, sync search, sort, and filters to TanStack Router search params (`validateSearch` / route search schema) so a filtered view survives reload and link sharing. In a surface that is not a route, keep the same chip behavior in component state.
+4. **Virtualization.** When the collection can exceed about 100 rows, virtualize with `@tanstack/react-virtual`. Do not mount the full set in the DOM.
+5. **Empty.** When search and filters match nothing, show a zero-match empty state whose action is `Reset filters`. Reset clears search, sort overrides, and facet chips together.
+
+A collection of 6 items or fewer may stay plain. Do not add a fake search box to a short static list.
+
+## 3. Deterministic Playwright gate
+
+Before finishing UI work on a touched surface:
+
+```bash
+node /home/box/agent-data/workflows/elastic-layout-reactive-ux-gate/check-ui-gate.mjs <url> --out /tmp/ui-gate.json
+```
+
+Seed adversarial fixtures where the surface accepts them: a 65-char unbroken token/email, a 140-char title, 0 items, and 50+ items. Exercise **320x568**, **390x844**, **768x1024**, **1280x800**, and **125%** root font-size zoom. Fail on any of:
+
+1. **Page bleed:** `document.documentElement.scrollWidth > window.innerWidth`
+2. **Silent clipping:** visible text with `overflow: hidden/clip` (without intentional ellipsis / `line-clamp`) where `scrollWidth > clientWidth` or `scrollHeight > clientHeight`
+3. **Squished controls:** a short label wrapped into a tall vertical stack, or a standalone interactive control below **44×44px** on touch viewports
+4. **Broken collection chrome** (operational surfaces only): search, typed sort, facet chips, or `Reset filters` missing or non-functional when the list can exceed 6 rows
+
+Inspect every field in the JSON output — including `smallTouchTargets` — even when `passed` is `true`.
