@@ -64,7 +64,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
-import { cookieSaysEntered, writeEnteredCookie } from "@/lib/board/entered-hint";
+import { cookieSaysEntered, enteredHintDecision, writeEnteredCookie } from "@/lib/board/entered-hint";
 import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
@@ -79,7 +79,7 @@ const ICONS = {
 } satisfies Record<Section, typeof CalendarDays>;
 
 /** The cookie keeps the signed-in shell until the saved board and the session agree. */
-function useInitialEntered(): { active: boolean; saw: boolean } {
+function useInitialEntered(): { active: boolean; saw: boolean; hydrated: boolean } {
   // Render tests mount BoardShell outside the router.
   let fromRoute = false;
   try {
@@ -91,14 +91,10 @@ function useInitialEntered(): { active: boolean; saw: boolean } {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     void Promise.all([useBoard.persist.rehydrate(), useQuorum.persist.rehydrate()]).finally(() => {
-      writeEnteredCookie(useBoard.getState().member);
       setHydrated(true);
     });
-    return useBoard.subscribe((state, previous) => {
-      if (state.member !== previous.member) writeEnteredCookie(state.member);
-    });
   }, []);
-  return { active: !hydrated && saw, saw };
+  return { active: !hydrated && saw, saw, hydrated };
 }
 
 function effectiveEntered(ageDue: boolean, signed: boolean, initialEntered: boolean): boolean {
@@ -170,11 +166,32 @@ function BoardShell({
   const waiting = server.mode === "pending";
   // A member whose account predates the 18+ check confirms once before the app.
   const ageDue = server.mode === "live" && Boolean(server.user) && !server.ageConfirmed;
+  // While the session is still loading, only the cookie may show the signed-in
+  // shell. Saved membership is not a session, so an expired login must not
+  // paint it again on the next visit.
+  const signed =
+    server.mode === "pending"
+      ? false
+      : server.mode === "live"
+        ? Boolean(server.user) || localEntry
+        : member;
   const entered = effectiveEntered(
     ageDue,
-    server.mode === "live" ? Boolean(server.user) || localEntry : member,
+    signed,
     initialEntered.active || (server.mode === "pending" && initialEntered.saw),
   );
+  useEffect(() => {
+    const next = enteredHintDecision({
+      hydrated: initialEntered.hydrated,
+      mode: server.mode,
+      configured: server.configured,
+      user: Boolean(server.user),
+      localEntry,
+      member,
+    });
+    if (next === null) return;
+    writeEnteredCookie(next);
+  }, [initialEntered.hydrated, server.mode, server.configured, server.user, localEntry, member]);
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   // A returning member already has a shell. The short skeleton would shift the page when the board arrives.

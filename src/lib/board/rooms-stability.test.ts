@@ -16,7 +16,9 @@ test("Rooms paints the signed-in header from the entered cookie, with no new mot
   assert.match(app, /function useInitialEntered\(\)/);
   assert.match(app, /function effectiveEntered\(/);
   assert.match(fluid, /@media \(max-width:47\.99em\)\{\.hero-band\{height:clamp\(140px,46vw,180px\)\}\}/);
-  assert.match(fluid, /\.topnav :is\(a, button\):focus-visible \{ outline-offset: -2px; \}/);
+  assert.match(fluid, /\.topnav\{padding:4px;margin:-4px;max-width:calc\(100% \+ 8px\);overflow-x:auto\}/);
+  assert.doesNotMatch(fluid, /\.topnav :is\(a, button\):focus-visible/);
+  assert.match(fluid, /grid-template-columns:repeat\(auto-fill,minmax\(min\(100%,16rem\),1fr\)\)/);
   assert.doesNotMatch(browse, /animate-pulse|backdrop-filter|blur\(/);
   assert.doesNotMatch(fluid, /backdrop-filter|blur\(/);
 });

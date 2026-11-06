@@ -50,6 +50,59 @@ function leaks(value: unknown): boolean {
   return /57P01|08006|08003|postgres:\/\/|password|terminating connection|duplicate key/i.test(text);
 }
 
+test("a refused checkout fails closed without the driver error", async () => {
+  const secret = "postgres://avouch:secret@127.0.0.1:5432/avouch";
+  const logs: string[] = [];
+  const write = console.error;
+  console.error = (line?: unknown) => {
+    logs.push(String(line));
+  };
+  const refuse = (code: string) => {
+    const error = new Error(`connect ${code} ${secret}`) as Error & { code: string };
+    error.code = code;
+    return error;
+  };
+  try {
+    const cases = [
+      { method: "query" as const, code: "ECONNREFUSED" },
+      { method: "transaction" as const, code: "57P03" },
+      { method: "session" as const, code: "ECONNREFUSED" },
+    ];
+    for (const item of cases) {
+      const pool = {
+        connect: async () => {
+          throw refuse(item.code);
+        },
+      } as unknown as pg.Pool;
+      const db = pgDb(pool);
+      let thrown: unknown;
+      try {
+        if (item.method === "query") await db.query("select 1 as n");
+        else if (item.method === "transaction") await db.transaction(async () => 1);
+        else await db.session!(async () => 1);
+      } catch (error) {
+        thrown = error;
+      }
+      assert.ok(thrown instanceof DatabaseUnavailable, item.method);
+      assert.equal((thrown as Error).message, DB_UNAVAILABLE, item.method);
+      assert.equal("code" in (thrown as object), false, `${item.method} has no driver code`);
+      assert.equal(leaks(thrown), false, item.method);
+      assert.equal(String((thrown as Error).message).includes(secret), false, item.method);
+    }
+  } finally {
+    console.error = write;
+  }
+  assert.equal(logs.length, 3);
+  for (const line of logs) {
+    const entry = JSON.parse(line) as { event?: string; message?: string };
+    assert.equal(entry.event, "pg-connect-error");
+    assert.equal(line.includes(secret), false);
+    assert.equal(line.includes("secret"), false);
+    assert.match(entry.message ?? "", /\[redacted\]/);
+    assert.equal((entry.message ?? "").includes("select 1"), false);
+  }
+});
+
 test("a dropped connection during a transaction does not crash the API", async (t) => {
   const url = process.env.CLAIM_POSTGRES_URL ?? "";
   if (!url) {

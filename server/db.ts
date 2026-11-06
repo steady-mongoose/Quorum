@@ -145,10 +145,20 @@ function surface(error: unknown, broken: Error | undefined): unknown {
   return new DatabaseUnavailable();
 }
 
+/** A checkout that never gets a client. Logged without the URL, then one sentence. */
+async function checkout(pool: pg.Pool): Promise<pg.PoolClient> {
+  try {
+    return await pool.connect();
+  } catch (error) {
+    logPg("pg-connect-error", error);
+    throw new DatabaseUnavailable();
+  }
+}
+
 export function pgDb(pool: pg.Pool): Db {
   return {
     async query<T>(text: string, params: unknown[] = []) {
-      const client = await pool.connect();
+      const client = await checkout(pool);
       const watch = watchClient(client);
       let failed: unknown;
       try {
@@ -162,7 +172,7 @@ export function pgDb(pool: pg.Pool): Db {
       }
     },
     async transaction<T>(fn: (tx: Db) => Promise<T>) {
-      const client = await pool.connect();
+      const client = await checkout(pool);
       const watch = watchClient(client);
       let failed: unknown;
       try {
@@ -194,7 +204,7 @@ export function pgDb(pool: pg.Pool): Db {
       }
     },
     async session<T>(fn: (db: Db) => Promise<T>) {
-      const client = await pool.connect();
+      const client = await checkout(pool);
       const watch = watchClient(client);
       const conn = clientDb(client);
       let failed: unknown;

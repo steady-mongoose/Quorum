@@ -158,6 +158,7 @@ const appTests = [
   "src/lib/board/route-head.test.ts",
   "src/lib/board/room-layout.test.ts",
   "src/lib/board/entered-hint.test.ts",
+  "src/lib/board/entered-hint.render.test.mjs",
   "src/lib/board/rooms-stability.test.ts",
   "src/lib/board/store.test.ts",
   "src/lib/board/clear-board.test.ts",

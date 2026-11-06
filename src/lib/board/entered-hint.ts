@@ -13,6 +13,29 @@ export function writeEnteredCookie(member: boolean): void {
   document.cookie = enteredCookie(member);
 }
 
+export type EnteredHintInput = {
+  hydrated: boolean;
+  mode: "pending" | "live" | "demo";
+  /** False only when this build is forced into the browser demo. */
+  configured: boolean;
+  user: boolean;
+  localEntry: boolean;
+  member: boolean;
+};
+
+/**
+ * What to write once the saved board and the server have both been read.
+ * `null` leaves the cookie alone: still checking, or the API is down and the
+ * last hint should survive the outage. `false` clears it (`Max-Age=0`).
+ */
+export function enteredHintDecision(input: EnteredHintInput): boolean | null {
+  if (!input.hydrated || input.mode === "pending") return null;
+  // A failed health probe is not a sign-out. Keep the hint until the API answers.
+  if (input.configured && input.mode === "demo") return null;
+  if (input.mode === "live") return input.user || input.localEntry;
+  return input.member;
+}
+
 /** True when the cookie header says this browser has been inside the app. */
 export function cookieSaysEntered(header: string | null | undefined): boolean {
   return new RegExp(`(?:^|;\\s*)${ENTERED_COOKIE}=1(?:\\s*;|$)`).test(header ?? "");

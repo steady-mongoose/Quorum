@@ -137,7 +137,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 .room-grid{
   display:grid;
   gap:var(--space-2);
-  grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),1fr));
 }
 .room-card{
   display:flex;
@@ -348,8 +348,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   min-width:0;
   max-width:100%;
 }
-.topnav{max-width:100%;overflow-x:auto}
-.topnav :is(a, button):focus-visible { outline-offset: -2px; }
+.topnav{padding:4px;margin:-4px;max-width:calc(100% + 8px);overflow-x:auto}
 .mast-door{
   display:inline-flex;
   align-items:center;
