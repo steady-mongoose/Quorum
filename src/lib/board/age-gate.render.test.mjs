@@ -342,25 +342,31 @@ test("the door checks every field in one pass, puts each message by its field, a
       assert.match(box.className, /\bcheck-gilt\b/);
       assert.equal(box.getAttribute("aria-describedby"), null);
 
-      // Everything empty: four messages, each beside its field, one alert, focus on the name.
+      // Everything empty: a summary at the top, a line under each field, one alert, focus on the name.
       act(() => {
         form.requestSubmit();
       });
       assert.equal(sent.length, 0, String(width));
-      const nameError = view.host.querySelector("#sign-up-name-error");
+      const nameError = view.host.querySelector("#door-name-error");
+      const emailError = view.host.querySelector("#door-email-error");
+      const passwordError = view.host.querySelector("#door-password-error");
       const signError = view.host.querySelector("#sign-in-error");
       const codeError = view.host.querySelector("#invite-code-error");
       const ageError = view.host.querySelector("#age-error");
       assert.equal(after(name.closest("label")), nameError, "name message under the name");
-      assert.equal(after(password.closest("label")), signError, "sign message directly under Password");
+      assert.equal(after(email.closest("label")), emailError, "email message under Email");
+      assert.equal(after(password.closest("label")), passwordError, "password message under Password");
       assert.equal(after(code.closest("label")), codeError, "code message under the code");
       assert.equal(after(box.closest("label")), ageError, "age message under the box");
-      assert.equal(nameError?.textContent, "Enter your name.");
+      assert.equal(nameError?.textContent, "Please enter your name.");
+      assert.equal(emailError?.textContent, "Please enter your email.");
+      assert.equal(passwordError?.textContent, "Please enter your password.");
+      assert.equal(signError?.textContent, "Enter your name, email and password.");
       assert.equal(ageError?.textContent, AGE_SIGNUP_ERROR);
       const alerts = [...form.querySelectorAll('[role="alert"]')];
-      assert.deepEqual(alerts, [nameError], "only the first problem is announced");
+      assert.deepEqual(alerts, [signError], "the summary is the one alert");
       assert.equal(document.activeElement, name);
-      assert.equal(name.getAttribute("aria-describedby"), "sign-up-name-error");
+      assert.equal(name.getAttribute("aria-describedby"), "door-name-error sign-in-error");
       assert.equal(box.getAttribute("aria-describedby"), "age-error");
       for (const field of [name, email, password, code, box]) {
         assert.equal(field.getAttribute("aria-invalid"), "true", field.id || field.type);
@@ -374,6 +380,7 @@ test("the door checks every field in one pass, puts each message by its field, a
         form.requestSubmit();
       });
       assert.deepEqual([...form.querySelectorAll('[role="alert"]')], [view.host.querySelector("#sign-in-error")]);
+      assert.equal(view.host.querySelector("#sign-in-error")?.textContent, "Enter your email and password.");
       assert.equal(document.activeElement, email);
 
       // Only the box left: the age message is announced and the box gets focus.
@@ -404,7 +411,7 @@ test("the door checks every field in one pass, puts each message by its field, a
   }
 });
 
-test("in sign-in mode the empty message sits directly under Password", () => {
+test("in sign-in mode the empty summary sits above the fields and each empty field has its own line", () => {
   const session = { ...EMPTY_SERVER_SESSION, mode: /** @type {const} */ ("live"), configured: true };
   const view = render(
     createElement(SessionContext.Provider, {
@@ -419,10 +426,17 @@ test("in sign-in mode the empty message sits directly under Password", () => {
       form.requestSubmit();
     });
     const password = view.host.querySelector("#sign-in-password");
+    const email = view.host.querySelector("#sign-in-email");
     const signError = view.host.querySelector("#sign-in-error");
+    const emailError = view.host.querySelector("#door-email-error");
+    const passwordError = view.host.querySelector("#door-password-error");
     assert.ok(signError);
-    assert.equal(password?.closest("label")?.nextElementSibling, signError);
     assert.equal(signError.getAttribute("role"), "alert");
+    assert.equal(signError.textContent, "Enter your email and password.");
+    assert.equal(email?.closest("label")?.nextElementSibling, emailError);
+    assert.equal(password?.closest("label")?.nextElementSibling, passwordError);
+    assert.equal(emailError?.textContent, "Please enter your email.");
+    assert.equal(passwordError?.textContent, "Please enter your password.");
   } finally {
     view.cleanup();
   }
@@ -667,7 +681,7 @@ test(".check-gilt is pinned: gilt box, fill, invalid border, team ring, and the 
 
 test("the phone tab bar height is defined for things that must clear it", () => {
   const css = readFileSync(new URL("../../../public/fluid.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  const phone = css.indexOf("@media (max-width:767px){\n  /* The tab bar");
+  const phone = css.indexOf("@media (max-width:47.99em){\n  /* The tab bar");
   assert.ok(phone > -1);
   assert.match(css.slice(phone, phone + 200), /:root\{--tabbar-h:57px\}/);
 });

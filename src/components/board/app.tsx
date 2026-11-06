@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
@@ -284,16 +284,6 @@ function BoardShell({
     }
   };
 
-  const focusDoorField = (event: MouseEvent<HTMLAnchorElement>) => {
-    const id = event.currentTarget.getAttribute("href")?.slice(1);
-    if (!id) return;
-    window.setTimeout(() => {
-      const root = document.getElementById(id);
-      const field = root?.querySelector<HTMLElement>("input, textarea, select, button");
-      field?.focus();
-    }, 0);
-  };
-
   const page = busy ? (
     <>
       <p className="sr-only">Checking the server.</p>
@@ -380,15 +370,7 @@ function BoardShell({
                   />
                 </IconNav>
               </div>
-            ) : ageDue || countyStep ? null : (
-              <a
-                className="mast-door"
-                href={signingIn ? "#sign-in" : "#open-the-door"}
-                onClick={focusDoorField}
-              >
-                {signingIn ? "Sign in" : "Enter your invite code"}
-              </a>
-            )}
+            ) : null}
             {server.user ? (
               <button
                 type="button"
@@ -487,20 +469,22 @@ function BoardShell({
       </div>
       {inside ? <SessionLine /> : null}
       {inside ? <SectionTabs current={shown} deskOn={deskOn} onSelect={openSection} /> : null}
-      <ConfirmDialog
-        open={confirmSignOut}
-        title="Sign out"
-        description={DM_SIGNOUT_HISTORY_WARNING}
-        confirmLabel="Sign out and clear"
-        cancelLabel="Stay signed in"
-        onCancel={() => setConfirmSignOut(false)}
-        onConfirm={() => {
-          setConfirmSignOut(false);
-          void server.signOut().finally(() => {
-            useBoard.getState().disconnectRemote();
-          });
-        }}
-      />
+      {server.user ? (
+        <ConfirmDialog
+          open={confirmSignOut}
+          title="Sign out"
+          description={DM_SIGNOUT_HISTORY_WARNING}
+          confirmLabel="Sign out and clear"
+          cancelLabel="Stay signed in"
+          onCancel={() => setConfirmSignOut(false)}
+          onConfirm={() => {
+            setConfirmSignOut(false);
+            void server.signOut().finally(() => {
+              useBoard.getState().disconnectRemote();
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

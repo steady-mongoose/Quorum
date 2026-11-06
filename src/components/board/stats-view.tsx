@@ -74,7 +74,7 @@ export function StatsView({
           <label className="flex min-w-0 flex-col gap-1 text-[0.85rem] text-muted">
             Category
             <select
-              className="min-h-[44px] w-full max-w-full truncate rounded-md border border-line bg-surface px-3 text-fg sm:w-auto sm:max-w-[20rem]"
+              className="min-h-[44px] w-full max-w-full truncate rounded-md border border-line-strong bg-surface px-3 text-fg sm:w-auto sm:max-w-[20rem]"
               value={category}
               title={selectedLabel}
               aria-label="Category"

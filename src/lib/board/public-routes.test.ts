@@ -69,7 +69,7 @@ test("the door intro comes before the form and keeps the desktop order", () => {
   assert.match(door, /text-base text-fg/);
 });
 
-test("the account form announces an empty or wrong sign-in above the button", () => {
+test("the account form announces an empty or wrong sign-in at the top of the form", () => {
   assert.match(account, /Enter your email and password\./);
   assert.match(account, /That email and password don't match an account\./);
   assert.match(account, /Enter the code your host gave you\./);
@@ -91,4 +91,9 @@ test("the account form announces an empty or wrong sign-in above the button", ()
   const submitAt = account.indexOf('type="submit"');
   const alertAt = account.lastIndexOf('role="alert"', submitAt);
   assert.ok(alertAt > 0 && alertAt < submitAt);
+  const summaryAt = account.indexOf("id={SIGN_IN_ERROR_ID}");
+  assert.ok(summaryAt > 0 && summaryAt < account.indexOf('id="sign-in-email"'));
+  assert.match(account, /Please enter your email\./);
+  assert.match(account, /Please enter your password\./);
+  assert.match(account, /Please enter your name\./);
 });
