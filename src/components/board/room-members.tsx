@@ -21,8 +21,9 @@ function cameLine(row: MemberRow): string {
 
 /**
  * Who is in the room. Every member sees every member, in name order. It shows
- * when each joined and last posted, and, in a room that takes roll, the
- * gatherings each came to. It never ranks anyone and shows no upcoming RSVPs.
+ * when each joined and last posted. In a room that takes roll, who came shows
+ * only where the server sends it: to the host, the room's stewards and admins,
+ * and to each member for themselves. It never ranks anyone and shows no upcoming RSVPs.
  * Message shows where the server says you may write; it checks again on open.
  * While you are new to the room, one line above the list says when you can.
  */
@@ -105,7 +106,7 @@ export function RoomMembers({ room }: { room: Room }) {
                   .filter(Boolean)
                   .join(" ")}
               </span>
-              {list.rollCall ? <span className="text-sm text-muted">{cameLine(row)}</span> : null}
+              {list.rollCall && (row.attended.length > 0 || row.name === me) ? <span className="text-sm text-muted">{cameLine(row)}</span> : null}
               {row.name !== me && row.message === "open" ? (
                 <button
                   type="button"

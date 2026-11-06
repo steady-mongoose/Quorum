@@ -75,6 +75,15 @@ export function stewardsRoom(actor: BoardActor, roomId: string): boolean {
   return actor.admin || actor.stewardRooms.includes(roomId);
 }
 
+/**
+ * A real steward seat in this room, never the admin grant. Names, attendance
+ * and control of someone else's gathering come only from a real role (QA F1,
+ * Oct 30): moderation may use stewardsRoom, these may not.
+ */
+export function realStewardOf(actor: BoardActor, roomId: string): boolean {
+  return actor.stewardRooms.includes(roomId);
+}
+
 async function isOwner(db: Db, userId: string): Promise<boolean> {
   const rows = await db.query<{ user_id: string }>(
     `select user_id from bootstrap_seat where id = 'founding' and user_id = $1`,

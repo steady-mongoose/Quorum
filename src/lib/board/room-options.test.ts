@@ -70,7 +70,9 @@ test("admins get the options menu when setting up and editing a room; the room p
   assert.match(room, /roomIncludes\(meta, "calls"\) && canCall \? <RoomCall/);
   assert.match(room, /roomIncludes\(meta, "chat"\) \? <RoomChat/);
   assert.match(room, /roomIncludes\(meta, "members"\) \? <RoomMembers/);
-  assert.match(room, /\{rollCall \? \(\r?\n\s+<RollCallPicker/);
+  // Roll call follows the option; a server gathering's comes from its RSVPs (#126), any other card's from the room's members.
+  assert.match(room, /\{rollCall \? \(\r?\n\s+closing && isGatheringId\(closing\.id\) \? \(/);
+  assert.match(room, /\) : \(\r?\n\s+<RollCallPicker/);
   assert.match(about, /Roll call is off unless an admin turns it on\./);
 });
 

@@ -167,16 +167,17 @@ test("the card shows who came only where the room takes roll", async () => {
 });
 
 test("the room card and the Find write-up both follow the room's roll option", () => {
+  // Merged with #126: a server gathering's roll call comes from its RSVPs (special
+  // events only, per viewer); any other card picks from the room's members.
   const roomView = source("src/components/board/room-view.tsx");
   assert.match(roomView, /roomIncludes\(roomById\(post\.room, state\.rooms\), "roll_call"\)/);
-  assert.match(roomView, /<WhoCame post=\{post\} rollCall=\{rollCall\} \/>/);
-  assert.equal(roomView.includes("There: "), false);
-  assert.match(roomView, /\{rollCall \? \(\s*<RollCallPicker/);
-  assert.equal(roomView.includes("said they would"), false);
+  assert.match(roomView, /\{rollCall \? \(\s*<>\s*\{cameText\(/);
+  assert.match(roomView, /closing && isGatheringId\(closing\.id\) \? \(/);
+  assert.match(roomView, /\) : \(\s*<RollCallPicker/);
 
   const findView = source("src/components/board/find-view.tsx");
-  assert.match(findView, /const rollCall = roomIncludes\(room, "roll_call"\);/);
-  assert.match(findView, /const present = happened && rollCall \? came : \[\];/);
-  assert.match(findView, /\{rollCall \? \(\s*<RollCallPicker/);
+  assert.match(findView, /const rollOn = /);
+  assert.match(findView, /happened && rollOn \? came : \[\],/);
+  assert.match(findView, /\) : null\) : rollOn \? \(\s*<RollCallPicker/);
   assert.equal(findView.includes("card.going.map"), false);
 });

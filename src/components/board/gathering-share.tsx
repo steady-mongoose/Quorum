@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadGathering, saveGathering, setGatheringShare } from "@/lib/board/gathering-public";
-import { gatheringPublicUrl, PUBLIC_TIME_NOTE, publicClock } from "@/lib/board/public-gathering";
+import { gatheringPublicUrl, PUBLIC_TIME_NOTE, publicClock, shareAccess } from "@/lib/board/public-gathering";
 import { authorName } from "@/lib/board/model";
 import type { MeetingCard } from "@/lib/board/model";
 import { useBoard } from "@/lib/board/store";
@@ -23,18 +23,16 @@ export function GatheringShareControl({ card }: { card: MeetingCard }) {
   const updateCard = useBoard((state) => state.updateCard);
   const remote = useBoard((state) => state.remote);
   const me = useBoard((state) => authorName(state.me));
-  const admin = useBoard((state) => state.admin);
   const stewardRooms = useBoard((state) => state.stewardRooms);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [wanted, setWanted] = useState<boolean | null>(null);
   const [copied, setCopied] = useState("");
   const host = card.host === me;
-  const moderator = admin || stewardRooms.includes(card.room);
   const shared = card.sharePublic === true;
   const plainClock = publicClock(card.time) !== "";
-  const mayRead = host || moderator;
-  const allowed = host || (moderator && shared);
+  // Host or a real steward only, as on the server; never the admin grant (QA N8).
+  const { mayRead, allowed } = shareAccess({ host, stewardRooms, room: card.room, shared });
 
   useEffect(() => {
     if (!remote || !mayRead) return;

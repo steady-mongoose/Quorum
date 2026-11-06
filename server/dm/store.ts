@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rsvpCutoff, writeUpWithin } from "../board/rsvp-retention.ts";
 import { actorRoles, stewardsRoom } from "../board/access.ts";
 import { guardRoomAudience } from "../board/audience.ts";
 import { roomStandings, standingKey } from "../chat/store.ts";
@@ -505,21 +506,12 @@ const ATTENDANCE_CARD_CAP = 40;
 
 /**
  * Attendance can be confirmed only for a write-up from the last 12 months, the
- * same window as the RSVP/attendance retention (RSVP_RETENTION_MONTHS,
- * writeUpWithin and rsvpCutoff in #126's server/board/rsvp-retention.ts, which
- * is not on the-board yet). Without it, an add-only record would let a device
- * re-send a meeting the purge had already aged out.
+ * same window as the RSVP/attendance retention: one cutoff and one predicate,
+ * imported from server/board/rsvp-retention.ts so the confirm and #126's purge
+ * cannot drift (QA H6 on #138). Without it, an add-only record would let a
+ * device re-send a meeting the purge had already aged out.
  */
-const ATTENDANCE_RETENTION_MONTHS = 12;
-
-function attendanceCutoff(now: Date): Date {
-  const cutoff = new Date(now.getTime());
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - ATTENDANCE_RETENTION_MONTHS);
-  return cutoff;
-}
-
-/** SQL: a hosted write-up `p` dated on or after the cutoff (its date, or when it was filed). */
-const WRITE_UP_WITHIN = `(case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= $4 else p.created_at >= $5 end)`;
+const WRITE_UP_WITHIN = writeUpWithin("$4", "$5");
 
 /** Resolve the names on a hosted post to accounts that exist right now. */
 export async function rememberNamedAccounts(db: Db, postId: string): Promise<void> {
@@ -579,7 +571,7 @@ export async function recordAttendance(
     }
   }
   if (requested.length === 0) return { ok: true, value: null };
-  const cutoff = attendanceCutoff(now);
+  const cutoff = rsvpCutoff(now);
   await db.query(
     `insert into dm_attendance (user_id, meeting_id, recorded_at)
      select $1, allowed.meeting_id, $2

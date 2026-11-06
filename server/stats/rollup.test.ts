@@ -375,7 +375,7 @@ test("the nightly rollup writes counts and the read hides anything under 5", asy
     assert.equal(stats.intent.inPersonPercent, 60);
     assert.equal(stats.intent.crossRoomMembers, "<5");
     assert.equal(stats.intent.crossRoomVouches, "<5");
-    assert.match(stats.intent.rsvpNote, /no RSVP count/);
+    assert.match(stats.intent.rsvpNote, /RSVP counts are in their own panel below/);
 
     const csv = await readStatsCsv(db, NOW);
     assert.match(csv, /<5/);

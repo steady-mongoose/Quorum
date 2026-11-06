@@ -16,6 +16,7 @@ import { warnMissingMfaKey } from "./mfa/secret.ts";
 import { warnInvalidClaimFrom } from "./board/claims.ts";
 import { CLIENT_IP_HEADER, resolveIncoming } from "./proxy.ts";
 import { startNightlyStats } from "./stats/schedule.ts";
+import { startRsvpRetention } from "./board/rsvp.ts";
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name];
@@ -133,6 +134,7 @@ export function startHost(): void {
   sweep.unref();
   startNightlyStats(boardDb, config.activityRetentionDays, now);
   startSecurityLogPurge(boardDb);
+  startRsvpRetention(boardDb);
   const server = createServer(async (req, res) => {
     try {
       await send(res, await app(await toRequest(req, config)));

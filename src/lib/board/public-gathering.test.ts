@@ -12,6 +12,7 @@ import {
   publicGatheringJson,
   publicGatheringMeta,
   readPublicGathering,
+  shareAccess,
 } from "./public-gathering.ts";
 
 const ID = "3f2a9c1e-8241-4c3e-9a11-8241abcd1234";
@@ -272,4 +273,20 @@ test("QA #130: Save-Data: on gets the /e page flagged, so door.css never fetches
   const door = readFileSync(new URL("../../../public/door.css", import.meta.url), "utf8");
   assert.ok(door.includes("[data-save-data] .plate-ground{background-image:none;animation:none}"));
   assert.ok(door.includes("[data-save-data] .plate-ground::before,[data-save-data] .plate-ground::after,"));
+});
+
+test("QA N8: the share control asks for share state only as the host or a real steward, never as a plain admin", () => {
+  const room = "shop";
+  // A plain admin: no host role and no steward seat in this room. The admin grant is not an input.
+  for (const shared of [false, true]) {
+    assert.deepEqual(shareAccess({ host: false, stewardRooms: [], room, shared }), { mayRead: false, allowed: false });
+    assert.deepEqual(shareAccess({ host: false, stewardRooms: ["county"], room, shared }), { mayRead: false, allowed: false });
+    assert.deepEqual(shareAccess({ host: true, stewardRooms: [], room, shared }), { mayRead: true, allowed: true });
+    assert.deepEqual(shareAccess({ host: false, stewardRooms: [room], room, shared }), { mayRead: true, allowed: shared });
+  }
+  assert.deepEqual(shareAccess({ host: false, stewardRooms: [""], room: "", shared: true }), { mayRead: false, allowed: false });
+  const share = readFileSync(new URL("../../components/board/gathering-share.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(share, /state\.admin|\badmin \|\||const admin\b/, "the share control never reads the admin grant");
+  assert.match(share, /const \{ mayRead, allowed \} = shareAccess\(\{ host, stewardRooms, room: card\.room, shared \}\)/);
+  assert.match(share, /if \(!remote \|\| !mayRead\) return;\n\s*let live = true;\n\s*void loadGathering\(card\.id\)/);
 });

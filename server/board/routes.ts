@@ -69,6 +69,22 @@ import { closeReport, fileReport, listReports } from "./reports.ts";
 
 type SessionUser = { id: string; name: string; email: string };
 
+
+/** How long POST /api/gatherings waits on a steward's date email before answering without dateMailed. */
+export const DATE_MAIL_ANSWER_MS = 10_000;
+async function mailedWithin(mailed: Promise<number>, ms: number): Promise<boolean | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  try {
+    const sent = await Promise.race([mailed, late]);
+    return sent === undefined ? undefined : sent > 0;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type BoardDeps = {
   db: Db;
   readSession: (headers: Headers) => Promise<SessionUser | null>;
@@ -512,10 +528,20 @@ export async function handleBoard(
         date: body.date,
         time: body.time,
         place: body.place,
+        ...("special" in body ? { special: body.special } : {}),
         now,
       });
       if (!saved.ok) return json(saved.status, { error: saved.error });
-      return json(200, { gathering: saved.gathering });
+      // A steward's date change: say only whether at least one email went out
+      // now, never to whom or how many (QA S2, review 5794529351).
+      // A slow provider never holds the save past DATE_MAIL_ANSWER_MS: then
+      // the field is left out and the sends carry on.
+      const dateMailed = saved.mailed ? await mailedWithin(saved.mailed, DATE_MAIL_ANSWER_MS) : undefined;
+      return json(200, {
+        gathering: saved.gathering,
+        ...(saved.notice ? { notice: saved.notice } : {}),
+        ...(dateMailed !== undefined ? { dateMailed } : {}),
+      });
     }
 
     if (url.pathname === "/api/rooms") {

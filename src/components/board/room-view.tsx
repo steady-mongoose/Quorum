@@ -37,6 +37,7 @@ import {
   removalConfirm,
   RULE_SENTENCE,
   authorName,
+  cameText,
   activeBan,
   blankDraft,
   cardSummary,
@@ -67,6 +68,8 @@ import {
   type MeetingCard,
   type Post,
   forViewer,
+  seesGoing,
+  takesRoll,
 } from "@/lib/board/model";
 import { CouncilBar } from "@/components/board/council-bar";
 import { sendReport } from "@/lib/board/report-api";
@@ -75,7 +78,7 @@ import { useRoomsRoute } from "@/components/board/rooms-route";
 import { useCounty } from "@/components/board/use-county";
 import { countyName, roomCounty } from "@/lib/board/counties";
 import { categoryNames, roomCategoryIds } from "@/lib/board/categories";
-import { useBoard } from "@/lib/board/store";
+import { forgetSavedClose, savedCloseNames, useBoard } from "@/lib/board/store";
 import { useMessageReach } from "@/components/board/use-message-reach";
 import { QuotePassage } from "@/components/board/quote-card";
 import { NeedCard } from "@/components/board/week-view";
@@ -83,7 +86,10 @@ import { cancelFreshPost, expectFreshPost, takeFreshPost } from "@/lib/board/ink
 import { RoomAudienceEditor, RoomAudienceMark, RoomHoldPlate } from "@/components/board/audience";
 import { getArmedRoom, subscribeArmedRoom } from "@/lib/board/motion";
 import { RoomMembers } from "@/components/board/room-members";
-import { RollCallPicker, WhoCame } from "@/components/board/roll-call";
+import { rollCallFor, rollKey, toggleRoll, whoCameSavedLine, type RollPerson } from "@/lib/board/rsvp-api";
+import { roleCounts } from "@/lib/board/rsvp-rules";
+import { RollCallPicker } from "@/components/board/roll-call";
+import { isGatheringId } from "@/lib/board/public-gathering";
 
 const MARKS: Mark[] = ["unsupported", "out_of_scope", "sloppy"];
 const RULES = Object.keys(RULE_LABEL) as HardRule[];
@@ -115,9 +121,18 @@ export function RoomView() {
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerById = useBoard((state) => state.remote);
+  const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () => boardCards.map((card) => forViewer(card, {
+          admin: viewerAdmin,
+          name: viewerName,
+          hosts: viewerHosts,
+          byId: viewerById,
+          stewardRooms: viewerRooms,
+        })),
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
@@ -192,7 +207,7 @@ export function RoomView() {
             {card.firstTimer ? " · new people welcome" : ""}
           </p>
           {card.book ? <p className="mt-1 text-sm text-fg">{readingLine(card)}</p> : null}
-          {admin && card.going.length > 0 ? (
+          {seesGoing(card) && card.going.length > 0 ? (
             <p className="mt-1 text-sm text-muted">Going: {card.going.join(", ")}</p>
           ) : null}
         </article>
@@ -361,6 +376,7 @@ export function RoomView() {
                 mine={post.author === me}
                 canMessage={reach.canMessage(post.author)}
                 steward={steward && tools}
+                seesWhoCame={roleCounts(viewerAdmin) && viewerRooms.includes(room)}
                 canPost={canPost}
               />
             ))}
@@ -469,9 +485,18 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   const boardCards = useBoard((state) => state.cards);
   const viewerAdmin = useBoard((state) => state.admin);
   const viewerName = useBoard((state) => authorName(state.me));
+  const viewerHosts = useBoard((state) => state.rsvpHosts);
+  const viewerById = useBoard((state) => state.remote);
+  const viewerRooms = useBoard((state) => state.stewardRooms);
   const cards = useMemo(
-    () => boardCards.map((card) => forViewer(card, { admin: viewerAdmin, name: viewerName })),
-    [boardCards, viewerAdmin, viewerName],
+    () => boardCards.map((card) => forViewer(card, {
+          admin: viewerAdmin,
+          name: viewerName,
+          hosts: viewerHosts,
+          byId: viewerById,
+          stewardRooms: viewerRooms,
+        })),
+    [boardCards, viewerAdmin, viewerName, viewerHosts, viewerById, viewerRooms],
   );
   const removals = useBoard((state) => state.removals);
   const bans = useBoard((state) => state.bans);
@@ -504,6 +529,23 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
   );
   const closing =
     current.type === "hosted" ? ownCards.find((card) => card.id === current.cardId) : undefined;
+  const rollCallById = useBoard((state) => state.rollCall);
+  const roll = closing ? rollCallFor(closing, rollCallById) : [];
+  // A close already saved for this date (here or in Find): lock to its names
+  // as soon as the form opens, so new picks are never silently ignored (QA S3, Design #126 M1).
+  const savedNames = closing ? savedCloseNames(closing.id, closing.next || todayIso()) : null;
+  // Who "Name one person" offers: the saved close's names win (Design #126 L1).
+  const cameNames = savedNames ?? current.came;
+  // Roll call picks by member id. They belong to one card and only while
+  // that card's write-up still lists them.
+  const [rollPicks, setRollPicks] = useState<{ cardId: string; keys: string[] }>({ cardId: "", keys: [] });
+  const cameKeys =
+    rollPicks.cardId === current.cardId
+      ? rollPicks.keys.filter((key) => {
+          const person = roll.find((item) => rollKey(item) === key);
+          return Boolean(person && current.came.includes(person.name));
+        })
+      : [];
   const check = useMemo(
     () =>
       composerCheck(current, {
@@ -533,6 +575,8 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setResult(null);
   };
   const reset = () => {
+    // A cleared composer starts fresh: its next close calls attendance (QA S3 #1).
+    if (current.cardId) forgetSavedClose(current.cardId);
     pendingRef.current = false;
     setPending(false);
     setDraft(blankDraft(room));
@@ -551,7 +595,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
     setPending(true);
     const before = new Set(useBoard.getState().posts.map((post) => post.id));
     expectFreshPost();
-    void file(current)
+    void file(current, { cameIds: roll.filter((p) => cameKeys.includes(rollKey(p))).map((p) => p.userId).filter(Boolean) })
       .then((outcome) => {
         if (outcome.ok) {
           const fresh = useBoard.getState().posts.find((post) => !before.has(post.id));
@@ -589,11 +633,17 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
       send();
     }
   };
-  const toggleCame = (name: string) => {
+  /** Any card that is not a server gathering: names from the room's members. */
+  const toggleCameName = (name: string) => {
     const came = current.came.includes(name)
-      ? current.came.filter((n) => n !== name)
+      ? current.came.filter((item) => item !== name)
       : [...current.came, name];
     patch({ came, named: came.includes(current.named) ? current.named : "" });
+  };
+  const toggleCame = (person: RollPerson) => {
+    const next = toggleRoll(roll, cameKeys, person);
+    setRollPicks({ cardId: current.cardId, keys: next.keys });
+    patch({ came: next.came, named: next.came.includes(current.named) ? current.named : "" });
   };
 
   const latestError = visible?.stops.at(-1);
@@ -758,14 +808,48 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
             {type.closes ? (
               <>
                 {rollCall ? (
+                closing && isGatheringId(closing.id) ? (
+                <fieldset className="flex flex-col gap-2 text-sm text-muted">
+                  <legend>Roll call. Who came, from those who said they would.</legend>
+                  {/* Always mounted, as in Find, so the lock is announced (Design #126 L2). */}
+                  <p role="status" className={cn("text-fg", !savedNames && "sr-only")}>
+                    {savedNames ? whoCameSavedLine(savedNames) : ""}
+                  </p>
+                  {savedNames ? null : closing && takesRoll(closing) && roll.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {roll.map((person) => (
+                        <label
+                          key={rollKey(person)}
+                          className={pill(cameKeys.includes(rollKey(person)), "cursor-pointer")}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={cameKeys.includes(rollKey(person))}
+                            onChange={() => toggleCame(person)}
+                          />
+                          {person.name}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>
+                      {closing && takesRoll(closing)
+                        ? "Nobody said they would come. Say how it went and set the next date."
+                        : "Say how it went, and set the next date."}
+                    </span>
+                  )}
+                </fieldset>
+                ) : (
                   <RollCallPicker
                     room={meta}
                     going={closing?.going ?? NOBODY_GOING}
                     came={current.came}
-                    onToggle={toggleCame}
+                    onToggle={toggleCameName}
                   />
+                )
                 ) : null}
-                {rollCall && current.came.length > 0 ? (
+                {rollCall && cameNames.length > 0 ? (
                   <label className="flex flex-col gap-2 text-sm text-muted">
                     Name one person, if someone earned it
                     <select
@@ -776,7 +860,7 @@ function Composer({ me, steward }: { me: string; steward: boolean }) {
                       onChange={(event) => patch({ named: event.target.value })}
                     >
                       <option value="">No one this time</option>
-                      {current.came.map((name) => (
+                      {cameNames.map((name) => (
                         <option key={name} value={name}>
                           {name}
                         </option>
@@ -910,6 +994,7 @@ const PostCard = memo(function PostCard({
   mine,
   canMessage,
   steward,
+  seesWhoCame,
   canPost,
 }: {
   post: Post;
@@ -918,7 +1003,10 @@ const PostCard = memo(function PostCard({
   trade?: MeetingCard;
   mine: boolean;
   canMessage: boolean;
+  /** Moderation buttons only. */
   steward: boolean;
+  /** Admin, or a steward of this room: reads the whole roll call, tools on or off. */
+  seesWhoCame: boolean;
   canPost: boolean;
 }) {
   const now = useNow();
@@ -1032,7 +1120,12 @@ const PostCard = memo(function PostCard({
           ))}
           {type.closes ? (
             <p className="mt-1 text-sm text-muted">
-              <WhoCame post={post} rollCall={rollCall} />
+              {rollCall ? (
+                <>
+                  {cameText(post.came, post.youCame === true, mine || seesWhoCame)}
+                  {post.named ? <span className="text-signal">Mentioned: {post.named}. </span> : null}
+                </>
+              ) : null}
               {post.next ? `Next time: ${formatDate(post.next)}.` : "No next date set."}
             </p>
           ) : null}

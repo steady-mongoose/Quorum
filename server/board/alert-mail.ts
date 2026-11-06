@@ -8,6 +8,8 @@ export type TextMail = {
   to: string | string[];
   subject: string;
   text: string;
+  /** Optional HTML part, sent alongside the plain text. Only the date-change mail sets this. */
+  html?: string;
   idempotencyKey: string;
   /** Resend reply_to. Only claim-code mail sets this; CSAM alerts never do. */
   replyTo?: string;
@@ -53,6 +55,7 @@ export async function sendTextEmail(
         to,
         subject: message.subject,
         text: message.text,
+        ...(message.html ? { html: message.html } : {}),
         ...(message.replyTo?.trim() ? { reply_to: message.replyTo.trim() } : {}),
       }),
     });

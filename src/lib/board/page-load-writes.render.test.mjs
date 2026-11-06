@@ -4,7 +4,7 @@
 // caller's dm_attendance rows as they were, on a device that has the meeting
 // card and on a fresh one that has none.
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { register } from "node:module";
 import test from "node:test";
 
@@ -311,7 +311,9 @@ test("tapping I went posts that card once, and Message shows without waiting out
     const host = await member("TestHost");
     const guest = await member("TestGuest");
     const postId = randomUUID();
-    const cardId = randomUUID();
+    // A meeting card that is not a server gathering: a gathering (a UUID) follows
+    // #126, where a member has no "I went" and confirms by opening the conversation.
+    const cardId = randomBytes(12).toString("hex");
     await db.query(
       `insert into board_post (id, room_id, author_user_id, author_name, type, claim, came, card_id, created_at)
        values ($1, 'shop', $2, 'TestHost', 'hosted', 'Test write-up.', $3, $4, now())`,

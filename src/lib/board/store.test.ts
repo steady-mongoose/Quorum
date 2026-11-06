@@ -937,6 +937,7 @@ function meetingCard(): MeetingCard {
     lastFour: [],
     wentBy: [],
     going: [],
+    special: true,
     pinned: false,
     unverified: false,
     firstTimer: false,

@@ -163,7 +163,10 @@ test("with roll off nobody gets who came from the board, and turning it back on 
       const row = board.value.posts.find((item) => item.id === filed.value.id);
       return { came: row?.came, named: row?.named };
     };
-    assert.deepEqual(await shownTo(iris), { came: ["Hank", "Iris"], named: "Iris" });
+    // Who came is private since #126: the write-up's author sees the list, and
+    // another member sees no list (only their own "You came").
+    assert.deepEqual(await shownTo(hank), { came: ["Hank", "Iris"], named: "Iris" });
+    assert.deepEqual((await shownTo(iris))?.came, []);
 
     await dropRoll(db, admin, "shop");
     for (const viewer of [iris, hank, steward, admin]) {
@@ -176,7 +179,10 @@ test("with roll off nobody gets who came from the board, and turning it back on 
     assert.deepEqual(stored[0], { came: ["Hank", "Iris"], named: "Iris" });
 
     await takeRoll(db, admin, "shop");
-    assert.deepEqual(await shownTo(iris), { came: ["Hank", "Iris"], named: "Iris" });
+    // Who came is private since #126: the write-up's author sees the list, and
+    // another member sees no list (only their own "You came").
+    assert.deepEqual(await shownTo(hank), { came: ["Hank", "Iris"], named: "Iris" });
+    assert.deepEqual((await shownTo(iris))?.came, []);
   } finally {
     await close();
   }
