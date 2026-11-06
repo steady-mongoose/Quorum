@@ -113,7 +113,7 @@ body{line-height:1.6;min-height:100dvh;overflow-x:clip}
 }
 
 .hero-band{width:100%;height:clamp(140px,20vw,300px)}
-@media (max-width:767px){.hero-band{height:clamp(140px,46vw,180px)}}
+@media (max-width:47.99em){.hero-band{height:clamp(140px,46vw,180px)}}
 
 /* The title plate is a block. inline-block shrank it to a narrow column. */
 .plate{display:block;width:100%;container-type:normal}
@@ -137,7 +137,7 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 .room-grid{
   display:grid;
   gap:var(--space-2);
-  grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),1fr));
 }
 .room-card{
   display:flex;
@@ -349,6 +349,8 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
   max-width:100%;
 }
 .topnav{max-width:100%;overflow-x:auto}
+.topnav :is(a, button):focus-visible { outline-offset: -2px; }
+
 .mast-door{
   display:inline-flex;
   align-items:center;
