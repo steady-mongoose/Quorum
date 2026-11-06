@@ -41,7 +41,7 @@ export function PublicGatheringMissing() {
       <h1 className="gathering-title illum font-display text-4xl text-fg lg:text-5xl">This gathering is not shared.</h1>
       <p className="gathering-copy">{INVITE_LINE}</p>
       <p className="gathering-links">
-        <a href="/">The door</a>
+        <a href="/" className="inline-flex min-h-[44px] items-center">Sign in</a>
       </p>
     </PublicGatheringFrame>
   );
@@ -64,7 +64,7 @@ export function PublicGatheringView({ gathering }: { gathering: PublicGathering 
       {gathering.town ? <p className="gathering-town">{gathering.town}</p> : null}
       <p className="gathering-copy">{INVITE_LINE}</p>
       <p className="gathering-links">
-        <a href="/">The door</a>
+        <a href="/" className="inline-flex min-h-[44px] items-center">Sign in</a>
         <a href="#privacy">Privacy</a>
       </p>
       <section id="privacy">

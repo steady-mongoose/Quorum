@@ -13,13 +13,32 @@ import { AGE_SIGNUP_ERROR, AGE_SIGNUP_LABEL } from "@/lib/board/age";
 import { useServerSession } from "@/lib/server-session-state";
 
 export const SIGN_IN_EMPTY_ERROR = "Enter your email and password.";
+/** Summary naming only the fields left empty, in form order. */
+export function emptyFieldsSummary(fields: FieldKey[]): string | null {
+  const order: FieldKey[] = ["name", "email", "password"];
+  const list = order.filter((key) => fields.includes(key));
+  if (!list.length) return null;
+  if (list.length === 1) return `Enter your ${list[0]}.`;
+  return `Enter your ${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}.`;
+}
 export const SIGN_IN_MISMATCH_ERROR = "That email and password don't match an account.";
 export const SIGN_IN_ERROR_ID = "sign-in-error";
-export const NAME_EMPTY_ERROR = "Enter your name.";
-export const NAME_ERROR_ID = "sign-up-name-error";
 export const AGE_ERROR_ID = "age-error";
 
-/** Problems in screen order. Only the first one is announced. */
+export type FieldKey = "name" | "email" | "password";
+/** One line under each empty field, beside the summary alert. */
+const FIELD_ERRORS: Record<FieldKey, string> = {
+  name: "Please enter your name.",
+  email: "Please enter your email.",
+  password: "Please enter your password.",
+};
+
+function describedBy(...ids: Array<string | false | null | undefined>): string | undefined {
+  const list = ids.filter(Boolean);
+  return list.length ? list.join(" ") : undefined;
+}
+
+/** Problems in screen order. Code and age announce themselves only when they are the first one left. */
 type Problem = "name" | "sign" | "code" | "age";
 export const CODE_MODE_INTRO = "Enter the code your host gave you.";
 
@@ -47,22 +66,36 @@ export function AccountDoor() {
   const [nameInvalid, setNameInvalid] = useState(false);
   const [emailInvalid, setEmailInvalid] = useState(false);
   const [passwordInvalid, setPasswordInvalid] = useState(false);
+  const [blank, setBlank] = useState<Partial<Record<FieldKey, boolean>>>({});
   const [adult, setAdult] = useState(false);
   const [ageError, setAgeError] = useState(false);
   const [alertOn, setAlertOn] = useState<Problem | null>(null);
   const alertRole = (problem: Problem) => (alertOn === problem ? "alert" : undefined);
   const ageRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
+  const fieldError = (key: FieldKey) =>
+    blank[key] ? (
+      <p id={`door-${key}-error`} className="text-sm text-danger">
+        {FIELD_ERRORS[key]}
+      </p>
+    ) : null;
+  const clearBlank = (key: FieldKey) =>
+    setBlank((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+  const emptyKeys = (Object.keys(blank) as FieldKey[]).filter((key) => blank[key]);
   const signMessage =
     signAlert === "empty"
-      ? SIGN_IN_EMPTY_ERROR
+      ? emptyFieldsSummary(emptyKeys)
       : signAlert === "mismatch"
         ? SIGN_IN_MISMATCH_ERROR
         : null;
+
+  /** A field points at the summary only when the summary is about that field. */
+  const summaryId = (key: FieldKey) =>
+    signMessage && (signAlert === "mismatch" || blank[key]) ? SIGN_IN_ERROR_ID : null;
 
   useEffect(() => {
     const entry = entryFromSearch(window.location.search);
@@ -106,11 +139,12 @@ export function AccountDoor() {
         setNameInvalid(nameBlank);
         setEmailInvalid(emailBlank);
         setPasswordInvalid(passwordBlank);
-        setSignAlert(emailBlank || passwordBlank ? "empty" : null);
+        setBlank({ name: nameBlank, email: emailBlank, password: passwordBlank });
+        setSignAlert(nameBlank || emailBlank || passwordBlank ? "empty" : null);
         setCodeError(codeBlank ? INVITE_CODE_ERROR : null);
         setAgeError(ageMissing);
         setAlertOn(first);
-        if (first) {
+        if (nameBlank || emailBlank || passwordBlank || codeBlank || ageMissing) {
           focusFirst([
             nameBlank ? nameRef.current : null,
             emailBlank ? emailRef.current : null,
@@ -155,6 +189,11 @@ export function AccountDoor() {
     >
       <h2 className="text-2xl text-fg">{mode === "sign-in" ? "Sign in" : "Use an invite code"}</h2>
       {mode === "sign-up" ? <p className="text-base text-muted">{CODE_MODE_INTRO}</p> : null}
+      {signMessage ? (
+        <p id={SIGN_IN_ERROR_ID} role="alert" className="text-sm text-danger">
+          {signMessage}
+        </p>
+      ) : null}
       {mode === "sign-up" ? (
         <label className={fieldLabel}>
           Your name, as people know you
@@ -166,19 +205,16 @@ export function AccountDoor() {
             onChange={(event) => {
               setName(event.target.value);
               setNameInvalid(false);
+              clearBlank("name");
             }}
             autoComplete="name"
             required
             aria-invalid={nameInvalid ? true : undefined}
-            aria-describedby={nameInvalid ? NAME_ERROR_ID : undefined}
+            aria-describedby={describedBy(blank.name && "door-name-error", summaryId("name"))}
           />
         </label>
       ) : null}
-      {mode === "sign-up" && nameInvalid ? (
-        <p id={NAME_ERROR_ID} role={alertRole("name")} className="text-sm text-danger">
-          {NAME_EMPTY_ERROR}
-        </p>
-      ) : null}
+      {mode === "sign-up" ? fieldError("name") : null}
       <label className={fieldLabel}>
         Email
         <input
@@ -190,14 +226,16 @@ export function AccountDoor() {
           onChange={(event) => {
             setEmail(event.target.value);
             setEmailInvalid(false);
-            setSignAlert((current) => (passwordInvalid ? current : null));
+            clearBlank("email");
+            setSignAlert((current) => (current === "mismatch" && !passwordInvalid ? null : current));
           }}
           autoComplete="email"
           required
           aria-invalid={emailInvalid ? true : undefined}
-          aria-describedby={signMessage ? SIGN_IN_ERROR_ID : undefined}
+          aria-describedby={describedBy(blank.email && "door-email-error", summaryId("email"))}
         />
       </label>
+      {fieldError("email")}
       <label className={fieldLabel}>
         Password
         <input
@@ -209,19 +247,16 @@ export function AccountDoor() {
           onChange={(event) => {
             setPassword(event.target.value);
             setPasswordInvalid(false);
-            setSignAlert((current) => (emailInvalid ? current : null));
+            clearBlank("password");
+            setSignAlert((current) => (current === "mismatch" && !emailInvalid ? null : current));
           }}
           autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
           required
           aria-invalid={passwordInvalid ? true : undefined}
-          aria-describedby={signMessage ? SIGN_IN_ERROR_ID : undefined}
+          aria-describedby={describedBy(blank.password && "door-password-error", summaryId("password"))}
         />
       </label>
-      {signMessage ? (
-        <p id={SIGN_IN_ERROR_ID} role={alertRole("sign")} className="text-sm text-danger">
-          {signMessage}
-        </p>
-      ) : null}
+      {fieldError("password")}
       {mode === "sign-up" ? (
         <>
           <label className={fieldLabel}>
@@ -286,6 +321,7 @@ export function AccountDoor() {
           setOutcome(null);
           setCodeError(null);
           setSignAlert(null);
+          setBlank({});
           setNameInvalid(false);
           setEmailInvalid(false);
           setPasswordInvalid(false);

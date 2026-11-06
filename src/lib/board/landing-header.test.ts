@@ -47,25 +47,25 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(css, /\.mast-bar\{[^}]*container-type:inline-size/);
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*font-size:\.85rem/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*display:-webkit-box/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*-webkit-line-clamp:2/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*-webkit-box-orient:vertical/,
   );
   assert.match(
     css,
-    /@container mast \(max-width:420px\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/,
+    /@container mast \(max-width:26\.25em\)\{[^}]*\.mast-tagline\{[^}]*overflow:hidden/,
   );
-  const narrow = css.slice(css.indexOf("@container mast (max-width:420px)"));
+  const narrow = css.slice(css.indexOf("@container mast (max-width:26.25em)"));
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("text-overflow"), false);
   assert.equal(narrow.slice(0, narrow.indexOf("\n}")).includes("white-space"), false);
 
@@ -79,11 +79,13 @@ test("the signed-out header sits in the centred 72rem column", () => {
   assert.match(app, /\{TAGLINE\}/);
   assert.match(app, /const apiDown = server\.configured && server\.mode === "demo"/);
   assert.match(app, /const signingIn = !entered && \(server\.mode === "live" \|\| apiDown\)/);
-  assert.match(app, /href=\{signingIn \? "#sign-in" : "#open-the-door"\}/);
-  assert.match(app, /\{signingIn \? "Sign in" : "Enter your invite code"\}/);
-  assert.match(app, /onClick=\{focusDoorField\}/);
-  assert.match(app, /querySelector<HTMLElement>\("input, textarea, select, button"\)/);
-  assert.match(app, /field\?\.focus\(\)/);
+  // UX pass H4: no header door link, so the door has one "Sign in" heading and one button,
+  // and no label flips after hydration.
+  assert.equal(app.includes('href={signingIn ? "#sign-in" : "#open-the-door"}'), false);
+  assert.equal(app.includes("focusDoorField"), false);
+  assert.equal(app.includes('"Enter your invite code"'), false);
+  // The signed-in-only Sign out dialog (and its h2) is not in the signed-out tree.
+  assert.match(app, /\{server\.user \? \(\s*<ConfirmDialog\s+open=\{confirmSignOut\}\s+title="Sign out"/);
   assert.equal(app.includes('size="header"'), false);
   assert.equal(app.includes("bg-[#f7f4ec]"), false);
 
@@ -186,15 +188,17 @@ test("desktop door: frame wraps the grid, and How it works and The rooms each ru
   for (const name of ["door-main", "door-hero", "door-week", "door-rooms", "door-side"]) {
     assert.match(door, new RegExp(`className="${name} `));
   }
-  // Phone order stays DOM order: hero, week, rooms, then the door.
+  // UX pass H4: the h1 comes first in DOM order; CSS order-first keeps the form on top on phones.
   const at = (s: string) => door.indexOf(s);
   assert.ok(
     at('"door-hero ') < at('"door-week ') &&
       at('"door-week ') < at('"door-rooms ') &&
       at('"door-rooms ') < at('"door-side '),
   );
+  assert.ok(door.indexOf("<h1") < door.indexOf("<h2"));
+  assert.match(door, /className="door-side order-first /);
   const desk = css.slice(css.indexOf("/* Desktop door:"));
-  assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:1024px\)\{/);
+  assert.match(desk, /^\/\* Desktop door:[\s\S]*?@media \(min-width:64em\)\{/);
   assert.match(desk, /grid-template-areas:"hero side" "week week" "rooms rooms"/);
   assert.match(desk, /\.door-main\{display:contents\}/);
   assert.match(desk, /\.door-rooms\{grid-area:rooms/);

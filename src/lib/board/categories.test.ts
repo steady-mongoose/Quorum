@@ -96,7 +96,7 @@ test("the seed rooms use the config mapping, and Men and Women stay labels", () 
     ["shop"],
   );
   assert.deepEqual(
-    hiddenRooms(parked, { admin: true, stewardRooms: [] }).map((room) => room.id),
+    hiddenRooms(parked, { stewardRooms: [] , admin: true }).map((room) => room.id),
     ["mill", "shop"],
   );
 });
@@ -167,7 +167,7 @@ test("browse, the week, and room create follow the category layout", () => {
   assert.match(browse, /aria-current=/);
   assert.equal(/\bplate\b/.test(card), false);
   assert.equal(/\bcount\b|\btrending\b|\branking\b|\blikes?\b|\bfeed\b/i.test(browse), false);
-  assert.match(fluid, /repeat\(auto-fill,minmax\(16rem,1fr\)\)/);
+  assert.match(fluid, /repeat\(auto-fill,minmax\(min\(100%,16rem\),1fr\)\)/);
   assert.match(fluid, /\.room-browse\{display:block\}/);
   assert.match(fluid, /grid-template-columns:14rem minmax\(0,1fr\)/);
   assert.match(fluid, /\[data-section="rooms"\] \.with-side\{grid-template-columns:minmax\(0,1fr\)\}/);
