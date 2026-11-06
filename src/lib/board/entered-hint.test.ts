@@ -5,6 +5,7 @@ import {
   cookieSaysEntered,
   enteredCookie,
   enteredHintDecision,
+  sawEnteredHint,
   writeEnteredCookie,
 } from "./entered-hint.ts";
 
@@ -34,6 +35,9 @@ test("the signed-in header is chosen from that cookie until the saved board retu
   const app = readFileSync(new URL("../../components/board/app.tsx", import.meta.url), "utf8");
   assert.match(app, /function useInitialEntered\(\)/);
   assert.match(app, /function effectiveEntered\(/);
+  assert.match(app, /useRouter\(\{ warn: false \}\)/);
+  assert.match(app, /sawEnteredHint\(/);
+  assert.doesNotMatch(app, /useRouteContext/);
   assert.match(app, /enteredHintDecision\(/);
   assert.match(app, /writeEnteredCookie\(next\)/);
   assert.doesNotMatch(app, /writeEnteredCookie\(useBoard\.getState\(\)\.member\)/);
@@ -75,5 +79,29 @@ test("an expired live session clears the hint; demo, sign-in, and an outage do n
     enteredHintDecision({ ...base, mode: "demo", configured: false, member: false }),
     false,
     "signing out of the demo clears it",
+  );
+});
+
+test("the static shell reads the cookie on the client, and a server render does not invent one", () => {
+  const prerender = { routeHint: false, staticSpa: true, ssr: true, cookie: "avouch-entered=1" };
+  assert.equal(sawEnteredHint(prerender), false, "the prerender has no request cookie");
+  assert.equal(
+    sawEnteredHint({ ...prerender, ssr: false }),
+    true,
+    "the client first paint after that shell sees the cookie",
+  );
+  assert.equal(
+    sawEnteredHint({ routeHint: true, staticSpa: false, ssr: true, cookie: "avouch-entered=1" }),
+    true,
+    "a real request keeps the route hint",
+  );
+  assert.equal(
+    sawEnteredHint({ routeHint: false, staticSpa: false, ssr: false, cookie: "avouch-entered=1" }),
+    false,
+    "an SSR hydration must not outrun the route",
+  );
+  assert.equal(
+    sawEnteredHint({ routeHint: false, staticSpa: true, ssr: false, cookie: "" }),
+    false,
   );
 });

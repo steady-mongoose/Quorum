@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useNavigate, useRouteContext } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
@@ -64,7 +64,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
-import { cookieSaysEntered, enteredHintDecision, writeEnteredCookie } from "@/lib/board/entered-hint";
+import { enteredHintDecision, sawEnteredHint, writeEnteredCookie } from "@/lib/board/entered-hint";
 import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
@@ -80,14 +80,22 @@ const ICONS = {
 
 /** The cookie keeps the signed-in shell until the saved board and the session agree. */
 function useInitialEntered(): { active: boolean; saw: boolean; hydrated: boolean } {
-  // Render tests mount BoardShell outside the router.
-  let fromRoute = false;
-  try {
-    fromRoute = Boolean(useRouteContext({ from: "__root__" }).enteredHint);
-  } catch {
-    fromRoute = cookieSaysEntered(typeof document === "undefined" ? "" : document.cookie);
-  }
-  const [saw] = useState(fromRoute);
+  // Render tests mount BoardShell outside the router. The hook still runs.
+  const router = useRouter({ warn: false });
+  const match = router?.stores.getMatchStore("__root__").get();
+  const routeHint = Boolean(
+    match && typeof match.context === "object" && match.context && "enteredHint" in match.context
+      ? (match.context as { enteredHint?: boolean }).enteredHint
+      : false,
+  );
+  const [saw] = useState(
+    sawEnteredHint({
+      routeHint,
+      staticSpa: import.meta.env?.VITE_STATIC_SPA === "true",
+      ssr: Boolean(import.meta.env?.SSR),
+      cookie: typeof document === "undefined" ? "" : document.cookie,
+    }),
+  );
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     void Promise.all([useBoard.persist.rehydrate(), useQuorum.persist.rehydrate()]).finally(() => {

@@ -36,6 +36,23 @@ export function enteredHintDecision(input: EnteredHintInput): boolean | null {
   return input.member;
 }
 
+/**
+ * Whether the first paint should show the signed-in shell.
+ * A real request carries the cookie into the route. The static shell is
+ * prerendered once, with no cookie, and the app mounts on the client only
+ * after that empty shell has hydrated, so the cookie is read there.
+ */
+export function sawEnteredHint(input: {
+  routeHint: boolean;
+  staticSpa: boolean;
+  ssr: boolean;
+  cookie: string | null | undefined;
+}): boolean {
+  if (input.routeHint) return true;
+  if (input.staticSpa && !input.ssr) return cookieSaysEntered(input.cookie);
+  return false;
+}
+
 /** True when the cookie header says this browser has been inside the app. */
 export function cookieSaysEntered(header: string | null | undefined): boolean {
   return new RegExp(`(?:^|;\\s*)${ENTERED_COOKIE}=1(?:\\s*;|$)`).test(header ?? "");
