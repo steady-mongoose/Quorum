@@ -91,8 +91,7 @@ const ENROLL = {
   message: "Turn on an authenticator before using this.",
   step: "enroll",
 };
-const CARD_TEXT =
-  "Deletion requests, authenticator resets, the room list, message reports, and the invite list wait until you turn on an authenticator.";
+const CARD_TEXT = "These tools wait until you turn on an authenticator.";
 const WAITING = ["Account deletion requests", "Rooms", "Message reports", "Invites", "Authenticator reset"];
 const KEPT = ["Roles", "Admin", "CyberTipline queue"];
 
@@ -168,6 +167,8 @@ test("no authenticator: one Admin lists card, one button, no alerts, the five li
     const setUp = buttons(view.host, "Turn it on under You");
     assert.equal(setUp.length, 1, "exactly one Turn it on under You");
     assert.ok(setUp[0].className.includes("min-h-[44px]"), "44px target");
+    assert.ok(setUp[0].className.includes("min-w-0"), "the button can shrink and wrap");
+    assert.ok(card.className.includes("min-w-0"));
     assert.deepEqual(view.alerts(), [], "zero role=alert");
     assert.ok(!view.host.textContent.includes("Turn on an authenticator before using this."));
     assert.ok(!view.host.textContent.includes("Archive and delete are coming soon."));

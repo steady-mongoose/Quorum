@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { CallRings, focusRoomCall } from "@/components/board/call-rings";
 import {
   BookOpen,
@@ -64,6 +64,7 @@ import { useServerSession } from "@/lib/server-session-state";
 import { artSection, plateCaption, plateCaptionWide, plateView } from "@/lib/board/engraved";
 import { useEngravedDocument, usePlateView } from "@/components/board/engraved-ground";
 import { getGroupOpen, subscribeGroupOpen } from "@/lib/board/group-open";
+import { cookieSaysEntered, enteredCookie } from "@/lib/board/entered-hint";
 import { useMastHeight } from "@/lib/board/mast-height";
 
 const ICONS = {
@@ -93,12 +94,13 @@ function BoardSkeleton() {
 export function BoardApp({
   categorySlug,
   county,
-}: { categorySlug?: string | null; county?: string } = {}) {
+  initialSection,
+}: { categorySlug?: string | null; county?: string; initialSection?: Section } = {}) {
   const route = categorySlug === undefined ? null : { slug: categorySlug, county: county ?? null };
   return (
     <ServerSessionProvider>
       <RoomsRouteProvider value={route}>
-        <BoardShell categorySlug={categorySlug} routeCounty={county} />
+        <BoardShell categorySlug={categorySlug} routeCounty={county} initialSection={initialSection} />
       </RoomsRouteProvider>
     </ServerSessionProvider>
   );
@@ -107,9 +109,11 @@ export function BoardApp({
 function BoardShell({
   categorySlug,
   routeCounty,
+  initialSection,
 }: {
   categorySlug?: string | null;
   routeCounty?: string;
+  initialSection?: Section;
 }) {
   const section = useBoard((state) => state.section);
   const setSection = useBoard((state) => state.setSection);
@@ -136,11 +140,25 @@ function BoardShell({
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [boardLoading, setBoardLoading] = useState(false);
   const server = useServerSession();
+  // Render tests mount BoardShell outside the router. The real app agrees
+  // with the server through the root route's cookie hint.
+  let enteredHint = false;
+  try {
+    enteredHint = Boolean(useRouteContext({ from: "__root__" }).enteredHint);
+  } catch {
+    enteredHint = cookieSaysEntered(typeof document === "undefined" ? "" : document.cookie);
+  }
+  const [hydrated, setHydrated] = useState(false);
   const theme = themeById(OWNER_THEME);
   const waiting = server.mode === "pending";
   // A member whose account predates the 18+ check confirms once before the app.
   const ageDue = server.mode === "live" && Boolean(server.user) && !server.ageConfirmed;
-  const entered = !ageDue && (server.mode === "live" ? Boolean(server.user) || localEntry : member);
+  // Until the saved board is back, trust the cookie so the header does not
+  // grow when the county switch and the section nav arrive after the first paint.
+  const hint = hydrated ? false : enteredHint;
+  const entered =
+    !ageDue &&
+    (server.mode === "live" ? Boolean(server.user) || localEntry || hint : member || hint);
   const apiDown = server.configured && server.mode === "demo";
   const signingIn = !entered && (server.mode === "live" || apiDown);
   const busy = waiting || boardLoading;
@@ -150,8 +168,9 @@ function BoardShell({
   // A conversation opened from a member list shows on the rooms page itself, so
   // the address stays /rooms (or /rooms/<category>) and Back returns to the room.
   const memberConversation = useBoard(keepsRoomsPage) && section === "messages";
-  const shown =
-    onRoomsRoute && !memberConversation
+  const shown = initialSection
+    ? initialSection
+    : onRoomsRoute && !memberConversation
       ? "rooms"
       : section === "civic" && !deskOn
         ? "week"
@@ -170,10 +189,39 @@ function BoardShell({
   usePlateView(plate);
   // The Rooms chip row and anchor scrolling sit flush under the sticky header at its real height.
   useMastHeight();
+  useEffect(() => {
+    if (initialSection !== "profile" || typeof window === "undefined") return;
+    if (window.location.hash !== "#authenticator") return;
+    // The heading is replaced when the saved board lands, which drops focus.
+    // Keep putting it back until that settle, without a click cancelling the wait.
+    let alive = true;
+    const pump = () => {
+      if (!alive) return;
+      const heading = document.getElementById("authenticator");
+      if (heading && document.activeElement !== heading) heading.focus();
+    };
+    pump();
+    const observer = new MutationObserver(pump);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timers = [0, 50, 200, 600].map((ms) => window.setTimeout(pump, ms));
+    return () => {
+      alive = false;
+      observer.disconnect();
+      for (const id of timers) window.clearTimeout(id);
+    };
+  }, [initialSection, hydrated]);
 
   useEffect(() => {
-    void useBoard.persist.rehydrate();
-    void useQuorum.persist.rehydrate();
+    const syncCookie = (isMember: boolean) => {
+      document.cookie = enteredCookie(isMember);
+    };
+    void Promise.all([useBoard.persist.rehydrate(), useQuorum.persist.rehydrate()]).finally(() => {
+      syncCookie(useBoard.getState().member);
+      setHydrated(true);
+    });
+    return useBoard.subscribe((state, previous) => {
+      if (state.member !== previous.member) syncCookie(state.member);
+    });
   }, []);
 
   useEffect(() => {
@@ -263,7 +311,7 @@ function BoardShell({
   const openSection = (id: Section) => {
     if (id === "profile") {
       view(me.trim());
-      if (onRoomsRoute) void navigate({ to: "/" });
+      if (initialSection !== "profile") void navigate({ to: "/you", hash: "authenticator" });
       return;
     }
     if (id === "rooms") {
@@ -271,8 +319,13 @@ function BoardShell({
       void navigate(roomsAddress(county, null));
       return;
     }
+    if (id === "find") {
+      setSection("find");
+      if (initialSection !== "find") void navigate({ to: "/find" });
+      return;
+    }
     setSection(id);
-    if (onRoomsRoute) void navigate({ to: "/" });
+    if (onRoomsRoute || initialSection) void navigate({ to: "/" });
   };
 
   const switchCounty = (next: CountyId) => {

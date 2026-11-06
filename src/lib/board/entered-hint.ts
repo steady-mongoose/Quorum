@@ -1,0 +1,25 @@
+/** A non-secret hint so the first paint can show the signed-in header. Not a session. */
+export const ENTERED_COOKIE = "avouch-entered";
+
+export function enteredCookie(member: boolean): string {
+  return member
+    ? `${ENTERED_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`
+    : `${ENTERED_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+/** True when the cookie header says this browser has been inside the app. */
+export function cookieSaysEntered(header: string | null | undefined): boolean {
+  return new RegExp(`(?:^|;\\s*)${ENTERED_COOKIE}=1(?:\\s*;|$)`).test(header ?? "");
+}
+
+/**
+ * The same answer on the server (request cookie) and in the browser
+ * (document.cookie), so the first paint and hydration agree.
+ */
+export async function readEnteredHint(): Promise<boolean> {
+  if (import.meta.env.SSR) {
+    const { getRequest } = await import("@tanstack/react-start/server");
+    return cookieSaysEntered(getRequest()?.headers.get("cookie"));
+  }
+  return cookieSaysEntered(typeof document === "undefined" ? "" : document.cookie);
+}
