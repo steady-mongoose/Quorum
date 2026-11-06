@@ -655,8 +655,9 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
   const pagesHintId = useId();
   const rooms = useBoard((state) => state.rooms);
   const room = roomById(card.room, rooms);
-  // A room with roll off has no Who came section (QA r5707425337); the server strips names there too.
-  const rollOn = roomIncludes(room, "roll_call");
+  // A room with roll off has no Who came section (QA r5707425337).
+  // Only a room whose options are known and leave roll out; the server strips names there anyway.
+  const rollOn = !(room.id === card.room && room.options && !roomIncludes(room, "roll_call"));
   const isHost = card.host === rest.me;
   const canPin = cardCanPin(card, rest.clear);
   const went = card.wentBy.includes(rest.me);
@@ -740,21 +741,25 @@ export function MeetingRow({ card, shown, ...rest }: RowProps & { shown: boolean
             aria-describedby={wentReason ? wentReasonId : undefined}
             onClick={() => {
               if (!canSayWent) return;
-              void visited(card.id).then(forgetMessageReach);
+              visited(card.id);
             }}
           >
             {went ? "You've been" : "I went"}
           </button>
         ) : null}
-        {/* Any other meeting card (not a special event's host or steward
-            marking): the member's own "I went", which also confirms the
-            meeting for messaging (#134, #138). The host counts already. */}
-        {!showWent && !isHost ? (
+        {/* A meeting card that is not a server gathering: the member's own
+            "I went", which also confirms the meeting for messaging (#134,
+            #138). A gathering follows #126: only a special event's steward
+            marks here, and the host counts already. */}
+        {!showWent && !isHost && !isGatheringId(card.id) ? (
           <button
             type="button"
-            className={cn(btnGhost, "min-h-[44px]")}
-            onClick={() => void visited(card.id).then(forgetMessageReach)}
-            disabled={went}
+            className={cn(btnGhost, "min-h-[44px] aria-disabled:opacity-70")}
+            aria-disabled={went || undefined}
+            onClick={() => {
+              if (went) return;
+              void visited(card.id).then(forgetMessageReach);
+            }}
           >
             {went ? "You've been" : "I went"}
           </button>
@@ -1051,6 +1056,16 @@ export function SpecialEventToggle({ card }: { card: MeetingCard }) {
  * guard, never native disabled; role=status on success, role=alert and the
  * old date back on a refusal (Design 5716107154 M1). Exported for render tests.
  */
+/** The steward's status line once a new date is saved. Exported for render tests. */
+export function stewardDateLine(card: MeetingCard, next: string): string {
+  const date = formatDate(next);
+  // Only a server gathering sends the email; a card kept on this device does not.
+  if (!isGatheringId(card.id)) return `Date changed to ${date}. The host will see it on the card.`;
+  return isSpecial(card)
+    ? `Date changed to ${date}. The host and everyone going have been told.`
+    : `Date changed to ${date}. The host has been told.`;
+}
+
 export function StewardDateControl({ card }: { card: MeetingCard }) {
   const changeDate = useBoard((state) => state.changeDate);
   const [value, setValue] = useState(card.next);
@@ -1073,12 +1088,9 @@ export function StewardDateControl({ card }: { card: MeetingCard }) {
         void changeDate(card.id, next).then((result) => {
           setSaving(false);
           if (result.ok) {
-            // A special event's host and everyone going get an email (Josh via CoS, Oct 30 2:35 PM ET).
-            setStatus(
-              isSpecial(card)
-                ? `Date changed to ${formatDate(next)}. The host and everyone going have been told.`
-                : `Date changed to ${formatDate(next)}. The host will see it on the card.`,
-            );
+            // The server emails the host, and everyone going on a special
+            // event (Josh via CoS, Oct 30 2:35 PM ET; Design 5717020187).
+            setStatus(stewardDateLine(card, next));
           } else {
             setValue(before);
             setError(result.error);

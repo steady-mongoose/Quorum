@@ -276,7 +276,11 @@ const label = (host, text) => [...host.querySelectorAll("label")].find((l) => (l
 
 test("Josh 2 (app): a gathering that is not a special event shows no RSVP, no 'I went', no roll call and no going list", async () => {
   useBoard.setState({ rollCall: {}, stewardRooms: [] });
-  const plain = await mount(createElement(MeetingRow, { card: card({ special: false }), shown: true, ...rowProps }));
+  // A server gathering (a gathering id). A meeting card that is not one keeps
+  // the member's own "I went", the messaging confirm from #134/#138.
+  const plain = await mount(
+    createElement(MeetingRow, { card: card({ special: false, id: "0b4c6a0e-1f2d-4c3b-9a8e-7d6c5b4a3f21" }), shown: true, ...rowProps }),
+  );
   try {
     const text = plain.host.textContent ?? "";
     assert.doesNotMatch(text, /I'll be there|You're going|I went|You've been|Mark who came|going: |has been: /);
@@ -338,7 +342,7 @@ test("Josh 1 (app): the host has a 'This is a special event' checkbox on the car
 
 const { formatDate } = await import("./model.ts");
 const rules = await import("./rsvp-rules.ts");
-const { SpecialEventToggle, StewardDateControl } = await import("../../components/board/find-view.tsx");
+const { SpecialEventToggle, StewardDateControl, stewardDateLine } = await import("../../components/board/find-view.tsx");
 const typeDate = async (input, value) => {
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -376,7 +380,7 @@ test("Design M1: the steward date control: label, aria-disabled guard, 'Save new
       await act(async () => save.click());
       assert.deepEqual(calls, [["0123456789abcdef01234567", "2026-11-07"]]);
       const status = row.host.querySelector('form [role="status"]');
-      assert.equal(status?.textContent, `Date changed to ${formatDate("2026-11-07")}. The host will see it on the card.`, "not special: no email");
+      assert.equal(status?.textContent, `Date changed to ${formatDate("2026-11-07")}. The host will see it on the card.`, "not a server gathering: no email");
       assert.equal(row.host.querySelector('form [role="alert"]'), null);
     } finally {
       await row.unmount();
@@ -401,11 +405,20 @@ test("Design M1: the steward date control: label, aria-disabled guard, 'Save new
   }
 });
 
+const SERVER_GATHERING = "0b4c6a0e-1f2d-4c3b-9a8e-7d6c5b4a3f21";
+
+test("Josh 2:35 PM / Design 5717020187: the steward's status line says who was told", () => {
+  const at = formatDate("2026-11-07");
+  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: true }), "2026-11-07"), `Date changed to ${at}. The host and everyone going have been told.`);
+  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: false }), "2026-11-07"), `Date changed to ${at}. The host has been told.`);
+  assert.equal(stewardDateLine(card({ special: true }), "2026-11-07"), `Date changed to ${at}. The host will see it on the card.`);
+});
+
 test("Josh 2:35 PM: on a special event the steward's status line says the host and everyone going get an email", async () => {
   const changeDate = useBoard.getState().changeDate;
   useBoard.setState({ changeDate: async () => ({ ok: true }) });
   try {
-    const view = await mount(createElement(StewardDateControl, { card: card({ special: true, next: "2026-10-31" }) }));
+    const view = await mount(createElement(StewardDateControl, { card: card({ id: SERVER_GATHERING, special: true, next: "2026-10-31" }) }));
     try {
       await typeDate(view.host.querySelector('input[type="date"]'), "2026-11-07");
       await act(async () => buttonNamed(view.host, "Save new date").click());

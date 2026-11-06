@@ -1,24 +1,33 @@
 import type { Db } from "../db.ts";
 import { sendTextEmail, type MailDeps, type TextMail } from "./alert-mail.ts";
 import { claimFromAddress } from "./claims.ts";
+import { actorRole } from "./access.ts";
 import { openBan } from "./store.ts";
 import { APP_NAME } from "../../src/lib/board/model.ts";
+import { gatheringPublicUrl } from "../../src/lib/board/public-gathering.ts";
 
 /**
  * Josh via CoS, Oct 30 2:35 PM ET: "Email the host and everyone going when a
- * steward changes the date". Only for a special event, only when a steward
- * who is not the host changed it. One email per person, never a shared To or
- * CC. Sent after the edit is saved, so a failed send never undoes it.
+ * steward changes the date". Only when a steward who is not the host changed
+ * the date. The host always; members going only on a special event, since
+ * RSVPs are hidden while it is not one. One email per person, never a shared
+ * To or CC. Sent after the edit is saved, so a failed send never undoes it.
  *
- * It uses the existing Resend setup and nothing new: RESEND_API_KEY, the
+ * It uses the existing Resend setup and nothing new: RESEND_API_KEY and the
  * member-facing sender of claim codes (RESEND_CLAIM_FROM, else its fixed
- * noreply default), and BETTER_AUTH_URL for the link. Unset, nothing is sent.
- * The app has no email preference or opt-out to read.
+ * noreply default). The link is the app's public address (gatheringPublicUrl).
+ * With no RESEND_API_KEY nothing is sent. The app has no email preference or
+ * opt-out to read.
  */
 
 /** One email per gathering per person per hour, however often the date is edited. */
 export const DATE_MAIL_WINDOW_MS = 60 * 60 * 1000;
 const lastSent = new Map<string, number>();
+/** Drop entries past the window once the map grows, so it never holds more than a day's edits. */
+function pruneGuard(nowMs: number): void {
+  if (lastSent.size < 1000) return;
+  for (const [key, at] of lastSent) if (nowMs - at >= DATE_MAIL_WINDOW_MS) lastSent.delete(key);
+}
 /** Tests only. */
 export function resetDateMailGuard(): void {
   lastSent.clear();
@@ -39,6 +48,8 @@ export type DateChange = {
   hostId: string;
   stewardId: string;
   shared: boolean;
+  /** Special event: members going are told too. Otherwise only the host. */
+  special: boolean;
   now: Date;
 };
 
@@ -54,10 +65,9 @@ export function mailDate(value: string): string {
 }
 
 /** The link: the public page when it is shared, otherwise the app, where it sits on the card. */
-export function dateMailLink(change: Pick<DateChange, "gatheringId" | "shared">, env: NodeJS.ProcessEnv): string {
-  const base = (env.BETTER_AUTH_URL ?? "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//.test(base)) return "";
-  return change.shared ? `${base}/e/${change.gatheringId}` : `${base}/`;
+export function dateMailLink(change: Pick<DateChange, "gatheringId" | "shared">): string {
+  const page = gatheringPublicUrl(change.gatheringId);
+  return change.shared ? page : `${new URL(page).origin}/`;
 }
 
 function escapeHtml(value: string): string {
@@ -100,10 +110,11 @@ export function dateMail(
   };
 }
 
-/** Who gets it: the host and everyone going, less the steward, barred or banned members, and anyone with no verified email. */
+/** Who gets it: the host, and everyone going on a special event, less the steward, barred, banned or removed members, and anyone with no verified email. */
 export async function dateMailRecipients(db: Db, change: DateChange): Promise<{ userId: string; email: string }[]> {
   const ready = await db.query<{ rsvp: string | null }>(`select to_regclass('public.gathering_rsvp')::text as rsvp`);
-  const going = ready[0]?.rsvp
+  // Not a special event: its RSVPs are hidden, so nobody counts as going.
+  const going = change.special && ready[0]?.rsvp
     ? await db.query<{ user_id: string }>(`select user_id from gathering_rsvp where gathering_id = $1 and going`, [change.gatheringId])
     : [];
   const ids = [...new Set([change.hostId, ...going.map((row) => row.user_id)])].filter((id) => id && id !== change.stewardId);
@@ -123,7 +134,11 @@ export async function dateMailRecipients(db: Db, change: DateChange): Promise<{ 
         break;
       }
     }
-    if (!barred) out.push({ userId: row.id, email: row.email });
+    if (barred) continue;
+    // Still a member of the site (access not revoked, account not closed).
+    const actor = await actorRole(db, row.id);
+    if (!actor.member && !actor.steward) continue;
+    out.push({ userId: row.id, email: row.email });
   }
   return out.sort((a, b) => a.userId.localeCompare(b.userId));
 }
@@ -138,7 +153,7 @@ export async function sendDateChangeMail(db: Db, change: DateChange, deps: DateM
   try {
     const env = deps.env ?? process.env;
     const recipients = await dateMailRecipients(db, change);
-    const { subject, text, html } = dateMail(change, dateMailLink(change, env));
+    const { subject, text, html } = dateMail(change, dateMailLink(change));
     const nowMs = change.now.getTime();
     const hour = Math.floor(nowMs / DATE_MAIL_WINDOW_MS);
     let sent = 0;
@@ -147,6 +162,7 @@ export async function sendDateChangeMail(db: Db, change: DateChange, deps: DateM
       const key = `${change.gatheringId}/${person.userId}`;
       const last = lastSent.get(key);
       if (last !== undefined && nowMs - last < DATE_MAIL_WINDOW_MS) continue;
+      pruneGuard(nowMs);
       lastSent.set(key, nowMs);
       const mail: TextMail = {
         to: person.email,

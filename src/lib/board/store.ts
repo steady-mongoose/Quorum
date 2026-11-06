@@ -1727,10 +1727,13 @@ export const useBoard = create<BoardState>()(
         },
         visited: async (id) => {
           const card = get().cards.find((item) => item.id === id);
-          // A special event's host or steward marks who came (#126, below). Any
-          // other meeting card: the member's own tap, which also confirms the
-          // meeting for messaging once a write-up names them (#134, #138).
-          if (card?.kind === "meeting" && !marksCame(card)) {
+          // A server gathering follows #126 below: only a special event's host
+          // or the room's steward marks who came. Any other meeting card: the member's own
+          // tap, which also confirms the meeting for messaging once a write-up
+          // names them (#134, #138). Find shows that tap only on a card that is
+          // not a server gathering; on a gathering, a member named in a roll
+          // call confirms when they open the conversation (encrypted-mailbox).
+          if (card?.kind === "meeting" && !isGatheringId(card.id) && !marksCame(card)) {
             patchCard(id, (item) => ({
               ...item,
               unverified: false,

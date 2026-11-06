@@ -8,7 +8,12 @@ export function rsvpCutoff(now: Date): Date {
   return cutoff;
 }
 
-/** SQL: a hosted write-up `p` dated on or after the cutoff (its date, or when it was filed). $day / $at are the cutoff. */
+/**
+ * SQL: a hosted write-up `p` dated on or after the cutoff (its date, or when it
+ * was filed). $day / $at are the cutoff. A date later than the day it was filed
+ * (UTC) counts as the filing day, so a write-up dated in the future still ages
+ * out 12 months after it was filed (QA H4 on #138, Oct 30).
+ */
 export function writeUpWithin(day: string, at: string): string {
-  return `(case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p.on_date >= ${day} else p.created_at >= ${at} end)`;
+  return `(case when p.on_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then least(p.on_date, to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD')) >= ${day} else p.created_at >= ${at} end)`;
 }

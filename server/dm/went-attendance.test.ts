@@ -1,6 +1,6 @@
 import "../../src/lib/board/test-storage.ts";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import test from "node:test";
 import { openRollCallDb } from "../closed-test/roll-call-db.ts";
 import type { Db } from "../db.ts";
@@ -25,6 +25,17 @@ async function openDb() {
   } finally {
     if (window) Object.defineProperty(globalThis, "window", window);
   }
+}
+
+/**
+ * A meeting card that is not a server gathering (a gathering id is a UUID).
+ * Since #126, a gathering's "I went" is only a special event's host or steward
+ * marking who came; a member named on a gathering's write-up confirms by
+ * opening the conversation (encrypted-mailbox). Any other meeting card keeps
+ * the member's own tap tested here.
+ */
+function meetingCardId(): string {
+  return randomBytes(12).toString("hex");
 }
 
 async function writeUp(db: Db, host: string, cardId: string, came: string[]) {
@@ -75,7 +86,7 @@ test("tapping I went, signed in, gives reach when the write-up names you", async
     const host = await member(db, "TestHost", long);
     const guest = await member(db, "TestGuest", long);
     await inRoom(db, host, "shop", long);
-    const card = randomUUID();
+    const card = meetingCardId();
     await writeUp(db, host, card, ["TestHost", "TestGuest"]);
 
     const peers = async (who: string) => (await call(handler, who, "GET", "/api/dm/peers")).body;
@@ -106,8 +117,8 @@ test("the tap stores nothing and gives no reach when no write-up names you", asy
     const handler = testApp(db, () => now);
     const host = await member(db, "TestHost", long);
     const guest = await member(db, "TestGuest", long);
-    const named = randomUUID();
-    const notYet = randomUUID();
+    const named = meetingCardId();
+    const notYet = meetingCardId();
     await writeUp(db, host, named, ["TestHost"]);
     const posts: string[] = [];
     tapAs(handler, guest, posts);
@@ -141,7 +152,7 @@ test("a failed POST leaves the tap standing and says nothing", async () => {
   ];
   try {
     for (const answer of answers) {
-      const card = randomUUID();
+      const card = meetingCardId();
       globalThis.fetch = answer as typeof fetch;
       useBoard.setState({ remote: true, me: "TestGuest", cards: [meeting(card)], boardError: "" });
       const tap = useBoard.getState().visited(card);
@@ -165,11 +176,11 @@ test("only a signed-in tap on a meeting sends anything", async () => {
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   }) as typeof fetch;
   try {
-    const local = randomUUID();
+    const local = meetingCardId();
     useBoard.setState({ remote: false, me: "TestGuest", cards: [meeting(local)] });
     await useBoard.getState().visited(local);
     assert.deepEqual(useBoard.getState().cards[0]?.wentBy, ["TestGuest"]);
-    const candidate = randomUUID();
+    const candidate = meetingCardId();
     useBoard.setState({ remote: true, cards: [meeting(candidate, "candidate")] });
     await useBoard.getState().visited(candidate);
     assert.equal(sent, 0);

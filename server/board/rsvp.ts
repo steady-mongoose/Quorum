@@ -495,8 +495,28 @@ async function purgeOldWriteUpNames(db: Db, cutoff: Date, dropDmLinks: boolean):
   const old = `p.type = 'hosted' and not ${writeUpWithin("$1", "$2")}`;
   const named = await db.query<{ ready: string | null }>(`select to_regclass('public.dm_named_account')::text as ready`);
   if (dropDmLinks && named[0]?.ready) {
+    // One statement: drop the old links and, with them, the attendance confirm
+    // (dm_attendance) for any member and meeting left with no link on a write-up
+    // still inside the window (QA H1 on #138, Oct 30). A confirm backed by a
+    // newer write-up that names the member stays.
     await db.query(
-      `delete from dm_named_account n using board_post p where n.post_id = p.id and ${old}`,
+      `with dropped as (
+         delete from dm_named_account n using board_post p
+         where n.post_id = p.id and ${old}
+         returning n.user_id, p.card_id
+       )
+       delete from dm_attendance a
+       using (select distinct user_id, card_id from dropped where card_id <> '') d
+       where a.user_id = d.user_id
+         and a.meeting_id = d.card_id
+         and not exists (
+           select 1 from dm_named_account kept
+           join board_post p on p.id = kept.post_id
+           where kept.user_id = a.user_id
+             and p.card_id = a.meeting_id
+             and p.type = 'hosted'
+             and ${writeUpWithin("$1", "$2")}
+         )`,
       [cutoffDay, cutoff],
     );
   }

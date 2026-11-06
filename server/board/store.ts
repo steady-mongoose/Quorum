@@ -564,23 +564,34 @@ export async function openBanOrNone(
   return openBan(db, userId, now, roomId);
 }
 
-/** The names on a roll call who are not in the room. The host may name themselves. */
+/**
+ * The names on a roll call who are not in the room. The host may name themselves.
+ * On a server gathering (#126), anyone who said they were going, or is already
+ * marked as having come, counts too: its roll call is read from those RSVPs,
+ * and a member of the site may say "going" to a room they have not joined.
+ */
 async function namesOutsideRoom(
   db: Db,
   roomId: string,
   came: string[],
   host: string,
+  gatheringId = "",
 ): Promise<string[]> {
   const others = came.filter((name) => name !== host);
   if (others.length === 0) return [];
+  const rsvps =
+    gatheringId && isGatheringId(gatheringId)
+      ? Boolean((await db.query<{ t: string | null }>(`select to_regclass('public.gathering_rsvp')::text as t`))[0]?.t)
+      : false;
   const rows = await db.query<{ name: string }>(
     `select u.name from "user" u
      where u.name = any ($2::text[])
        and (
          exists (select 1 from room_join j where j.room_id = $1 and j.user_id = u.id)
          or exists (select 1 from room_member m where m.room_id = $1 and m.user_id = u.id)
+         ${rsvps ? "or exists (select 1 from gathering_rsvp r where r.gathering_id = $3 and r.user_id = u.id and (r.going or r.attended))" : ""}
        )`,
-    [roomId, others],
+    rsvps ? [roomId, others, gatheringId.toLowerCase()] : [roomId, others],
   );
   const members = new Set(rows.map((row) => row.name));
   return others.filter((name) => !members.has(name));
@@ -1291,7 +1302,7 @@ export async function createPost(
     room: rulesOf(room),
   });
   if (stops.length > 0) return fail(400, stops[0] ?? "That post was not filed.", stops);
-  const outside = await namesOutsideRoom(db, room.id, came, input.name.trim() || "Member");
+  const outside = await namesOutsideRoom(db, room.id, came, input.name.trim() || "Member", cardId);
   if (outside[0]) {
     const stop = `${outside[0]} is not a member of this room.`;
     return fail(400, stop, [stop]);

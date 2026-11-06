@@ -2145,12 +2145,17 @@ test("QA N3: someone named only on a write-up older than 12 months loses that DM
       now: new Date("2026-11-01T12:00:00Z"),
     });
     assert.equal(posted.ok, true, JSON.stringify(posted));
+    // Tom confirms while the write-up is recent: #138 refuses a confirm on a
+    // write-up already older than 12 months (QA H2 on #138, Oct 30).
+    assert.equal((await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING])).ok, true);
+    assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 1);
     // That write-up is the only one naming Tom; make it older than 12 months.
     await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
-    assert.equal((await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING])).ok, true);
     assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "before the purge, Tom and Dale met at a meeting");
     await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"));
     assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), false, "after it, that write-up no longer makes them peers");
+    // The purge deletes Tom's attendance confirm with the link (QA H1 on #138).
+    assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 0);
     // And Tom can no longer confirm it.
     await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING]);
     assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 0);
@@ -2173,6 +2178,8 @@ for (const dropDmLinks of [true, false]) test(`QA N7: a member's own 'You came' 
       now,
     });
     assert.equal(posted.ok, true, JSON.stringify(posted));
+    // Tom reads the room as a member of it.
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.tom.id]);
     const youCame = async () => {
       const board = await listBoard(t.db, t.tom.id, now, { room: "shop" });
       assert.equal(board.ok, true);
@@ -2203,12 +2210,13 @@ test("QA N4: with OLD_WRITE_UPS_DROP_DM_LINKS off, the purge keeps that DM eligi
       now: new Date("2026-11-01T12:00:00Z"),
     });
     assert.equal(posted.ok, true, JSON.stringify(posted));
-    // That write-up is the only one naming Tom; make it older than 12 months.
-    await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
+    // Confirm while recent (QA H2 on #138), then make it older than 12 months.
     assert.equal((await recordAttendance(t.db, t.tom.id, new Date("2026-11-01T12:00:00Z"), [GATHERING])).ok, true);
+    await t.db.query(`update board_post set on_date = '2025-09-01' where type = 'hosted' and card_id = $1`, [GATHERING]);
     assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "before the purge, Tom and Dale met at a meeting");
     await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"), false);
     assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), true, "the links stay, so they are still peers");
+    assert.equal((await t.db.query(`select 1 from dm_attendance where user_id = $1`, [t.tom.id])).length, 1, "and so does the confirm");
     const post = await t.db.query<{ came: string[] }>(`select came from board_post where type = 'hosted' and card_id = $1`, [GATHERING]);
     assert.deepEqual(post[0]?.came, [], "the came list is cleared either way");
   } finally {
@@ -2650,7 +2658,7 @@ test("Josh 2:03 PM: a real steward of the room can change date, time, title and 
 
 // ---- Steward date-change email (Josh via CoS, Oct 30 2:35 PM ET) ----
 
-const MAIL_ENV = { BETTER_AUTH_URL: "https://avouch.example" } as NodeJS.ProcessEnv;
+const MAIL_ENV = {} as NodeJS.ProcessEnv;
 function mailbox(fail = false) {
   const sent: { to: string | string[]; subject: string; text: string; html?: string; idempotencyKey: string }[] = [];
   return {
@@ -2713,7 +2721,7 @@ test("steward date email: the host and everyone going, one each, less barred, ba
     assert.equal(mail.subject, "New date for Saturday lifts");
     assert.match(mail.text, /It was: Saturday, October 31, 2026/);
     assert.match(mail.text, /It's now: Saturday, November 7, 2026/);
-    assert.match(mail.text, /See it here: https:\/\/avouch\.example\//);
+    assert.match(mail.text, /See it here: https:\/\/avouchsocial\.com\//);
     for (const name of ["Dale", "Tom", "Maria", "Sam", "Eve", "Ann", "Bob", "Ned", "The Shop", "steward"]) {
       assert.equal(mail.text.includes(name) || mail.subject.includes(name), false, name);
     }
@@ -2730,7 +2738,7 @@ test("steward date email: the host and everyone going, one each, less barred, ba
   }
 });
 
-test("steward date email: barred in the room it moved from gets nothing; the host's own change, a non-special one, or no date change sends nothing", async () => {
+test("steward date email: barred in the room it moved from gets nothing; the host's own change or no date change sends nothing; not special tells the host only; revoked gets nothing", async () => {
   resetDateMailGuard();
   const t = await setup();
   try {
@@ -2757,13 +2765,26 @@ test("steward date email: barred in the room it moved from gets nothing; the hos
     const same = mailbox();
     const kept = await saveGathering(t.db, { userId: t.sam.id, ...gatheringBody(GATHERING, "shop", { special: undefined, date: "2026-11-14", title: "Renamed" }), now: new Date("2026-11-01T12:00:00Z") }, same.deps as never);
     assert.equal(kept.ok && kept.mailed, undefined);
-    // Not special: nothing.
+    // Not special: its RSVPs are hidden, so only the host is told (Maria's hidden "going" is not).
+    resetDateMailGuard();
     await t.db.query(`update public_gathering set special = false where id = $1`, [GATHERING]);
     const plain = mailbox();
     const notSpecial = await stewardDate(t, t.sam, "2026-11-21", plain.deps);
     assert.equal(notSpecial.ok, true);
-    assert.equal(notSpecial.ok && notSpecial.mailed, undefined);
-    assert.equal(plain.sent.length, 0);
+    assert.equal(await (notSpecial.ok ? notSpecial.mailed : undefined), 1);
+    assert.deepEqual(plain.sent.map((m) => m.to), [`${t.dale.id}@mail.test`]);
+    // A member whose access was revoked is not told either.
+    resetDateMailGuard();
+    await t.db.query(`update public_gathering set special = true where id = $1`, [GATHERING]);
+    await t.db.query(
+      `insert into access_log (id, user_id, name, role, room_id, action, vouched_by, approved_by, by_actor, note, at)
+       values ($1, $2, 'Maria', 'member', '', 'revoke', 'test', 'test', 'test', 'For the test.', now())`,
+      [randomUUID(), t.maria.id],
+    );
+    const revoked = mailbox();
+    const afterRevoke = await stewardDate(t, t.sam, "2026-11-28", revoked.deps);
+    assert.equal(await (afterRevoke.ok ? afterRevoke.mailed : undefined), 1, "the host only: Tom is barred, Maria revoked");
+    assert.deepEqual(revoked.sent.map((m) => m.to), [`${t.dale.id}@mail.test`]);
   } finally {
     await t.close();
   }
@@ -2849,10 +2870,9 @@ test("steward date email: one per gathering per person per hour, however often t
 });
 
 test("steward date email: copy, HTML part and link (draft for Design)", () => {
-  const env = { BETTER_AUTH_URL: "https://avouch.example/" } as NodeJS.ProcessEnv;
-  assert.equal(dateMailLink({ gatheringId: GATHERING, shared: true }, env), `https://avouch.example/e/${GATHERING}`);
-  assert.equal(dateMailLink({ gatheringId: GATHERING, shared: false }, env), "https://avouch.example/");
-  assert.equal(dateMailLink({ gatheringId: GATHERING, shared: true }, {} as NodeJS.ProcessEnv), "");
+  // The app's public address (gatheringPublicUrl): the public page when shared, else the app.
+  assert.equal(dateMailLink({ gatheringId: GATHERING, shared: true }), `https://avouchsocial.com/e/${GATHERING}`);
+  assert.equal(dateMailLink({ gatheringId: GATHERING, shared: false }), "https://avouchsocial.com/");
   const mail = dateMail({ title: "Saturday\nlifts", oldDate: "", newDate: "2026-11-07" }, "");
   assert.equal(mail.subject, "New date for Saturday lifts");
   assert.match(mail.text, /It was: no date/);
@@ -2863,4 +2883,76 @@ test("steward date email: copy, HTML part and link (draft for Design)", () => {
   const src = readFileSync(new URL("./date-mail.ts", import.meta.url), "utf8");
   assert.match(src, /claimFromAddress\(env\)/, "the member-facing sender of claim codes");
   assert.doesNotMatch(src, /RESEND_FROM\b(?!\))/);
+});
+
+// ---- QA held notes on #138 (Oct 30): H1 and H4 ----
+
+test("QA H1 (#138): the 12-month purge deletes dm_attendance for old write-ups and keeps confirms backed by a recent one", async () => {
+  const t = await setup();
+  const now = new Date("2026-11-01T12:00:00Z");
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const posted = await createPost(t.db, {
+      userId: t.dale.id,
+      name: "Dale",
+      roomId: "shop",
+      body: { type: "hosted", claim: "The lift went well and the next one is set.", on: "2026-10-31", came: ["Tom", "Maria"], cardId: GATHERING, cameIds: [rsvpHandle(GATHERING, t.tom.id), rsvpHandle(GATHERING, t.maria.id)] },
+      now,
+    });
+    assert.equal(posted.ok, true, JSON.stringify(posted));
+    // Both confirmed (stored as /api/dm/attendance would; the purge is under test here).
+    for (const who of [t.tom, t.maria]) {
+      await t.db.query(`insert into dm_named_account (post_id, user_id) values ($1, $2) on conflict do nothing`, [posted.ok ? posted.value.id : "", who.id]);
+      await t.db.query(`insert into dm_attendance (user_id, meeting_id, recorded_at) values ($1, $2, $3)`, [who.id, GATHERING, now]);
+    }
+    const rows = async () =>
+      (await t.db.query<{ user_id: string }>(`select user_id from dm_attendance where meeting_id = $1 order by user_id`, [GATHERING])).map((row) => row.user_id);
+    assert.deepEqual(await rows(), [t.tom.id, t.maria.id].sort());
+    // A second, recent write-up on the same card names Maria only.
+    const recent = randomUUID();
+    await t.db.query(
+      `insert into board_post (id, room_id, type, claim, reason, on_date, author_user_id, author_name, came, card_id, created_at)
+       select $1, room_id, type, claim, reason, '2026-10-01', author_user_id, author_name, array['Maria'], card_id, now()
+       from board_post where id = $2`,
+      [recent, posted.ok ? posted.value.id : ""],
+    );
+    await t.db.query(`insert into dm_named_account (post_id, user_id) values ($1, $2)`, [recent, t.maria.id]);
+    // The first write-up is now older than 12 months.
+    await t.db.query(`update board_post set on_date = '2025-09-01' where id = $1`, [posted.ok ? posted.value.id : ""]);
+    await purgeOldRsvps(t.db, now);
+    // Tom's confirm went with his only link; Maria's stays, backed by the recent write-up.
+    assert.deepEqual(await rows(), [t.maria.id]);
+    assert.equal(await sharesMeeting(t.db, t.tom.id, t.dale.id), false);
+    assert.equal(await sharesMeeting(t.db, t.maria.id, t.dale.id), true);
+    // Off switch: links and confirms both stay.
+    await t.db.query(`update board_post set on_date = '2025-09-01' where id = $1`, [recent]);
+    await purgeOldRsvps(t.db, now, false);
+    assert.deepEqual(await rows(), [t.maria.id]);
+  } finally {
+    await t.close();
+  }
+});
+
+test("QA H4 (#138): a write-up dated in the future ages out 12 months after it was filed", async () => {
+  const t = await setup();
+  try {
+    await t.db.query(`insert into room_join (user_id, room_id, joined_at) values ($1, 'shop', now()) on conflict do nothing`, [t.dale.id]);
+    await scene(t);
+    const future = randomUUID();
+    const recent = randomUUID();
+    for (const [id, filed] of [[future, "2025-09-01T12:00:00Z"], [recent, "2026-10-15T12:00:00Z"]] as const) {
+      await t.db.query(
+        `insert into board_post (id, room_id, type, claim, reason, on_date, author_user_id, author_name, came, created_at)
+         values ($1, 'shop', 'hosted', 'The lift went well and the next one is set.', '', '2099-01-01', $2, 'Dale', array['Tom'], $3)`,
+        [id, t.dale.id, filed],
+      );
+    }
+    await purgeOldRsvps(t.db, new Date("2026-11-01T12:00:00Z"));
+    const came = async (id: string) => (await t.db.query<{ came: string[] }>(`select came from board_post where id = $1`, [id]))[0]?.came;
+    assert.deepEqual(await came(future), [], "filed 14 months ago: aged out, whatever date it claims");
+    assert.deepEqual(await came(recent), ["Tom"], "filed last month: kept");
+  } finally {
+    await t.close();
+  }
 });

@@ -234,7 +234,7 @@ export async function saveGathering(
   if (!fields.ok) return fields;
 
   const existing = await loadRow(db, id);
-  let dateChange: Omit<DateChange, "title" | "newDate" | "shared"> | null = null;
+  let dateChange: Omit<DateChange, "title" | "newDate" | "shared" | "special"> | null = null;
   if (existing) {
     if (await hidden(db, existing, input.now)) return fail(404, "Not found.");
     const existingRoom = await readRoomListing(db, existing.room_id);
@@ -267,9 +267,11 @@ export async function saveGathering(
     // Before 0050 the rest of the edit is saved; only the tick is dropped,
     // and the answer says so (Design 5716107154 L4).
     if (changesSpecial && !ready) notice = SPECIAL_NOT_READY;
-    // A steward who is not the host changed the date of a special event:
-    // the host and everyone going get an email once it is saved (Josh via CoS, 2:35 PM ET).
-    if (!host && ready && existing.special && existing.gather_on !== fields.gathering.date) {
+    // A steward who is not the host changed the date: the host, and everyone
+    // going on a special event, get an email once it is saved (Josh via CoS,
+    // Oct 30 2:35 PM ET). A host editing their own gathering is not told, even
+    // when they also steward the room.
+    if (!host && existing.gather_on !== fields.gathering.date) {
       dateChange = {
         gatheringId: id,
         oldDate: existing.gather_on,
@@ -361,8 +363,12 @@ export async function saveGathering(
   if (!saved) return fail(404, "Not found.");
   // After the edit is saved and outside any transaction; the answer does not wait for it.
   const mailed =
-    dateChange && saved.special && saved.gather_on !== dateChange.oldDate
-      ? sendDateChangeMail(db, { ...dateChange, title: saved.title, newDate: saved.gather_on, shared: saved.shared }, mail)
+    dateChange && saved.gather_on !== dateChange.oldDate
+      ? sendDateChangeMail(
+          db,
+          { ...dateChange, title: saved.title, newDate: saved.gather_on, shared: saved.shared, special: saved.special === true },
+          mail,
+        )
       : undefined;
   return { ok: true, gathering: toRecord(saved, input.userId), ...(notice ? { notice } : {}), ...(mailed ? { mailed } : {}) };
 }

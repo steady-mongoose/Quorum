@@ -18,6 +18,7 @@ const appTests = [
   "src/lib/board/rsvp-panel.render.test.mjs",
   "src/lib/board/rsvp-copy-guard.test.ts",
   "server/board/rsvp.test.ts",
+  "server/board/migration-order.test.ts",
   "scripts/externalize-inline-scripts.test.mjs",
   "server/board/steward-rule.test.ts",
   "src/lib/board/appeal-a11y.test.ts",
