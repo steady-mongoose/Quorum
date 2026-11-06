@@ -13,13 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as CountyIndexRouteImport } from './routes/$county/index'
 import { Route as AdminStatsRouteImport } from './routes/admin/stats'
 import { Route as EIdRouteImport } from './routes/e/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as RoomsSlugRouteImport } from './routes/rooms/$slug'
-import { Route as CountyRoomsIndexRouteImport } from './routes/$county/rooms/index'
-import { Route as CountyRoomsSlugRouteImport } from './routes/$county/rooms/$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -39,11 +36,6 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CountyIndexRoute = CountyIndexRouteImport.update({
-  id: '/$county/',
-  path: '/$county/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStatsRoute = AdminStatsRouteImport.update({
@@ -66,16 +58,6 @@ const RoomsSlugRoute = RoomsSlugRouteImport.update({
   path: '/rooms/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CountyRoomsIndexRoute = CountyRoomsIndexRouteImport.update({
-  id: '/$county/rooms/',
-  path: '/$county/rooms/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CountyRoomsSlugRoute = CountyRoomsSlugRouteImport.update({
-  id: '/$county/rooms/$slug',
-  path: '/$county/rooms/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -85,10 +67,7 @@ export interface FileRoutesByFullPath {
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county/': typeof CountyIndexRoute
   '/rooms/': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms/': typeof CountyRoomsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -98,10 +77,7 @@ export interface FileRoutesByTo {
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county': typeof CountyIndexRoute
   '/rooms': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms': typeof CountyRoomsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -112,10 +88,7 @@ export interface FileRoutesById {
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county/': typeof CountyIndexRoute
   '/rooms/': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms/': typeof CountyRoomsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -127,10 +100,7 @@ export interface FileRouteTypes {
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county/'
     | '/rooms/'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -140,10 +110,7 @@ export interface FileRouteTypes {
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county'
     | '/rooms'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms'
   id:
     | '__root__'
     | '/'
@@ -153,10 +120,7 @@ export interface FileRouteTypes {
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county/'
     | '/rooms/'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -167,10 +131,7 @@ export interface RootRouteChildren {
   AdminStatsRoute: typeof AdminStatsRoute
   EIdRoute: typeof EIdRoute
   RoomsSlugRoute: typeof RoomsSlugRoute
-  CountyIndexRoute: typeof CountyIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
-  CountyRoomsSlugRoute: typeof CountyRoomsSlugRoute
-  CountyRoomsIndexRoute: typeof CountyRoomsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -203,13 +164,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$county/': {
-      id: '/$county/'
-      path: '/$county'
-      fullPath: '/$county/'
-      preLoaderRoute: typeof CountyIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/stats': {
       id: '/admin/stats'
       path: '/admin/stats'
@@ -238,20 +192,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$county/rooms/': {
-      id: '/$county/rooms/'
-      path: '/$county/rooms'
-      fullPath: '/$county/rooms/'
-      preLoaderRoute: typeof CountyRoomsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$county/rooms/$slug': {
-      id: '/$county/rooms/$slug'
-      path: '/$county/rooms/$slug'
-      fullPath: '/$county/rooms/$slug'
-      preLoaderRoute: typeof CountyRoomsSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -263,20 +203,8 @@ const rootRouteChildren: RootRouteChildren = {
   AdminStatsRoute: AdminStatsRoute,
   EIdRoute: EIdRoute,
   RoomsSlugRoute: RoomsSlugRoute,
-  CountyIndexRoute: CountyIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
-  CountyRoomsSlugRoute: CountyRoomsSlugRoute,
-  CountyRoomsIndexRoute: CountyRoomsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
