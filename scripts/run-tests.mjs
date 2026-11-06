@@ -62,6 +62,7 @@ const appTests = [
   "src/lib/board/no-sample-placeholders.test.ts",
   "src/lib/board/removal-confirm.test.ts",
   "src/lib/board/design-critic.test.ts",
+  "src/lib/board/software-factory-docs.test.ts",
   "src/lib/board/about-mission.test.ts",
   "src/lib/board/public-routes.test.ts",
   "src/lib/board/account-door.render.test.mjs",

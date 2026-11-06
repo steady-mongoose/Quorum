@@ -466,3 +466,10 @@ dialog.plate{position:fixed;inset:0;width:min(28rem,calc(100% - 2rem));max-width
 /* The rooms list on the door reads at body size. */
 .door-rooms p{font-size:0.95rem;line-height:1.6}
 .door-what{max-width:70ch}
+
+/* Skip link: Tailwind sr-only uses overflow:hidden on a 1px box, which the
+   elastic UI geometry gate reads as silent clipping. Keep clip-path hiding
+   until focus; drop overflow so the unfocused skip link is not flagged. */
+.skip-link.sr-only:not(:focus):not(:focus-visible) {
+  overflow: visible;
+}
