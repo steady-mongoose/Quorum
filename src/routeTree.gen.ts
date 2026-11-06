@@ -11,17 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
-import { Route as FindRouteImport } from './routes/find'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as YouRouteImport } from './routes/you'
-import { Route as CountyIndexRouteImport } from './routes/$county/index'
 import { Route as AdminStatsRouteImport } from './routes/admin/stats'
 import { Route as EIdRouteImport } from './routes/e/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as RoomsSlugRouteImport } from './routes/rooms/$slug'
-import { Route as CountyRoomsIndexRouteImport } from './routes/$county/rooms/index'
-import { Route as CountyRoomsSlugRouteImport } from './routes/$county/rooms/$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -33,11 +28,6 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FindRoute = FindRouteImport.update({
-  id: '/find',
-  path: '/find',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
@@ -46,16 +36,6 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const YouRoute = YouRouteImport.update({
-  id: '/you',
-  path: '/you',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CountyIndexRoute = CountyIndexRouteImport.update({
-  id: '/$county/',
-  path: '/$county/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStatsRoute = AdminStatsRouteImport.update({
@@ -78,125 +58,80 @@ const RoomsSlugRoute = RoomsSlugRouteImport.update({
   path: '/rooms/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CountyRoomsIndexRoute = CountyRoomsIndexRouteImport.update({
-  id: '/$county/rooms/',
-  path: '/$county/rooms/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CountyRoomsSlugRoute = CountyRoomsSlugRouteImport.update({
-  id: '/$county/rooms/$slug',
-  path: '/$county/rooms/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/find': typeof FindRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
-  '/you': typeof YouRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county/': typeof CountyIndexRoute
   '/rooms/': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms/': typeof CountyRoomsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/find': typeof FindRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
-  '/you': typeof YouRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county': typeof CountyIndexRoute
   '/rooms': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms': typeof CountyRoomsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/find': typeof FindRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
-  '/you': typeof YouRoute
   '/admin/stats': typeof AdminStatsRoute
   '/e/$id': typeof EIdRoute
   '/rooms/$slug': typeof RoomsSlugRoute
-  '/$county/': typeof CountyIndexRoute
   '/rooms/': typeof RoomsIndexRoute
-  '/$county/rooms/$slug': typeof CountyRoomsSlugRoute
-  '/$county/rooms/': typeof CountyRoomsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/about'
-    | '/find'
     | '/privacy'
     | '/terms'
-    | '/you'
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county/'
     | '/rooms/'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
-    | '/find'
     | '/privacy'
     | '/terms'
-    | '/you'
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county'
     | '/rooms'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms'
   id:
     | '__root__'
     | '/'
     | '/about'
-    | '/find'
     | '/privacy'
     | '/terms'
-    | '/you'
     | '/admin/stats'
     | '/e/$id'
     | '/rooms/$slug'
-    | '/$county/'
     | '/rooms/'
-    | '/$county/rooms/$slug'
-    | '/$county/rooms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  FindRoute: typeof FindRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
-  YouRoute: typeof YouRoute
   AdminStatsRoute: typeof AdminStatsRoute
   EIdRoute: typeof EIdRoute
   RoomsSlugRoute: typeof RoomsSlugRoute
-  CountyIndexRoute: typeof CountyIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
-  CountyRoomsSlugRoute: typeof CountyRoomsSlugRoute
-  CountyRoomsIndexRoute: typeof CountyRoomsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -215,13 +150,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/find': {
-      id: '/find'
-      path: '/find'
-      fullPath: '/find'
-      preLoaderRoute: typeof FindRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/privacy': {
       id: '/privacy'
       path: '/privacy'
@@ -234,20 +162,6 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/you': {
-      id: '/you'
-      path: '/you'
-      fullPath: '/you'
-      preLoaderRoute: typeof YouRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$county/': {
-      id: '/$county/'
-      path: '/$county'
-      fullPath: '/$county/'
-      preLoaderRoute: typeof CountyIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stats': {
@@ -278,47 +192,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$county/rooms/': {
-      id: '/$county/rooms/'
-      path: '/$county/rooms'
-      fullPath: '/$county/rooms/'
-      preLoaderRoute: typeof CountyRoomsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$county/rooms/$slug': {
-      id: '/$county/rooms/$slug'
-      path: '/$county/rooms/$slug'
-      fullPath: '/$county/rooms/$slug'
-      preLoaderRoute: typeof CountyRoomsSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  FindRoute: FindRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
-  YouRoute: YouRoute,
   AdminStatsRoute: AdminStatsRoute,
   EIdRoute: EIdRoute,
   RoomsSlugRoute: RoomsSlugRoute,
-  CountyIndexRoute: CountyIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
-  CountyRoomsSlugRoute: CountyRoomsSlugRoute,
-  CountyRoomsIndexRoute: CountyRoomsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

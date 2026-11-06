@@ -509,12 +509,13 @@ function AdminListsCard({ onSetUp }: { onSetUp?: () => void }) {
         Admin lists
       </h2>
       <p className="min-w-0 max-w-prose text-sm text-muted">
-        These tools wait until you turn on an authenticator.
+        Deletion requests, authenticator resets, the room list, message reports, and the invite list
+        wait until you turn on an authenticator.
       </p>
       <p className="min-w-0">
         <button
           type="button"
-          className="inline-flex min-h-[44px] min-w-0 max-w-full items-center whitespace-normal text-left text-fg underline underline-offset-4"
+          className="min-h-[44px] min-w-0 text-left text-fg underline underline-offset-4"
           onClick={() => {
             onSetUp?.();
             focusAuthenticator();

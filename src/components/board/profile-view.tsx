@@ -213,7 +213,7 @@ export function ProfileView() {
         <p className="text-sm text-muted">{theirs.size === 0 ? "No one yet. People you meet at a gathering will appear here." : [...theirs].join(", ")}</p>
       </section>
 
-      {mine ? <MfaSettings /> : null}
+      {mine && server.mode === "live" ? <MfaSettings /> : null}
       {mine ? (
         <div className="card pc-card p-4 sm:p-5">
           <AccountRemoval live={server.mode === "live" && Boolean(server.user)} />

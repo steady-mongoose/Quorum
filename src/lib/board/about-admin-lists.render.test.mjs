@@ -77,9 +77,10 @@ globalThis.fetch = async (input, init) => {
   });
 };
 
-const { createElement, act } = await import("react");
+const { createElement, act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AboutView } = await import("../../components/board/about-view.tsx");
+const { ProfileView } = await import("../../components/board/profile-view.tsx");
 const { MfaResetQueue, MfaSettings } = await import("../../components/board/mfa-ui.tsx");
 const { ServerSessionProvider } = await import("../server-session.tsx");
 const { listMfaResets } = await import("../mfa-api.ts");
@@ -91,7 +92,8 @@ const ENROLL = {
   message: "Turn on an authenticator before using this.",
   step: "enroll",
 };
-const CARD_TEXT = "These tools wait until you turn on an authenticator.";
+const CARD_TEXT =
+  "Deletion requests, authenticator resets, the room list, message reports, and the invite list wait until you turn on an authenticator.";
 const WAITING = ["Account deletion requests", "Rooms", "Message reports", "Invites", "Authenticator reset"];
 const KEPT = ["Roles", "Admin", "CyberTipline queue"];
 
@@ -168,6 +170,7 @@ test("no authenticator: one Admin lists card, one button, no alerts, the five li
     assert.equal(setUp.length, 1, "exactly one Turn it on under You");
     assert.ok(setUp[0].className.includes("min-h-[44px]"), "44px target");
     assert.ok(setUp[0].className.includes("min-w-0"), "the button can shrink and wrap");
+    assert.ok(setUp[0].className.includes("text-left"));
     assert.ok(card.className.includes("min-w-0"));
     assert.deepEqual(view.alerts(), [], "zero role=alert");
     assert.ok(!view.host.textContent.includes("Turn on an authenticator before using this."));
@@ -393,5 +396,51 @@ test("Authenticator reset: focus reaches the heading in the same commit that tak
     window.Node.prototype.removeChild = removeChild;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     await view.cleanup();
+  }
+});
+
+test("Turn it on under You focuses Authenticator; opening You does not", async () => {
+  routes = {
+    "/api/mfa/status": [200, { mfa: "enroll", enrolled: false, required: true, pending: false, recoveryRemaining: 0 }],
+  };
+  useBoard.setState({ me: "Ada", remote: true, admin: true });
+  const live = {
+    ...EMPTY_SERVER_SESSION,
+    configured: true,
+    mode: "live",
+    mfa: "enroll",
+    user: { id: "ada", name: "Ada", email: "ada@example.com" },
+    refreshPhase: async () => {},
+  };
+  function YouSwitch() {
+    const [you, setYou] = useState(false);
+    return createElement(
+      SessionContext.Provider,
+      { value: live },
+      you ? createElement(ProfileView) : createElement(AboutView, { onSetUp: () => setYou(true) }),
+    );
+  }
+  document.body.focus();
+  const clicked = await mount(createElement(YouSwitch));
+  try {
+    const setUp = buttons(clicked.host, "Turn it on under You")[0];
+    assert.ok(setUp, "the note's button");
+    await act(async () => setUp.click());
+    await flush();
+    assert.equal(document.getElementById("authenticator")?.textContent, "Authenticator");
+    assert.equal(document.activeElement?.id, "authenticator", "the button moves focus");
+  } finally {
+    await clicked.cleanup();
+  }
+
+  document.body.focus();
+  const opened = await mount(
+    createElement(SessionContext.Provider, { value: live }, createElement(ProfileView)),
+  );
+  try {
+    assert.equal(document.getElementById("authenticator")?.textContent, "Authenticator");
+    assert.notEqual(document.activeElement?.id, "authenticator", "opening You does not take focus");
+  } finally {
+    await opened.cleanup();
   }
 });

@@ -7,6 +7,12 @@ export function enteredCookie(member: boolean): string {
     : `${ENTERED_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
+/** Remember that this browser has been inside the app. Not a session. */
+export function writeEnteredCookie(member: boolean): void {
+  if (typeof document === "undefined") return;
+  document.cookie = enteredCookie(member);
+}
+
 /** True when the cookie header says this browser has been inside the app. */
 export function cookieSaysEntered(header: string | null | undefined): boolean {
   return new RegExp(`(?:^|;\\s*)${ENTERED_COOKIE}=1(?:\\s*;|$)`).test(header ?? "");
