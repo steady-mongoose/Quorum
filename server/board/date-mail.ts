@@ -20,17 +20,52 @@ import { gatheringPublicUrl } from "../../src/lib/board/public-gathering.ts";
  * opt-out to read.
  */
 
-/** One email per gathering per person per hour, however often the date is edited. */
+/**
+ * The flood guard, per gathering per person (QA S2, review 5794529351). A
+ * correction to a different date always goes out, so nobody is left holding a
+ * wrong date, unless that person has already had DATE_MAIL_MAX_PER_HOUR of
+ * these emails in the last DATE_MAIL_WINDOW_MS. A change back to the date we
+ * last told them within the window is not sent again: they already have it.
+ * Only a send the transport accepted counts, so a failure or Resend not set up
+ * never uses up the cap or blocks a retry.
+ */
 export const DATE_MAIL_WINDOW_MS = 60 * 60 * 1000;
-const lastSent = new Map<string, number>();
-/** Drop entries past the window once the map grows, so it never holds more than a day's edits. */
+export const DATE_MAIL_MAX_PER_HOUR = 5;
+type Told = { lastDate: string; sentAt: number[] };
+const told = new Map<string, Told>();
+/** Drop people with no send in the window once the map grows, so it never holds more than an hour's edits. */
 function pruneGuard(nowMs: number): void {
-  if (lastSent.size < 1000) return;
-  for (const [key, at] of lastSent) if (nowMs - at >= DATE_MAIL_WINDOW_MS) lastSent.delete(key);
+  if (told.size < 1000) return;
+  for (const [key, entry] of told) {
+    if (entry.sentAt.every((at) => nowMs - at >= DATE_MAIL_WINDOW_MS)) told.delete(key);
+  }
+}
+/** Why a send is held back, or null to send. Exported for tests. */
+export function dateMailHeld(key: string, newDate: string, nowMs: number): "already told" | "hourly cap" | null {
+  const entry = told.get(key);
+  if (!entry) return null;
+  const recent = entry.sentAt.filter((at) => nowMs - at < DATE_MAIL_WINDOW_MS);
+  if (recent.length === 0) return null;
+  if (entry.lastDate === newDate) return "already told";
+  if (recent.length >= DATE_MAIL_MAX_PER_HOUR) return "hourly cap";
+  return null;
+}
+function recordSend(key: string, newDate: string, nowMs: number): void {
+  pruneGuard(nowMs);
+  const recent = (told.get(key)?.sentAt ?? []).filter((at) => nowMs - at < DATE_MAIL_WINDOW_MS);
+  told.set(key, { lastDate: newDate, sentAt: [...recent, nowMs] });
+}
+/**
+ * The Resend Idempotency-Key: one per send, so a retry of that send is
+ * deduplicated, while a later correction, even back to a date sent earlier
+ * the same hour, never is. Exported for tests.
+ */
+export function dateMailKey(gatheringId: string, userId: string, newDate: string, nowMs: number): string {
+  return `gathering-date/${gatheringId}/${userId}/${newDate}/${nowMs}`;
 }
 /** Tests only. */
 export function resetDateMailGuard(): void {
-  lastSent.clear();
+  told.clear();
 }
 
 export type DateMailDeps = MailDeps & {
@@ -155,21 +190,17 @@ export async function sendDateChangeMail(db: Db, change: DateChange, deps: DateM
     const recipients = await dateMailRecipients(db, change);
     const { subject, text, html } = dateMail(change, dateMailLink(change));
     const nowMs = change.now.getTime();
-    const hour = Math.floor(nowMs / DATE_MAIL_WINDOW_MS);
     let sent = 0;
     let failed = 0;
     for (const person of recipients) {
       const key = `${change.gatheringId}/${person.userId}`;
-      const last = lastSent.get(key);
-      if (last !== undefined && nowMs - last < DATE_MAIL_WINDOW_MS) continue;
-      pruneGuard(nowMs);
-      lastSent.set(key, nowMs);
+      if (dateMailHeld(key, change.newDate, nowMs)) continue;
       const mail: TextMail = {
         to: person.email,
         subject,
         text,
         html,
-        idempotencyKey: `gathering-date/${change.gatheringId}/${person.userId}/${hour}`,
+        idempotencyKey: dateMailKey(change.gatheringId, person.userId, change.newDate, nowMs),
       };
       // Under `node --test` only a mock transport is used: never a real send.
       let result: { ok: true } | { ok: false; error: string };
@@ -183,11 +214,12 @@ export async function sendDateChangeMail(db: Db, change: DateChange, deps: DateM
         // One person's failed send never stops the others.
         result = { ok: false, error: error instanceof Error ? error.message : "unknown" };
       }
-      if (result.ok) sent += 1;
-      else {
+      if (result.ok) {
+        sent += 1;
+        recordSend(key, change.newDate, nowMs);
+      } else {
         failed += 1;
-        // Not set up: quiet, as the CSAM alert. Let a later edit try again.
-        lastSent.delete(key);
+        // Not set up: quiet, as the CSAM alert. Nothing is recorded, so a later edit tries again.
         if (result.error === "Mail is not set up.") continue;
         const status = /^mail (\d+)$/.exec(result.error);
         console.error(

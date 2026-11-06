@@ -1384,3 +1384,21 @@ test("Design M1: changeDate waits for the server; a refusal puts the old date ba
     useBoard.setState({ stewardRooms: [] });
   }
 });
+
+test("QA S2: changeDate passes on the server's dateMailed, and only a boolean", async () => {
+  let answer: unknown = true;
+  const net = saveAnswers(() => json(200, { gathering: {}, dateMailed: answer }));
+  try {
+    setBoardClient(stubClient());
+    useBoard.setState({ remote: true, me: "Sam", stewardRooms: ["shop"], rsvpHosts: [], boardError: "", cards: [card(G1, { next: "2026-10-31" })] });
+    assert.deepEqual(await useBoard.getState().changeDate(G1, "2026-11-07"), { ok: true, dateMailed: true });
+    answer = false;
+    assert.deepEqual(await useBoard.getState().changeDate(G1, "2026-11-17"), { ok: true, dateMailed: false });
+    answer = 3;
+    assert.deepEqual(await useBoard.getState().changeDate(G1, "2026-11-08"), { ok: true }, "not a boolean: left out");
+  } finally {
+    net.restore();
+    setBoardClient(null);
+    useBoard.setState({ stewardRooms: [] });
+  }
+});

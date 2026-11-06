@@ -361,7 +361,8 @@ export async function saveGathering(
   }
   const saved = await loadRow(db, id);
   if (!saved) return fail(404, "Not found.");
-  // After the edit is saved and outside any transaction; the answer does not wait for it.
+  // After the edit is saved and outside any transaction, so a failed send never undoes it.
+  // The API waits for it only to say whether anything went out (dateMailed).
   const mailed =
     dateChange && saved.gather_on !== dateChange.oldDate
       ? sendDateChangeMail(

@@ -81,7 +81,7 @@ export async function saveGathering(input: {
   place: string;
   /** Sent only by the host; left out, the server keeps what it has. */
   special?: boolean;
-}): Promise<{ ok: true; special?: boolean; notice?: string } | { ok: false; error: string }> {
+}): Promise<{ ok: true; special?: boolean; notice?: string; dateMailed?: boolean } | { ok: false; error: string }> {
   const response = await apiFetch("/api/gatherings", {
     method: "POST",
     credentials: "include",
@@ -98,9 +98,11 @@ export async function saveGathering(input: {
   });
   if (response.ok) {
     // Saved. Before 0050 a tick is dropped: the server says so in `notice` (Design L4).
-    const json = (await response.json().catch(() => null)) as { gathering?: { special?: unknown }; notice?: unknown } | null;
+    const json = (await response.json().catch(() => null)) as { gathering?: { special?: unknown }; notice?: unknown; dateMailed?: unknown } | null;
     return {
       ok: true,
+      // A steward's date change: whether at least one email went out now (QA S2).
+      ...(typeof json?.dateMailed === "boolean" ? { dateMailed: json.dateMailed } : {}),
       ...(typeof json?.gathering?.special === "boolean" ? { special: json.gathering.special } : {}),
       ...(typeof json?.notice === "string" && json.notice ? { notice: json.notice } : {}),
     };

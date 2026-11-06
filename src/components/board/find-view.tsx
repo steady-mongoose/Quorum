@@ -1056,11 +1056,18 @@ export function SpecialEventToggle({ card }: { card: MeetingCard }) {
  * guard, never native disabled; role=status on success, role=alert and the
  * old date back on a refusal (Design 5716107154 M1). Exported for render tests.
  */
-/** The steward's status line once a new date is saved. Exported for render tests. */
-export function stewardDateLine(card: MeetingCard, next: string): string {
+/**
+ * The steward's status line once a new date is saved. It says "told" only
+ * when the server says an email went out now (dateMailed, QA S2 5794529351,
+ * Design held note 1). Exported for render tests.
+ */
+export function stewardDateLine(card: MeetingCard, next: string, dateMailed?: boolean): string {
   const date = formatDate(next);
   // Only a server gathering sends the email; a card kept on this device does not.
   if (!isGatheringId(card.id)) return `Date changed to ${date}. The host will see it on the card.`;
+  // The server did not say: still sending after DATE_MAIL_ANSWER_MS, or an older server.
+  if (dateMailed === undefined) return `Date changed to ${date}.`;
+  if (!dateMailed) return `Date changed to ${date}. No new email was sent.`;
   return isSpecial(card)
     ? `Date changed to ${date}. The host and everyone going have been told.`
     : `Date changed to ${date}. The host has been told.`;
@@ -1090,7 +1097,7 @@ export function StewardDateControl({ card }: { card: MeetingCard }) {
           if (result.ok) {
             // The server emails the host, and everyone going on a special
             // event (Josh via CoS, Oct 30 2:35 PM ET; Design 5717020187).
-            setStatus(stewardDateLine(card, next));
+            setStatus(stewardDateLine(card, next, result.dateMailed));
           } else {
             setValue(before);
             setError(result.error);

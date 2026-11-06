@@ -20,7 +20,7 @@ import {
 } from "./rsvp.ts";
 import { listRoomMembers } from "./members.ts";
 import { saveGathering } from "./gathering-record.ts";
-import { dateMail, dateMailLink, resetDateMailGuard } from "./date-mail.ts";
+import { DATE_MAIL_MAX_PER_HOUR, DATE_MAIL_WINDOW_MS, dateMail, dateMailHeld, dateMailKey, dateMailLink, resetDateMailGuard } from "./date-mail.ts";
 import { RSVP_SUMMARY_MIN_COUNT, nearEveryone, rebuildsHidden, remainderGivesAway, rsvpSummary, suppressGroup, suppressSummary, type RsvpSummary } from "./rsvp-summary.ts";
 import { WRITE_UP_HOST_ONLY } from "./store.ts";
 import { ADMIN_NO_NAMES, MARK_NOT_GOING, MARK_TOO_EARLY, markOpen, startMinutes, withAdminRoleSeesNames } from "../../src/lib/board/rsvp-rules.ts";
@@ -587,24 +587,128 @@ test("steward date email: a failed send does not undo the edit, and is logged wi
   }
 });
 
-test("steward date email: one per gathering per person per hour, however often the date changes", async () => {
+const minutes = (n: number) => new Date(Date.parse("2026-11-01T12:00:00Z") + n * 60_000);
+const nowLine = (mail: { text: string }) => /It's now: (.+)/.exec(mail.text)?.[1];
+
+test("steward date email: QA S2 probe, every same-hour correction to a new date goes out with its own key", async () => {
+  resetDateMailGuard();
+  const t = await setup();
+  try {
+    await scene(t); // Special, Dale hosts, Tom and Maria going, on 10/31.
+    await verify(t, t.dale, t.tom, t.maria);
+    const box = mailbox();
+    const steps = [["2026-11-07", 0, "Saturday, November 7, 2026"], ["2026-11-17", 4, "Tuesday, November 17, 2026"], ["2026-11-08", 9, "Sunday, November 8, 2026"]] as const;
+    for (const [date, at, line] of steps) {
+      const before = box.sent.length;
+      const saved = await stewardDate(t, t.sam, date, box.deps, minutes(at));
+      assert.equal(await (saved.ok ? saved.mailed : undefined), 3, date);
+      const batch = box.sent.slice(before);
+      assert.deepEqual(batch.map((m) => m.to).sort(), [t.dale, t.tom, t.maria].map((u) => `${u.id}@mail.test`).sort());
+      for (const mail of batch) {
+        assert.equal(nowLine(mail), line);
+        assert.equal(mail.idempotencyKey, dateMailKey(GATHERING, String(mail.to).replace("@mail.test", ""), date, minutes(at).getTime()));
+        assert.match(mail.idempotencyKey, new RegExp(`^gathering-date/${GATHERING}/[^/]+/${date}/\\d+$`));
+      }
+    }
+    assert.equal(box.sent.length, 9);
+    assert.equal(new Set(box.sent.map((m) => m.idempotencyKey)).size, 9);
+    assert.equal((await t.db.query<{ gather_on: string }>(`select gather_on from public_gathering where id = $1`, [GATHERING]))[0]?.gather_on, "2026-11-08");
+  } finally {
+    await t.close();
+  }
+});
+
+test("steward date email: a bounce back and forth always leaves everyone holding the saved date", async () => {
   resetDateMailGuard();
   const t = await setup();
   try {
     await scene(t);
     await verify(t, t.dale, t.tom, t.maria);
     const box = mailbox();
-    const at = (minutes: number) => new Date(Date.parse("2026-11-01T12:00:00Z") + minutes * 60_000);
-    const first = await stewardDate(t, t.sam, "2026-11-07", box.deps, at(0));
-    assert.equal(await (first.ok ? first.mailed : undefined), 3);
-    const second = await stewardDate(t, t.sam, "2026-11-08", box.deps, at(10));
-    assert.equal(await (second.ok ? second.mailed : undefined), 0);
-    const third = await stewardDate(t, t.sam, "2026-11-09", box.deps, at(59));
-    assert.equal(await (third.ok ? third.mailed : undefined), 0);
-    assert.equal(box.sent.length, 3);
-    const later = await stewardDate(t, t.sam, "2026-11-10", box.deps, at(61));
+    // 10/31 -> 11/07 -> 10/31 -> 11/07: three sends, the third with a fresh key.
+    for (const [date, at] of [["2026-11-07", 0], ["2026-10-31", 5], ["2026-11-07", 10]] as const) {
+      const saved = await stewardDate(t, t.sam, date, box.deps, minutes(at));
+      assert.equal(await (saved.ok ? saved.mailed : undefined), 3, `${date} at +${at}m`);
+    }
+    const toDale = box.sent.filter((m) => m.to === `${t.dale.id}@mail.test`);
+    assert.deepEqual(toDale.map(nowLine), ["Saturday, November 7, 2026", "Saturday, October 31, 2026", "Saturday, November 7, 2026"]);
+    assert.equal(new Set(toDale.map((m) => m.idempotencyKey)).size, 3, "the second 11/07 is not deduplicated by Resend");
+    // A save that lands on the date they were last told within the hour is not sent again.
+    // (The host moves it away himself, which mails nobody; the steward moves it back.)
+    await stewardDate(t, t.dale, "2026-11-20", box.deps, minutes(12));
+    const before = box.sent.length;
+    const back = await stewardDate(t, t.sam, "2026-11-07", box.deps, minutes(14));
+    assert.equal(await (back.ok ? back.mailed : undefined), 0);
+    assert.equal(box.sent.length, before);
+    assert.equal(dateMailHeld(`${GATHERING}/${t.dale.id}`, "2026-11-07", minutes(14).getTime()), "already told");
+    // Past the hour, the same date may go again.
+    assert.equal(dateMailHeld(`${GATHERING}/${t.dale.id}`, "2026-11-07", minutes(10 + 60).getTime()), null);
+  } finally {
+    await t.close();
+  }
+});
+
+test("steward date email: at most DATE_MAIL_MAX_PER_HOUR (5) per person per rolling hour; failures and Resend unset do not count", async () => {
+  resetDateMailGuard();
+  const t = await setup();
+  try {
+    await scene(t);
+    await verify(t, t.dale, t.tom, t.maria);
+    assert.equal(DATE_MAIL_MAX_PER_HOUR, 5);
+    assert.equal(DATE_MAIL_WINDOW_MS, 60 * 60 * 1000);
+    // Two failed sends and one with mail not set up first: none use up the cap.
+    const quiet = console.error;
+    console.error = () => {};
+    try {
+      const failing = mailbox(true);
+      for (const [date, at] of [["2026-11-02", 0], ["2026-11-03", 1]] as const) {
+        const r = await stewardDate(t, t.sam, date, failing.deps, minutes(at));
+        assert.equal(await (r.ok ? r.mailed : undefined), 0);
+      }
+      const unset = { env: MAIL_ENV, send: async () => ({ ok: false, error: "Mail is not set up." }) as const };
+      const r = await stewardDate(t, t.sam, "2026-11-04", unset, minutes(2));
+      assert.equal(await (r.ok ? r.mailed : undefined), 0);
+    } finally {
+      console.error = quiet;
+    }
+    const box = mailbox();
+    const dates = ["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-09", "2026-11-10", "2026-11-11"];
+    const counts: number[] = [];
+    for (const [i, date] of dates.entries()) {
+      const r = await stewardDate(t, t.sam, date, box.deps, minutes(3 + i));
+      counts.push(await (r.ok ? r.mailed : Promise.resolve(-1)) ?? -1);
+    }
+    assert.deepEqual(counts, [3, 3, 3, 3, 3, 0], "the 6th change within the hour hits the cap");
+    assert.equal(dateMailHeld(`${GATHERING}/${t.tom.id}`, "2026-11-12", minutes(9).getTime()), "hourly cap");
+    // The first of the five leaves the rolling hour at +63m: one more goes out, with the date as saved.
+    const later = await stewardDate(t, t.sam, "2026-11-12", box.deps, minutes(63));
     assert.equal(await (later.ok ? later.mailed : undefined), 3);
-    assert.equal(new Set(box.sent.map((m) => m.idempotencyKey)).size, 6);
+    assert.ok(box.sent.slice(-3).every((m) => nowLine(m) === "Thursday, November 12, 2026"));
+  } finally {
+    await t.close();
+  }
+});
+
+test("steward date email: POST /api/gatherings says only dateMailed, never who or how many", async () => {
+  resetDateMailGuard();
+  const t = await setup();
+  try {
+    await scene(t);
+    await verify(t, t.dale, t.tom, t.maria);
+    // Under the test runner the API never sends for real: Resend counts as not set up.
+    const res = await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: undefined, date: "2026-11-09" }));
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.dateMailed, false);
+    assert.deepEqual(Object.keys(body).sort(), ["dateMailed", "gathering"]);
+    assert.equal(JSON.stringify(body).includes("@"), false);
+    // The host's own date change and a steward edit that keeps the date: no field at all.
+    const own = await call(t.handler, t.dale, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: undefined, date: "2026-11-10" }));
+    assert.equal(own.status, 200);
+    assert.equal("dateMailed" in ((await own.json()) as object), false);
+    const kept = await call(t.handler, t.sam, "POST", "/api/gatherings", gatheringBody(GATHERING, "shop", { special: undefined, date: "2026-11-10", title: "Renamed" }));
+    assert.equal(kept.status, 200);
+    assert.equal("dateMailed" in ((await kept.json()) as object), false);
   } finally {
     await t.close();
   }

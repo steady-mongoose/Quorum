@@ -407,16 +407,43 @@ test("Design M1: the steward date control: label, aria-disabled guard, 'Save new
 
 const SERVER_GATHERING = "0b4c6a0e-1f2d-4c3b-9a8e-7d6c5b4a3f21";
 
-test("Josh 2:35 PM / Design 5717020187: the steward's status line says who was told", () => {
+test("Josh 2:35 PM / Design 5717020187 / QA S2 5794529351: the steward's status line says 'told' only when an email went out", () => {
   const at = formatDate("2026-11-07");
-  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: true }), "2026-11-07"), `Date changed to ${at}. The host and everyone going have been told.`);
-  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: false }), "2026-11-07"), `Date changed to ${at}. The host has been told.`);
-  assert.equal(stewardDateLine(card({ special: true }), "2026-11-07"), `Date changed to ${at}. The host will see it on the card.`);
+  // dateMailed true: at least one email went out now.
+  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: true }), "2026-11-07", true), `Date changed to ${at}. The host and everyone going have been told.`);
+  assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special: false }), "2026-11-07", true), `Date changed to ${at}. The host has been told.`);
+  // dateMailed false: the hourly cap, already told this date, Resend not set up, or a failed send.
+  for (const special of [true, false]) {
+    assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special }), "2026-11-07", false), `Date changed to ${at}. No new email was sent.`);
+    // The server did not say (still sending, or an older server): no claim either way.
+    assert.equal(stewardDateLine(card({ id: SERVER_GATHERING, special }), "2026-11-07"), `Date changed to ${at}.`);
+  }
+  // A card kept on this device sends nothing, whatever it is passed.
+  for (const mailed of [true, false, undefined]) {
+    assert.equal(stewardDateLine(card({ special: true }), "2026-11-07", mailed), `Date changed to ${at}. The host will see it on the card.`);
+  }
+});
+
+test("QA S2: when the server says no email went out, the control says so on a special event", async () => {
+  const changeDate = useBoard.getState().changeDate;
+  useBoard.setState({ changeDate: async () => ({ ok: true, dateMailed: false }) });
+  try {
+    const view = await mount(createElement(StewardDateControl, { card: card({ id: SERVER_GATHERING, special: true, next: "2026-10-31" }) }));
+    try {
+      await typeDate(view.host.querySelector('input[type="date"]'), "2026-11-07");
+      await act(async () => buttonNamed(view.host, "Save new date").click());
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, `Date changed to ${formatDate("2026-11-07")}. No new email was sent.`);
+    } finally {
+      await view.unmount();
+    }
+  } finally {
+    useBoard.setState({ changeDate });
+  }
 });
 
 test("Josh 2:35 PM: on a special event the steward's status line says the host and everyone going get an email", async () => {
   const changeDate = useBoard.getState().changeDate;
-  useBoard.setState({ changeDate: async () => ({ ok: true }) });
+  useBoard.setState({ changeDate: async () => ({ ok: true, dateMailed: true }) });
   try {
     const view = await mount(createElement(StewardDateControl, { card: card({ id: SERVER_GATHERING, special: true, next: "2026-10-31" }) }));
     try {

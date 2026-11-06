@@ -318,7 +318,8 @@ type BoardState = {
    * refusal the card keeps its old date and the error comes back for an
    * inline alert (Design 5716107154 M1).
    */
-  changeDate: (id: string, next: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** dateMailed: the server's word on whether its date email went out now; left out on this device or when it did not say. */
+  changeDate: (id: string, next: string) => Promise<{ ok: true; dateMailed?: boolean } | { ok: false; error: string }>;
   /** The host closes a date without the composer. Runs the same check. "It did not happen" is a Hosted that says so. */
   closeCard: (
     id: string,
@@ -1538,7 +1539,7 @@ export const useBoard = create<BoardState>()(
           if (!card) return { ok: false, error: "That card is gone." };
           try {
             const result = await rememberGathering(card, { quiet: true });
-            if (result.ok) return { ok: true };
+            if (result.ok) return { ok: true, ...(result.dateMailed === undefined ? {} : { dateMailed: result.dateMailed }) };
             patchCard(id, (item) => ({ ...item, next: before.next }));
             return { ok: false, error: result.error };
           } catch {
