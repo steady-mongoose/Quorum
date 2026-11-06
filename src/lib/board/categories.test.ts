@@ -96,7 +96,7 @@ test("the seed rooms use the config mapping, and Men and Women stay labels", () 
     ["shop"],
   );
   assert.deepEqual(
-    hiddenRooms(parked, { admin: true, stewardRooms: [] }).map((room) => room.id),
+    hiddenRooms(parked, { stewardRooms: [] , admin: true }).map((room) => room.id),
     ["mill", "shop"],
   );
 });
